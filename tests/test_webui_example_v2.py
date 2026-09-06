@@ -3,12 +3,98 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
+from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
-from core.project.manager import WEBUI_3GB1_PROJECT_ID
+from core.catalog.builder import build_frozen_catalog
+from core.project.manager import (
+    CANONICAL_3GB1_PROJECT_ID,
+    WEBUI_3GB1_PROJECT_ID,
+    ProjectManager,
+)
+from core.workflow.authoring import WorkflowAuthoringError, WorkflowAuthoringService
+from protein_workbench_public import bootstrap
 from protein_workbench_public.bootstrap import create_application
 from tests.support.protocol import validate_response
+
+
+@pytest.mark.parametrize(
+    ("changed_method_id", "affects_example"),
+    [
+        ("collection_ops.merge_scores.method", True),
+        ("collection_ops.intersect_candidates.method", False),
+    ],
+)
+def test_startup_admits_only_the_examples_selected_scientific_definitions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    changed_method_id: str,
+    affects_example: bool,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    registrations = bootstrap.module_registrations()
+    create_application(v2_environment_configuration={})
+    catalog = build_frozen_catalog(registrations)
+    original = WorkflowAuthoringService(
+        ProjectManager(tmp_path / "projects"), catalog,
+    )
+    seed = original.load_active_commit(CANONICAL_3GB1_PROJECT_ID)
+    example = original.load_active_commit(WEBUI_3GB1_PROJECT_ID)
+    draft = original.load_draft(WEBUI_3GB1_PROJECT_ID)
+    assert changed_method_id not in {
+        definition["contract_id"] for definition in seed.scientific_definitions
+    }
+    assert (
+        changed_method_id in {
+            definition["contract_id"] for definition in example.scientific_definitions
+        }
+    ) is affects_example
+
+    package = next(
+        item for item in registrations if item.package_id == "collection_ops"
+    )
+    changed_package = replace(
+        package,
+        methods=tuple(
+            replace(
+                method,
+                algorithm_identity={
+                    **method.algorithm_identity,
+                    "name": "test-changed-scientific-algorithm",
+                },
+            )
+            if method.method_id == changed_method_id else method
+            for method in package.methods
+        ),
+    )
+    changed_registrations = tuple(
+        changed_package if item.package_id == package.package_id else item
+        for item in registrations
+    )
+    # Supply real declarations at the production package-registration seam;
+    # Catalog compilation, installation, admission, and persistence stay real.
+    with monkeypatch.context() as changed:
+        changed.setattr(bootstrap, "module_registrations", lambda: changed_registrations)
+        if affects_example:
+            with pytest.raises(WorkflowAuthoringError) as raised:
+                create_application(v2_environment_configuration={})
+            assert raised.value.code == "workflow_commit_identity_mismatch"
+            assert raised.value.details == {
+                "workflow_commit_id": example.workflow_commit_id,
+            }
+        else:
+            create_application(v2_environment_configuration={})
+
+    create_application(v2_environment_configuration={})
+    restored = WorkflowAuthoringService(
+        ProjectManager(tmp_path / "projects"), catalog,
+    )
+    assert restored.load_active_commit(CANONICAL_3GB1_PROJECT_ID) == seed
+    assert restored.load_active_commit(WEBUI_3GB1_PROJECT_ID) == example
+    assert restored.load_draft(WEBUI_3GB1_PROJECT_ID) == draft
 
 
 def test_webui_example_public_journey_and_prompt_contract(

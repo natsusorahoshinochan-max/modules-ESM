@@ -53,6 +53,15 @@ empty without turning the scientific result into a failed Run. Provider-free
 public REST/WebSocket acceptance uses lawful controlled Binding clients and
 does not invoke a remote Provider or load ProteinMPNN or Protein-Sol.
 
+The `design-constraints` Node authors explicit ProteinMPNN constraints from the
+resolved reference axis. It fixes A:42, A:44, A:46, A:60–A:72, A:92, A:94, A:96,
+A:110, A:112, A:121, A:123, A:145, A:148, A:150, A:165, A:167, A:183, A:203,
+A:205, A:220, and A:222, preserving the SHG precursor and the declared functional
+neighborhood. This is the fixed set in the [source-bound scientific contract](../../docs/legacy/2026-07-31-workflow-usability-debug-test-contracts.md#76-设计约束要求).
+The Adapter maps these residue identities to Provider positions. Prompt sequence
+masking does not supply ProteinMPNN constraints, and the missing backbone oxygen
+at normalized A:65 remains missing.
+
 `source-bound-5g53.workflow.json` is the exact source-bound loop-insertion
 acceptance Workflow for `examples/v2/structures/5G53.pdb` (SHA-256
 `a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537`).

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,7 +44,7 @@ from protein_workbench_public.workflow_codec import (
     encode_workflow_document,
     encode_workflow_draft,
 )
-from core.project.manager import CANONICAL_3GB1_PROJECT_ID
+from core.project.manager import CANONICAL_3GB1_PROJECT_ID, WEBUI_3GB1_PROJECT_ID
 from tests.support.application import create_application
 from core.workflow.authoring import (
     WorkflowCommit,
@@ -496,38 +497,135 @@ def test_durable_workflow_codec_round_trips_the_canonical_projection() -> None:
     assert constructed.canonical_projection() == payload
 
 
-def test_seed_install_uses_the_current_draft_and_commit_owners(
-    tmp_path,
+@pytest.mark.parametrize(
+    "project_id", [CANONICAL_3GB1_PROJECT_ID, WEBUI_3GB1_PROJECT_ID],
+)
+def test_example_install_reuses_the_admitted_draft_and_commit(
+    tmp_path: Path,
+    project_id: str,
 ) -> None:
     project_root = tmp_path / "projects"
     projects = ProjectManager(project_root)
     catalog = _catalog()
-    workflow = _workflow(CANONICAL_3GB1_PROJECT_ID)
+    workflow = _workflow(project_id)
     authoring = WorkflowAuthoringService(projects, catalog)
-
-    committed = authoring.install_seed_commit(
+    install = (
+        authoring.install_seed_commit
+        if project_id == CANONICAL_3GB1_PROJECT_ID
+        else authoring.install_webui_example_commit
+    )
+    committed = install(
         workflow=workflow,
         input_sources={},
     )
     assert committed is not None
 
-    assert authoring.load_draft(CANONICAL_3GB1_PROJECT_ID).workflow == (
-        workflow
-    )
-    assert authoring.load_active_commit(
-        CANONICAL_3GB1_PROJECT_ID
-    ) == committed
+    assert authoring.load_draft(project_id).workflow == workflow
+    assert authoring.load_active_commit(project_id) == committed
     restarted = WorkflowAuthoringService(
         ProjectManager(project_root),
         catalog,
     )
-    assert restarted.install_seed_commit(
+    reinstall = (
+        restarted.install_seed_commit
+        if project_id == CANONICAL_3GB1_PROJECT_ID
+        else restarted.install_webui_example_commit
+    )
+    assert reinstall(
         workflow=workflow,
         input_sources={},
     ) == committed
     verified = restarted.require_verified_commit(
-        CANONICAL_3GB1_PROJECT_ID,
+        project_id,
         workflow_commit_id=committed.workflow_commit_id,
     )
     assert verified.commit == committed
-    assert verified.execution_plan.workflow_id == CANONICAL_3GB1_PROJECT_ID
+    assert verified.execution_plan.workflow_id == project_id
+    assert verified.execution_plan.scientific_definitions == (
+        committed.scientific_definitions
+    )
+    assert restarted.require_verified_commit(
+        project_id, workflow_commit_id=committed.workflow_commit_id,
+    ) is verified
+    with pytest.raises(WorkflowAuthoringError) as changed_workflow:
+        reinstall(
+            workflow=_workflow(project_id, node_id="changed-node"),
+            input_sources={},
+        )
+    assert changed_workflow.value.code == "workflow_commit_identity_mismatch"
+    assert restarted.load_active_commit(project_id) == committed
+    assert restarted.require_verified_commit(
+        project_id, workflow_commit_id=committed.workflow_commit_id,
+    ) is verified
+
+
+@pytest.mark.parametrize(
+    "project_id", [CANONICAL_3GB1_PROJECT_ID, WEBUI_3GB1_PROJECT_ID],
+)
+def test_example_reuse_rejects_changed_science_and_preserves_persisted_commit(
+    tmp_path: Path,
+    project_id: str,
+) -> None:
+    project_root = tmp_path / "projects"
+    original = WorkflowAuthoringService(
+        ProjectManager(project_root), _catalog("original"),
+    )
+    workflow = _workflow(project_id)
+    install = (
+        original.install_seed_commit
+        if project_id == CANONICAL_3GB1_PROJECT_ID
+        else original.install_webui_example_commit
+    )
+    committed = install(workflow=workflow, input_sources={})
+    assert committed is not None
+    draft = original.load_draft(project_id)
+
+    restarted = WorkflowAuthoringService(
+        ProjectManager(project_root), _catalog("changed"),
+    )
+    reinstall = (
+        restarted.install_seed_commit
+        if project_id == CANONICAL_3GB1_PROJECT_ID
+        else restarted.install_webui_example_commit
+    )
+    with pytest.raises(WorkflowAuthoringError) as raised:
+        reinstall(workflow=workflow, input_sources={})
+    assert raised.value.code == "workflow_commit_identity_mismatch"
+    assert raised.value.details == {
+        "workflow_commit_id": committed.workflow_commit_id,
+    }
+    assert restarted.load_active_commit(project_id) == committed
+    assert restarted.load_draft(project_id) == draft
+    # Rejection must not make this pair available to a later Run via the cache.
+    with pytest.raises(WorkflowAuthoringError) as lookup:
+        restarted.require_verified_commit(
+            project_id, workflow_commit_id=committed.workflow_commit_id,
+        )
+    assert lookup.value.code == "workflow_commit_identity_mismatch"
+
+    restored = WorkflowAuthoringService(
+        ProjectManager(project_root), _catalog("original"),
+    )
+    assert restored.require_verified_commit(
+        project_id, workflow_commit_id=committed.workflow_commit_id,
+    ).commit == committed
+
+
+@pytest.mark.parametrize(
+    "project_id", [CANONICAL_3GB1_PROJECT_ID, WEBUI_3GB1_PROJECT_ID],
+)
+def test_example_compile_failure_does_not_install_a_project(
+    tmp_path: Path,
+    project_id: str,
+) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    authoring = WorkflowAuthoringService(projects, _catalog())
+    install = (
+        authoring.install_seed_commit
+        if project_id == CANONICAL_3GB1_PROJECT_ID
+        else authoring.install_webui_example_commit
+    )
+    with pytest.raises(WorkflowAuthoringError) as raised:
+        install(workflow=_workflow(project_id, invalid_edge=True), input_sources={})
+    assert raised.value.code == "compile_rejected"
+    assert projects.load_meta(project_id) is None

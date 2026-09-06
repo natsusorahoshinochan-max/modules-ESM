@@ -80,6 +80,13 @@ ROOT = Path(__file__).resolve().parent.parent
 INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "2EMO.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-2emo.workflow.json"
 INPUT_SHA256 = "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
+FIXED_RESIDUE_IDS = tuple(
+    f"A:{position}"
+    for position in (
+        42, 44, 46, *range(60, 73), 92, 94, 96, 110, 112, 121, 123,
+        145, 148, 150, 165, 167, 183, 203, 205, 220, 222,
+    )
+)
 _AA3 = dict(zip(
     "ACDEFGHIKLMNPQRSTVWY",
     ("ALA", "CYS", "ASP", "GLU", "PHE", "GLY", "HIS", "ILE", "LYS", "LEU", "MET", "ASN", "PRO", "GLN", "ARG", "SER", "THR", "VAL", "TRP", "TYR"),
@@ -781,6 +788,14 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             )
             for child in designs.items
         } == {(2066001, 8, 0.1, 0.0)}
+        reference_sequence = reference_axes.entries[0].residue_axis.sequence
+        reference_layout = reference_axes.entries[0].residue_axis.layout
+        assert all(
+            child.data.sequence[reference_layout.residue_ids.index(residue_id)]
+            == reference_sequence[reference_layout.residue_ids.index(residue_id)]
+            for child in designs.items
+            for residue_id in FIXED_RESIDUE_IDS
+        )
         assert {entry.subject.candidate_id for entry in confidence.entries} == {
             child.candidate_id for child in folds.items
         }
@@ -933,7 +948,15 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         ("A:67", 0, "A", 62),
         ("A:68", 0, "A", 63),
     )
-    assert request.fixed_position_dict is None
+    fixed_provider_positions = {
+        provider_position
+        for residue_id, _, _, provider_position in request.residue_identity_mapping
+        if residue_id in FIXED_RESIDUE_IDS
+    }
+    assert request.fixed_position_dict is not None
+    assert next(iter(request.fixed_position_dict.values())) == {
+        "A": sorted(fixed_provider_positions),
+    }
     assert len(folding.calls) == 16
     assert {model_name for _, model_name, _ in folding.calls} == {
         REMOTE_ESMFOLD2_MODEL

@@ -47,6 +47,49 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "design-constraints",
+      "node_type_id": "proteinmpnn.constraints",
+      "binding_id": "proteinmpnn.constraints.local",
+      "node_parameters": {
+        "fixed_residue_ids": [
+          "A:42",
+          "A:44",
+          "A:46",
+          "A:60",
+          "A:61",
+          "A:62",
+          "A:63",
+          "A:64",
+          "A:65",
+          "A:66",
+          "A:67",
+          "A:68",
+          "A:69",
+          "A:70",
+          "A:71",
+          "A:72",
+          "A:92",
+          "A:94",
+          "A:96",
+          "A:110",
+          "A:112",
+          "A:121",
+          "A:123",
+          "A:145",
+          "A:148",
+          "A:150",
+          "A:165",
+          "A:167",
+          "A:183",
+          "A:203",
+          "A:205",
+          "A:220",
+          "A:222"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
       "node_id": "design-sequences",
       "node_type_id": "proteinmpnn.design",
       "binding_id": "proteinmpnn.design.local",
@@ -296,6 +339,18 @@
       "source_port": "residue_axis",
       "target_node_id": "extract-reference-sequence",
       "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "project-reference-axis",
+      "source_port": "residue_axis",
+      "target_node_id": "design-constraints",
+      "target_port": "structure_residue_axis"
+    },
+    {
+      "source_node_id": "design-constraints",
+      "source_port": "constraints",
+      "target_node_id": "design-sequences",
+      "target_port": "constraints"
     },
     {
       "source_node_id": "normalize-reference",

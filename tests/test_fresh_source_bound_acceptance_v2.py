@@ -475,7 +475,7 @@ def _assert_1pga_science(
         service, catalog, projection, "fold-simplefold", "structure_candidates"
     )
     pairing = _one(
-        service, catalog, projection, "pair-methods", "pairing"
+        service, catalog, projection, "pair-methods", "relation"
     )
     consistency = _one(
         service, catalog, projection, "classify-consistency", "consistency"
@@ -708,6 +708,15 @@ def _assert_2emo_science(
         for residue_id in ("A:65", "A:66", "A:67")
     )
     assert axis.sequence[fixed_span[0] : fixed_span[-1] + 1] == "SHG"
+    constraints = _one(
+        service, catalog, projection, "design-constraints", "constraints"
+    )
+    assert tuple(constraints.fixed_residue_ids) == tuple(
+        workflow_nodes["design-constraints"]["node_parameters"]["fixed_residue_ids"]
+    )
+    constraint_digest = catalog.require_port_type(
+        "proteinmpnn.constraints"
+    ).content_digest(constraints)
     assert all(
         type(value) is CandidateCollection
         for value in (
@@ -733,13 +742,19 @@ def _assert_2emo_science(
         and design.metadata["num_sequences"] == 8
         and design.metadata["temperature"] == 0.1
         and design.metadata["backbone_noise"] == 0.0
-        and "constraint_digest" in design.metadata
+        and design.metadata["constraint_digest"] == constraint_digest
         for design in designs.items
     )
     assert all(
         "".join(design.data.sequence[index] for index in fixed_span)
         == "SHG"
         for design in designs.items
+    )
+    assert all(
+        design.data.sequence[axis.layout.residue_ids.index(residue_id)]
+        == axis.sequence[axis.layout.residue_ids.index(residue_id)]
+        for design in designs.items
+        for residue_id in constraints.fixed_residue_ids
     )
     assert live_invocations["design-sequences"][0][
         "invocation_provenance"

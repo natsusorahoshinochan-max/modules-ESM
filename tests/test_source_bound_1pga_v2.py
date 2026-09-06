@@ -446,6 +446,17 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         )
         assert "values" not in json.dumps(events)
 
+        from tests.test_fresh_source_bound_acceptance_v2 import _assert_1pga_science
+
+        _assert_1pga_science(
+            app.state.run_runtime,
+            catalog,
+            workflow,
+            tuple(events),
+            projection,
+            local_models=False,
+        )
+
         input_candidates = _decoded_output(
             client, catalog, projection, "import-input", "structure_candidates"
         )

@@ -424,6 +424,18 @@ class WorkflowAuthoringService:
             plan = compile(CompilationRequest(commit.workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
+        return self._admit_existing_commit(commit, plan)
+
+    def _admit_existing_commit(
+        self,
+        commit: WorkflowCommit,
+        plan: ExecutionPlan,
+    ) -> VerifiedWorkflowCommit:
+        """Retain an existing Commit only when its compiled science agrees.
+
+        Callers compile the Commit's Workflow, or establish equality with
+        the shipped Workflow before passing its Plan here.
+        """
         if plan.scientific_definitions != commit.scientific_definitions:
             raise WorkflowAuthoringError(
                 "workflow_commit_identity_mismatch",
@@ -434,7 +446,9 @@ class WorkflowAuthoringService:
                 },
             )
         verified = VerifiedWorkflowCommit(commit, plan)
-        self._verified_commits[key] = verified
+        self._verified_commits[
+            (commit.project_id, commit.workflow_commit_id)
+        ] = verified
         return verified
 
     def commit(
@@ -537,17 +551,7 @@ class WorkflowAuthoringService:
                 "Seed Workflow Commit does not match the shipped Workflow",
                 details={"workflow_commit_id": persisted.workflow_commit_id},
             )
-        if persisted.scientific_definitions != plan.scientific_definitions:
-            raise WorkflowAuthoringError(
-                "workflow_commit_identity_mismatch",
-                "Seed Workflow Commit scientific definitions do not match "
-                "the current Catalog",
-                details={"workflow_commit_id": persisted.workflow_commit_id},
-            )
-        verified = VerifiedWorkflowCommit(persisted, plan)
-        self._verified_commits[
-            (project_id, persisted.workflow_commit_id)
-        ] = verified
+        self._admit_existing_commit(persisted, plan)
         return persisted
 
     def install_webui_example_commit(
@@ -591,9 +595,7 @@ class WorkflowAuthoringService:
                 "WebUI example Commit does not match the shipped Workflow",
                 details={"workflow_commit_id": persisted.workflow_commit_id},
             )
-        self._verified_commits[(project_id, persisted.workflow_commit_id)] = (
-            VerifiedWorkflowCommit(persisted, plan)
-        )
+        self._admit_existing_commit(persisted, plan)
         return persisted
 
     def require_verified_commit(
