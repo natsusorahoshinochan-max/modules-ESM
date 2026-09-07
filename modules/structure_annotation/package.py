@@ -29,24 +29,18 @@ from .adapter import (
     mkdssp_readiness,
 )
 from .implementation import (
-    ApplySASAToPromptOperation,
-    ApplySecondaryStructureToPromptOperation,
     DSSPComputeOperation,
     ExpectedSecondaryStructureFromPromptOperation,
-    SASAComputeOperation,
+    ObservedToConditioningOperation,
     SecondaryStructureAgreementOperation,
-    SecondaryStructureExtractOperation,
 )
 from .port_types import STRUCTURE_ANNOTATION_PORT_TYPES
 
 
 _OPERATIONS = (
     "dssp_compute",
-    "secondary_structure_extract",
-    "sasa_compute",
+    "observed_to_conditioning",
     "secondary_structure_agreement",
-    "apply_secondary_structure_to_prompt",
-    "apply_sasa_to_prompt",
     "expected_secondary_structure_from_prompt",
 )
 _DSSP_OPERATION = "dssp_compute"
@@ -65,20 +59,14 @@ def _build(operation: str):
                     resources=context.resources,
                 )
             )
-        if operation == "secondary_structure_extract":
-            return SecondaryStructureExtractOperation(context.resources)
-        if operation == "sasa_compute":
-            return SASAComputeOperation(context.resources)
+        if operation == "observed_to_conditioning":
+            return ObservedToConditioningOperation(context.resources)
         if operation == "secondary_structure_agreement":
             return SecondaryStructureAgreementOperation(
                 resources=context.resources,
                 method=context.method,
                 produced_observation=context.produced_observations[0],
             )
-        if operation == "apply_secondary_structure_to_prompt":
-            return ApplySecondaryStructureToPromptOperation(context.resources)
-        if operation == "apply_sasa_to_prompt":
-            return ApplySASAToPromptOperation(context.resources)
         return ExpectedSecondaryStructureFromPromptOperation(
             context.resources
         )
@@ -98,9 +86,14 @@ def _dssp_method() -> MethodDefinition:
                 "dssp-summary-label-pair-via-atom-site-authored-chain-"
                 "signed-residue-and-insertion-code-to-authoritative-axis"
             ),
-            "missing_value": "_",
-            "coil_conversion": "mkdssp mmCIF '.' to SS8 C",
-            "secondary_absent_marker": "?",
+            "missing_value": "JSON null",
+            "secondary_conversion": {
+                "DSSP _ (missing)": "null",
+                "DSSP P (poly-proline coil)": "C",
+                "mkdssp mmCIF '.' (coil)": "C",
+                "mkdssp mmCIF '?' (absent)": "null",
+                "canonical HBEGITSC": "pass through unchanged",
+            },
             "accessibility_absent_markers": [".", "?"],
         },
         model_identity={"kind": "none"},
@@ -256,11 +249,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource(f"definitions/{name}.yaml")
         for name in (
             "dssp_compute",
-            "secondary_structure_extract",
-            "sasa_compute",
+            "observed_to_conditioning",
             "secondary_structure_agreement",
-            "apply_secondary_structure_to_prompt",
-            "apply_sasa_to_prompt",
             "expected_secondary_structure_from_prompt",
         )
     ),

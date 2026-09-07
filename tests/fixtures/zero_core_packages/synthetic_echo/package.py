@@ -152,9 +152,7 @@ def _binding(
     behavior_prefix = binding_id.replace(".", "/")
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        node_type=ContractIdentity(
-            "node_type",
-            node_type_id),
+        node_type=ContractIdentity("node_type", node_type_id),
         method=method,
         binding_parameters={
             "repeat_count": {
@@ -171,6 +169,9 @@ def _binding(
             }
         },
         environment_fields=(
+            EnvironmentFieldDeclaration(
+                "invocation_count", "json_value", required=False
+            ),
             EnvironmentFieldDeclaration("fixture_ready", "json_value"),
             EnvironmentFieldDeclaration("credential", "credential_handle"),
             EnvironmentFieldDeclaration("runtime_path", "filesystem_path"),
@@ -202,9 +203,7 @@ def _binding(
                 {"observation": "per-run"},
             ),
             prerequisites=(
-                {"fixture_ready": "required"}
-                if requires_fixture_ready
-                else {}
+                {"fixture_ready": "required"} if requires_fixture_ready else {}
             ),
             check=_ready if requires_fixture_ready else _source_ready,
         ),

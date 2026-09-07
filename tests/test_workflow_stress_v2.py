@@ -19,7 +19,6 @@ from core.operation import BindingEnvironment, ReadinessResult
 from core.workflow.compiler import CompilationRequest, compile
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import (
-    PairwiseCandidateMapping,
     PairwiseObservationContext,
     ScoreCollection,
 )
@@ -241,7 +240,7 @@ def test_user_can_compare_selection_strategies_and_change_only_top_k(
         )
         assert {
             entry.context.pairing_mode for entry in scores.entries
-        } == {"fixed_reference", "per_subject_counterpart"}
+        } == {"fixed_reference", "explicit_relation"}
         assert {
             entry.source_partition for entry in scores.entries
         } == {
@@ -330,11 +329,11 @@ def test_user_can_condition_function_tracks_generate_and_replay(
         assert first.projection["status"] == replay.projection["status"] == (
             "succeeded"
         )
-        assembled = decode_one(
+        conditioned = decode_one(
             client,
             catalog,
             first.projection,
-            "assemble-prompt",
+            "replace-functions",
             "protein_prompt",
         )
         masked = decode_one(
@@ -344,23 +343,22 @@ def test_user_can_condition_function_tracks_generate_and_replay(
             "mask-sequence",
             "protein_prompt",
         )
-        assert type(assembled) is type(masked) is ProteinPrompt
-        assert masked.target_layout == assembled.target_layout
-        assert masked.structure_track == assembled.structure_track
-        assert masked.structure_visibility_track == (
-            assembled.structure_visibility_track
+        assert type(conditioned) is type(masked) is ProteinPrompt
+        assert masked.layout == conditioned.layout
+        assert masked.coordinates == conditioned.coordinates
+        assert masked.secondary_structure == (
+            conditioned.secondary_structure
         )
-        assert masked.secondary_structure_track == (
-            assembled.secondary_structure_track
+        assert masked.sasa == conditioned.sasa
+        assert (
+            masked.function_annotations == conditioned.function_annotations
         )
-        assert masked.sasa_track == assembled.sasa_track
-        assert masked.function_annotations == assembled.function_annotations
         assert [
             index
-            for index, value in enumerate(masked.sequence_track.values)
+            for index, value in enumerate(masked.sequence)
             if value is None
         ] == [19, 20, 21]
-        annotation = masked.function_annotations.annotations[0]
+        annotation = masked.function_annotations[0]
         assert (
             annotation.label,
             annotation.start_residue_id,
@@ -381,13 +379,6 @@ def test_user_can_condition_function_tracks_generate_and_replay(
             "generate-paired",
             "structure_candidates",
         )
-        paired_mapping = decode_one(
-            client,
-            catalog,
-            first.projection,
-            "generate-paired",
-            "counterpart_pairs",
-        )
         sequence_only = decode_one(
             client,
             catalog,
@@ -404,15 +395,6 @@ def test_user_can_condition_function_tracks_generate_and_replay(
         assert paired_structures.items[0].parent_ids == (
             paired_sequences.items[0].candidate_id,
         )
-        assert type(paired_mapping) is PairwiseCandidateMapping
-        assert len(paired_mapping.entries) == 1
-        assert (
-            paired_mapping.entries[0].subject.candidate_id,
-            paired_mapping.entries[0].reference.candidate_id,
-        ) == (
-            paired_sequences.items[0].candidate_id,
-            paired_structures.items[0].candidate_id,
-        )
 
     assert len(esm3.sequence_prompts) == 4
     assert len(esm3.structure_prompts) == 2
@@ -426,7 +408,7 @@ def test_user_can_condition_function_tracks_generate_and_replay(
     }
     assert replay_dispositions == {
         "prompt-values": "cache_replayed",
-        "add-function": "cache_replayed",
+            "replace-functions": "cache_replayed",
         "assemble-prompt": "cache_replayed",
         "mask-sequence": "cache_replayed",
         "generate-paired": "executed",

@@ -1,0 +1,13 @@
+node_type_id: structure_comparison.tm_score_from_alignments
+title: Project normalized TM-score from alignments
+summary: Computes reference-axis-normalized TM-score from immutable alignment residuals and their explicit Candidate relation.
+category: structure_comparison
+inputs:
+  - {name: alignments, port_type_id: structure_comparison.alignment_evidence, required: true, multiplicity: many, scientific_meaning: Nonempty ordered alignment evidence.}
+  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Exact subject Candidate scope closing Observation provenance.}
+  - {name: references, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Exact reference Candidate scope closing Observation provenance.}
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Ordered exact subject-to-reference relation represented by the evidence.}
+outputs:
+  - {name: scores, port_type_id: score.collection, required: true, multiplicity: one, scientific_meaning: One evidence-provenanced normalized TM-score Observation per relation entry.}
+parameter_groups: []
+node_parameters: {}

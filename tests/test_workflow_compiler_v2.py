@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 
@@ -1192,16 +1194,13 @@ def test_public_draft_commit_journey_uses_the_stable_commit_id(
         loaded_response = client.get(
             f"/api/v2/projects/{project_id}/workflow/draft"
         )
-        committed_response = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow_payload,
-            },
+        committed_response = PublicRunClient(client).commit_workflow(
+            project_id, workflow_payload
         )
         active_response = client.get(
             f"/api/v2/projects/{project_id}/workflow/active-commit"
         )
-        receipt = committed_response.json()
+        receipt = committed_response
         owner = app.state.workflow_authoring
         committed = owner.load_active_commit(project_id)
         compiled = owner.require_verified_commit(
@@ -1219,7 +1218,6 @@ def test_public_draft_commit_journey_uses_the_stable_commit_id(
         200,
         loaded_response.json(),
     )
-    assert committed_response.status_code == 200
     validate_response(
         "commit_project_workflow",
         200,
@@ -1262,14 +1260,10 @@ def test_failed_commit_preserves_active_commit_and_submitted_draft(
         ).json()["id"]
         workflow_payload = encode_workflow_document(_workflow())
         workflow_payload["workflow_id"] = project_id
-        active_response = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow_payload,
-            },
+        active_response = PublicRunClient(client).commit_workflow(
+            project_id, workflow_payload
         )
-        assert active_response.status_code == 200
-        active = active_response.json()
+        active = active_response
         invalid = encode_workflow_document(_workflow())
         invalid["workflow_id"] = project_id
         invalid["edges"] = []

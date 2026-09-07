@@ -1,0 +1,12 @@
+node_type_id: collection_ops.concat_relations
+title: Concatenate Candidate relations
+summary: Concatenates ordered relation partitions while preserving every exact subject-to-reference entry.
+category: collection_ops
+inputs:
+  - {name: relation_a, port_type_id: candidate.relation, required: false, multiplicity: one, scientific_meaning: Optional first relation partition.}
+  - {name: relation_b, port_type_id: candidate.relation, required: false, multiplicity: one, scientific_meaning: Optional second relation partition.}
+  - {name: relation_c, port_type_id: candidate.relation, required: false, multiplicity: one, scientific_meaning: Optional third relation partition.}
+outputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Concatenated relation in declared input and entry order.}
+parameter_groups: []
+node_parameters: {}

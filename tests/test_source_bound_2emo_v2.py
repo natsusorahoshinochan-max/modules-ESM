@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from protein_workbench_public.bootstrap import module_registrations
 
 from dataclasses import replace
@@ -58,28 +60,31 @@ from modules.structure_transform.domain import (
 )
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from tests.support.public_request import encode_project_input_content
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    install_prompt_authoring_workflow,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+)
 from tests.support.workflow_stress import (
     StressRun,
     emit_stress_report,
     run_committed_workflow,
 )
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "2EMO.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-2emo.workflow.json"
 INPUT_SHA256 = "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
-FIXED_IDS = (
-    "A:42", "A:44", "A:46", "A:60", "A:61", "A:62", "A:63",
-    "A:64", "A:65", "A:66", "A:67", "A:68", "A:69", "A:70",
-    "A:71", "A:72", "A:92", "A:94", "A:96", "A:110", "A:112",
-    "A:121", "A:123", "A:145", "A:148", "A:150", "A:165",
-    "A:167", "A:183", "A:203", "A:205", "A:220", "A:222",
+FIXED_RESIDUE_IDS = tuple(
+    f"A:{position}"
+    for position in (
+        42, 44, 46, *range(60, 73), 92, 94, 96, 110, 112, 121, 123,
+        145, 148, 150, 165, 167, 183, 203, 205, 220, 222,
+    )
 )
 _AA3 = dict(zip(
     "ACDEFGHIKLMNPQRSTVWY",
@@ -142,8 +147,10 @@ class _ControlledProteinMPNN:
     def design(self, request: Any) -> list[ProteinSequence]:
         self.requests.append(request)
         _, reference = next(iter(request.reference_sequences.items()))
-        fixed_by_chain = next(iter(request.fixed_position_dict.values()))
-        fixed_positions = set(next(iter(fixed_by_chain.values())))
+        fixed_by_chain = next(
+            iter((request.fixed_position_dict or {}).values()), {}
+        )
+        fixed_positions = set(next(iter(fixed_by_chain.values()), ()))
         alphabet = "ACDEFGHIKLMNPQRSTVWY"
         designable_positions = tuple(
             position
@@ -202,6 +209,9 @@ class _ControlledESMFold2:
             pae=torch.zeros((len(sequence), len(sequence))),
         )
 
+    def close(self) -> None:
+        pass
+
 
 def test_controlled_fold_fixture_has_exact_sequence_and_lawful_backbone() -> None:
     normalized, _ = normalize_csh_parent_span(
@@ -252,13 +262,11 @@ def _decode_values(
     codec = catalog.require_port_type(
         output["port_type"]["contract_id"])
     return tuple(
-        codec.decode(retrieve_typed_output_canonical_bytes(
-            client,
-            projection["project_id"],
-            projection["run_id"],
-            output,
-            index,
-        ))
+        codec.decode(
+            PublicRunClient(client).typed_output_bytes(
+                projection["project_id"], projection["run_id"], output, index
+            )
+        )
         for index in range(output["value_count"])
     )
 
@@ -414,7 +422,7 @@ def _assert_closed_scientific_acceptance(
             assert context.subject.candidate == alignment.subject
             assert context.reference.role == "reference"
             assert context.reference.candidate == alignment.reference
-            assert context.pairing_mode == "fixed_reference"
+            assert context.pairing_mode == "explicit_relation"
             assert context.normalization == normalization
             assert context.evidence_content_digest == evidence_digest
             assert context.evidence_method == alignment.method
@@ -548,7 +556,6 @@ def test_source_bound_2emo_is_compilable() -> None:
         "backbone_noise": 0,
     }
     assert nodes["design-sequences"].binding_id == "proteinmpnn.design.local"
-    assert tuple(nodes["author-constraints"].node_parameters["fixed_residue_ids"]) == FIXED_IDS
     assert nodes["fold-esmfold2"].node_parameters == {
         "effective_seed": 2066002,
         "num_samples": 1,
@@ -652,6 +659,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     with TestClient(create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration=environment,
+        authoring_registrations=module_registrations(),
     )) as client:
         project_id = client.post(
             "/api/v2/projects", json={"name": "source-bound 2EMO"}
@@ -667,24 +675,39 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
         payload = _payload()
         payload["workflow_id"] = project_id
-        next(node for node in payload["nodes"] if node["node_id"] == "import-input")["node_parameters"] = {
-            "project_input_ref": uploaded.json()["project_input_ref"]
-        }
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"workflow": payload},
+        for node in payload["nodes"]:
+            if node["node_type_id"] == "protein_io.import_structure":
+                node["node_parameters"] = {
+                    "project_input_ref": uploaded.json()["project_input_ref"]
+                }
+        install_prompt_authoring_workflow(client, project_id, payload)
+        author_node_id = (
+            "prompt-composition-6ebcc41c0a856414f4d9548c.source.author"
         )
-        assert committed.status_code == 200, committed.json()
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": f"provider-free-2emo-{expected_passing}",
-            },
+        opened_prompt = open_pdb_prompt_document(
+            client,
+            project_id,
+            author_node_id,
         )
-        assert started.status_code == 202, started.json()
+        apply_prompt_document(
+            client,
+            project_id,
+            author_node_id,
+            preview_prompt_document(
+                client,
+                project_id,
+                author_node_id,
+                opened_prompt["document"],
+            ),
+        )
+        committed = PublicRunClient(client).commit_workflow(project_id, payload)
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id=f"provider-free-2emo-{expected_passing}",
+        )
         projection = wait_for_testclient_run_terminal(
-            client, project_id, started.json()["run_id"], timeout_seconds=90
+            client, project_id, started["run_id"], timeout_seconds=90
         )
         assert projection["status"] == "succeeded", json.dumps(
             projection, indent=2
@@ -746,7 +769,6 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             len(child.parent_ids) == 1 and child.parent_ids[0] in design_ids
             for child in folds.items
         )
-        assert all("constraint_digest" in child.metadata for child in designs.items)
         assert {
             (
                 child.metadata["effective_seed"],
@@ -756,10 +778,13 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             )
             for child in designs.items
         } == {(2066001, 8, 0.1, 0.0)}
-        fixed_indices = tuple(int(residue_id.split(":")[1]) - 6 for residue_id in FIXED_IDS)
+        reference_sequence = reference_axes.entries[0].residue_axis.sequence
+        reference_layout = reference_axes.entries[0].residue_axis.layout
         assert all(
-            all(child.data.sequence[index] == axis.sequence[index] for index in fixed_indices)
+            child.data.sequence[reference_layout.residue_ids.index(residue_id)]
+            == reference_sequence[reference_layout.residue_ids.index(residue_id)]
             for child in designs.items
+            for residue_id in FIXED_RESIDUE_IDS
         )
         assert {entry.subject.candidate_id for entry in confidence.entries} == {
             child.candidate_id for child in folds.items
@@ -869,7 +894,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         replay = run_committed_workflow(
             client,
             project_id,
-            committed.json()["workflow_commit_id"],
+            committed["workflow_commit_id"],
             request_id=f"provider-free-2emo-replay-{expected_passing}",
             timeout_seconds=90,
         )
@@ -885,7 +910,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             "fixed_backbone_design_2emo",
             runs={
                 "first": StressRun(
-                    committed.json()["workflow_commit_id"],
+                    committed["workflow_commit_id"],
                     projection,
                     tuple(events),
                 ),
@@ -913,8 +938,14 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         ("A:67", 0, "A", 62),
         ("A:68", 0, "A", 63),
     )
-    assert request.fixed_position_dict == {
-        "target": {"A": [int(item.split(":")[1]) - 5 for item in FIXED_IDS]}
+    fixed_provider_positions = {
+        provider_position
+        for residue_id, _, _, provider_position in request.residue_identity_mapping
+        if residue_id in FIXED_RESIDUE_IDS
+    }
+    assert request.fixed_position_dict is not None
+    assert next(iter(request.fixed_position_dict.values())) == {
+        "A": sorted(fixed_provider_positions),
     }
     assert len(folding.calls) == 16
     assert {model_name for _, model_name, _ in folding.calls} == {

@@ -1,0 +1,11 @@
+node_type_id: collection_ops.relate_by_parent
+title: Relate Candidates to their parents
+summary: Emits each subject's exact declared parent from the supplied parent collection.
+category: collection_ops
+inputs:
+  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Candidates with exactly one declared parent each.}
+  - {name: parents, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Exact parent Candidates referenced by the subjects.}
+outputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Ordered exact subject-to-parent relation with shared parents allowed.}
+parameter_groups: []
+node_parameters: {}

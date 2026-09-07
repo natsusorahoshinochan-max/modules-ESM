@@ -52,6 +52,14 @@ _CSH_PARENT_ATOMS = (
 )
 
 
+def contains_csh_component(structure: ProteinStructure) -> bool:
+    """Return whether the admitted structure contains an exact CSH component."""
+    return any(
+        record is not None and record.residue_name == "CSH"
+        for record in _single_model_records(structure)
+    )
+
+
 def _parent_atom_line(
     record: _AtomRecord,
     *,

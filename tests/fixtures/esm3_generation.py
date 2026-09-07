@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from contextlib import ExitStack, contextmanager
@@ -28,7 +30,7 @@ from core.workflow.document import (
     WorkflowNodeInstance,
 )
 from core.workflow.document import WorkflowEdge
-from tests.fixtures.public_v2 import decode_service_typed_output_value
+from tests.support.runtime_results import decode_service_typed_output_value
 
 
 class ProviderResponse:
@@ -59,10 +61,14 @@ class ProviderClient:
     def __init__(self, responses: list[ProviderResponse]) -> None:
         self._responses = iter(responses)
         self.calls: list[tuple[Any, Any]] = []
+        self.close_calls = 0
 
     def generate(self, protein: Any, config: Any) -> ProviderResponse:
         self.calls.append((protein, config))
         return next(self._responses)
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 @contextmanager
@@ -87,6 +93,9 @@ def generation_catalog(*, include_protein_io: bool) -> FrozenCatalog:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -97,7 +106,7 @@ def generation_catalog(*, include_protein_io: bool) -> FrozenCatalog:
 
     packages = [
         ESM3_PACKAGE,
-        PROMPT_AUTHORING_PACKAGE,
+        PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
         STRUCTURE_PREDICTION_PACKAGE,
         STRUCTURE_TRANSFORM_PACKAGE,
     ]
@@ -134,97 +143,67 @@ def run_generation(
     materialize_confidence: bool = False,
     catalog: FrozenCatalog | None = None,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
-    nodes = [
-        WorkflowNodeInstance(
-            node_id="layout",
-            node_type_id="prompt_authoring.build_residue_layout",
-            binding_id="prompt_authoring.build_residue_layout.direct",
-            node_parameters={
-                "chains": [
-                    {
-                        "chain_id": "A",
-                        "length": len(sequence) if sequence is not None else 3,
-                    }
-                ]
-            },
-            binding_parameters={},
-        ),
-        WorkflowNodeInstance(
-            node_id="assemble",
-            node_type_id="prompt_authoring.assemble_protein_prompt",
-            binding_id="prompt_authoring.assemble_protein_prompt.direct",
-            node_parameters={},
-            binding_parameters={},
-        ),
-    ]
-    edges = [
-        WorkflowEdge("layout", "layout", "assemble", "layout"),
-    ]
+    nodes = []
+    edges: list[WorkflowEdge] = []
     project_inputs: dict[str, bytes] = {}
-    prompt_source = "assemble"
+    prompt_source = "layout"
     if sequence is not None:
         project_inputs["sequence-input"] = f">fixture\n{sequence}\n".encode()
-        nodes.extend(
-            [
-                WorkflowNodeInstance(
-                    node_id="import_sequence",
-                    node_type_id="protein_io.import_sequence",
-                    binding_id="protein_io.import_sequence.direct",
-                    node_parameters={"project_input_ref": "sequence-input"},
-                    binding_parameters={},
-                ),
-                WorkflowNodeInstance(
-                    node_id="update_sequence",
-                    node_type_id="prompt_authoring.update_prompt_sequence",
-                    binding_id="prompt_authoring.update_prompt_sequence.direct",
-                    node_parameters={},
-                    binding_parameters={},
-                ),
-            ]
+        nodes.append(
+            WorkflowNodeInstance(
+                node_id="import_sequence",
+                node_type_id="protein_io.import_sequence",
+                binding_id="protein_io.import_sequence.direct",
+                node_parameters={"project_input_ref": "sequence-input"},
+                binding_parameters={},
+            )
         )
-        edges.extend(
-            [
-                WorkflowEdge(
-                    "assemble",
-                    "protein_prompt",
-                    "update_sequence",
-                    "protein_prompt",
-                ),
-                WorkflowEdge(
-                    "import_sequence",
-                    "sequence",
-                    "update_sequence",
-                    "sequence",
-                ),
-            ]
-        )
-        prompt_source = "update_sequence"
+        document: dict[str, Any] = {
+            "chains": [{"chain_id": "A", "length": len(sequence)}],
+        }
         if sequence_mask_residue_ids:
-            nodes.append(
-                WorkflowNodeInstance(
-                    node_id="mask_sequence",
-                    node_type_id="prompt_authoring.random_mask",
-                    binding_id="prompt_authoring.random_mask.direct",
-                    node_parameters={
-                        "effective_seed": 1603,
-                        "count": len(sequence_mask_residue_ids),
-                        "track": "sequence",
-                        "eligible_residue_ids": list(
-                            sequence_mask_residue_ids
-                        ),
-                    },
-                    binding_parameters={},
-                )
+            document["random_operations"] = [
+                {
+                    "kind": "mask",
+                    "seed": 1603,
+                    "count": len(sequence_mask_residue_ids),
+                    "track": "sequence",
+                    "eligible_residue_ids": list(
+                        sequence_mask_residue_ids
+                    ),
+                }
+            ]
+        nodes.append(
+            WorkflowNodeInstance(
+                node_id="layout",
+                node_type_id="prompt_authoring.author",
+                binding_id="prompt_authoring.author.direct",
+                node_parameters={"document": document},
+                binding_parameters={},
             )
-            edges.append(
-                WorkflowEdge(
-                    "update_sequence",
-                    "protein_prompt",
-                    "mask_sequence",
-                    "protein_prompt",
-                )
+        )
+        edges.append(
+            WorkflowEdge(
+                "import_sequence",
+                "sequence",
+                "layout",
+                "sequence_source",
             )
-            prompt_source = "mask_sequence"
+        )
+    else:
+        nodes.append(
+            WorkflowNodeInstance(
+                node_id="layout",
+                node_type_id="prompt_authoring.author",
+                binding_id="prompt_authoring.author.direct",
+                node_parameters={
+                    "document": {"chains": [
+                        {"chain_id": "A", "length": 3},
+                    ]},
+                },
+                binding_parameters={},
+            )
+        )
     resolved_generation_parameters = {
         "effective_seed": 1603,
         "num_samples": num_samples,
@@ -401,6 +380,9 @@ def run_generation_from_prompt_fixture(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
@@ -414,7 +396,7 @@ def run_generation_from_prompt_fixture(
     catalog = build_frozen_catalog(
         (
             ESM3_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,

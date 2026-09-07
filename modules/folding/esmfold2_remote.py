@@ -55,10 +55,6 @@ def decode_remote_fold_result(
     sequence: ProteinSequence,
 ) -> ESMFold2AdapterResult:
     """Decode one provider-native Biohub ESMProtein result."""
-    from esm.sdk.api import ESMProteinError
-
-    if isinstance(result, ESMProteinError):
-        raise RuntimeError("remote ESMFold2 provider returned an error")
     result = cast(_RemoteFoldResult, result)
     pdb_string = _provider_pdb_string(result.to_protein_chain())
     confidence = normalize_native_confidence(
@@ -98,6 +94,7 @@ def build_remote_engine(environment: Mapping[str, Any]) -> Any:
         model=REMOTE_ESMFOLD2_MODEL,
         url="https://biohub.ai",
         token=environment["credential_handle"],
+        request_timeout=150,
     )
 
 
@@ -112,12 +109,6 @@ class BiohubESMFold2Adapter:
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._client: Any | None = None
-
-    def _engine(self) -> Any:
-        if self._client is None:
-            self._client = build_remote_engine(self._environment)
-        return self._client
 
     def fold(
         self,
@@ -127,20 +118,29 @@ class BiohubESMFold2Adapter:
         engine_role: str,
     ) -> ESMFold2AdapterResult:
         """Invoke Biohub once, then admit its raw result outside Invocation."""
+        from esm.sdk.api import ESMProteinError
+
         del derived_call_seed
-        engine = self._engine()
-        config = fixed_folding_config()
-        with self._resources.engine_invocation(
-            engine_role=engine_role,
-            invocation_provenance=EngineInvocationProvenance(
-                effective_randomness=InvocationRandomness(
-                    control="provider_uncontrolled"
+        engine = build_remote_engine(self._environment)
+        try:
+            config = fixed_folding_config()
+            with self._resources.engine_invocation(
+                engine_role=engine_role,
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="provider_uncontrolled"
+                    )
+                ),
+            ):
+                raw_result = engine.fold(
+                    sequence=sequence.sequence,
+                    model_name=REMOTE_ESMFOLD2_MODEL,
+                    config=config,
                 )
-            ),
-        ):
-            raw_result = engine.fold(
-                sequence=sequence.sequence,
-                model_name=REMOTE_ESMFOLD2_MODEL,
-                config=config,
-            )
-        return decode_remote_fold_result(raw_result, sequence)
+                if isinstance(raw_result, ESMProteinError):
+                    raise RuntimeError(
+                        "remote ESMFold2 provider returned an error"
+                    )
+            return decode_remote_fold_result(raw_result, sequence)
+        finally:
+            engine.close()

@@ -664,12 +664,9 @@ def resolve_residue_axis(
         )
         for index, source_index in enumerate(segment_order)
     )
-    chain_order = tuple(dict.fromkeys(segment.chain_id for segment in segments))
     return ResolvedStructureResidueAxis(
         structure=structure,
         layout=ResidueLayout(
-            chain_id=",".join(chain_order),
-            length=len(layout_ids),
             residue_ids=tuple(layout_ids),
         ),
         sequence="".join(sequence),

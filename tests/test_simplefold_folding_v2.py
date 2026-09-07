@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 import json
 import subprocess
 import sys
@@ -124,9 +126,17 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
         "simplefold.utils.datamodule_utils": ModuleType(
             "simplefold.utils.datamodule_utils"
         ),
-        "utils.esm_utils": ModuleType("utils.esm_utils"),
     }
+    provider_directory = tmp_path / "simplefold"
+    provider_directory.mkdir()
+    modules["simplefold"].__file__ = str(
+        provider_directory / "__init__.py"
+    )
+    modules["simplefold"].wrapper = modules["simplefold.wrapper"]
     modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.wrapper"].esm_registry = {
+        "esm2_3B": lambda: (object(), object())
+    }
     modules["simplefold.utils.boltz_utils"].process_structure = object()
     modules["simplefold.utils.boltz_utils"].to_pdb = object()
     modules["simplefold.utils.fasta_utils"].process_fastas = (
@@ -135,15 +145,8 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     modules[
         "simplefold.utils.datamodule_utils"
     ].process_one_inference_structure = object()
-    modules["utils.esm_utils"].esm_registry = {}
     for name, module in modules.items():
         monkeypatch.setitem(sys.modules, name, module)
-
-    monkeypatch.setattr(
-        simplefold_runtime,
-        "_setup_simplefold_imports",
-        os.getcwd,
-    )
     model_root = tmp_path / "model"
     esm2_source_root = tmp_path / "esm2-source"
     esm2_model_root = tmp_path / "esm2-model"
@@ -151,6 +154,18 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
         root.mkdir()
     (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
 
+    original_cwd = os.getcwd()
+    original_path = tuple(sys.path)
+    prefixes = ("utils", "model", "processor", "boltz_data_pipeline")
+    original_bare_modules = {
+        module_name: module
+        for module_name, module in sys.modules.items()
+        if any(
+            module_name == prefix
+            or module_name.startswith(f"{prefix}.")
+            for prefix in prefixes
+        )
+    }
     with pytest.raises(StopAfterInferenceConstruction):
         simplefold_runtime.activate_fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
@@ -165,13 +180,316 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
         )
 
     assert captured == {"num_steps": 75}
+    assert os.getcwd() == original_cwd
+    assert tuple(sys.path) == original_path
+    restored_bare_modules = {
+        module_name: module
+        for module_name, module in sys.modules.items()
+        if any(
+            module_name == prefix
+            or module_name.startswith(f"{prefix}.")
+            for prefix in prefixes
+        )
+    }
+    assert restored_bare_modules == original_bare_modules
+    assert all(
+        restored_bare_modules[module_name] is module
+        for module_name, module in original_bare_modules.items()
+    )
+
+
+def test_cached_simplefold_folding_activation_restores_its_loader_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import ModuleType
+
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    observed_loaders: list[object] = []
+
+    def original_loader() -> tuple[object, object]:
+        return object(), object()
+
+    registry: dict[str, object] = {"esm2_3B": original_loader}
+
+    class InferenceWrapper:
+        def __init__(self, **_kwargs: Any) -> None:
+            observed_loaders.append(registry["esm2_3B"])
+
+    modules = {
+        "simplefold": ModuleType("simplefold"),
+        "simplefold.utils": ModuleType("simplefold.utils"),
+        "simplefold.wrapper": ModuleType("simplefold.wrapper"),
+        "simplefold.utils.boltz_utils": ModuleType(
+            "simplefold.utils.boltz_utils"
+        ),
+        "simplefold.utils.fasta_utils": ModuleType(
+            "simplefold.utils.fasta_utils"
+        ),
+        "simplefold.utils.datamodule_utils": ModuleType(
+            "simplefold.utils.datamodule_utils"
+        ),
+    }
+    provider_directory = tmp_path / "simplefold"
+    provider_directory.mkdir()
+    modules["simplefold"].__file__ = str(
+        provider_directory / "__init__.py"
+    )
+    modules["simplefold"].wrapper = modules["simplefold.wrapper"]
+    modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.wrapper"].esm_registry = registry
+    modules["simplefold.utils.boltz_utils"].process_structure = object()
+    modules["simplefold.utils.boltz_utils"].to_pdb = object()
+    modules["simplefold.utils.fasta_utils"].process_fastas = (
+        lambda **_kwargs: None
+    )
+    modules[
+        "simplefold.utils.datamodule_utils"
+    ].process_one_inference_structure = object()
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.delitem(sys.modules, "utils.esm_utils", raising=False)
+
+    model_root = tmp_path / "model"
+    esm2_source_root = tmp_path / "esm2-source"
+    esm2_model_root = tmp_path / "esm2-model"
+    for root in (model_root, esm2_source_root, esm2_model_root):
+        root.mkdir()
+
+    prior_mappings = ({"esm2_3B": original_loader}, {})
+    for call_index, prior_mapping in enumerate(prior_mappings):
+        registry.clear()
+        registry.update(prior_mapping)
+        simplefold_runtime.activate_fold_sequence(
+            ProteinSequence("AG", ("A:1", "A:2")),
+            num_steps=50,
+            num_samples=1,
+            staging_directory=tmp_path / f"project-{call_index}",
+            effective_seed=1603,
+            staged_model_root=model_root,
+            staged_esm2_source_root=esm2_source_root,
+            staged_esm2_model_root=esm2_model_root,
+            device="cpu",
+        )
+        assert registry == prior_mapping
+        if "esm2_3B" in prior_mapping:
+            assert registry["esm2_3B"] is original_loader
+
+    assert len(observed_loaders) == 2
+    assert all(loader is not original_loader for loader in observed_loaders)
+
+
+def test_simplefold_folding_activation_restores_process_import_state(
+    tmp_path: Path,
+) -> None:
+    provider_root = tmp_path / "provider"
+    package_root = provider_root / "simplefold"
+    utils_root = package_root / "utils"
+    utils_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text("")
+    (utils_root / "__init__.py").write_text("")
+    (package_root / "wrapper.py").write_text(
+        "from utils.esm_utils import esm_registry\n"
+        "class InferenceWrapper:\n"
+        "    def __init__(self, **kwargs):\n"
+        "        pass\n"
+    )
+    (utils_root / "esm_utils.py").write_text(
+        "def original_loader():\n"
+        "    return object(), object()\n"
+        "esm_registry = {'esm2_3B': original_loader}\n"
+    )
+    (utils_root / "boltz_utils.py").write_text(
+        "process_structure = object()\n"
+        "to_pdb = object()\n"
+    )
+    (utils_root / "fasta_utils.py").write_text(
+        "def process_fastas(**kwargs):\n"
+        "    pass\n"
+    )
+    (utils_root / "datamodule_utils.py").write_text(
+        "process_one_inference_structure = object()\n"
+    )
+    model_root = tmp_path / "model"
+    esm2_source_root = tmp_path / "esm2-source"
+    esm2_model_root = tmp_path / "esm2-model"
+    for root in (model_root, esm2_source_root, esm2_model_root):
+        root.mkdir()
+
+    script = """
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, sys.argv[2])
+
+from datatypes.sequence import ProteinSequence
+from modules.folding.simplefold_runtime import activate_fold_sequence
+
+prefixes = ("utils", "model", "processor", "boltz_data_pipeline")
+def is_bare(name):
+    return any(name == prefix or name.startswith(prefix + ".") for prefix in prefixes)
+
+original_cwd = os.getcwd()
+original_path = tuple(sys.path)
+assert not any(is_bare(name) for name in sys.modules)
+
+activate_fold_sequence(
+    ProteinSequence("AG", ("A:1", "A:2")),
+    num_steps=50,
+    num_samples=1,
+    staging_directory=Path(sys.argv[3]),
+    effective_seed=1603,
+    staged_model_root=Path(sys.argv[4]),
+    staged_esm2_source_root=Path(sys.argv[5]),
+    staged_esm2_model_root=Path(sys.argv[6]),
+    device="cpu",
+)
+
+assert os.getcwd() == original_cwd
+assert tuple(sys.path) == original_path
+assert not any(is_bare(name) for name in sys.modules)
+from simplefold import wrapper
+assert wrapper.esm_registry["esm2_3B"].__name__ == "original_loader"
+"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            script,
+            str(Path(__file__).resolve().parents[1]),
+            str(provider_root),
+            str(tmp_path / "staging"),
+            str(model_root),
+            str(esm2_source_root),
+            str(esm2_model_root),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_simplefold_final_model_activation_restores_process_import_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib
+    import os
+    from types import ModuleType
+
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    provider_directory = tmp_path / "simplefold"
+    model_package = provider_directory / "model"
+    model_package.mkdir(parents=True)
+    (model_package / "__init__.py").write_text("")
+    (model_package / "provider_model.py").write_text("value = 1\n")
+    simplefold_module = ModuleType("simplefold")
+    simplefold_module.__file__ = str(provider_directory / "__init__.py")
+    monkeypatch.setitem(sys.modules, "simplefold", simplefold_module)
+    for module_name in tuple(sys.modules):
+        if module_name == "model" or module_name.startswith("model."):
+            monkeypatch.delitem(sys.modules, module_name)
+
+    def load_models(
+        model_directory: Path,
+        device: object,
+    ) -> tuple[object, dict[str, object]]:
+        assert model_directory == tmp_path / "models"
+        assert device == "device"
+        assert Path.cwd() == provider_directory
+        assert str(provider_directory) in sys.path
+        assert importlib.import_module("model.provider_model").value == 1
+        return "folding", {"plddt": "models"}
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_load_reviewed_folding_models",
+        load_models,
+    )
+    original_cwd = os.getcwd()
+    original_path = tuple(sys.path)
+    activated = simplefold_runtime.ActivatedSimpleFoldFolding(
+        provider_directory=provider_directory,
+        model_directory=tmp_path / "models",
+        output_directory=tmp_path / "output",
+        inference_wrapper=object(),
+        process_one_inference_structure=lambda: None,
+        torch_device="device",
+        torch_module=object(),
+        effective_seed=1603,
+        num_samples=1,
+        process_structure=lambda: None,
+        to_pdb=lambda: "",
+    )
+
+    activated.activate_final_models()
+
+    assert activated.folding_model == "folding"
+    assert activated.plddt_models == {"plddt": "models"}
+    assert os.getcwd() == original_cwd
+    assert tuple(sys.path) == original_path
+    assert "model" not in sys.modules
+    assert "model.provider_model" not in sys.modules
+
+
+@pytest.mark.parametrize("raise_during_scope", [False, True])
+def test_simplefold_scope_restores_preexisting_bare_modules_by_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    raise_during_scope: bool,
+) -> None:
+    import importlib
+    import os
+    from types import ModuleType
+
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    provider_directory = tmp_path / "simplefold"
+    provider_utils = provider_directory / "utils"
+    provider_utils.mkdir(parents=True)
+    (provider_utils / "__init__.py").write_text("")
+    (provider_utils / "provider_module.py").write_text("value = 1\n")
+    simplefold_module = ModuleType("simplefold")
+    simplefold_module.__file__ = str(provider_directory / "__init__.py")
+    prior_utils = ModuleType("utils")
+    prior_utils_child = ModuleType("utils.preexisting")
+    monkeypatch.setitem(sys.modules, "simplefold", simplefold_module)
+    monkeypatch.setitem(sys.modules, "utils", prior_utils)
+    monkeypatch.setitem(sys.modules, "utils.preexisting", prior_utils_child)
+    original_cwd = os.getcwd()
+    original_path = tuple(sys.path)
+
+    def enter_scope() -> None:
+        with simplefold_runtime._simplefold_activation_scope():
+            assert importlib.import_module("utils.provider_module").value == 1
+            if raise_during_scope:
+                raise RuntimeError("activation failed")
+
+    if raise_during_scope:
+        with pytest.raises(RuntimeError, match="activation failed"):
+            enter_scope()
+    else:
+        enter_scope()
+
+    assert os.getcwd() == original_cwd
+    assert tuple(sys.path) == original_path
+    assert sys.modules["utils"] is prior_utils
+    assert sys.modules["utils.preexisting"] is prior_utils_child
+    assert "utils.provider_module" not in sys.modules
 
 
 def test_simplefold_releases_esm2_before_loading_folding_models(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import os
     import sys
     from types import ModuleType
 
@@ -278,7 +596,6 @@ def test_simplefold_releases_esm2_before_loading_folding_models(
         "simplefold.utils.datamodule_utils": ModuleType(
             "simplefold.utils.datamodule_utils"
         ),
-        "utils.esm_utils": ModuleType("utils.esm_utils"),
         "hydra": ModuleType("hydra"),
         "omegaconf": ModuleType("omegaconf"),
     }
@@ -291,22 +608,24 @@ def test_simplefold_releases_esm2_before_loading_folding_models(
 
     modules["hydra"].utils = HydraUtils
     modules["omegaconf"].OmegaConf = OmegaConf
+    provider_directory = tmp_path / "simplefold"
+    provider_directory.mkdir()
+    modules["simplefold"].__file__ = str(
+        provider_directory / "__init__.py"
+    )
+    modules["simplefold"].wrapper = modules["simplefold.wrapper"]
     modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.wrapper"].esm_registry = {
+        "esm2_3B": lambda: (object(), object())
+    }
     modules["simplefold.utils.boltz_utils"].process_structure = object()
     modules["simplefold.utils.boltz_utils"].to_pdb = object()
     modules["simplefold.utils.fasta_utils"].process_fastas = process_fastas
     modules[
         "simplefold.utils.datamodule_utils"
     ].process_one_inference_structure = process_one_inference_structure
-    modules["utils.esm_utils"].esm_registry = {}
     for name, module in modules.items():
         monkeypatch.setitem(sys.modules, name, module)
-
-    monkeypatch.setattr(
-        simplefold_runtime,
-        "_setup_simplefold_imports",
-        os.getcwd,
-    )
     import hydra
     import omegaconf
 
@@ -567,7 +886,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,

@@ -164,8 +164,6 @@ def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
     )
     structure = _split_3gb1_into_two_chains(pdb_3gb1)
     layout = ResidueLayout(
-        "B,A",
-        56,
         [
             *(f"B:{position}" for position in range(1, 29)),
             *(f"A:{position}" for position in range(1, 29)),
@@ -324,8 +322,6 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     structure, normalizations = normalize_csh_parent_span(source)
     residue_axis = resolve_residue_axis(structure, normalizations)
     layout = ResidueLayout(
-        "A",
-        224,
         [f"A:{position}" for position in range(6, 230)],
     )
     result = adapter.design(

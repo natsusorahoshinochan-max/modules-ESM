@@ -156,7 +156,7 @@ def test_rmsd_context_uses_aligned_ca_normalization() -> None:
     context = evidence_metric_context(
         evidence,
         evidence_content_digest="sha256:" + "6" * 64,
-        pairing_mode="per_subject_counterpart",
+        pairing_mode="explicit_relation",
         metric_kind="rmsd",
     )
 

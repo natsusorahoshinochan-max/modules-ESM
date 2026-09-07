@@ -39,7 +39,7 @@ inputs:
     multiplicity: one
     scientific_meaning: Exact Candidate-associated SimpleFold structure axis.
   - name: method_pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: true
     multiplicity: one
     scientific_meaning: Exact ESMFold2-subject to SimpleFold-reference sibling pairing derived only from their common sequence parent.

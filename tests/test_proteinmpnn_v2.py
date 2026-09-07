@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -50,7 +54,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
@@ -97,6 +102,9 @@ from modules.proteinmpnn.adapter import (
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
+from modules.protein_io.package import (
+    MODULE_PACKAGE as PROTEIN_IO_PACKAGE,
+)
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
@@ -107,11 +115,7 @@ from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
-TARGET_LAYOUT = ResidueLayout(
-    "A,B",
-    5,
-    ["A:1", "A:2", "B:1", "B:2", "B:3"],
-)
+TARGET_LAYOUT = ResidueLayout(["A:1", "A:2", "B:1", "B:2", "B:3"])
 
 
 def _resolved_axis(
@@ -185,6 +189,86 @@ def _resolved_axis(
         ca_coordinate_mask=tuple(True for _ in range(layout.length)),
         complete_backbone_mask=tuple(True for _ in range(layout.length)),
     )
+
+
+def _pdb_for_chains(chains: tuple[tuple[str, int], ...]) -> str:
+    """Minimal canonical PDB text with exactly the requested residues."""
+    residues: list[tuple[str, int, str]] = []
+    for chain_id, length in chains:
+        for position in range(1, length + 1):
+            residues.append((chain_id, position, "ALA"))
+    lines: list[str] = []
+    serial = 1
+    previous_chain: str | None = None
+    for chain_id, position, residue_name in residues:
+        coordinate = float(serial)
+        lines.append(
+            f"ATOM  {serial:5d} {'CA':^4s} {residue_name:>3s} "
+            f"{chain_id}{position:4d}    "
+            f"{coordinate:8.3f}{0.0:8.3f}{0.0:8.3f}"
+            f"  1.00 20.00{'':10}{'C':>2s}  "
+        )
+        if previous_chain is not None and chain_id != previous_chain:
+            lines.append("TER")
+        previous_chain = chain_id
+        serial += 1
+    return "\n".join([*lines, "TER", "END", ""])
+
+
+_RESOLVED_AXIS_INPUT_REF = "resolved-axis-structure"
+
+
+def _axis_subgraph(
+    chains: tuple[tuple[str, int], ...],
+    *,
+    target_node_id: str,
+    import_node_id: str = "import-structure",
+    select_node_id: str = "select-chains",
+    resolve_node_id: str = "resolve-axis",
+) -> tuple[tuple[WorkflowNodeInstance, ...], tuple[WorkflowEdge, ...]]:
+    """protein_io.import_structure -> select_chains -> resolve_residue_axis."""
+    import_node = WorkflowNodeInstance(
+        node_id=import_node_id,
+        node_type_id="protein_io.import_structure",
+        binding_id="protein_io.import_structure.direct",
+        node_parameters={"project_input_ref": _RESOLVED_AXIS_INPUT_REF},
+        binding_parameters={},
+    )
+    select_node = WorkflowNodeInstance(
+        node_id=select_node_id,
+        node_type_id="structure_transform.select_chains",
+        binding_id="structure_transform.select_chains.direct",
+        node_parameters={"chain_ids": [chain_id for chain_id, _ in chains]},
+        binding_parameters={},
+    )
+    resolve_node = WorkflowNodeInstance(
+        node_id=resolve_node_id,
+        node_type_id="structure_transform.resolve_residue_axis",
+        binding_id="structure_transform.resolve_residue_axis.direct",
+        node_parameters={},
+        binding_parameters={},
+    )
+    edges = (
+        WorkflowEdge(
+            import_node_id,
+            "structure",
+            select_node_id,
+            "structure",
+        ),
+        WorkflowEdge(
+            select_node_id,
+            "structure",
+            resolve_node_id,
+            "structure",
+        ),
+        WorkflowEdge(
+            resolve_node_id,
+            "residue_axis",
+            target_node_id,
+            "structure_residue_axis",
+        ),
+    )
+    return (import_node, select_node, resolve_node), edges
 
 
 def _structure_candidate_references(
@@ -534,7 +618,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,
@@ -551,6 +635,7 @@ def _run(
     edges: tuple[WorkflowEdge, ...],
     registrations: tuple[Any, ...],
     environment: Any | None = None,
+    structure_pdb: str | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(registrations)
     projects = ProjectManager(
@@ -560,6 +645,13 @@ def _run(
         run_root=tmp_path / "runs",
     )
     project = projects.create("ProteinMPNN v2")
+    if structure_pdb is not None:
+        projects.publish_input(
+            project.id,
+            _RESOLVED_AXIS_INPUT_REF,
+            structure_pdb.encode("ascii"),
+            filename=f"{_RESOLVED_AXIS_INPUT_REF}.pdb",
+        )
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
@@ -608,21 +700,16 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
 
-    layout = WorkflowNodeInstance(
-        node_id="layout",
-        node_type_id="prompt_authoring.build_residue_layout",
-        binding_id="prompt_authoring.build_residue_layout.direct",
-        node_parameters={
-            "chains": [
-                {"chain_id": "A", "length": 2},
-                {"chain_id": "B", "length": 3},
-            ]
-        },
-        binding_parameters={},
+    axis_nodes, axis_edges = _axis_subgraph(
+        (("A", 2), ("B", 3)),
+        target_node_id="constraints",
     )
     constraints = WorkflowNodeInstance(
         node_id="constraints",
@@ -645,13 +732,15 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
 
     catalog, service, projection, events = _run(
         tmp_path,
-        nodes=(layout, constraints),
-        edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),),
+        nodes=(*axis_nodes, constraints),
+        edges=axis_edges,
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEINMPNN_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
+            PROTEIN_IO_PACKAGE,
         ),
+        structure_pdb=_pdb_for_chains((("A", 2), ("B", 3))),
     )
 
     assert projection["status"] == "succeeded", events
@@ -690,11 +779,7 @@ def test_constraints_v4_canonical_value_and_contract_identity_golden() -> None:
     )
 
     constraints = ProteinMPNNConstraints(
-        layout=ResidueLayout(
-            "A,B",
-            6,
-            ["A:1", "A:2", "A:3", "A:4", "B:1", "B:2"],
-        ),
+        layout=ResidueLayout(["A:1", "A:2", "A:3", "A:4", "B:1", "B:2"]),
         designable_residue_ids=["A:1", "A:2", "A:3"],
         fixed_residue_ids=["A:4"],
         designed_chains=["A"],
@@ -713,13 +798,13 @@ def test_constraints_v4_canonical_value_and_contract_identity_golden() -> None:
         b'"value":{"bias_by_residue":[["A:3",{"G":1.5,"Y":-0.25}]],'
         b'"designable_residue_ids":["A:1","A:2","A:3"],'
         b'"designed_chains":["A"],"fixed_chains":["B"],'
-        b'"fixed_residue_ids":["A:4"],"layout":{"chain_id":"A,B",'
-        b'"length":6,"residue_ids":["A:1","A:2","A:3","A:4","B:1",'
-        b'"B:2"]},"omit_amino_acids":["C","M"],'
+        b'"fixed_residue_ids":["A:4"],"layout":{"length":6,'
+        b'"residue_ids":["A:1","A:2","A:3","A:4","B:1","B:2"]},'
+        b'"omit_amino_acids":["C","M"],'
         b'"tied_residue_groups":[["A:1","A:2"]]}}'
     )
     assert port_type.content_digest(constraints) == (
-        "sha256:6c60e72616a7bd5d76cf747425349da17f4ae7adf458eb3e1c7e7c5f2496478c"
+        "sha256:f5eba32d967199eb42f550ca94ca977ddb8a118c82a0a5e4c6677b02faaf71da"
     )
 
 
@@ -777,6 +862,9 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -791,19 +879,12 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
         "bias_by_residue": [],
         **parameter_override,
     }
+    axis_nodes, axis_edges = _axis_subgraph(
+        (("A", 2), ("B", 3)),
+        target_node_id="constraints",
+    )
     nodes = (
-        WorkflowNodeInstance(
-            node_id="layout",
-            node_type_id="prompt_authoring.build_residue_layout",
-            binding_id="prompt_authoring.build_residue_layout.direct",
-            node_parameters={
-                "chains": [
-                    {"chain_id": "A", "length": 2},
-                    {"chain_id": "B", "length": 3},
-                ]
-            },
-            binding_parameters={},
-        ),
+        *axis_nodes,
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
@@ -816,12 +897,14 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
     catalog, _, projection, events = _run(
         tmp_path,
         nodes=nodes,
-        edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),),
+        edges=axis_edges,
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEINMPNN_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
+            PROTEIN_IO_PACKAGE,
         ),
+        structure_pdb=_pdb_for_chains((("A", 2), ("B", 3))),
     )
 
     assert projection["status"] == "failed"
@@ -840,30 +923,33 @@ def test_constraint_parameter_schema_rejects_public_x_bias() -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
+    from modules.protein_io.package import (
+        MODULE_PACKAGE as PROTEIN_IO_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
 
     catalog = build_frozen_catalog(
         (
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEINMPNN_PACKAGE,
+            PROTEIN_IO_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         )
+    )
+    axis_nodes, axis_edges = _axis_subgraph(
+        (("A", 1),),
+        target_node_id="constraints",
     )
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id="proteinmpnn-x-bias",
         nodes=(
-            WorkflowNodeInstance(
-                node_id="layout",
-                node_type_id="prompt_authoring.build_residue_layout",
-                binding_id="prompt_authoring.build_residue_layout.direct",
-                node_parameters={
-                    "chains": [{"chain_id": "A", "length": 1}]
-                },
-                binding_parameters={},
-            ),
+            *axis_nodes,
             WorkflowNodeInstance(
                 node_id="constraints",
                 node_type_id="proteinmpnn.constraints",
@@ -886,7 +972,7 @@ def test_constraint_parameter_schema_rejects_public_x_bias() -> None:
                 binding_parameters={},
             ),
         ),
-        edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),))
+        edges=axis_edges,)
 
     locked = workflow
     with pytest.raises(WorkflowCompileError) as rejected:
@@ -909,6 +995,9 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -925,16 +1014,12 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
     )
 
     def run(seed: int) -> tuple[str, ProteinMPNNConstraints]:
+        axis_nodes, axis_edges = _axis_subgraph(
+            (("A", 20),),
+            target_node_id="random-fixed",
+        )
         nodes = (
-            WorkflowNodeInstance(
-                node_id="layout",
-                node_type_id="prompt_authoring.build_residue_layout",
-                binding_id="prompt_authoring.build_residue_layout.direct",
-                node_parameters={
-                    "chains": [{"chain_id": "A", "length": 20}]
-                },
-                binding_parameters={},
-            ),
+            *axis_nodes,
             WorkflowNodeInstance(
                 node_id="random-fixed",
                 node_type_id="proteinmpnn.random_fixed_positions",
@@ -949,19 +1034,14 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
         run_catalog, service, projection, events = _run(
             tmp_path,
             nodes=nodes,
-            edges=(
-                WorkflowEdge(
-                    "layout",
-                    "layout",
-                    "random-fixed",
-                    "layout",
-                ),
-            ),
+            edges=axis_edges,
             registrations=(
-                PROMPT_AUTHORING_PACKAGE,
+                PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
                 PROTEINMPNN_PACKAGE,
                 STRUCTURE_TRANSFORM_PACKAGE,
+                PROTEIN_IO_PACKAGE,
             ),
+            structure_pdb=_pdb_for_chains((("A", 20),)),
         )
         assert projection["status"] == "succeeded", events
         output = next(
@@ -1514,6 +1594,9 @@ def test_design_model_activation_failure_starts_no_engine_invocation(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -1534,11 +1617,13 @@ def test_design_model_activation_failure_starts_no_engine_invocation(
         nodes=nodes,
         edges=edges,
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEINMPNN_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
+            PROTEIN_IO_PACKAGE,
         ),
+        structure_pdb=_pdb_for_chains((("A", 2), ("B", 3))),
         environment=_proteinmpnn_environment(),
     )
 
@@ -1685,11 +1770,7 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
 def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -> None:
     provider = _ControlledProteinMPNNProvider()
     resources = _AdapterResources()
-    layout = ResidueLayout(
-        "A,B",
-        5,
-        ["A:6", "A:7", "B:20", "B:21", "B:22"],
-    )
+    layout = ResidueLayout(["A:6", "A:7", "B:20", "B:21", "B:22"])
     score = _controlled_adapter(provider, resources=resources).score(
         residue_axis=_resolved_axis(layout=layout),
         sequence=ProteinSequence(
@@ -1788,11 +1869,7 @@ def test_design_projects_canonical_axis_into_provider_safe_structure(
             self.requests.append(request)
             return [ProteinSequence("YYYYAC")]
 
-    layout = ResidueLayout(
-        "B,A",
-        6,
-        ["B:-2", "B:+1A", "A:6", "A:8", "A:8A", "A:10"],
-    )
+    layout = ResidueLayout(["B:-2", "B:+1A", "A:6", "A:8", "A:8A", "A:10"])
     unsplit_axis = _resolved_axis(layout=layout, sequence="ACDEFG")
     axis = replace(
         unsplit_axis,
@@ -1944,7 +2021,7 @@ def test_scoring_stages_numbering_gaps_and_preserves_backbone_mask(
             )
             return 1.5
 
-    layout = ResidueLayout("A", 2, ["A:6", "A:8"])
+    layout = ResidueLayout(["A:6", "A:8"])
     complete_axis = _resolved_axis(layout=layout, sequence="AG")
     incomplete_second = replace(
         complete_axis.residue_coordinates[1],
@@ -2048,11 +2125,7 @@ def test_design_and_score_preserve_same_chain_segment_topology(
             )
             return 1.25
 
-    layout = ResidueLayout(
-        "A",
-        6,
-        ["A:1", "A:2", "A:3", "A:4", "A:5", "A:6"],
-    )
+    layout = ResidueLayout(["A:1", "A:2", "A:3", "A:4", "A:5", "A:6"])
     unsplit_axis = _resolved_axis(layout=layout, sequence="AGSTWY")
     axis = replace(
         unsplit_axis,
@@ -2194,11 +2267,7 @@ def test_provider_staging_capacity_counts_segments_not_workbench_chains(
             self.requests.append(request)
             return [ProteinSequence("A" * request.target_length)]
 
-    supported_layout = ResidueLayout(
-        "A",
-        62,
-        [f"A:{position}" for position in range(1, 63)],
-    )
+    supported_layout = ResidueLayout([f"A:{position}" for position in range(1, 63)])
     supported_unsplit = _resolved_axis(
         layout=supported_layout,
         sequence="A" * 62,
@@ -2233,11 +2302,7 @@ def test_provider_staging_capacity_counts_segments_not_workbench_chains(
         tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
     )
 
-    layout = ResidueLayout(
-        "A",
-        63,
-        [f"A:{position}" for position in range(1, 64)],
-    )
+    layout = ResidueLayout([f"A:{position}" for position in range(1, 64)])
     unsplit_axis = _resolved_axis(layout=layout, sequence="A" * 63)
     axis = replace(
         unsplit_axis,
@@ -2376,6 +2441,9 @@ def test_provider_failure_keeps_durable_residue_projection_started_event(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -2396,11 +2464,13 @@ def test_provider_failure_keeps_durable_residue_projection_started_event(
         nodes=nodes,
         edges=edges,
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEINMPNN_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
+            PROTEIN_IO_PACKAGE,
         ),
+        structure_pdb=_pdb_for_chains((("A", 2), ("B", 3))),
         environment=_proteinmpnn_environment(),
     )
 
@@ -2592,6 +2662,10 @@ def _design_workflow() -> tuple[
     tuple[WorkflowNodeInstance, ...],
     tuple[WorkflowEdge, ...],
 ]:
+    axis_nodes, axis_edges = _axis_subgraph(
+        (("A", 2), ("B", 3)),
+        target_node_id="constraints",
+    )
     nodes = (
         WorkflowNodeInstance(
             node_id="source",
@@ -2600,18 +2674,7 @@ def _design_workflow() -> tuple[
             node_parameters={"parent_count": 3},
             binding_parameters={},
         ),
-        WorkflowNodeInstance(
-            node_id="layout",
-            node_type_id="prompt_authoring.build_residue_layout",
-            binding_id="prompt_authoring.build_residue_layout.direct",
-            node_parameters={
-                "chains": [
-                    {"chain_id": "A", "length": 2},
-                    {"chain_id": "B", "length": 3},
-                ]
-            },
-            binding_parameters={},
-        ),
+        *axis_nodes,
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
@@ -2658,7 +2721,7 @@ def _design_workflow() -> tuple[
         ),
     )
     edges = (
-        WorkflowEdge("layout", "layout", "constraints", "layout"),
+        *axis_edges,
         WorkflowEdge(
             "source",
             "structure_candidates",
@@ -2852,6 +2915,9 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.provider_request import _ALPHABET_DICT
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
@@ -2868,11 +2934,13 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         nodes=nodes,
         edges=edges,
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEINMPNN_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
+            PROTEIN_IO_PACKAGE,
         ),
+        structure_pdb=_pdb_for_chains((("A", 2), ("B", 3))),
         environment=_proteinmpnn_environment(),
     )
 
@@ -3127,6 +3195,9 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -3178,13 +3249,6 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
             node_id="resolve-axis",
             node_type_id="structure_transform.resolve_residue_axis",
             binding_id="structure_transform.resolve_residue_axis.direct",
-            node_parameters={},
-            binding_parameters={},
-        ),
-        WorkflowNodeInstance(
-            node_id="prompt",
-            node_type_id="prompt_authoring.prompt_from_structure",
-            binding_id="prompt_authoring.prompt_from_structure.direct",
             node_parameters={},
             binding_parameters={},
         ),
@@ -3252,8 +3316,12 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
                 "resolve-axis",
                 "modified_residue_normalizations",
             ),
-            WorkflowEdge("resolve-axis", "residue_axis", "prompt", "residue_axis"),
-            WorkflowEdge("prompt", "layout", "constraints", "layout"),
+            WorkflowEdge(
+                "resolve-axis",
+                "residue_axis",
+                "constraints",
+                "structure_residue_axis",
+            ),
             WorkflowEdge(
                 "normalize",
                 "structure",
@@ -3286,7 +3354,7 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
             ),
         ),
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROMPT_SOURCE_PACKAGE,
             MPNN_SOURCE_PACKAGE,
             PROTEINMPNN_PACKAGE,
@@ -3579,11 +3647,7 @@ def test_design_operation_owns_reference_and_constraint_axis_closure() -> None:
             }
         )
 
-    changed_layout = ResidueLayout(
-        "A,B",
-        5,
-        ["A:1", "A:2", "A:3", "B:1", "B:2"],
-    )
+    changed_layout = ResidueLayout(["A:1", "A:2", "A:3", "B:1", "B:2"])
     with pytest.raises(
         ValueError,
         match="constraints must use the exact resolved residue axis",
@@ -3909,6 +3973,9 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -3939,11 +4006,13 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
             nodes=nodes,
             edges=edges,
             registrations=(
-                PROMPT_AUTHORING_PACKAGE,
+                PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
                 PROTEINMPNN_PACKAGE,
                 SOURCE_PACKAGE,
                 STRUCTURE_TRANSFORM_PACKAGE,
+                PROTEIN_IO_PACKAGE,
             ),
+            structure_pdb=_pdb_for_chains((("A", 2), ("B", 3))),
             environment=_proteinmpnn_environment(),
         )
         assert projection["status"] == "succeeded", events
@@ -3974,33 +4043,32 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
     ]
 
 
+@pytest.mark.parametrize(
+    ("case_id", "candidate_counts", "observation_counts"),
+    [
+        ("constraints", {}, {}),
+        ("random-fixed", {}, {}),
+        ("design", {"sequence_candidates": 15}, {}),
+        ("score", {}, {"scores": 1}),
+    ],
+    ids=["constraints", "random-fixed", "design", "score"],
+)
 def test_proteinmpnn_passes_the_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    candidate_counts: dict[str, int],
+    observation_counts: dict[str, int],
 ) -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
-    from modules.proteinmpnn.package import (
-        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
-    )
+    from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA_PACKAGE
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN_PACKAGE
     from tests.fixtures.proteinmpnn_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
-
-    def layout_node(node_id: str) -> WorkflowNodeInstance:
-        return WorkflowNodeInstance(
-            node_id=node_id,
-            node_type_id="prompt_authoring.build_residue_layout",
-            binding_id="prompt_authoring.build_residue_layout.direct",
-            node_parameters={
-                "chains": [
-                    {"chain_id": "A", "length": 2},
-                    {"chain_id": "B", "length": 3},
-                ]
-            },
-            binding_parameters={},
-        )
 
     source = WorkflowNodeInstance(
         node_id="source",
@@ -4025,30 +4093,25 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     )
     design_axis_resolver = WorkflowNodeInstance(
         node_id="design-axis-resolver",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
     score_axis_resolver = WorkflowNodeInstance(
         node_id="score-axis-resolver",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
     design_provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, design_provider)
-    cases = (
-        ModulePackageContractCase(
+    constraints_axis_nodes, constraints_axis_edges = _axis_subgraph(
+        (("A", 2), ("B", 3)), target_node_id="contract-test-node"
+    )
+    case = {
+        "constraints": lambda: ModulePackageContractCase(
             case_id="constraints",
             node_type_id="proteinmpnn.constraints",
             binding_id="proteinmpnn.constraints.local",
@@ -4060,43 +4123,47 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                 "omit_amino_acids": ["C", "M"],
                 "tied_residue_groups": [["A:1", "B:1"]],
                 "bias_by_residue": [
-                    {
-                        "residue_id": "B:3",
-                        "amino_acid": "A",
-                        "bias": 1.5,
-                    }
+                    {"residue_id": "B:3", "amino_acid": "A", "bias": 1.5}
                 ],
             },
             binding_parameters={},
             environment_values={},
-            workflow_nodes=(layout_node("layout"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "layout",
-                    "layout",
-                    "contract-test-node",
-                    "layout",
-                ),
-            ),
+            project_inputs={
+                _RESOLVED_AXIS_INPUT_REF: _pdb_for_chains((("A", 2), ("B", 3))).encode(
+                    "ascii"
+                )
+            },
+            workflow_nodes=constraints_axis_nodes,
+            workflow_edges=constraints_axis_edges,
         ),
-        ModulePackageContractCase(
+        "random-fixed": lambda: ModulePackageContractCase(
             case_id="random-fixed",
             node_type_id="proteinmpnn.random_fixed_positions",
             binding_id="proteinmpnn.random_fixed_positions.local",
             node_parameters={"effective_seed": 1603, "fraction": 0.4},
             binding_parameters={},
             environment_values={},
-            workflow_nodes=(layout_node("layout"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "layout",
-                    "layout",
-                    "contract-test-node",
-                    "layout",
-                ),
-            ),
+            project_inputs={
+                _RESOLVED_AXIS_INPUT_REF: _pdb_for_chains((("A", 2), ("B", 3))).encode(
+                    "ascii"
+                )
+            },
+            workflow_nodes=_axis_subgraph(
+                (("A", 2), ("B", 3)),
+                target_node_id="contract-test-node",
+                import_node_id="random-fixed-import-structure",
+                select_node_id="random-fixed-select-chains",
+                resolve_node_id="random-fixed-resolve-axis",
+            )[0],
+            workflow_edges=_axis_subgraph(
+                (("A", 2), ("B", 3)),
+                target_node_id="contract-test-node",
+                import_node_id="random-fixed-import-structure",
+                select_node_id="random-fixed-select-chains",
+                resolve_node_id="random-fixed-resolve-axis",
+            )[1],
         ),
-        ModulePackageContractCase(
+        "design": lambda: ModulePackageContractCase(
             case_id="design",
             node_type_id="proteinmpnn.design",
             binding_id="proteinmpnn.design.local",
@@ -4108,7 +4175,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             },
             binding_parameters={},
             environment_values={
-                    "provider_root": _controlled_proteinmpnn_provider_root(),
+                "provider_root": _controlled_proteinmpnn_provider_root()
             },
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
@@ -4118,12 +4185,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "contract-test-node",
                     "structure_candidates",
                 ),
-                WorkflowEdge(
-                    "source",
-                    "sequence",
-                    "contract-test-node",
-                    "sequence",
-                ),
+                WorkflowEdge("source", "sequence", "contract-test-node", "sequence"),
                 WorkflowEdge(
                     "source",
                     "structure_candidates",
@@ -4137,23 +4199,17 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "structure_residue_axes",
                 ),
             ),
-            expected_candidate_counts={"sequence_candidates": 15},
-            forbidden_public_fragments=("ctk-proteinmpnn-secret",),
         ),
-        ModulePackageContractCase(
+        "score": lambda: ModulePackageContractCase(
             case_id="score",
             node_type_id="proteinmpnn.score",
             binding_id="proteinmpnn.score.local",
             node_parameters={},
             binding_parameters={},
             environment_values={
-                    "provider_root": _controlled_proteinmpnn_provider_root(),
+                "provider_root": _controlled_proteinmpnn_provider_root()
             },
-            workflow_nodes=(
-                score_source,
-                sequence_source,
-                score_axis_resolver,
-            ),
+            workflow_nodes=(score_source, sequence_source, score_axis_resolver),
             workflow_edges=(
                 WorkflowEdge(
                     "score-source",
@@ -4186,38 +4242,73 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "structure_residue_axes",
                 ),
             ),
-            expected_observation_counts={"scores": 1},
-            forbidden_public_fragments=("ctk-proteinmpnn-secret",),
         ),
-    )
-
-    report = verify_module_package_contract(
+    }[case_id]()
+    result = execute_module_package_case(
         PROTEINMPNN_PACKAGE,
-        execution_cases=cases,
-        port_cases=(
-            ModulePackagePortCase(
-                type_id="proteinmpnn.constraints",
-                valid_value=ProteinMPNNConstraints(
-                    layout=ResidueLayout("A", 1, ["A:1"]),
-                    fixed_residue_ids=["A:1"],
-                ),
-                invalid_values=(object(),),
-            ),
-        ),
+        case,
         supporting_registrations=(
             PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
+            PROTEIN_IO_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         ),
         work_root=tmp_path / "ctk",
     )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in candidate_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, CandidateCollection)
+        assert len(value.items) == expected_count
+        assert all(
+            (
+                candidate.candidate_id.startswith("candidate-")
+                for candidate in value.items
+            )
+        )
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
+    for fragment in ("ctk-proteinmpnn-secret",):
+        assert fragment not in json.dumps(result.public_evidence)
 
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+
+@pytest.mark.parametrize("port_index", [0])
+def test_proteinmpnn_passes_the_shared_contract_test_kit_ports(port_index: int) -> None:
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA_PACKAGE
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN_PACKAGE
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    port_case = (
+        ModulePackagePortCase(
+            type_id="proteinmpnn.constraints",
+            valid_value=ProteinMPNNConstraints(
+                layout=ResidueLayout(["A:1"]), fixed_residue_ids=["A:1"]
+            ),
+            invalid_values=(object(),),
+        ),
+    )[port_index]
+    verify_module_package_port(
+        PROTEINMPNN_PACKAGE,
+        port_case,
+        supporting_registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
+            PROTEIN_IO_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        ),
+    )
 
 
 def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(

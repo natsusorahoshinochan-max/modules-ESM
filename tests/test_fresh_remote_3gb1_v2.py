@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from core.catalog.builder import build_frozen_catalog
@@ -25,7 +27,7 @@ import pytest
 
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from datatypes.candidate import CandidateCollection
-from datatypes.observation import PairwiseCandidateMapping
+from datatypes.observation import CandidateRelation
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
     retain_service_run,
@@ -33,7 +35,13 @@ from tests.acceptance.retained_evidence import (
 from tests.acceptance.biohub_environment import (
     biohub_esm3_esmfold2_environment,
 )
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.runtime_results import wait_for_service_run_terminal_events
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    install_prompt_authoring_workflow,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+)
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
     installed_artifact,
@@ -73,7 +81,6 @@ _LOCAL_BINDING_REPLACEMENTS = {
     "folding.fold.esmfold2_remote": "folding.fold.esmfold2_local",
 }
 
-
 def _route_bindings(route: str) -> dict[str, dict[str, str]]:
     return {"biohub": REMOTE_BINDINGS, "local": LOCAL_BINDINGS}[route]
 
@@ -100,14 +107,36 @@ def _author_local_workflow(
     input_nodes = [
         node
         for node in workflow["nodes"]
-        if node["node_id"] == "import-3gb1"
+        if node["node_type_id"] == "protein_io.import_structure"
     ]
-    assert len(input_nodes) == 1
-    input_node = input_nodes[0]
-    assert input_node["node_type_id"] == "protein_io.import_structure"
-    input_node["node_parameters"] = {
-        "project_input_ref": project_input_ref
-    }
+    assert input_nodes
+    for input_node in input_nodes:
+        input_node["node_parameters"] = {
+            "project_input_ref": project_input_ref
+        }
+
+
+def _materialize_local_prompt_compositions(
+    client: Any,
+    project_id: str,
+    project_input_ref: str,
+    workflow: dict[str, Any],
+) -> dict[str, Any]:
+    _ = project_input_ref
+    install_prompt_authoring_workflow(client, project_id, workflow)
+    author_node_id = (
+        "prompt-composition-880d0182ba335a2141077fb2.source.author"
+    )
+    opened = open_pdb_prompt_document(client, project_id, author_node_id)
+    document = opened["document"]
+    assert document["random_operations"], "fixture document must seed randomness"
+    assert document["track_edits"], "fixture document must edit tracks"
+    return apply_prompt_document(
+        client,
+        project_id,
+        author_node_id,
+        preview_prompt_document(client, project_id, author_node_id, document),
+    )
 
 
 def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
@@ -142,6 +171,50 @@ def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
     decoded = decode_workflow_document(workflow)
     compiled = compile_workflow(CompilationRequest(decoded), catalog)
     assert compiled.workflow_id == decoded.workflow_id
+
+
+def test_local_canonical_fixture_commits_with_materialized_ownership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.bootstrap import create_application
+    from tests.support.public_request import encode_project_input_content
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    workflow = json.loads(
+        files("examples").joinpath(
+            "v2", "canonical-3gb1.workflow.json"
+        ).read_text(encoding="utf-8")
+    )
+    input_bytes = files("examples").joinpath(
+        "v2", "structures", "3GB1.pdb"
+    ).read_bytes()
+    with TestClient(create_application()) as client:
+        project_id = client.post(
+            "/api/v2/projects",
+            json={"name": "canonical fixture ownership"},
+        ).json()["id"]
+        uploaded = client.post(
+            f"/api/v2/projects/{project_id}/inputs",
+            json={
+                "filename": "3GB1.pdb",
+                "content_base64": encode_project_input_content(input_bytes),
+            },
+        )
+        uploaded.raise_for_status()
+        _author_local_workflow(
+            workflow,
+            workflow_id=project_id,
+            project_input_ref=uploaded.json()["project_input_ref"],
+        )
+        _materialize_local_prompt_compositions(
+            client,
+            project_id,
+            uploaded.json()["project_input_ref"],
+            workflow,
+        )
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
 
 
 def _environment(route: str) -> dict[str, dict[str, Any]]:
@@ -430,16 +503,25 @@ def _assert_science(
         service, catalog, projection, "fold-sequences", "structure_candidates"
     )
     counterparts = _one(
-        service, catalog, projection, "generate-paired", "counterpart_pairs"
+        service,
+        catalog,
+        projection,
+        "relate-generated-sequences-to-structures",
+        "relation",
     )
     rebound_counterparts = _one(
-        service, catalog, projection, "rebind-counterparts", "pairing"
+        service, catalog, projection, "compose-folds-to-generated", "relation"
+    )
+    prompt_node_id = next(
+        node["node_id"]
+        for node in workflow["nodes"]
+        if node["node_type_id"] == "prompt_authoring.author"
     )
     prompt = _one(
         service,
         catalog,
         projection,
-        "override-secondary-structure",
+        prompt_node_id,
         "protein_prompt",
     )
     fixed_alignments = _values(
@@ -464,8 +546,8 @@ def _assert_science(
     assert type(paired_sequences) is CandidateCollection
     assert type(paired_structures) is CandidateCollection
     assert type(folded_structures) is CandidateCollection
-    assert type(counterparts) is PairwiseCandidateMapping
-    assert type(rebound_counterparts) is PairwiseCandidateMapping
+    assert type(counterparts) is CandidateRelation
+    assert type(rebound_counterparts) is CandidateRelation
     assert len(paired_sequences.items) == len(paired_structures.items) == 10
     assert len(folded_structures.items) == 10
     assert len(counterparts.entries) == 10
@@ -530,45 +612,34 @@ def _assert_science(
         for item in projection["selection_results"][0]["objectives"]
     } == {"fixed-3gb1": 0.7, "paired-esm3": 0.3}
 
-    visible_backbones = sum(
-        bool(is_visible)
-        and value is not None
+    conditioned_backbones = sum(
+        value is not None
         and all(
-            atom in value
+            atom in value.atom_names
             and all(
                 isinstance(coordinate, (int, float))
                 and math.isfinite(coordinate)
-                for coordinate in value[atom]
+                for coordinate in value.coordinate_for(atom)
             )
             for atom in ("N", "CA", "C")
         )
-        for value, is_visible in zip(
-            prompt.structure_track.values,
-            prompt.structure_visibility_track.values,
-            strict=True,
-        )
+        for value in prompt.coordinates
     )
     assert prompt.num_residues == 71
-    assert sum(value is None for value in prompt.sequence_track.values) == 35
-    assert len(prompt.secondary_structure_track.values) == 71
-    assert visible_backbones == 46
+    assert sum(value is None for value in prompt.sequence) == 35
+    assert len(prompt.secondary_structure) == 71
+    assert conditioned_backbones == 46
     assert "".join(
         value if value is not None else "_"
-        for value in prompt.sequence_track.values
+        for value in prompt.sequence
     ) == (
         "____Y_KL__N_GKT___G__TT__AVDA_T_E_KV_KQ_Y_A_D_N_GVD_G__W_YD_____TF_V_TE"
     )
     assert "".join(
         value if value is not None else "_"
-        for value in prompt.secondary_structure_track.values
+        for value in prompt.secondary_structure
     ) == (
         "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____EEEEEEEEEEEEEEEEEEEEEE_______________"
-    )
-    assert "".join(
-        "1" if value else "0"
-        for value in prompt.structure_visibility_track.values
-    ) == (
-        "10101011111011110111011111111111101111101011101011101101111111101111011"
     )
     assert len(projection["artifact_index"]) == 15
     assert [
@@ -640,6 +711,12 @@ def test_fresh_canonical_3gb1_public_run() -> None:
                 workflow,
                 workflow_id=project_id,
                 project_input_ref=uploaded.json()["project_input_ref"],
+            )
+            _materialize_local_prompt_compositions(
+                client,
+                project_id,
+                uploaded.json()["project_input_ref"],
+                workflow,
             )
             committed = client.post(
                 f"/api/v2/projects/{project_id}/workflow:commit",

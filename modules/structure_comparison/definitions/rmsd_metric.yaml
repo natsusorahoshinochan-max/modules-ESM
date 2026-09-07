@@ -20,7 +20,7 @@ observation_context_schema:
     reference_role:
       const: reference
     pairing_mode:
-      enum: [fixed_reference, per_subject_counterpart]
+      const: explicit_relation
     normalization:
       const: aligned-CA-mean-square-distance
     evidence_content_digest:

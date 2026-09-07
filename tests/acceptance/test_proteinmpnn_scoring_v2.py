@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 import os
@@ -131,7 +133,7 @@ def _decode(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> object:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,10 +14,7 @@ from fastapi.testclient import TestClient
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from tests.support.contract_test_kit import (
-    ModulePackageContractCase,
-    verify_module_package_contract,
-)
+from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.authoring import WorkflowCommit
 from core.workflow.compiler import (
     CompilationRequest,
@@ -49,10 +48,7 @@ from datatypes.observation import (
 )
 from datatypes.sequence import ProteinSequence
 from modules.selection.package import MODULE_PACKAGE
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_values,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
@@ -516,7 +512,14 @@ def test_utility_selection_joins_by_complete_admitted_cdr(
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id=f"selection.{operation}.direct",
-            inputs={"candidates": candidates, "scores": mismatched},
+            inputs={
+                "candidates": candidates,
+                "scores": (
+                    (mismatched,)
+                    if operation == "weighted_rank"
+                    else mismatched
+                ),
+            },
             node_parameters=_selection_node(operation).node_parameters,
             binding_parameters={},
         ))
@@ -672,71 +675,54 @@ def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
     ]
 
 
-def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("operation", "expected_count"),
+    [
+        ("filter", 3),
+        ("sort", 3),
+        ("top_k", 2),
+        ("weighted_rank", 3),
+        ("pareto", 3),
+        ("diversity", 2),
+    ],
+)
+def test_all_three_nodes_pass_the_contract_test_kit(
+    tmp_path: Path, operation: str, expected_count: int
+) -> None:
     catalog = _catalog()
     objective = _objective(catalog)
     selector = _selector(catalog)
-    cases = tuple(
-        ModulePackageContractCase(
-            case_id=f"selection-{operation}",
-            node_type_id=f"selection.{operation}",
-            binding_id=f"selection.{operation}.direct",
-            node_parameters=_selection_node(operation).node_parameters,
-            binding_parameters={},
-            environment_values={},
-            workflow_nodes=(_source(), _scorer()),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "candidates",
-                    "scorer",
-                    "candidates",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "candidates",
-                    "contract-test-node",
-                    "candidates",
-                ),
-                WorkflowEdge(
-                    "scorer",
-                    "scores",
-                    "contract-test-node",
-                    "scores",
-                ),
-            ),
-            observation_selectors=(
-                (selector,) if operation == "filter" else ()
-            ),
-            selection_objectives=(
-                () if operation == "filter" else (objective,)
-            ),
-            expected_candidate_counts={
-                "candidates": (
-                    2
-                    if operation in {"top_k", "diversity"}
-                    else 3
-                )
-            },
-        )
-        for operation in (
-            "filter",
-            "sort",
-            "top_k",
-            "weighted_rank",
-            "pareto",
-            "diversity",
-        )
+    case = ModulePackageContractCase(
+        case_id=f"selection-{operation}",
+        node_type_id=f"selection.{operation}",
+        binding_id=f"selection.{operation}.direct",
+        node_parameters=_selection_node(operation).node_parameters,
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(_source(), _scorer()),
+        workflow_edges=(
+            WorkflowEdge("source", "candidates", "scorer", "candidates"),
+            WorkflowEdge("source", "candidates", "contract-test-node", "candidates"),
+            WorkflowEdge("scorer", "scores", "contract-test-node", "scores"),
+        ),
+        observation_selectors=(selector,) if operation == "filter" else (),
+        selection_objectives=() if operation == "filter" else (objective,),
     )
-
-    report = verify_module_package_contract(
+    result = execute_module_package_case(
         MODULE_PACKAGE,
-        execution_cases=cases,
+        case,
         supporting_registrations=(_support_package(),),
         work_root=tmp_path,
     )
-
-    assert all(case.status == "succeeded" for case in report.case_reports)
+    (candidates,) = result.outputs["candidates"]
+    assert isinstance(candidates, CandidateCollection)
+    assert len(candidates.items) == expected_count
+    assert all(
+        (
+            candidate.candidate_id.startswith("candidate-")
+            for candidate in candidates.items
+        )
+    )
 
 
 def test_public_execution_is_cache_replay_stable(
@@ -754,13 +740,9 @@ def test_public_execution_is_cache_replay_stable(
     )
     app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": encode_workflow_document(workflow),
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
-        assert committed.status_code == 200
         _assert_workflow_commit_owner(
             app,
             project_id,
@@ -768,21 +750,14 @@ def test_public_execution_is_cache_replay_stable(
 
         projections = []
         for request_id in ("selection-first", "selection-second"):
-            started = client.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": committed.json()[
-                        "workflow_commit_id"
-                    ],
-                    "client_request_id": request_id,
-                },
+            started = PublicRunClient(client).start_run(
+                project_id, committed["workflow_commit_id"], request_id=request_id
             )
-            assert started.status_code == 202
             projections.append(
                 wait_for_testclient_run_terminal(
                     client,
                     project_id,
-                    started.json()["run_id"],
+                    started["run_id"],
                 )
             )
         selected_values = []
@@ -794,11 +769,8 @@ def test_public_execution_is_cache_replay_stable(
                 and output["output_port"] == "candidates"
             )
             selected_values.append(
-                retrieve_typed_output_values(
-                    client,
-                    project_id,
-                    projection["run_id"],
-                    selected,
+                PublicRunClient(client).typed_output_values(
+                    project_id, projection["run_id"], selected
                 )[0]
             )
 
@@ -852,32 +824,23 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         expected_commit_revision: int,
         request_id: str,
     ):
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": encode_workflow_document(document),
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(document)
         )
-        assert committed.status_code == 200
-        receipt = committed.json()
+        receipt = committed
         commit = _assert_workflow_commit_owner(
             app,
             project_id,
             source_draft_revision=expected_commit_revision)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": receipt["workflow_commit_id"],
-                "client_request_id": request_id,
-            },
+        started = PublicRunClient(client).start_run(
+            project_id, receipt["workflow_commit_id"], request_id=request_id
         )
-        assert started.status_code == 202
         return (
             commit.source_draft_revision,
             wait_for_testclient_run_terminal(
                 client,
                 project_id,
-                started.json()["run_id"],
+                started["run_id"],
             ),
         )
 
@@ -911,17 +874,11 @@ def test_changing_resolved_objective_invalidates_selection_cache(
             for output in second["outputs"]
             if output["node_id"] == "select"
         )
-        first_value = retrieve_typed_output_values(
-            client,
-            project_id,
-            first["run_id"],
-            first_output,
+        first_value = PublicRunClient(client).typed_output_values(
+            project_id, first["run_id"], first_output
         )[0]
-        second_value = retrieve_typed_output_values(
-            client,
-            project_id,
-            second["run_id"],
-            second_output,
+        second_value = PublicRunClient(client).typed_output_values(
+            project_id, second["run_id"], second_output
         )[0]
 
     assert first_output["result_identity"] != second_output["result_identity"]

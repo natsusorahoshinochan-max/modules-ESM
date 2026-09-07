@@ -131,7 +131,7 @@ class ProteinMPNNConstraintsImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         with self._resources.engine_invocation():
             constraints = author_constraints(
-                call.inputs["layout"].value,
+                call.inputs["structure_residue_axis"].value.layout,
                 call.node_parameters,
             )
         return {"constraints": constraints}
@@ -146,7 +146,7 @@ class ProteinMPNNRandomFixedPositionsImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         with self._resources.engine_invocation():
             constraints = random_fixed_positions(
-                call.inputs["layout"].value,
+                call.inputs["structure_residue_axis"].value.layout,
                 effective_seed=call.node_parameters["effective_seed"],
                 fraction=call.node_parameters["fraction"],
             )

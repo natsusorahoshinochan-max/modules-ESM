@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 
@@ -94,10 +96,7 @@ from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     select_admitted_candidates,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_values,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_prediction.port_types import (
     CONFIDENCE_FACTS_PORT_TYPE,
@@ -1129,11 +1128,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         axis_contract=ExactContractReference(**axis_reference),
         axis_content_digest="sha256:" + ("a" * 64),
         source=subject,
-        layout=ResidueLayout(
-            "A",
-            3,
-            ("A:1", "A:2", "A:3"),
-        ),
+        layout=ResidueLayout(("A:1", "A:2", "A:3")),
     )
     observation = ScoreObservation(
         subject=subject,
@@ -1251,7 +1246,7 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
             "structure_transform.resolved_residue_axis"),
         axis_content_digest="sha256:" + ("5" * 64),
         source=subject,
-        layout=ResidueLayout("A", 3, ("A:1", "A:2", "A:3")),
+        layout=ResidueLayout(("A:1", "A:2", "A:3")),
     )
     observation = ScoreObservation(
         subject=subject,
@@ -2060,25 +2055,14 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         project_id = project["id"]
         workflow = _workflow_payload(contracts)
         workflow["workflow_id"] = project_id
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
+        started = PublicRunClient(client).start_run(
+            project_id, committed["workflow_commit_id"], request_id="scoring-run-1"
         )
-        assert committed.status_code == 200
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": "scoring-run-1",
-            },
-        )
-        assert started.status_code == 202
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
-            started.json()["run_id"],
+            started["run_id"],
         )
 
         candidate_output = next(
@@ -2086,11 +2070,8 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
             for output in projection["outputs"]
             if output["output_port"] == "candidates"
         )
-        candidate_value = retrieve_typed_output_values(
-            client,
-            project_id,
-            projection["run_id"],
-            candidate_output,
+        candidate_value = PublicRunClient(client).typed_output_values(
+            project_id, projection["run_id"], candidate_output
         )[0]
 
     assert projection["status"] == "succeeded"
@@ -2140,8 +2121,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     )
     with TestClient(reloaded_app) as client:
         reloaded = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{started.json()['run_id']}"
+            f"/api/v2/projects/{project_id}/runs/" f"{started['run_id']}"
         )
     assert reloaded.status_code == 200
     assert reloaded.json()["selection_results"] == (
@@ -2183,17 +2163,11 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         project_id = project["id"]
         workflow = _workflow_payload(contracts)
         workflow["workflow_id"] = project_id
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
-        )
-        assert committed.status_code == 200
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
+                "workflow_commit_id": committed["workflow_commit_id"],
                 "client_request_id": "unsafe-scoring-run-1",
             },
         )
@@ -2339,18 +2313,30 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
         )
 
 
-def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
+def test_compiler_allows_separate_selection_stages_with_distinct_inputs() -> None:
     catalog, contracts = _scoring_catalog()
     payload = _workflow_payload(contracts)
-    second_node = {
+    second_source = {
         **payload["nodes"][0],
+        "node_id": "source-2",
+    }
+    second_producer = {
+        **payload["nodes"][1],
         "node_id": "producer-2",
+    }
+    second_selection = {
+        **payload["nodes"][2],
+        "node_id": "select-2",
+        "node_parameters": {
+            "objective_ids": ["quality-objective-2"],
+            "tie_policy": "candidate_id_ascending",
+        },
     }
     second_objective = {
         **payload["selection_objectives"][0],
         "objective_id": "quality-objective-2",
         "candidate_input": {
-            "node_id": "producer-2",
+            "node_id": "source-2",
             "output_port": "candidates",
         },
         "score_collection_input": {
@@ -2358,19 +2344,37 @@ def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
             "output_port": "scores",
         },
     }
-    payload["nodes"].append(second_node)
+    payload["nodes"].extend(
+        (second_source, second_producer, second_selection)
+    )
+    payload["edges"].extend(
+        (
+            {
+                "source_node_id": "source-2",
+                "source_port": "candidates",
+                "target_node_id": "producer-2",
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "source-2",
+                "source_port": "candidates",
+                "target_node_id": "select-2",
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "producer-2",
+                "source_port": "scores",
+                "target_node_id": "select-2",
+                "target_port": "scores",
+            },
+        )
+    )
     payload["selection_objectives"].append(second_objective)
     workflow = decode_workflow_document(payload)
 
-    with pytest.raises(
-        WorkflowCompileError,
-        match="one exact Candidate input",
-    ):
-        compile(
-            CompilationRequest(
-                workflow),
-            catalog,
-        )
+    compiled = compile(CompilationRequest(workflow), catalog)
+
+    assert len(compiled.selection_objectives) == 2
 
 
 @pytest.mark.parametrize(

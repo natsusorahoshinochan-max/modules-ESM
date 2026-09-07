@@ -2,114 +2,212 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
     ContractIdentity,
-    EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ScientificOperationFactory,
+)
+from core.catalog.authoring import (
+    AuthoringCapabilityDefinition,
+    AuthoringRoleEndpoint,
+    AuthoringSourceKind,
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
-)
-from core.operation import (
-    OperationContext,
-    ScientificOperation,
-)
+from core.catalog.port_contract import BehaviorReference
+from core.operation import OperationCall, ScientificOperation
+from datatypes.exact_reference import ExactContractReference
+from datatypes.prompt import ProteinPrompt
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ResolvedStructureResidueAxis
 
-from .implementation import (
-    AddFunctionAnnotationImplementation,
-    AssembleProteinPromptImplementation,
-    BuildResidueLayoutImplementation,
-    EditResidueLayoutImplementation,
-    InsertMaskedResiduesImplementation,
-    MapResidueTrackImplementation,
-    OverrideProteinPromptTrackImplementation,
-    OverrideResidueTrackImplementation,
-    PromptFromStructureImplementation,
-    RandomInsertMaskedImplementation,
-    RandomMaskImplementation,
-    UpdatePromptSequenceImplementation,
-)
 from .prompt_types import PROMPT_PORT_TYPES
-from .stochastic import (
-    resolve_random_insert_effective_randomness,
-    resolve_random_mask_effective_randomness,
-)
-from .track_types import ALIGNED_TRACK_PORT_TYPES
+from .recipe import apply_prompt_recipe
+from .prompts import assemble_protein_prompt, decompose_protein_prompt
+
+
+class _AuthorOperation(ScientificOperation):
+    """Applies the authoring document through the single recipe."""
+
+    def execute(self, call: OperationCall) -> dict[str, object]:
+        inputs = call.inputs
+        prompt = apply_prompt_recipe(
+            sequence_source=_optional_value(inputs, "sequence_source", ProteinSequence),
+            structure_source=_optional_value(
+                inputs, "structure_source", ResolvedStructureResidueAxis
+            ),
+            prompt_source=_optional_value(inputs, "prompt_source", ProteinPrompt),
+            merge_sources=_many_values(inputs, "merge_sources", ProteinPrompt),
+            document=call.node_parameters["document"],
+        )
+        return {"protein_prompt": prompt}
+
+
+class _DecomposeOperation(ScientificOperation):
+    """Splits a Prompt into authoritative-layout-aligned carriers."""
+
+    def execute(self, call: OperationCall) -> dict[str, object]:
+        return decompose_protein_prompt(call.inputs["protein_prompt"].value)
+
+
+class _AssembleOperation(ScientificOperation):
+    """Assemble through the same conditioning boundary used by authoring."""
+
+    def execute(self, call: OperationCall) -> dict[str, object]:
+        inputs = call.inputs
+        ss_port = inputs.get("secondary_structure")
+        sasa_port = inputs.get("sasa")
+        return {"protein_prompt": assemble_protein_prompt(
+            inputs["sequence"].value,
+            inputs["coordinates"].value,
+            inputs["function_annotations"].value,
+            secondary_structure_track=None if ss_port is None else ss_port.value,
+            sasa_track=None if sasa_port is None else sasa_port.value,
+        )}
+
+
+def _optional_value(
+    inputs: Mapping[str, object],
+    name: str,
+    expected_type: type,
+) -> object | None:
+    port = inputs.get(name)
+    if port is None or not port:
+        return None
+    value = port.value
+    if not isinstance(value, expected_type):
+        raise ValueError(f"input {name!r} has an unexpected value type")
+    return value
+
+
+def _many_values(
+    inputs: Mapping[str, object],
+    name: str,
+    expected_type: type,
+) -> tuple[object, ...]:
+    port = inputs.get(name)
+    if port is None or not port:
+        return ()
+    values = port.value
+    if not isinstance(values, tuple):
+        raise ValueError(f"input {name!r} must carry many values")
+    for value in values:
+        if not isinstance(value, expected_type):
+            raise ValueError(f"input {name!r} has an unexpected value type")
+    return values
 
 
 _OPERATIONS = {
-    "add_function_annotation": AddFunctionAnnotationImplementation,
-    "assemble_protein_prompt": AssembleProteinPromptImplementation,
-    "build_residue_layout": BuildResidueLayoutImplementation,
-    "edit_residue_layout": EditResidueLayoutImplementation,
-    "insert_masked_residues": InsertMaskedResiduesImplementation,
-    "map_residue_track": MapResidueTrackImplementation,
-    "override_protein_prompt_track": OverrideProteinPromptTrackImplementation,
-    "override_residue_track": OverrideResidueTrackImplementation,
-    "prompt_from_structure": PromptFromStructureImplementation,
-    "random_insert_masked": RandomInsertMaskedImplementation,
-    "random_mask": RandomMaskImplementation,
-    "update_prompt_sequence": UpdatePromptSequenceImplementation,
+    "prompt_authoring.author": _AuthorOperation,
+    "prompt_authoring.decompose": _DecomposeOperation,
+    "prompt_authoring.assemble": _AssembleOperation,
 }
 
 
-def _build(operation: str):
-    implementation = _OPERATIONS[operation]
-
-    def factory(context: OperationContext) -> ScientificOperation:
-        return implementation(context.resources)
-
-    return factory
-
-
-def _binding(operation: str) -> ExecutionBindingDefinition:
-    randomness_parameters = {
-        "random_mask": (
-            "effective_seed",
-            "count",
-            "track",
-            "eligible_residue_ids",
+PROTEIN_PROMPT_AUTHORING_CAPABILITY = AuthoringCapabilityDefinition(
+    capability_id="protein_prompt.authoring",
+    title="编写 ProteinPrompt",
+    summary="从空白、序列、结构或已有 Prompt 编写完整 ProteinPrompt。",
+    category="prompt_authoring",
+    editor_kind="prompt_studio",
+    source_kinds=(
+        AuthoringSourceKind("blank", "空白"),
+        AuthoringSourceKind(
+            "fasta",
+            "FASTA / ProteinSequence",
+            (ExactContractReference("port_type", "protein.sequence"),),
         ),
-        "random_insert_masked": (
-            "effective_seed",
-            "count",
-            "eligible_chain_ids",
+        AuthoringSourceKind(
+            "pdb",
+            "PDB / Resolved Structure Residue Axis",
+            (
+                ExactContractReference(
+                    "port_type",
+                    "structure_transform.resolved_residue_axis",
+                ),
+            ),
         ),
-    }.get(operation, ())
-    randomness_resolvers = {
-        "random_mask": resolve_random_mask_effective_randomness,
-        "random_insert_masked": resolve_random_insert_effective_randomness,
-    }
+        AuthoringSourceKind(
+            "protein_prompt",
+            "ProteinPrompt",
+            (ExactContractReference("port_type", "protein.prompt"),),
+        ),
+    ),
+    exposed_inputs=(
+        AuthoringRoleEndpoint(
+            "sequence_source",
+            ExactContractReference("port_type", "protein.sequence"),
+        ),
+        AuthoringRoleEndpoint(
+            "structure_source",
+            ExactContractReference(
+                "port_type",
+                "structure_transform.resolved_residue_axis",
+            ),
+        ),
+        AuthoringRoleEndpoint(
+            "prompt_source",
+            ExactContractReference("port_type", "protein.prompt"),
+        ),
+    ),
+    exposed_outputs=(
+        AuthoringRoleEndpoint(
+            "protein_prompt",
+            ExactContractReference("port_type", "protein.prompt"),
+        ),
+    ),
+)
+
+
+def _build(operation_id: str) -> ScientificOperationFactory:
+    operation_type = _OPERATIONS[operation_id]
+
+    def factory(context: object) -> ScientificOperation:
+        return operation_type()
+
+    return ScientificOperationFactory(
+        behavior=BehaviorReference(
+            f"{operation_id}/factory",
+            {"execution_route": "direct"},
+        ),
+        build=factory,
+    )
+
+
+# The author node's effective randomness lives inside the nested ``document``
+# node parameter (``document.random_operations[*].seed``); the flat resolver
+# mechanism cannot address nested fields cleanly, so the seed-derived
+# effective randomness is computed inside :func:`recipe.apply_prompt_recipe`
+# from the document seed plus the resolved layout/inputs. We still declare the
+# document as the effective randomness parameter so cache keys remain
+# reproducible, and the method identity documents the derivation.
+_EFFECTIVE_RANDOMNESS_PARAMETERS: dict[str, tuple[str, ...]] = {
+    "prompt_authoring.author": ("document",),
+}
+
+
+def _binding(
+    operation_id: str,
+    *,
+    effective_randomness_parameters: tuple[str, ...] = (),
+) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
-        binding_id=f"prompt_authoring.{operation}.direct",
-        node_type=ContractIdentity(
-            "node_type",
-            f"prompt_authoring.{operation}",
-        ),
-        method=ContractIdentity(
-            "method",
-            f"prompt_authoring.{operation}.method",
-        ),
+        binding_id=f"{operation_id}.direct",
+        node_type=ContractIdentity("node_type", operation_id),
+        method=ContractIdentity("method", f"{operation_id}.method"),
         binding_parameters={},
         execution_route="direct",
-        factory=ScientificOperationFactory(
-            behavior=BehaviorReference(
-                f"prompt_authoring.{operation}/factory",
-                {"execution_route": "direct"},
-            ),
-            build=_build(operation),
-        ),
+        factory=_build(operation_id),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
-                f"prompt_authoring.{operation}/availability",
+                f"{operation_id}/availability",
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -117,18 +215,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        effective_randomness_parameters=randomness_parameters,
-        effective_randomness_resolver=(
-            EffectiveRandomnessResolver(
-                behavior=BehaviorReference(
-                    f"prompt_authoring.{operation}/effective-randomness",
-                    {"normalization": "canonical-effective-set-v1"},
-                ),
-                resolve=randomness_resolvers[operation],
-            )
-            if operation in randomness_resolvers
-            else None
-        ),
+        effective_randomness_parameters=tuple(effective_randomness_parameters),
     )
 
 
@@ -136,25 +223,23 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="prompt_authoring",
     package_module=__package__,
     node_definitions=(
-        DefinitionResource("definitions/add_function_annotation.yaml"),
-        DefinitionResource("definitions/assemble_protein_prompt.yaml"),
-        DefinitionResource("definitions/build_residue_layout.yaml"),
-        DefinitionResource("definitions/edit_residue_layout.yaml"),
-        DefinitionResource("definitions/insert_masked_residues.yaml"),
-        DefinitionResource("definitions/map_residue_track.yaml"),
-        DefinitionResource(
-            "definitions/override_protein_prompt_track.yaml"
-        ),
-        DefinitionResource("definitions/override_residue_track.yaml"),
-        DefinitionResource("definitions/prompt_from_structure.yaml"),
-        DefinitionResource("definitions/random_insert_masked.yaml"),
-        DefinitionResource("definitions/random_mask.yaml"),
-        DefinitionResource("definitions/update_prompt_sequence.yaml"),
+        DefinitionResource("definitions/prompt_authoring.author.yaml"),
+        DefinitionResource("definitions/prompt_authoring.decompose.yaml"),
+        DefinitionResource("definitions/prompt_authoring.assemble.yaml"),
     ),
     methods=load_method_definitions(
         __package__,
         "definitions/methods.yaml",
     ),
-    bindings=tuple(_binding(operation) for operation in _OPERATIONS),
-    port_types=(*ALIGNED_TRACK_PORT_TYPES, *PROMPT_PORT_TYPES),
+    bindings=tuple(
+        _binding(
+            operation_id,
+            effective_randomness_parameters=_EFFECTIVE_RANDOMNESS_PARAMETERS.get(
+                operation_id, ()
+            ),
+        )
+        for operation_id in _OPERATIONS
+    ),
+    port_types=PROMPT_PORT_TYPES,
+    authoring_capabilities=(PROTEIN_PROMPT_AUTHORING_CAPABILITY,),
 )

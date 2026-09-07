@@ -14,7 +14,7 @@ inputs:
     multiplicity: one
     scientific_meaning: Exact admitted fixed and per-subject reference Candidates.
   - name: pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: true
     multiplicity: one
     scientific_meaning: Exact admitted subject-to-counterpart Candidate mapping.

@@ -1,7 +1,7 @@
 - method_id: protein_io.import_sequence.method
   algorithm_identity:
     name: import_sequence
-    format_contract: 4.0.0
+    format_contract: 5.0.0
   model_identity:
     kind: none
   featurization_identity:

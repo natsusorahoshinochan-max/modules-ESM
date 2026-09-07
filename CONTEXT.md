@@ -54,6 +54,28 @@ The nominal scientific contract for values crossing a Port, including their
 scientific admission, canonical scientific representation, and content identity.
 _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
+## Authoring Language
+
+**Authoring Capability Projection**:
+A startup-frozen, non-scientific projection over exact contracts in the same
+FrozenCatalog. It declares ordinary Palette operations and dedicated editor
+capabilities; it is not another scientific Catalog.
+_Avoid_: Scientific Catalog, runtime registry, inferred editor grouping
+
+**Prompt Authoring Document**:
+The non-executable `document` parameter of the `prompt_authoring.author` Node
+Type, declaring the prompt source, target residue membership, final track
+edits, function annotations, random conditions, source merges, and structure
+transforms. Prompt Studio edits exactly this parameter on one ordinary Node
+Instance.
+_Avoid_: ProteinPrompt, Workflow, command log, scientific evidence
+
+**Prompt Authoring Preview**:
+A non-published, non-executable backend projection of a Prompt Authoring
+Document containing its normalized document, complete Prompt projection,
+changes, realized random choices, and diagnostics.
+_Avoid_: Run, Candidate, Cache, Artifact, Evidence
+
 ## Extension Language
 
 **Module Package**:
@@ -131,19 +153,25 @@ alone cannot produce a Binding Failure.
 _Avoid_: Operation failure, admission failure, provider failure
 
 **Contract Test Kit**:
-Shared focused conformance helpers used by maintainers to verify a Module
-Package's extension, execution, data, and provenance behavior. They do not
-require exact-set equality over every registered Node, Binding, or Port.
+Shared focused conformance helpers that execute representative Module Package
+cases and expose the target Node's outputs and evidence to check shared
+extension, execution, data, and provenance contracts, without requiring exact-set
+coverage of registered Nodes, Bindings, or Ports. Package-owned tests state
+case-specific scientific results and Engine Invocation expectations; runtime and
+the Run Evidence Ledger own causal closure.
 _Avoid_: Package-specific smoke tests, manual checklist
 
 ## Scientific Data and Scoring
 
 **ProteinPrompt**:
-A residue-aligned, multi-track specification containing sequence, structure,
-secondary-structure, accessibility, function, and masking information. Its SASA
-track means nullable absolute per-residue solvent-accessible surface area in
-square angstroms, with no relative-accessibility normalization.
-_Avoid_: Prompt object, ESM input, multi-track input
+The closed residue-aligned multi-track conditioning aggregate owned by Prompt
+Studio and consumed by ESM3. It owns exactly one ResidueLayout; sequence and
+named-atom coordinates are always present (all-null allowed), while secondary
+structure and SASA may be whole-track absent, which is distinct from a present
+all-null track. Function annotations are identity-addressed intervals within
+that layout. It is not the universal exchange language of other scientific
+Modules.
+_Avoid_: Prompt object, ESM input, multi-track input, target layout copy
 
 **Candidate**:
 A generated or transformed protein sequence or structure with stable
@@ -161,6 +189,14 @@ type, and the canonical content digest of that Candidate's data. Derived
 scientific values use it to name their subject without relying on collection
 position.
 _Avoid_: Candidate, list index, Node Instance locator
+
+**Candidate Relation**:
+An ordered collection of explicit subject and reference Candidate Data
+Reference pairs. Generic relation operations derive, invert, compose, and join
+these exact associations; each consuming Node Type or Method declares the
+cardinality it requires instead of inferring relationships from collection
+position.
+_Avoid_: Pairing mode, positional zip, effect-specific mapping
 
 **Metric Definition**:
 The canonical scientific meaning of a measured quantity, including its value
@@ -248,9 +284,11 @@ its subject. Collection order never establishes the association.
 _Avoid_: Parallel list, positional zip, unlabeled annotation
 
 **Residue Track**:
-A value series aligned to the protein residue layout, with explicit validity and
-masking semantics for each position.
-_Avoid_: Raw array, token vector, residue metadata
+A self-describing value series bound to one exact ResidueLayout, carrying one
+nullable value per residue identity. The carrier does not interpret the
+scientific role of a missing value; the nominal Port Type Definition owns that
+semantics.
+_Avoid_: Raw array, token vector, residue metadata, parallel layout Port
 
 **PDB String**:
 The canonical text representation used to exchange protein structures at

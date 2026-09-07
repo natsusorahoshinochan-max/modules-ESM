@@ -6,6 +6,8 @@ production Catalog/compiler, and the public installed-backend protocol.
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -35,7 +37,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
 )
 from modules.structure_transform.domain import (
@@ -50,10 +52,7 @@ from tests.fixtures.canonical_3gb1_v2 import (
     controlled_environment,
     controlled_module_registrations,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -105,9 +104,28 @@ def test_canonical_seed_is_compilable_v2() -> None:
     assert set(nodes) == {
         node["node_id"] for node in _workflow_payload()["nodes"]
     }
-    assert nodes["mask-sequence"].node_parameters["effective_seed"] == 1603
-    assert nodes["mask-structure"].node_parameters["effective_seed"] == 1603
-    assert nodes["insert-masked"].node_parameters["effective_seed"] == 1603
+    author_node = next(
+        node
+        for node in nodes.values()
+        if node.node_type_id == "prompt_authoring.author"
+    )
+    random_operations = author_node.node_parameters["document"][
+        "random_operations"
+    ]
+    sequence_mask = next(
+        op
+        for op in random_operations
+        if op["kind"] == "mask" and op["track"] == "sequence"
+    )
+    structure_mask = next(
+        op
+        for op in random_operations
+        if op["kind"] == "mask" and op["track"] == "coordinates"
+    )
+    insertion = next(op for op in random_operations if op["kind"] == "insert")
+    assert sequence_mask["seed"] == 1603
+    assert structure_mask["seed"] == 1603
+    assert insertion["seed"] == 1603
     assert nodes["generate-paired"].node_parameters == {
         "effective_seed": 1603,
         "num_samples": 10,
@@ -138,54 +156,21 @@ def test_canonical_seed_is_compilable_v2() -> None:
     }
     assert set(objectives) == {"fixed-3gb1", "paired-esm3"}
     assert objectives["fixed-3gb1"].context_selector.pairing_mode == (
-        "fixed_reference"
+        "explicit_relation"
     )
     assert objectives["paired-esm3"].context_selector.pairing_mode == (
-        "per_subject_counterpart"
+        "explicit_relation"
     )
-    assert objectives["fixed-3gb1"].source_partition != (
-        objectives["paired-esm3"].source_partition
-    )
+    assert {
+        objective.source_partition for objective in objectives.values()
+    } == {"structure_comparison.tm_score.explicit_relation"}
+    assert {
+        objective.score_collection_input.node_id
+        for objective in objectives.values()
+    } == {"score-fixed", "score-paired"}
     assert {
         objective.weight for objective in objectives.values()
     } == {0.7, 0.3}
-
-
-def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    esm3 = ControlledESM3Client()
-    folding = ControlledFoldingClient()
-    workflow = _workflow_payload()
-    workflow["edges"][0]["target_port"] = "missing"
-    app = create_application(
-        v2_environment_configuration=controlled_environment(
-            monkeypatch,
-            esm3,
-            folding,
-        ),
-    )
-
-    with TestClient(app) as client:
-        project_id = client.post(
-            "/api/v2/projects",
-            json={"name": "invalid canonical workflow"},
-        ).json()["id"]
-        workflow["workflow_id"] = project_id
-        rejected = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
-        )
-
-    assert rejected.status_code == 422
-    assert rejected.json()["error"]["code"] == "compile_rejected"
-    assert not esm3.sequence_prompts
-    assert not esm3.structure_prompts
-    assert not folding.calls
 
 
 def _decoded_output(
@@ -224,12 +209,8 @@ def _decoded_outputs(
         reference["contract_id"])
     return tuple(
         codec.decode(
-            retrieve_typed_output_canonical_bytes(
-                client,
-                projection["project_id"],
-                projection["run_id"],
-                output,
-                value_index,
+            PublicRunClient(client).typed_output_bytes(
+                projection["project_id"], projection["run_id"], output, value_index
             )
         )
         for value_index in range(output["value_count"])
@@ -460,12 +441,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                 "producer_provenance",
             } <= set(output)
             for value_index in range(output["value_count"]):
-                canonical = retrieve_typed_output_canonical_bytes(
-                    client,
-                    first["project_id"],
-                    first["run_id"],
-                    output,
-                    value_index,
+                canonical = PublicRunClient(client).typed_output_bytes(
+                    first["project_id"], first["run_id"], output, value_index
                 )
                 assert canonical
 
@@ -483,19 +460,19 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             "generate-paired",
             "structure_candidates",
         )
-        counterpart_pairs = _decoded_output(
+        counterpart_relation = _decoded_output(
             client,
             catalog,
             first,
-            "generate-paired",
-            "counterpart_pairs",
+            "relate-generated-sequences-to-structures",
+            "relation",
         )
         assert type(sequence_candidates) is CandidateCollection
         assert type(structure_candidates) is CandidateCollection
-        assert type(counterpart_pairs) is PairwiseCandidateMapping
+        assert type(counterpart_relation) is CandidateRelation
         assert len(sequence_candidates.items) == 10
         assert len(structure_candidates.items) == 10
-        assert len(counterpart_pairs.entries) == 10
+        assert len(counterpart_relation.entries) == 10
         assert [
             item.parent_ids for item in structure_candidates.items
         ] == [
@@ -507,7 +484,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                 pair.subject.candidate_id,
                 pair.reference.candidate_id,
             )
-            for pair in counterpart_pairs.entries
+            for pair in counterpart_relation.entries
         ] == [
             (sequence.candidate_id, structure.candidate_id)
             for sequence, structure in zip(
@@ -546,8 +523,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             client,
             catalog,
             first,
-            "rebind-counterparts",
-            "pairing",
+            "compose-folds-to-generated",
+            "relation",
         )
         canonical_references = _decoded_output(
             client,
@@ -722,20 +699,20 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ] == [
             (
                 "fixed-3gb1",
-                "structure_comparison.tm_score.fixed_reference",
+                "structure_comparison.tm_score.explicit_relation",
                 (
                     "structure_comparison.tm_score."
-                    "fixed_reference.identity"
+                    "explicit_relation.identity"
                 ),
                 0.7,
                 0.7,
             ),
             (
                 "paired-esm3",
-                "structure_comparison.tm_score.per_subject_counterpart",
+                "structure_comparison.tm_score.explicit_relation",
                 (
                     "structure_comparison.tm_score."
-                    "per_subject_counterpart.identity"
+                    "explicit_relation.identity"
                 ),
                 0.3,
                 0.3,

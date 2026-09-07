@@ -77,71 +77,71 @@
     },
     {
       "node_id": "align-esmfold2-input",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-esmfold2-input",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-esmfold2-input",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-simplefold-input",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-simplefold-input",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-simplefold-input",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-methods",
-      "node_type_id": "collection_ops.pair_siblings_by_parent",
-      "binding_id": "collection_ops.pair_siblings_by_parent.direct",
+      "node_type_id": "collection_ops.join_relation_subjects",
+      "binding_id": "collection_ops.join_relation_subjects.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-methods",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-methods",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-methods",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -149,6 +149,62 @@
       "node_id": "classify-consistency",
       "node_type_id": "structure_comparison.classify_three_way_consistency",
       "binding_id": "structure_comparison.classify_three_way_consistency.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-methods-left-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-methods-right-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-esmfold2-input-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-esmfold2-input-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-esmfold2-input-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-simplefold-input-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-simplefold-input-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-simplefold-input-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
       "node_parameters": {},
       "binding_parameters": {}
     }
@@ -343,14 +399,14 @@
     {
       "source_node_id": "fold-esmfold2",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-methods",
+      "target_node_id": "pair-methods-left-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "fold-simplefold",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-methods",
-      "target_port": "references"
+      "target_node_id": "pair-methods-right-parent",
+      "target_port": "subjects"
     },
     {
       "source_node_id": "fold-esmfold2",
@@ -378,9 +434,9 @@
     },
     {
       "source_node_id": "pair-methods",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-methods",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-methods",
@@ -402,9 +458,9 @@
     },
     {
       "source_node_id": "pair-methods",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-methods",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-methods",
@@ -426,9 +482,9 @@
     },
     {
       "source_node_id": "pair-methods",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-methods",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "import-input",
@@ -474,7 +530,7 @@
     },
     {
       "source_node_id": "pair-methods",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "classify-consistency",
       "target_port": "method_pairing"
     },
@@ -543,6 +599,138 @@
       "source_port": "observations",
       "target_node_id": "classify-consistency",
       "target_port": "simplefold_confidence"
+    },
+    {
+      "source_node_id": "extract-sequence",
+      "source_port": "sequence_candidates",
+      "target_node_id": "pair-methods-left-parent",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "extract-sequence",
+      "source_port": "sequence_candidates",
+      "target_node_id": "pair-methods-right-parent",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "pair-methods-left-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-methods",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "pair-methods-right-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-methods",
+      "target_port": "right_relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-esmfold2-input-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-esmfold2-input-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-esmfold2-input-relation",
+      "source_port": "relation",
+      "target_node_id": "align-esmfold2-input",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-esmfold2-input-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-esmfold2-input-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-esmfold2-input-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-esmfold2-input",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-esmfold2-input-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-esmfold2-input-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-esmfold2-input-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-esmfold2-input",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-simplefold-input-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-simplefold-input-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-simplefold-input-relation",
+      "source_port": "relation",
+      "target_node_id": "align-simplefold-input",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-simplefold-input-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-simplefold-input-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-simplefold-input-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-simplefold-input",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-simplefold-input-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-simplefold-input-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-simplefold-input-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-simplefold-input",
+      "target_port": "relation"
     }
   ],
   "observation_selectors": [],

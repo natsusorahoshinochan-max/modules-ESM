@@ -16,8 +16,8 @@ from core.catalog.port_contract import (
 from core.operation import (
     AdmittedPort,
     CandidateMetadataIdentity,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
 )
 from core.execution.output_admission.identity import (
     _FreshOutputIdentityEncoder,
@@ -29,8 +29,8 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.observation import (
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -200,7 +200,7 @@ def _normalize_candidate_outputs(
     input_pairing_references: dict[str, CandidateDataReference] = {}
     for admitted in inputs.values():
         value = admitted.value
-        if type(value) is not PairwiseCandidateMapping:
+        if type(value) is not CandidateRelation:
             continue
         for entry in value.entries:
             for reference in (entry.subject, entry.reference):
@@ -437,11 +437,11 @@ def _normalize_candidate_outputs(
         return normalized_candidate_references[raw_candidate_id]
 
     def project_pairing_intent(
-        value: CandidatePairingIntent,
-    ) -> PairwiseCandidateMapping:
-        entries: list[PairwiseCandidateMatch] = []
+        value: CandidateRelationIntent,
+    ) -> CandidateRelation:
+        entries: list[CandidateRelationEntry] = []
         for entry in value.entries:
-            if type(entry) is not CandidatePairingIntentEntry:
+            if type(entry) is not CandidateRelationIntentEntry:
                 raise PortValueError(
                     "Candidate pairing intent contains an unsupported entry"
                 )
@@ -461,12 +461,12 @@ def _normalize_candidate_outputs(
                     "Candidate pairing intent declares a conflicting counterpart"
                 )
             entries.append(
-                PairwiseCandidateMatch(
+                CandidateRelationEntry(
                     subject=subject,
                     reference=reference,
                 )
             )
-        return PairwiseCandidateMapping(entries)
+        return CandidateRelation(entries)
 
     def normalize_value(
         output_port: str,
@@ -498,10 +498,10 @@ def _normalize_candidate_outputs(
                 item_type=value.item_type,
                 items=list(items),
             )
-        if type(value) is PairwiseCandidateMapping:
-            return PairwiseCandidateMapping(
+        if type(value) is CandidateRelation:
+            return CandidateRelation(
                 entries=[
-                    PairwiseCandidateMatch(
+                    CandidateRelationEntry(
                         subject=require_exact_input_candidate_reference(
                             entry.subject
                         ),
@@ -512,7 +512,7 @@ def _normalize_candidate_outputs(
                     for entry in value.entries
                 ]
             )
-        if type(value) is CandidatePairingIntent:
+        if type(value) is CandidateRelationIntent:
             return project_pairing_intent(value)
         if type(value) is ScoreCollection:
             require_subject = (

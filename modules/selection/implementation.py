@@ -54,7 +54,7 @@ class SelectionImplementation:
         if self._operation in {"weighted_rank", "pareto", "diversity"}:
             return self._execute_multi_objective(
                 candidates=candidates,
-                scores=scores,
+                score_collections=scores,
                 node_parameters=call.node_parameters,
                 candidate_data_references=candidate_data_references,
             )
@@ -120,7 +120,7 @@ class SelectionImplementation:
         self,
         *,
         candidates: CandidateCollection,
-        scores: ScoreCollection,
+        score_collections: tuple[ScoreCollection, ...],
         node_parameters: Mapping[str, Any],
         candidate_data_references: Mapping[
             str,
@@ -133,10 +133,16 @@ class SelectionImplementation:
             for objective_id in objective_ids
         )
         candidate_reference = objectives[0].candidate_input
-        score_reference = objectives[0].score_collection_input
         profile = resolve_candidate_utilities_from_facts(
             candidate_inputs={candidate_reference: candidates},
-            score_collection_inputs={score_reference: scores},
+            score_collection_inputs={
+                objective.score_collection_input: scores
+                for objective, scores in zip(
+                    objectives,
+                    score_collections,
+                    strict=True,
+                )
+            },
             objectives=objectives,
             candidate_data_references=candidate_data_references,
         )

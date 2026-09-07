@@ -32,14 +32,11 @@ from datatypes.candidate import (
 )
 from datatypes.prompt import ProteinPrompt
 from datatypes.residue import (
+    CandidateResidueTrack,
     ResidueLayout,
     ResidueTrack,
 )
 from datatypes.structure import ProteinStructure
-from modules.structure_annotation.domain import (
-    DSSPAnnotation,
-    StructureAnnotationTrack,
-)
 
 
 _OPERATIONS = ("candidate_source", "value_source")
@@ -122,44 +119,36 @@ class _ValueSource:
             )
         subject = _admitted_reference(call, "subjects")
         reference = _admitted_reference(call, "references")
-        layout = ResidueLayout(
-            chain_id="A",
-            length=2,
-            residue_ids=["A:1", "A:2"],
-        )
+        layout = ResidueLayout(["A:1", "A:2"])
         with self._run_resources.engine_invocation():
-            annotations = DSSPAnnotation(
+            annotations = CandidateResidueTrack(
                 subject=subject,
-                layout=layout,
-                secondary_structure=("H", "C"),
-                sasa=(10.0, 20.0),
+                track=ResidueTrack(layout, ("H", "C")),
             )
-            expected = StructureAnnotationTrack(
+            expected = CandidateResidueTrack(
                 subject=reference,
-                layout=layout,
-                values=("H", "E"),
+                track=ResidueTrack(layout, ("H", "E")),
             )
-            observed = StructureAnnotationTrack(
+            observed = CandidateResidueTrack(
                 subject=subject,
-                layout=layout,
-                values=("G", "E"),
+                track=ResidueTrack(layout, ("G", "E")),
             )
-            sasa_track = StructureAnnotationTrack(
+            sasa = CandidateResidueTrack(
                 subject=subject,
-                layout=layout,
-                values=(10.0, None),
+                track=ResidueTrack(layout, (10.0, None)),
             )
             protein_prompt = ProteinPrompt(
-                target_layout=layout,
-                sequence_track=ResidueTrack(["G", "A"], None),
-                secondary_structure_track=ResidueTrack(["H", None], None),
-                sasa_track=ResidueTrack([None, None], None),
+                layout=layout,
+                sequence=("G", "A"),
+                coordinates=(None, None),
+                secondary_structure=("H", None),
+                sasa=(None, None),
             )
         return {
             "annotations": annotations,
             "expected": expected,
             "observed": observed,
-            "sasa_track": sasa_track,
+            "sasa": sasa,
             "protein_prompt": protein_prompt,
         }
 

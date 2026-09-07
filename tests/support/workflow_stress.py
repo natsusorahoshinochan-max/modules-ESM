@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support import inprocess_runs
+
+from tests.support.public_runs import PublicRunClient
+
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -22,10 +26,6 @@ from tests.fixtures.multi_objective_selection_sources.package import (
 )
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as PROMPT_SOURCE_PACKAGE,
-)
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
 )
 from tests.fixtures.workflow_stress_sources.package import (
     MODULE_PACKAGE as WORKFLOW_STRESS_SOURCE_PACKAGE,
@@ -131,15 +131,11 @@ def commit_and_run(
     timeout_seconds: float = 5.0,
 ) -> StressRun:
     decode_workflow_document(workflow)
-    committed = client.post(
-        f"/api/v2/projects/{project_id}/workflow:commit",
-        json={"workflow": workflow},
-    )
-    assert committed.status_code == 200, committed.json()
+    committed = PublicRunClient(client).commit_workflow(project_id, workflow)
     return run_committed_workflow(
         client,
         project_id,
-        committed.json()["workflow_commit_id"],
+        committed["workflow_commit_id"],
         request_id=request_id,
         timeout_seconds=timeout_seconds,
     )
@@ -153,21 +149,14 @@ def run_committed_workflow(
     request_id: str,
     timeout_seconds: float = 5.0,
 ) -> StressRun:
-    started = client.post(
-        f"/api/v2/projects/{project_id}/runs",
-        json={
-            "workflow_commit_id": workflow_commit_id,
-            "client_request_id": request_id,
-        },
-    )
-    assert started.status_code == 202, started.json()
-    run_id = started.json()["run_id"]
-    projection = wait_for_testclient_run_terminal(
+    projection = inprocess_runs.run_committed_workflow(
         client,
         project_id,
-        run_id,
+        workflow_commit_id=workflow_commit_id,
+        request_id=request_id,
         timeout_seconds=timeout_seconds,
     )
+    run_id = projection["run_id"]
     events: list[dict[str, Any]] = []
     with client.websocket_connect(
         f"/api/v2/projects/{project_id}/runs/{run_id}/events"
@@ -206,12 +195,8 @@ def decode_one(
         output["port_type"]["contract_id"],
     )
     return port_type.decode(
-        retrieve_typed_output_canonical_bytes(
-            client,
-            projection["project_id"],
-            projection["run_id"],
-            output,
-            0,
+        PublicRunClient(client).typed_output_bytes(
+            projection["project_id"], projection["run_id"], output, 0
         )
     )
 

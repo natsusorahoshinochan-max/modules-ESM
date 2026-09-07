@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from core.catalog import _port_value_codec as _value_codec
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
@@ -38,10 +39,18 @@ from datatypes.prediction import (
     materialize_confidence_fact,
     prediction_axis_reference,
 )
+from datatypes.residue import validate_residue_layout
 
 
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
+def _layout_to_wire(layout: object) -> object:
+    return _value_codec._value_to_wire(layout)
+
+
+def _layout_from_wire(wire: object) -> object:
+    layout = _value_codec._wire_to_value(wire)
+    validate_residue_layout(layout, subject="prediction residue axis layout")
+    return layout
 _SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence")
 _STRUCTURE_IDENTITY_PORT_TYPE = _BUILTINS.require_port_type(
     "protein.structure",
@@ -153,7 +162,7 @@ def _validate_prediction_residue_axis(value: object) -> None:
 def _prediction_axis_to_wire(value: PredictionResidueAxis) -> object:
     return {
         "source": _source_to_wire(value.source),
-        "layout": _LAYOUT_CODEC.to_wire(value.layout),
+        "layout": _layout_to_wire(value.layout),
         "sequence": _SEQUENCE_CODEC.to_wire(value.sequence),
     }
 
@@ -163,7 +172,7 @@ def _prediction_axis_from_wire(value: object) -> object:
         **{
             **value,
             "source": _source_from_wire(value["source"]),
-            "layout": _LAYOUT_CODEC.from_wire(value["layout"]),
+            "layout": _layout_from_wire(value["layout"]),
             "sequence": _SEQUENCE_CODEC.from_wire(value["sequence"]),
         }
     )
@@ -200,7 +209,7 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
-            "embedded_layout_contract": "residue.layout",
+            "embedded_layout_contract": "residue_layout",
             "embedded_sequence_contract": "protein.sequence",
         },
     ),

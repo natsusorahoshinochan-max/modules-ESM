@@ -6,6 +6,8 @@ production Catalog/compiler, and the public REST/WebSocket Run surface.
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -33,7 +35,7 @@ from datatypes.candidate import (
     CandidateCollection,
 )
 from datatypes.exact_reference import ExactContractReference
-from datatypes.observation import PairwiseCandidateMapping
+from datatypes.observation import CandidateRelation
 from datatypes.structure import ProteinStructure
 from modules.structure_comparison.domain import InsertedLoopEvaluationCollection
 from datatypes.prediction import prediction_key
@@ -44,6 +46,12 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from tests.support.public_request import encode_project_input_content
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    install_prompt_authoring_workflow,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+)
 from tests.support.workflow_stress import (
     StressRun,
     emit_stress_report,
@@ -56,26 +64,78 @@ from tests.fixtures.canonical_3gb1_v2 import (
     controlled_environment,
     pdb_for_sequence,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "5G53.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-5g53.workflow.json"
 INPUT_SHA256 = "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
-BRANCH_LOOP_IDS = {
-    "shorter-8": tuple(f"A:gap211_224.short.{index:02d}" for index in range(1, 9)),
-    "numbering-implied-12": tuple(f"A:{index}" for index in range(212, 224)),
-    "longer-16": tuple(f"A:gap211_224.long.{index:02d}" for index in range(1, 17)),
-}
 BRANCHES = (
     ("shorter-8", 8, 5353008),
     ("numbering-implied-12", 12, 5353012),
     ("longer-16", 16, 5353016),
 )
+BRANCH_LOOP_IDS = {
+    "shorter-8": (
+        "A:inserted.245e2418360c7a47f44afade",
+        "A:inserted.ddce628f4ffea6fac3f7cfc7",
+        "A:inserted.d88e78eac1f5c25653088143",
+        "A:inserted.75de7e8a4d6eeb6cb6eeb678",
+        "A:inserted.f9c1799746e96de6ded9d6f2",
+        "A:inserted.bf056591adf99fd223819227",
+        "A:inserted.5d97acf062ff7b32b921a58b",
+        "A:inserted.fccd41523b36a70fcc2dd250",
+    ),
+    "numbering-implied-12": (
+        "A:inserted.05e51139d5f7d351bf09d725",
+        "A:inserted.03739068d2c3c7cda5991603",
+        "A:inserted.1a8616b1e7583a32059cb14f",
+        "A:inserted.a8b50d8342203b27dc19dce1",
+        "A:inserted.4da1003225f185fc68c0dd0b",
+        "A:inserted.cfab6fef9ebd1665c79e0f88",
+        "A:inserted.615325793d778fdbfa707621",
+        "A:inserted.dd1a947079e78ae90a8ac473",
+        "A:inserted.71061ec54e888944728e0d53",
+        "A:inserted.4a0c192b49d374e7946496a8",
+        "A:inserted.a798321f4f1dac52abf7cd44",
+        "A:inserted.75494a9bb7f7816999f40ccd",
+    ),
+    "longer-16": (
+        "A:inserted.c9c2ac08e22ad4fe87bc146b",
+        "A:inserted.06c934faa8447e6a02a86884",
+        "A:inserted.5a940c0a104ee5499c76e232",
+        "A:inserted.a2e44c023bc6dc4dc0e44446",
+        "A:inserted.a9dff7a58db53921475e00a3",
+        "A:inserted.c8e649df9fb178ed019e8014",
+        "A:inserted.0ba6431b662b47ca7eeb537a",
+        "A:inserted.025b46692a30601f2fdf5bdd",
+        "A:inserted.5a692366e314a11c7563842b",
+        "A:inserted.1a562f08fa6d35866edee40d",
+        "A:inserted.10324d953ecbfa92d7f95c23",
+        "A:inserted.f58ced362cf5b3b02accc47a",
+        "A:inserted.897997d5a24dc76872fb9f2a",
+        "A:inserted.68c0c9540104ed910ba2882b",
+        "A:inserted.a964a42aa545324afedcb772",
+        "A:inserted.214604790703b0395d7a3920",
+    ),
+}
+_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-ffbdba0e8a3aa6c37f65ecba",
+    "prompt-composition-58f2785a259cff8d52fd4cbe",
+    "prompt-composition-c67f87f835a080d538ee16e3",
+)
+AUTHOR_NODE_ID_BY_BRANCH = {
+    "shorter-8": (
+        "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.author"
+    ),
+    "numbering-implied-12": (
+        "prompt-composition-58f2785a259cff8d52fd4cbe.source.author"
+    ),
+    "longer-16": (
+        "prompt-composition-c67f87f835a080d538ee16e3.source.author"
+    ),
+}
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
 
 
@@ -99,12 +159,8 @@ def _decode_values(
         output["port_type"]["contract_id"])
     return tuple(
         codec.decode(
-            retrieve_typed_output_canonical_bytes(
-                client,
-                projection["project_id"],
-                projection["run_id"],
-                output,
-                index,
+            PublicRunClient(client).typed_output_bytes(
+                projection["project_id"], projection["run_id"], output, index
             )
         )
         for index in range(output["value_count"])
@@ -174,6 +230,9 @@ class _Controlled5G53ESM3:
         self.structure_prompts.append(protein)
         return self._response(protein.sequence, offset=sample_index)
 
+    def close(self) -> None:
+        pass
+
 
 def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256
@@ -238,13 +297,32 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
             "strategy": "random",
             "temperature_annealing": True,
         }
-        insertions = nodes[f"insert-{branch}"].node_parameters["insertions"]
-        assert len(insertions) == 1
-        insertion = insertions[0]
-        assert insertion["after_residue_id"] == "A:211"
-        assert insertion["before_residue_id"] == "A:224"
-        assert tuple(insertion["inserted_residue_ids"]) == BRANCH_LOOP_IDS[branch]
-        assert len(BRANCH_LOOP_IDS[branch]) == loop_length
+        author = next(
+            node
+            for node in workflow.nodes
+            if node.node_type_id == "prompt_authoring.author"
+            and len([
+                residue
+                for residue in node.node_parameters["document"][
+                    "target_residues"
+                ]
+                if residue["origin"] == "inserted"
+            ])
+            == loop_length
+        )
+        target_residues = author.node_parameters["document"]["target_residues"]
+        inserted_ids = tuple(
+            residue["residue_id"]
+            for residue in target_residues
+            if residue["origin"] == "inserted"
+        )
+        assert len(inserted_ids) == loop_length
+        assert inserted_ids == BRANCH_LOOP_IDS[branch]
+        residue_ids = [residue["residue_id"] for residue in target_residues]
+        first_index = residue_ids.index(inserted_ids[0])
+        last_index = residue_ids.index(inserted_ids[-1])
+        assert residue_ids[first_index - 1] == "A:211"
+        assert residue_ids[last_index + 1] == "A:224"
         assert nodes[f"fold-{branch}"].binding_id == "folding.fold.esmfold2_remote"
         assert nodes[f"fold-{branch}"].node_parameters == {
             "effective_seed": 5353999,
@@ -296,6 +374,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
+            authoring_registrations=module_registrations(),
         )
     ) as client:
         project_id = client.post(
@@ -312,26 +391,65 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
         payload = _payload()
         payload["workflow_id"] = project_id
-        next(node for node in payload["nodes"] if node["node_id"] == "import-input")[
-            "node_parameters"
-        ] = {"project_input_ref": uploaded.json()["project_input_ref"]}
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"workflow": payload},
+        for node in payload["nodes"]:
+            if node["node_type_id"] == "protein_io.import_structure":
+                node["node_parameters"] = {
+                    "project_input_ref": uploaded.json()["project_input_ref"]
+                }
+        install_prompt_authoring_workflow(client, project_id, payload)
+        applied_by_branch: dict[str, dict[str, Any]] = {}
+        for branch, loop_length, _ in BRANCHES:
+            node_id = AUTHOR_NODE_ID_BY_BRANCH[branch]
+            opened_prompt = open_pdb_prompt_document(
+                client,
+                project_id,
+                node_id,
+            )
+            prompt_document = opened_prompt["document"]
+            source_residues = [
+                residue
+                for residue in prompt_document["target_residues"]
+                if residue["origin"] == "source"
+            ]
+            insertion_index = next(
+                index
+                for index, residue in enumerate(source_residues)
+                if residue["residue_id"] == "A:224"
+            )
+            source_residues[insertion_index:insertion_index] = [
+                {
+                    "residue_id": residue_id,
+                    "origin": "inserted",
+                }
+                for residue_id in BRANCH_LOOP_IDS[branch]
+            ]
+            assert loop_length == len(BRANCH_LOOP_IDS[branch])
+            prompt_document["target_residues"] = source_residues
+            assert any(
+                residue["residue_label"] == "224"
+                for residue in opened_prompt["residues"]
+            )
+            applied_by_branch[branch] = apply_prompt_document(
+                client,
+                project_id,
+                node_id,
+                preview_prompt_document(
+                    client,
+                    project_id,
+                    node_id,
+                    prompt_document,
+                ),
+            )
+        committed = PublicRunClient(client).commit_workflow(project_id, payload)
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="provider-free-5g53-large-values",
         )
-        assert committed.status_code == 200, committed.json()
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": "provider-free-5g53-large-values",
-            },
-        )
-        assert started.status_code == 202, started.json()
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
-            started.json()["run_id"],
+            started["run_id"],
             timeout_seconds=180,
         )
         assert projection["status"] == "succeeded", json.dumps(projection, indent=2)
@@ -361,7 +479,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             if event["event"]["type"] == "engine_invocation_started"
             and "project_input_filename"
             in event["event"].get("invocation_provenance", {})
-        ] == [{"project_input_filename": "5G53.pdb"}]
+        ] == [{"project_input_filename": "5G53.pdb"}] * 4
 
         imported_output = next(
             output
@@ -451,14 +569,14 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         )
         merged_folds = _decode(client, catalog, projection, "merge-folds", "candidates")
         merged_pairing = _decode(
-            client, catalog, projection, "merge-counterpart-pairings", "pairing"
+            client, catalog, projection, "merge-counterpart-pairings", "relation"
         )
         merged_fold_pairing = _decode(
             client,
             catalog,
             projection,
             "merge-fold-counterpart-pairings",
-            "pairing",
+            "relation",
         )
         passing = _decode(client, catalog, projection, "merge-passing", "candidates")
         assert all(
@@ -475,7 +593,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         assert len(merged_counterparts.items) == 6
         assert len(merged_reconstructions.items) == 6
         assert len(merged_folds.items) == 6
-        assert type(merged_pairing) is PairwiseCandidateMapping
+        assert type(merged_pairing) is CandidateRelation
         assert len(merged_pairing.entries) == 6
         assert tuple(
             (entry.subject, entry.reference) for entry in merged_pairing.entries
@@ -524,14 +642,24 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             insertion_node = next(
                 node
                 for node in payload["nodes"]
-                if node["node_id"] == f"insert-{branch}"
+                if node["node_type_id"] == "prompt_authoring.author"
+                and len([
+                    residue
+                    for residue in node["node_parameters"]["document"][
+                        "target_residues"
+                    ]
+                    if residue["origin"] == "inserted"
+                ])
+                == loop_length
             )
-            insertions = insertion_node["node_parameters"]["insertions"]
-            assert len(insertions) == 1
-            assert (
-                tuple(insertions[0]["inserted_residue_ids"])
-                == (BRANCH_LOOP_IDS[branch])
+            inserted_ids = tuple(
+                residue["residue_id"]
+                for residue in insertion_node["node_parameters"]["document"][
+                    "target_residues"
+                ]
+                if residue["origin"] == "inserted"
             )
+            assert inserted_ids == BRANCH_LOOP_IDS[branch]
             loop_ids = BRANCH_LOOP_IDS[branch]
             insertion_index = reference_axis.layout.residue_ids.index("A:211") + 1
             expected_residue_ids = (
@@ -569,8 +697,8 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 client,
                 catalog,
                 projection,
-                f"generate-{branch}",
-                "counterpart_pairs",
+                f"relate-generated-pairs-{branch}",
+                "relation",
             )
             confidence_facts = _decode(
                 client,
@@ -755,7 +883,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         replay = run_committed_workflow(
             client,
             project_id,
-            committed.json()["workflow_commit_id"],
+            committed["workflow_commit_id"],
             request_id="provider-free-5g53-large-values-replay",
             timeout_seconds=180,
         )
@@ -770,8 +898,12 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 "select-chain-a",
                 "resolve-reference",
                 "project-reference-axis",
-                "author-base-prompt",
             )
+        } == {"cache_replayed"}
+        assert {
+            replay_dispositions[node["node_id"]]
+            for node in payload["nodes"]
+            if node["node_type_id"].startswith("prompt_authoring.")
         } == {"cache_replayed"}
         assert replay_dispositions["import-input"] == "executed"
         assert all(
@@ -783,7 +915,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             "multi_length_loop_insertion_5g53",
             runs={
                 "first": StressRun(
-                    committed.json()["workflow_commit_id"],
+                    committed["workflow_commit_id"],
                     projection,
                     tuple(events),
                 ),

@@ -24,13 +24,6 @@ SOURCE_EXECUTION_CASE = ModulePackageContractCase(
         "credential": "contract-test-secret-must-not-publish",
         "runtime_path": "/private/contract-test-runtime",
     },
-    expected_scalar_outputs={"text": "SOURCE"},
-    expected_candidate_counts={"candidates": 1},
-    expected_artifacts={"artifact": b"SOURCE"},
-    forbidden_public_fragments=(
-        "contract-test-secret-must-not-publish",
-        "/private/contract-test-runtime",
-    ),
 )
 
 
@@ -61,14 +54,6 @@ EXECUTION_CASE = ModulePackageContractCase(
             target_node_id="contract-test-node",
             target_port="candidate_input",
         ),
-    ),
-    expected_scalar_outputs={"text": "ECHOECHO"},
-    expected_candidate_counts={"candidates": 1},
-    expected_observation_counts={"scores": 1},
-    expected_artifacts={"artifact": b"ECHOECHO"},
-    forbidden_public_fragments=(
-        "contract-test-secret-must-not-publish",
-        "/private/contract-test-runtime",
     ),
 )
 

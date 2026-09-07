@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from datatypes.observation import ScoreCollection
+from datatypes.observation import ScoreObservation
+
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -37,7 +42,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
@@ -55,17 +61,19 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
 )
-from datatypes.residue import ResidueLayout
+from datatypes.prompt import ProteinPrompt
+from datatypes.residue import (
+    CandidateResidueTrack,
+    ResidueLayout,
+    ResidueTrack,
+)
 from datatypes.structure import ProteinStructure
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
-from modules.structure_annotation.domain import (
-    DSSPAnnotation,
-    StructureAnnotationTrack,
-)
 from modules.structure_annotation.implementation import (
     DSSPComputeOperation,
-    SASAComputeOperation,
-    SecondaryStructureExtractOperation,
+    ExpectedSecondaryStructureFromPromptOperation,
+    ObservedToConditioningOperation,
+    SecondaryStructureAgreementOperation,
 )
 from modules.structure_annotation.adapter import (
     MKDSSP_PROCESS_TIMEOUT_SECONDS,
@@ -166,12 +174,17 @@ class _InvocationRecorder:
 
 
 def _prompt_authoring_packages():
-    from modules.prompt_authoring.package import MODULE_PACKAGE as PROMPT_PACKAGE
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_PACKAGE,
+    )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
 
-    return (PROMPT_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    return (PROMPT_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE, RESIDUE_DATA_PACKAGE)
 
 
 def _agreement_operation(resources: _InvocationRecorder) -> Any:
@@ -185,23 +198,19 @@ def _agreement_operation(resources: _InvocationRecorder) -> Any:
     )
 
 
-def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
-    registrations = {
-        registration.package_id: registration
+def test_structure_annotation_is_one_package_with_four_nodes() -> None:
+    registration = next(
+        registration
         for registration in module_registrations()
-    }
-
-    registration = registrations["structure_annotation"]
+        if registration.package_id == "structure_annotation"
+    )
     assert registration.package_module == "modules.structure_annotation"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
         "definitions/dssp_compute.yaml",
-        "definitions/secondary_structure_extract.yaml",
-        "definitions/sasa_compute.yaml",
+        "definitions/observed_to_conditioning.yaml",
         "definitions/secondary_structure_agreement.yaml",
-        "definitions/apply_secondary_structure_to_prompt.yaml",
-        "definitions/apply_sasa_to_prompt.yaml",
         "definitions/expected_secondary_structure_from_prompt.yaml",
     }
 
@@ -214,105 +223,10 @@ def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
     }
     assert owned_nodes == {
         "structure_annotation.dssp_compute",
-        "structure_annotation.secondary_structure_extract",
-        "structure_annotation.sasa_compute",
+        "structure_annotation.observed_to_conditioning",
         "structure_annotation.secondary_structure_agreement",
-        "structure_annotation.apply_secondary_structure_to_prompt",
-        "structure_annotation.apply_sasa_to_prompt",
         "structure_annotation.expected_secondary_structure_from_prompt",
     }
-
-
-def test_repository_capability_agreement_tracks_distinct_bound_participants(
-) -> None:
-    workflow = json.loads(
-        (
-            PROJECT_ROOT / "examples/v2/repository-capabilities.workflow.json"
-        ).read_text(encoding="utf-8")
-    )
-    incoming = {
-        (edge["target_node_id"], edge["target_port"]): (
-            edge["source_node_id"],
-            edge["source_port"],
-        )
-        for edge in workflow["edges"]
-    }
-    agreement = (
-        "structure-annotation-secondary-structure-agreement-direct"
-    )
-    subject_source = incoming[(agreement, "subjects")]
-    reference_source = incoming[(agreement, "references")]
-    observed_source = incoming[(agreement, "observed")]
-    expected_source = incoming[(agreement, "expected")]
-
-    assert observed_source != expected_source
-    assert subject_source == (
-        "folding-fold-esmfold2-remote",
-        "structure_candidates",
-    )
-    assert reference_source == (
-        "protein-io-import-structure-direct",
-        "structure_candidates",
-    )
-    assert incoming[(agreement, "subject_residue_axes")] == (
-        "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
-        "residue_axes",
-    )
-    assert incoming[(observed_source[0], "annotations")] == (
-        "structure-annotation-dssp-compute-subject-mkdssp-local",
-        "annotations",
-    )
-    assert expected_source == (
-        "structure-annotation-expected-secondary-structure-from-prompt-direct",
-        "secondary_structure_track",
-    )
-    assert incoming[(expected_source[0], "references")] == reference_source
-    reference_prompt_source = incoming[(expected_source[0], "protein_prompt")]
-    assert reference_prompt_source == (
-        "structure-annotation-apply-secondary-structure-to-prompt-direct",
-        "protein_prompt",
-    )
-    reference_track_source = incoming[
-        (reference_prompt_source[0], "secondary_structure_track")
-    ]
-    assert reference_track_source == (
-        "structure-annotation-secondary-structure-extract-direct",
-        "secondary_structure_track",
-    )
-    assert incoming[(reference_track_source[0], "annotations")] == (
-        "structure-annotation-dssp-compute-mkdssp-local",
-        "annotations",
-    )
-    assert incoming[
-        (
-            "structure-annotation-dssp-compute-subject-mkdssp-local",
-            "structure_candidates",
-        )
-    ] == subject_source
-    assert incoming[
-        (
-            "structure-annotation-dssp-compute-subject-mkdssp-local",
-            "residue_axes",
-        )
-    ] == (
-        "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
-        "residue_axes",
-    )
-    assert incoming[
-        (
-            "structure-annotation-dssp-compute-mkdssp-local",
-            "structure_candidates",
-        )
-    ] == reference_source
-    assert incoming[
-        (
-            "structure-annotation-dssp-compute-mkdssp-local",
-            "residue_axes",
-        )
-    ] == (
-        "structure-transform-resolve-candidate-residue-axes-imported-direct",
-        "residue_axes",
-    )
 
 
 def test_structure_annotation_publishes_its_scientific_contracts() -> None:
@@ -328,11 +242,8 @@ def test_structure_annotation_publishes_its_scientific_contracts() -> None:
     }
     assert methods == {
         "structure_annotation.dssp_compute.method",
-        "structure_annotation.secondary_structure_extract.method",
-        "structure_annotation.sasa_compute.method",
+        "structure_annotation.observed_to_conditioning.method",
         "structure_annotation.secondary_structure_agreement.method",
-        "structure_annotation.apply_secondary_structure_to_prompt.method",
-        "structure_annotation.apply_sasa_to_prompt.method",
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.method"
@@ -344,9 +255,8 @@ def test_structure_annotation_publishes_its_scientific_contracts() -> None:
         if port_type.type_id.startswith("structure_annotation.")
     }
     assert ports == {
-        "structure_annotation.dssp_annotations",
-        "structure_annotation.secondary_structure_track",
-        "structure_annotation.sasa_track",
+        "structure_annotation.secondary_structure.observed",
+        "structure_annotation.sasa.observed",
     }
     agreement_metric = catalog.require_contract(
         "metric",
@@ -374,11 +284,8 @@ def test_structure_annotation_publishes_its_scientific_contracts() -> None:
     }
     assert set(bindings) == {
         "structure_annotation.dssp_compute.mkdssp_local",
-        "structure_annotation.secondary_structure_extract.direct",
-        "structure_annotation.sasa_compute.direct",
+        "structure_annotation.observed_to_conditioning.direct",
         "structure_annotation.secondary_structure_agreement.direct",
-        "structure_annotation.apply_secondary_structure_to_prompt.direct",
-        "structure_annotation.apply_sasa_to_prompt.direct",
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct"
@@ -392,67 +299,47 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
         for port_type in STRUCTURE_ANNOTATION_PACKAGE.port_types
     }
     subject = _candidate_reference("subject-structure")
-    layout = ResidueLayout(
-        chain_id="A,B",
-        length=4,
-        residue_ids=["A:4", "A:6", "B:1", "B:2"],
-    )
-    annotation = DSSPAnnotation(
-        subject=subject,
-        layout=layout,
-        secondary_structure=("G", "_", "C", "E"),
-        sasa=(14.5, None, 0.0, 91.25),
-    )
-    annotation_type = port_types["structure_annotation.dssp_annotations"]
-    secondary_type = port_types[
-        "structure_annotation.secondary_structure_track"
-    ]
-    sasa_type = port_types["structure_annotation.sasa_track"]
+    layout = ResidueLayout(["A:4", "A:6", "B:1", "B:2"])
+    secondary_type = port_types["structure_annotation.secondary_structure.observed"]
+    sasa_type = port_types["structure_annotation.sasa.observed"]
 
-    decoded_annotation = annotation_type.decode(
-        annotation_type.encode(annotation)
+    secondary_track = CandidateResidueTrack(
+        subject=subject,
+        track=ResidueTrack(layout, ("G", None, "C", "E")),
     )
-    assert decoded_annotation == annotation
+    observed_sasa = CandidateResidueTrack(
+        subject=subject,
+        track=ResidueTrack(layout, (14.5, None, 0.0, 91.25)),
+    )
+
+    decoded_secondary = secondary_type.decode(
+        secondary_type.encode(secondary_track)
+    )
+    assert decoded_secondary == secondary_track
+    decoded_sasa = sasa_type.decode(sasa_type.encode(observed_sasa))
+    assert decoded_sasa == observed_sasa
     assert all(
         value is None or type(value) is float
-        for value in decoded_annotation.sasa
+        for value in decoded_sasa.track.values
     )
-    track = StructureAnnotationTrack(
-        subject=subject,
-        layout=layout,
-        values=annotation.secondary_structure,
-    )
-    assert secondary_type.decode(secondary_type.encode(track)) == track
-    sasa_track = StructureAnnotationTrack(
-        subject=subject,
-        layout=layout,
-        values=annotation.sasa,
-    )
-    decoded_sasa_track = sasa_type.decode(sasa_type.encode(sasa_track))
-    assert decoded_sasa_track == sasa_track
-    assert all(
-        value is None or type(value) is float
-        for value in decoded_sasa_track.values
-    )
-    invalid_annotation = json.loads(annotation_type.encode(annotation))
-    invalid_annotation["value"]["sasa"][0] = True
-    with pytest.raises(PortValueError, match="nullable non-negative"):
-        annotation_type.decode(canonical_json_bytes(invalid_annotation))
-    invalid_sasa_track = json.loads(sasa_type.encode(sasa_track))
-    invalid_sasa_track["value"]["track"]["fields"]["values"][0] = "14.5"
-    with pytest.raises(PortValueError, match="nullable non-negative"):
-        sasa_type.decode(canonical_json_bytes(invalid_sasa_track))
-    wire = json.loads(secondary_type.encode(track))["value"]
-    assert wire["track"]["fields"]["values"] == ["G", "_", "C", "E"]
 
-    with pytest.raises(PortValueError, match="unsupported alphabet"):
+    invalid_sasa_wire = json.loads(sasa_type.encode(observed_sasa))
+    invalid_sasa_wire["value"]["fields"]["track"]["fields"]["values"][0] = (
+        "14.5"
+    )
+    with pytest.raises(PortValueError, match="non-negative"):
+        sasa_type.decode(canonical_json_bytes(invalid_sasa_wire))
+
+    with pytest.raises(PortValueError, match="canonical SS8"):
         secondary_type.encode(
-            StructureAnnotationTrack(
+            CandidateResidueTrack(
                 subject=subject,
-                layout=layout,
-                values=("H", "-", "E", "C"),
+                track=ResidueTrack(layout, ("H", "-", "E", "C")),
             )
         )
+
+    wire = json.loads(secondary_type.encode(secondary_track))["value"]
+    assert wire["fields"]["track"]["fields"]["values"][1] is None
 
 
 def test_annotation_wire_requires_subject_and_subject_changes_content_identity(
@@ -461,15 +348,8 @@ def test_annotation_wire_requires_subject_and_subject_changes_content_identity(
         port_type.type_id: port_type
         for port_type in STRUCTURE_ANNOTATION_PACKAGE.port_types
     }
-    layout = ResidueLayout(
-        chain_id="A",
-        length=1,
-        residue_ids=["A:1"],
-    )
-    annotation_type = port_types["structure_annotation.dssp_annotations"]
-    track_type = port_types[
-        "structure_annotation.secondary_structure_track"
-    ]
+    layout = ResidueLayout(["A:1"])
+    secondary_type = port_types["structure_annotation.secondary_structure.observed"]
     first_subject = _candidate_reference("subject-1", digest_symbol="a")
     same_id_new_content = _candidate_reference(
         "subject-1",
@@ -480,24 +360,10 @@ def test_annotation_wire_requires_subject_and_subject_changes_content_identity(
         digest_symbol="a",
     )
 
-    annotations = tuple(
-        DSSPAnnotation(
-            subject=subject,
-            layout=layout,
-            secondary_structure=("H",),
-            sasa=(10.0,),
-        )
-        for subject in (
-            first_subject,
-            same_id_new_content,
-            same_content_new_id,
-        )
-    )
     tracks = tuple(
-        StructureAnnotationTrack(
+        CandidateResidueTrack(
             subject=subject,
-            layout=layout,
-            values=("H",),
+            track=ResidueTrack(layout, ("H",)),
         )
         for subject in (
             first_subject,
@@ -506,24 +372,15 @@ def test_annotation_wire_requires_subject_and_subject_changes_content_identity(
         )
     )
 
-    assert len(
-        {annotation_type.content_digest(value) for value in annotations}
-    ) == 3
-    assert len({track_type.content_digest(value) for value in tracks}) == 3
-    assert annotation_type.decode(annotation_type.encode(annotations[0])) == (
-        annotations[0]
-    )
-    assert track_type.decode(track_type.encode(tracks[0])) == tracks[0]
+    assert len({secondary_type.content_digest(value) for value in tracks}) == 3
+    assert secondary_type.decode(
+        secondary_type.encode(tracks[0])
+    ) == tracks[0]
 
-    legacy_wire = json.loads(annotation_type.encode(annotations[0]))
-    del legacy_wire["value"]["subject"]
-    with pytest.raises(PortValueError, match="wire value is not closed"):
-        annotation_type.decode(canonical_json_bytes(legacy_wire))
-
-    legacy_track_wire = json.loads(track_type.encode(tracks[0]))
-    del legacy_track_wire["value"]["subject"]
-    with pytest.raises(PortValueError, match="wire value is not closed"):
-        track_type.decode(canonical_json_bytes(legacy_track_wire))
+    legacy_wire = json.loads(secondary_type.encode(tracks[0]))
+    del legacy_wire["value"]["fields"]["subject"]
+    with pytest.raises(PortValueError, match="fields do not match"):
+        secondary_type.decode(canonical_json_bytes(legacy_wire))
 
 
 def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
@@ -534,6 +391,7 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
     )
     subject = _candidate_reference("subject-structure")
     axis = resolve_residue_axis(structure)
+    layout = ResidueLayout(["A:1"])
     associations = CandidateResolvedResidueAxisAssociations(
         entries=(
             CandidateResolvedResidueAxisAssociation(
@@ -542,15 +400,13 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
             ),
         )
     )
-    annotation = DSSPAnnotation(
+    secondary_track = CandidateResidueTrack(
         subject=subject,
-        layout=ResidueLayout(
-            chain_id="A",
-            length=1,
-            residue_ids=["A:1"],
-        ),
-        secondary_structure=("C",),
-        sasa=(10.0,),
+        track=ResidueTrack(layout, ("C",)),
+    )
+    observed_sasa = CandidateResidueTrack(
+        subject=subject,
+        track=ResidueTrack(layout, (10.0,)),
     )
 
     class RecordingAdapter:
@@ -561,12 +417,15 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
 
         def annotate(
             self,
-            value: object,
+            residue_axis: object,
             *,
             subject: CandidateDataReference,
-        ) -> DSSPAnnotation:
-            self.calls.append((value, subject))
-            return annotation
+        ) -> tuple[
+            CandidateResidueTrack[str],
+            CandidateResidueTrack[float],
+        ]:
+            self.calls.append((residue_axis, subject))
+            return (secondary_track, observed_sasa)
 
     adapter = RecordingAdapter()
     operation = DSSPComputeOperation(adapter)
@@ -588,7 +447,10 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
     )
 
     assert adapter.calls == [(axis, subject)]
-    assert output == {"annotations": annotation}
+    assert output == {
+        "secondary_structure": secondary_track,
+        "sasa": observed_sasa,
+    }
 
 
 def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> None:
@@ -605,7 +467,15 @@ def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> No
     )
 
     class ForbiddenAdapter:
-        def annotate(self, *args: Any, **kwargs: Any) -> DSSPAnnotation:
+        def annotate(
+            self,
+            residue_axis: object,
+            *,
+            subject: CandidateDataReference,
+        ) -> tuple[
+            CandidateResidueTrack[str],
+            CandidateResidueTrack[float],
+        ]:
             raise AssertionError("adapter must not run before exact axis join")
 
     operation = DSSPComputeOperation(ForbiddenAdapter())
@@ -647,11 +517,14 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
             CandidateResolvedResidueAxisAssociation(subject, axis),
         )
     )
-    annotation = DSSPAnnotation(
+    layout = axis.layout
+    secondary_track = CandidateResidueTrack(
         subject=subject,
-        layout=axis.layout,
-        secondary_structure=("C", "C", "C"),
-        sasa=(1.0, 2.0, 3.0),
+        track=ResidueTrack(layout, ("C", "C", "C")),
+    )
+    observed_sasa = CandidateResidueTrack(
+        subject=subject,
+        track=ResidueTrack(layout, (1.0, 2.0, 3.0)),
     )
 
     class RecordingAdapter:
@@ -660,13 +533,16 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
 
         def annotate(
             self,
-            value: object,
+            residue_axis: object,
             *,
             subject: CandidateDataReference,
-        ) -> DSSPAnnotation:
-            assert subject == annotation.subject
-            self.axes.append(value)
-            return annotation
+        ) -> tuple[
+            CandidateResidueTrack[str],
+            CandidateResidueTrack[float],
+        ]:
+            assert subject == secondary_track.subject
+            self.axes.append(residue_axis)
+            return (secondary_track, observed_sasa)
 
     adapter = RecordingAdapter()
     output = DSSPComputeOperation(adapter).execute(
@@ -688,38 +564,222 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
     assert adapter.axes == [axis]
     assert axis.layout.residue_ids == ("A:1", "A:2", "A:3")
     assert axis.residue_names == ("ALA", "MET", "GLY")
-    assert output == {"annotations": annotation}
+    assert output == {
+        "secondary_structure": secondary_track,
+        "sasa": observed_sasa,
+    }
 
 
-def test_secondary_structure_and_sasa_extraction_preserve_subject() -> None:
+def test_dssp_compute_produces_observed_secondary_and_sasa_preserving_subject(
+) -> None:
     subject = _candidate_reference("subject-structure")
-    annotation = DSSPAnnotation(
+    layout = ResidueLayout(["A:1", "A:2"])
+    secondary_track = CandidateResidueTrack(
         subject=subject,
-        layout=ResidueLayout(
-            chain_id="A",
-            length=2,
-            residue_ids=["A:1", "A:2"],
-        ),
-        secondary_structure=("P", "H"),
-        sasa=(12.0, None),
+        track=ResidueTrack(layout, ("H", "C")),
     )
-    call = _operation_call(
-        inputs={"annotations": annotation},
+    observed_sasa = CandidateResidueTrack(
+        subject=subject,
+        track=ResidueTrack(layout, (12.0, None)),
+    )
+
+    class RecordingAdapter:
+        def annotate(
+            self,
+            residue_axis: object,
+            *,
+            subject: CandidateDataReference,
+        ) -> tuple[
+            CandidateResidueTrack[str],
+            CandidateResidueTrack[float],
+        ]:
+            return (secondary_track, observed_sasa)
+
+    associations = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=subject,
+                residue_axis=resolve_residue_axis(
+                    ProteinStructure(
+                        "ATOM      1  CA  GLY A   1       "
+                        "1.000   2.000   3.000  1.00 20.00           C  \n"
+                        "ATOM      2  CA  ALA A   2       "
+                        "2.000   3.000   4.000  1.00 20.00           C  \n"
+                        "TER\nEND\n"
+                    )
+                ),
+            ),
+        )
+    )
+    candidates = CandidateCollection(
+        collection_id="subject-structures",
+        item_type="protein.structure",
+        items=[
+            Candidate(
+                candidate_id=subject.candidate_id,
+                data=ProteinStructure(
+                    "ATOM      1  CA  GLY A   1       "
+                    "1.000   2.000   3.000  1.00 20.00           C  \n"
+                    "ATOM      2  CA  ALA A   2       "
+                    "2.000   3.000   4.000  1.00 20.00           C  \n"
+                    "TER\nEND\n"
+                ),
+            )
+        ],
+    )
+    output = DSSPComputeOperation(RecordingAdapter()).execute(
+        _operation_call(
+            inputs={
+                "structure_candidates": candidates,
+                "residue_axes": associations,
+            },
+            node_parameters={},
+            binding_parameters={},
+            candidate_data={"structure_candidates": (subject,)},
+        )
+    )
+
+    assert output["secondary_structure"].subject == subject
+    assert output["secondary_structure"].track.values == ("H", "C")
+    assert output["sasa"].subject == subject
+    assert output["sasa"].track.values == (12.0, None)
+
+
+def test_observed_to_conditioning_drops_subject_from_one_observed_track() -> None:
+    resources = _InvocationRecorder()
+    catalog = build_frozen_catalog(
+        (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
+    )
+    subject = _candidate_reference("subject-structure")
+    layout = ResidueLayout(["A:1", "A:2"])
+    operation = build_operation(
+        catalog,
+        "structure_annotation.observed_to_conditioning.direct",
+        resources,
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="structure_annotation.observed_to_conditioning.direct",
+        inputs={
+            "secondary_structure": CandidateResidueTrack(
+                subject=subject,
+                track=ResidueTrack(layout, ("H", "C")),
+            ),
+        },
         node_parameters={},
         binding_parameters={},
     )
 
-    secondary = SecondaryStructureExtractOperation(
-        _InvocationRecorder()
-    ).execute(call)["secondary_structure_track"]
-    sasa = SASAComputeOperation(_InvocationRecorder()).execute(call)[
-        "sasa_track"
-    ]
+    result = operation.execute(call)
 
-    assert secondary.subject == subject
-    assert secondary.values == ("C", "H")
-    assert sasa.subject == subject
-    assert sasa.values == (12.0, None)
+    assert "secondary_structure" in result
+    assert isinstance(result["secondary_structure"], ResidueTrack)
+    assert result["secondary_structure"].layout == layout
+    assert result["secondary_structure"].values == ("H", "C")
+    assert resources.invocations == 1
+
+
+def test_observed_to_conditioning_requires_exactly_one_observed_input() -> None:
+    resources = _InvocationRecorder()
+    catalog = build_frozen_catalog(
+        (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
+    )
+    subject = _candidate_reference("subject-structure")
+    layout = ResidueLayout(["A:1"])
+    operation = build_operation(
+        catalog,
+        "structure_annotation.observed_to_conditioning.direct",
+        resources,
+    )
+
+    with pytest.raises(ValueError, match="exactly one observed"):
+        operation.execute(
+            operation_call(
+                catalog=catalog,
+                binding_id=(
+                    "structure_annotation.observed_to_conditioning.direct"
+                ),
+                inputs={},
+                node_parameters={},
+                binding_parameters={},
+            )
+        )
+    with pytest.raises(ValueError, match="exactly one observed"):
+        operation.execute(
+            operation_call(
+                catalog=catalog,
+                binding_id=(
+                    "structure_annotation.observed_to_conditioning.direct"
+                ),
+                inputs={
+                    "secondary_structure": CandidateResidueTrack(
+                        subject=subject,
+                        track=ResidueTrack(layout, ("H",)),
+                    ),
+                    "sasa": CandidateResidueTrack(
+                        subject=subject,
+                        track=ResidueTrack(layout, (10.0,)),
+                    ),
+                },
+                node_parameters={},
+                binding_parameters={},
+            )
+        )
+    assert resources.invocations == 0
+
+
+def test_expected_secondary_structure_from_prompt_projects_prompt() -> None:
+    resources = _InvocationRecorder()
+    catalog = build_frozen_catalog(
+        (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
+    )
+    structure = ProteinStructure(
+        "ATOM      1  CA  GLY A   1       "
+        "1.000   2.000   3.000  1.00 20.00           C  \n"
+        "ATOM      2  CA  ALA A   2       "
+        "2.000   3.000   4.000  1.00 20.00           C  \n"
+        "TER\nEND\n"
+    )
+    structure_port = catalog.require_port_type("protein.structure")
+    reference = CandidateDataReference(
+        candidate_id="reference-structure",
+        data_type_id="protein.structure",
+        content_digest=structure_port.content_digest(structure),
+    )
+    layout = ResidueLayout(["A:1", "A:2"])
+    prompt = ProteinPrompt(
+        layout=layout,
+        sequence=("A", "C"),
+        coordinates=(None, None),
+        secondary_structure=("C", "H"),
+    )
+    operation = build_operation(
+        catalog,
+        "structure_annotation.expected_secondary_structure_from_prompt.direct",
+        resources,
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id=(
+            "structure_annotation."
+            "expected_secondary_structure_from_prompt.direct"
+        ),
+        inputs={
+            "protein_prompt": prompt,
+            "references": CandidateCollection(
+                "references",
+                "protein.structure",
+                (Candidate(reference.candidate_id, structure),),
+            ),
+        },
+        node_parameters={},
+        binding_parameters={},
+    )
+
+    result = operation.execute(call)
+
+    assert result["secondary_structure"].subject == reference
+    assert result["secondary_structure"].track.values == ("C", "H")
 
 
 def test_agreement_reuses_the_admitted_subject_axis_reference() -> None:
@@ -742,7 +802,7 @@ def test_agreement_reuses_the_admitted_subject_axis_reference() -> None:
         data_type_id="protein.structure",
         content_digest=structure_port.content_digest(structure),
     )
-    layout = ResidueLayout("A", 1, ("A:1",))
+    layout = ResidueLayout(["A:1"])
     binding_id = "structure_annotation.secondary_structure_agreement.direct"
     operation = build_operation(
         catalog,
@@ -763,15 +823,13 @@ def test_agreement_reuses_the_admitted_subject_axis_reference() -> None:
                 "protein.structure",
                 (Candidate("reference", structure),),
             ),
-            "expected": StructureAnnotationTrack(
-                reference,
-                layout,
-                ("H",),
+            "expected": CandidateResidueTrack(
+                subject=reference,
+                track=ResidueTrack(layout, ("H",)),
             ),
-            "observed": StructureAnnotationTrack(
-                subject,
-                layout,
-                ("H",),
+            "observed": CandidateResidueTrack(
+                subject=subject,
+                track=ResidueTrack(layout, ("H",)),
             ),
             "subject_residue_axes": (
                 CandidateResolvedResidueAxisAssociations(
@@ -829,11 +887,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
 ) -> None:
     resources = _InvocationRecorder()
     operation = _agreement_operation(resources)
-    layout = ResidueLayout(
-        chain_id="A",
-        length=1,
-        residue_ids=["A:1"],
-    )
+    layout = ResidueLayout(["A:1"])
     subject_reference = _candidate_reference("subject-1", digest_symbol="a")
     expected_reference = _candidate_reference(
         "reference-1",
@@ -888,23 +942,21 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
         inputs={
             "subjects": subjects,
             "references": references,
-            "expected": StructureAnnotationTrack(
+            "expected": CandidateResidueTrack(
                 subject=(
                     mismatched_reference
                     if track_role == "expected"
                     else expected_reference
                 ),
-                layout=layout,
-                values=("H",),
+                track=ResidueTrack(layout, ("H",)),
             ),
-            "observed": StructureAnnotationTrack(
+            "observed": CandidateResidueTrack(
                 subject=(
                     mismatched_reference
                     if track_role == "observed"
                     else subject_reference
                 ),
-                layout=layout,
-                values=("H",),
+                track=ResidueTrack(layout, ("H",)),
             ),
             "subject_residue_axes": subject_residue_axes,
         },
@@ -944,15 +996,13 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
                 Candidate(candidate_id=reference.candidate_id, data=structure)
             ],
         ),
-        "expected": StructureAnnotationTrack(
+        "expected": CandidateResidueTrack(
             subject=reference,
-            layout=ResidueLayout("A", 1, ["A:1"]),
-            values=("H",),
+            track=ResidueTrack(ResidueLayout(["A:1"]), ("H",)),
         ),
-        "observed": StructureAnnotationTrack(
+        "observed": CandidateResidueTrack(
             subject=subject,
-            layout=ResidueLayout("A", 1, ["A:2"]),
-            values=("H",),
+            track=ResidueTrack(ResidueLayout(["A:2"]), ("H",)),
         ),
         "subject_residue_axes": CandidateResolvedResidueAxisAssociations(
             entries=(
@@ -993,7 +1043,7 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
         "1.000   2.000   3.000  1.00 20.00           C  \n"
         "TER\nEND\n"
     )
-    layout = ResidueLayout("A", 1, ("A:1",))
+    layout = ResidueLayout(["A:1"])
     with pytest.raises(
         ValueError,
         match="one exact resolved residue-axis association",
@@ -1011,15 +1061,13 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
                         "protein.structure",
                         (Candidate(reference.candidate_id, structure),),
                     ),
-                    "expected": StructureAnnotationTrack(
-                        reference,
-                        layout,
-                        ("H",),
+                    "expected": CandidateResidueTrack(
+                        subject=reference,
+                        track=ResidueTrack(layout, ("H",)),
                     ),
-                    "observed": StructureAnnotationTrack(
-                        subject,
-                        layout,
-                        ("H",),
+                    "observed": CandidateResidueTrack(
+                        subject=subject,
+                        track=ResidueTrack(layout, ("H",)),
                     ),
                     "subject_residue_axes": (
                         CandidateResolvedResidueAxisAssociations(
@@ -1105,7 +1153,9 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
             "value_category": "filesystem_path",
         },
     )
-def test_only_mkdssp_compute_crosses_an_adapter_route() -> None:
+
+
+def test_only_dssp_compute_crosses_an_adapter_route() -> None:
     catalog = build_frozen_catalog(
         (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
     )
@@ -1118,11 +1168,8 @@ def test_only_mkdssp_compute_crosses_an_adapter_route() -> None:
 
     assert set(bindings) == {
         "structure_annotation.dssp_compute.mkdssp_local",
-        "structure_annotation.secondary_structure_extract.direct",
-        "structure_annotation.sasa_compute.direct",
+        "structure_annotation.observed_to_conditioning.direct",
         "structure_annotation.secondary_structure_agreement.direct",
-        "structure_annotation.apply_secondary_structure_to_prompt.direct",
-        "structure_annotation.apply_sasa_to_prompt.direct",
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct"
@@ -1132,11 +1179,8 @@ def test_only_mkdssp_compute_crosses_an_adapter_route() -> None:
         "structure_annotation.dssp_compute.mkdssp_local"
     ].descriptor["execution_route"] == "adapter"
     for binding_id in (
-        "structure_annotation.secondary_structure_extract.direct",
-        "structure_annotation.sasa_compute.direct",
+        "structure_annotation.observed_to_conditioning.direct",
         "structure_annotation.secondary_structure_agreement.direct",
-        "structure_annotation.apply_secondary_structure_to_prompt.direct",
-        "structure_annotation.apply_sasa_to_prompt.direct",
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct"
@@ -1174,7 +1218,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,
@@ -1287,8 +1331,8 @@ def _run_dssp(
                 catalog,
                 {
                     "structure_annotation.dssp_compute.mkdssp_local": {
-                            "dssp_binary": configured_binary or str(binary)
-                        }
+                        "dssp_binary": configured_binary or str(binary)
+                    }
                 },
             ),
             result_store(projects),
@@ -1454,10 +1498,17 @@ fixture Y 4 CYS . 9.5
     )
 
     assert projection["status"] == "succeeded"
-    output = next(
+    ss_output = next(
         item
         for item in projection["outputs"]
         if item["node_id"] == "annotate"
+        and item["output_port"] == "secondary_structure"
+    )
+    sasa_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "annotate"
+        and item["output_port"] == "sasa"
     )
     axis_output = next(
         item
@@ -1471,10 +1522,11 @@ fixture Y 4 CYS . 9.5
         projection,
         axis_output,
     ).entries[0]
-    annotation = _decode_output(catalog, service, projection, output)
-    assert annotation.subject == association.subject
-    assert annotation.layout == association.residue_axis.layout
-    assert annotation.layout.residue_ids == (
+    secondary = _decode_output(catalog, service, projection, ss_output)
+    sasa = _decode_output(catalog, service, projection, sasa_output)
+    assert secondary.subject == association.subject
+    assert secondary.track.layout == association.residue_axis.layout
+    assert secondary.track.layout.residue_ids == (
         "A:-3A",
         "A:0",
         "A:1",
@@ -1485,7 +1537,7 @@ fixture Y 4 CYS . 9.5
         "B:11",
         "B:12",
     )
-    assert annotation.secondary_structure == (
+    assert secondary.track.values == (
         "G",
         "H",
         "I",
@@ -1493,10 +1545,10 @@ fixture Y 4 CYS . 9.5
         "E",
         "B",
         "S",
-        "P",
+        "C",
         "C",
     )
-    assert annotation.sasa == (
+    assert sasa.track.values == (
         1.25,
         0.0,
         None,
@@ -1601,16 +1653,20 @@ fixture A 3 GLY E 30.0 14.0 2.0 3.0
     )
 
     assert projection["status"] == "succeeded"
-    annotation = _decode_output(
-        catalog,
-        service,
-        projection,
-        next(
-            item
-            for item in projection["outputs"]
-            if item["node_id"] == "annotate"
-        ),
+    ss_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "annotate"
+        and item["output_port"] == "secondary_structure"
     )
+    sasa_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "annotate"
+        and item["output_port"] == "sasa"
+    )
+    secondary = _decode_output(catalog, service, projection, ss_output)
+    sasa = _decode_output(catalog, service, projection, sasa_output)
     axis_associations = _decode_output(
         catalog,
         service,
@@ -1623,12 +1679,12 @@ fixture A 3 GLY E 30.0 14.0 2.0 3.0
         ),
     )
     association = axis_associations.entries[0]
-    assert annotation.subject == association.subject
-    assert annotation.layout == association.residue_axis.layout
-    assert annotation.layout.residue_ids == ("A:1", "A:2", "A:3")
+    assert secondary.subject == association.subject
+    assert secondary.track.layout == association.residue_axis.layout
+    assert secondary.track.layout.residue_ids == ("A:1", "A:2", "A:3")
     assert association.residue_axis.residue_names == ("ALA", "MET", "GLY")
-    assert annotation.secondary_structure == ("H", "C", "E")
-    assert annotation.sasa == (10.0, 20.0, 30.0)
+    assert secondary.track.values == ("H", "C", "E")
+    assert sasa.track.values == (10.0, 20.0, 30.0)
 
 
 def test_environment_only_binary_path_is_available_and_ready(
@@ -1671,7 +1727,7 @@ fixture A 1 GLY H 10.0 1.0 2.0 3.0
     assert projection["status"] == "succeeded"
 
 
-def test_dssp_dot_is_coil_and_p_is_preserved(
+def test_dssp_dot_and_p_convert_to_canonical_coil(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1713,13 +1769,14 @@ _dssp_struct_summary.z_ca
     )
 
     assert projection["status"] == "succeeded"
-    output = next(
+    ss_output = next(
         item
         for item in projection["outputs"]
         if item["node_id"] == "annotate"
+        and item["output_port"] == "secondary_structure"
     )
-    annotation = _decode_output(catalog, service, projection, output)
-    assert annotation.secondary_structure == ("C", "P")
+    secondary = _decode_output(catalog, service, projection, ss_output)
+    assert secondary.track.values == ("C", "C")
 
 
 def test_dssp_readiness_accepts_configured_executable_without_banner_gate(
@@ -1773,57 +1830,46 @@ def test_unready_dssp_rejects_before_invocation(
     assert failed_terminal["error"]["code"] == "readiness_rejected"
 
 
-def test_structure_annotation_passes_ctk_for_all_seven_nodes(
+@pytest.mark.parametrize(
+    ("case_id", "observation_counts"),
+    [
+        ("structure-annotation-dssp", {}),
+        ("structure-annotation-secondary", {}),
+        ("structure-annotation-sasa", {}),
+        ("structure-annotation-agreement", {"scores": 1}),
+        ("structure-annotation-expected-secondary-from-prompt", {}),
+    ],
+    ids=[
+        "structure-annotation-dssp",
+        "structure-annotation-secondary",
+        "structure-annotation-sasa",
+        "structure-annotation-agreement",
+        "structure-annotation-expected-secondary-from-prompt",
+    ],
+)
+def test_structure_annotation_passes_ctk_for_all_four_nodes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    observation_counts: dict[str, int],
 ) -> None:
     from tests.fixtures.structure_annotation_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    dssp_output = """\
-data_fixture
-loop_
-_atom_site.label_asym_id
-_atom_site.label_seq_id
-_atom_site.auth_asym_id
-_atom_site.auth_seq_id
-_atom_site.pdbx_PDB_ins_code
-A 1 A 1 ?
-A 2 A 2 ?
-#
-loop_
-_dssp_struct_summary.entry_id
-_dssp_struct_summary.label_asym_id
-_dssp_struct_summary.label_seq_id
-_dssp_struct_summary.label_comp_id
-_dssp_struct_summary.secondary_structure
-_dssp_struct_summary.accessibility
-_dssp_struct_summary.x_ca
-_dssp_struct_summary.y_ca
-_dssp_struct_summary.z_ca
-fixture A 1 GLY H 10.0 1.0 2.0 3.0
-fixture A 2 ALA . 20.0 2.0 3.0 4.0
-#
-"""
+    dssp_output = "data_fixture\nloop_\n_atom_site.label_asym_id\n_atom_site.label_seq_id\n_atom_site.auth_asym_id\n_atom_site.auth_seq_id\n_atom_site.pdbx_PDB_ins_code\nA 1 A 1 ?\nA 2 A 2 ?\n#\nloop_\n_dssp_struct_summary.entry_id\n_dssp_struct_summary.label_asym_id\n_dssp_struct_summary.label_seq_id\n_dssp_struct_summary.label_comp_id\n_dssp_struct_summary.secondary_structure\n_dssp_struct_summary.accessibility\n_dssp_struct_summary.x_ca\n_dssp_struct_summary.y_ca\n_dssp_struct_summary.z_ca\nfixture A 1 GLY H 10.0 1.0 2.0 3.0\nfixture A 2 ALA . 20.0 2.0 3.0 4.0\n#\n"
     binary = _fake_dssp_binary(tmp_path, output=dssp_output)
     candidate_source = WorkflowNodeInstance(
         node_id="candidates",
         node_type_id="contract_test.structure_annotation_candidate_source",
-        binding_id=(
-            "contract_test.structure_annotation_candidate_source.direct"
-        ),
+        binding_id="contract_test.structure_annotation_candidate_source.direct",
         node_parameters={},
         binding_parameters={},
     )
     residue_axis_resolver = WorkflowNodeInstance(
         node_id="resolve-axis",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
@@ -1838,8 +1884,10 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
         WorkflowEdge("candidates", "subjects", "values", "subjects"),
         WorkflowEdge("candidates", "references", "values", "references"),
     )
-    cases = (
-        ModulePackageContractCase(
+    layout = ResidueLayout(["A:1", "A:2"])
+    subject = _candidate_reference("fixture-structure-subject")
+    case = {
+        "structure-annotation-dssp": lambda: ModulePackageContractCase(
             case_id="structure-annotation-dssp",
             node_type_id="structure_annotation.dssp_compute",
             binding_id="structure_annotation.dssp_compute.mkdssp_local",
@@ -1849,10 +1897,7 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             workflow_nodes=(candidate_source, residue_axis_resolver),
             workflow_edges=(
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "resolve-axis",
-                    "structure_candidates",
+                    "candidates", "subjects", "resolve-axis", "structure_candidates"
                 ),
                 WorkflowEdge(
                     "candidates",
@@ -1861,97 +1906,57 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
                     "structure_candidates",
                 ),
                 WorkflowEdge(
-                    "resolve-axis",
-                    "residue_axes",
-                    "contract-test-node",
-                    "residue_axes",
+                    "resolve-axis", "residue_axes", "contract-test-node", "residue_axes"
                 ),
             ),
-            forbidden_public_fragments=(str(binary),),
         ),
-        ModulePackageContractCase(
+        "structure-annotation-secondary": lambda: ModulePackageContractCase(
             case_id="structure-annotation-secondary",
-            node_type_id="structure_annotation.secondary_structure_extract",
-            binding_id=(
-                "structure_annotation.secondary_structure_extract.direct"
-            ),
+            node_type_id="structure_annotation.observed_to_conditioning",
+            binding_id="structure_annotation.observed_to_conditioning.direct",
             node_parameters={},
             binding_parameters={},
             environment_values={},
             workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
+            workflow_edges=value_source_edges
+            + (
                 WorkflowEdge(
-                    "values",
-                    "annotations",
-                    "contract-test-node",
-                    "annotations",
+                    "values", "annotations", "contract-test-node", "secondary_structure"
                 ),
             ),
         ),
-        ModulePackageContractCase(
+        "structure-annotation-sasa": lambda: ModulePackageContractCase(
             case_id="structure-annotation-sasa",
-            node_type_id="structure_annotation.sasa_compute",
-            binding_id="structure_annotation.sasa_compute.direct",
+            node_type_id="structure_annotation.observed_to_conditioning",
+            binding_id="structure_annotation.observed_to_conditioning.direct",
             node_parameters={},
             binding_parameters={},
             environment_values={},
             workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
-                WorkflowEdge(
-                    "values",
-                    "annotations",
-                    "contract-test-node",
-                    "annotations",
-                ),
-            ),
+            workflow_edges=value_source_edges
+            + (WorkflowEdge("values", "sasa", "contract-test-node", "sasa"),),
         ),
-        ModulePackageContractCase(
+        "structure-annotation-agreement": lambda: ModulePackageContractCase(
             case_id="structure-annotation-agreement",
-            node_type_id=(
-                "structure_annotation.secondary_structure_agreement"
-            ),
-            binding_id=(
-                "structure_annotation.secondary_structure_agreement.direct"
-            ),
+            node_type_id="structure_annotation.secondary_structure_agreement",
+            binding_id="structure_annotation.secondary_structure_agreement.direct",
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            workflow_nodes=(
-                candidate_source,
-                value_source,
-                residue_axis_resolver,
-            ),
-            workflow_edges=value_source_edges + (
+            workflow_nodes=(candidate_source, value_source, residue_axis_resolver),
+            workflow_edges=value_source_edges
+            + (
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "resolve-axis",
-                    "structure_candidates",
+                    "candidates", "subjects", "resolve-axis", "structure_candidates"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "contract-test-node",
-                    "subjects",
+                    "candidates", "subjects", "contract-test-node", "subjects"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "references",
-                    "contract-test-node",
-                    "references",
+                    "candidates", "references", "contract-test-node", "references"
                 ),
-                WorkflowEdge(
-                    "values",
-                    "expected",
-                    "contract-test-node",
-                    "expected",
-                ),
-                WorkflowEdge(
-                    "values",
-                    "observed",
-                    "contract-test-node",
-                    "observed",
-                ),
+                WorkflowEdge("values", "expected", "contract-test-node", "expected"),
+                WorkflowEdge("values", "observed", "contract-test-node", "observed"),
                 WorkflowEdge(
                     "resolve-axis",
                     "residue_axes",
@@ -1959,142 +1964,74 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
                     "subject_residue_axes",
                 ),
             ),
-            expected_observation_counts={"scores": 1},
         ),
-        ModulePackageContractCase(
-            case_id="structure-annotation-apply-secondary-to-prompt",
-            node_type_id=(
-                "structure_annotation.apply_secondary_structure_to_prompt"
-            ),
-            binding_id=(
-                "structure_annotation."
-                "apply_secondary_structure_to_prompt.direct"
-            ),
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
-                WorkflowEdge(
-                    "values",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-                WorkflowEdge(
-                    "values",
-                    "expected",
-                    "contract-test-node",
-                    "secondary_structure_track",
-                ),
-            ),
-        ),
-        ModulePackageContractCase(
-            case_id="structure-annotation-apply-sasa-to-prompt",
-            node_type_id="structure_annotation.apply_sasa_to_prompt",
-            binding_id="structure_annotation.apply_sasa_to_prompt.direct",
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
-                WorkflowEdge(
-                    "values",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-                WorkflowEdge(
-                    "values",
-                    "sasa_track",
-                    "contract-test-node",
-                    "sasa_track",
-                ),
-            ),
-        ),
-        ModulePackageContractCase(
+        "structure-annotation-expected-secondary-from-prompt": lambda: ModulePackageContractCase(
             case_id="structure-annotation-expected-secondary-from-prompt",
-            node_type_id=(
-                "structure_annotation.expected_secondary_structure_from_prompt"
-            ),
-            binding_id=(
-                "structure_annotation."
-                "expected_secondary_structure_from_prompt.direct"
-            ),
+            node_type_id="structure_annotation.expected_secondary_structure_from_prompt",
+            binding_id="structure_annotation.expected_secondary_structure_from_prompt.direct",
             node_parameters={},
             binding_parameters={},
             environment_values={},
             workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
+            workflow_edges=value_source_edges
+            + (
                 WorkflowEdge(
-                    "values",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
+                    "values", "protein_prompt", "contract-test-node", "protein_prompt"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "references",
-                    "contract-test-node",
-                    "references",
+                    "candidates", "references", "contract-test-node", "references"
                 ),
             ),
         ),
-    )
-    layout = ResidueLayout(
-        chain_id="A",
-        length=2,
-        residue_ids=["A:1", "A:2"],
-    )
-    subject = _candidate_reference("fixture-structure-subject")
-    port_cases = (
-        ModulePackagePortCase(
-            type_id="structure_annotation.dssp_annotations",
-            valid_value=DSSPAnnotation(
-                subject=subject,
-                layout=layout,
-                secondary_structure=("H", "C"),
-                sasa=(10.0, None),
-            ),
-            invalid_values=(7,),
-        ),
-        ModulePackagePortCase(
-            type_id="structure_annotation.secondary_structure_track",
-            valid_value=StructureAnnotationTrack(
-                subject=subject,
-                layout=layout,
-                values=("H", "_"),
-            ),
-            invalid_values=(7,),
-        ),
-        ModulePackagePortCase(
-            type_id="structure_annotation.sasa_track",
-            valid_value=StructureAnnotationTrack(
-                subject=subject,
-                layout=layout,
-                values=(10.0, None),
-            ),
-            invalid_values=(7,),
-        ),
-    )
-
-    report = verify_module_package_contract(
+    }[case_id]()
+    result = execute_module_package_case(
         STRUCTURE_ANNOTATION_PACKAGE,
-        execution_cases=cases,
-        port_cases=port_cases,
+        case,
         supporting_registrations=(SOURCE_PACKAGE, *_prompt_authoring_packages()),
         work_root=tmp_path / "ctk",
     )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
+    for fragment in (str(binary),):
+        assert fragment not in json.dumps(result.public_evidence)
 
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+
+@pytest.mark.parametrize("port_index", [0, 1])
+def test_structure_annotation_passes_ctk_for_all_four_nodes_ports(
+    port_index: int,
+) -> None:
+    from tests.fixtures.structure_annotation_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    layout = ResidueLayout(["A:1", "A:2"])
+    subject = _candidate_reference("fixture-structure-subject")
+    port_case = (
+        ModulePackagePortCase(
+            type_id="structure_annotation.secondary_structure.observed",
+            valid_value=CandidateResidueTrack(
+                subject=subject, track=ResidueTrack(layout, ("H", "C"))
+            ),
+            invalid_values=(7,),
+        ),
+        ModulePackagePortCase(
+            type_id="structure_annotation.sasa.observed",
+            valid_value=CandidateResidueTrack(
+                subject=subject, track=ResidueTrack(layout, (10.0, None))
+            ),
+            invalid_values=(7,),
+        ),
+    )[port_index]
+    verify_module_package_port(
+        STRUCTURE_ANNOTATION_PACKAGE,
+        port_case,
+        supporting_registrations=(SOURCE_PACKAGE, *_prompt_authoring_packages()),
+    )
 
 
 def test_agreement_emits_one_exact_subject_metric_method_observation(
@@ -2313,4 +2250,20 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         "pairing_mode": "fixed_reference",
         "normalization": "exact-SS8-present-residue",
     }
-    assert observation.value == 0.5
+
+
+def test_observed_annotation_subject_must_reference_structure() -> None:
+    observed = CandidateResidueTrack(
+        subject=CandidateDataReference(
+            candidate_id="sequence",
+            data_type_id="protein.sequence",
+            content_digest="sha256:" + "1" * 64,
+        ),
+        track=ResidueTrack(ResidueLayout(("A:1",)), ("H",)),
+    )
+    catalog = build_frozen_catalog(module_registrations())
+    port = catalog.require_port_type(
+        "structure_annotation.secondary_structure.observed"
+    )
+    with pytest.raises(PortValueError, match="protein.structure"):
+        port.encode(observed)

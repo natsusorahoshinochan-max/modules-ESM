@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -28,7 +29,7 @@ from core.workflow.document import (
     workflow_document_from_canonical,
 )
 from core.workflow.document import WorkflowEdge
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.runtime_results import wait_for_service_run_terminal_events
 
 
 def _prepare_protein_sol_fixture(
@@ -518,7 +519,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,

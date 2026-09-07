@@ -11,8 +11,8 @@ inputs:
   - name: scores
     port_type_id: score.collection
     required: true
-    multiplicity: one
-    scientific_meaning: Exact Score Collection source shared by every selected Workflow objective, with scopes isolated by the objective contracts.
+    multiplicity: many
+    scientific_meaning: One exact Score Collection source per selected Workflow objective, connected directly or shared by multiple objectives.
 outputs:
   - name: candidates
     port_type_id: candidate.collection

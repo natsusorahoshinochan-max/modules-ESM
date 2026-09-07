@@ -258,7 +258,7 @@ def test_workflow_stress_tier_includes_nonpositional_association_probes() -> Non
     assert "-s" in targets
     assert (
         "tests/test_collection_ops_v2.py::"
-        "test_public_pairing_uses_common_parent_not_collection_order"
+        "test_public_relation_uses_exact_parent_identity_not_collection_order"
     ) in targets
     assert (
         "tests/test_collection_ops_v2.py::"
@@ -417,6 +417,9 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.structure_annotation.package import (
         MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE,
     )
@@ -427,7 +430,7 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
     catalog = build_frozen_catalog(
         (
             PROTEIN_IO_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_ANNOTATION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         )

@@ -117,15 +117,6 @@ def _validate_selection_objectives(
             "Selection Objective IDs must be unique",
             field_path=("selection_objectives",),
         )
-    candidate_inputs = {
-        objective.candidate_input for objective in objectives
-    }
-    if len(candidate_inputs) > 1:
-        raise WorkflowCompileError(
-            "invalid_selection_objective",
-            "Weighted Selection Objectives must use one exact Candidate input",
-            field_path=("selection_objectives",),
-        )
     for index, objective in enumerate(objectives):
         objective_path = ("selection_objectives", index)
         _validate_selection_inputs(
@@ -162,7 +153,7 @@ def _validate_selection_objectives(
             )
             and (
                 requested_context.get("pairing_mode")
-                != "per_subject_counterpart"
+                != "explicit_relation"
                 or capability.pairing_source is not None
             )
         ]

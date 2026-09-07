@@ -24,7 +24,7 @@ from datatypes.candidate import (
 )
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
 )
 from modules.structure_comparison.contracts import (
@@ -51,7 +51,13 @@ from tests.acceptance.retained_evidence import (
 from tests.acceptance.biohub_environment import (
     biohub_esm3_esmfold2_environment,
 )
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.runtime_results import wait_for_service_run_terminal_events
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    install_prompt_authoring_workflow,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+)
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
     installed_artifact,
@@ -86,6 +92,14 @@ CONTRACTS = {
         "workflow": "source-bound-5g53.workflow.json",
     },
 }
+_FRESH_2EMO_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-6ebcc41c0a856414f4d9548c",
+)
+_FRESH_5G53_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-ffbdba0e8a3aa6c37f65ecba",
+    "prompt-composition-58f2785a259cff8d52fd4cbe",
+    "prompt-composition-c67f87f835a080d538ee16e3",
+)
 _FRESH_2EMO_PROVIDER_NODES = (
     "design-sequences",
     "score-protein-sol",
@@ -461,7 +475,7 @@ def _assert_1pga_science(
         service, catalog, projection, "fold-simplefold", "structure_candidates"
     )
     pairing = _one(
-        service, catalog, projection, "pair-methods", "pairing"
+        service, catalog, projection, "pair-methods", "relation"
     )
     consistency = _one(
         service, catalog, projection, "classify-consistency", "consistency"
@@ -478,7 +492,7 @@ def _assert_1pga_science(
     assert sequence.items[0].parent_ids == (
         input_candidates.items[0].candidate_id,
     )
-    assert type(pairing) is PairwiseCandidateMapping
+    assert type(pairing) is CandidateRelation
     assert len(pairing.entries) == 1
     assert esmfold2.items[0].parent_ids == simplefold.items[0].parent_ids == (
         sequence.items[0].candidate_id,
@@ -694,6 +708,15 @@ def _assert_2emo_science(
         for residue_id in ("A:65", "A:66", "A:67")
     )
     assert axis.sequence[fixed_span[0] : fixed_span[-1] + 1] == "SHG"
+    constraints = _one(
+        service, catalog, projection, "design-constraints", "constraints"
+    )
+    assert tuple(constraints.fixed_residue_ids) == tuple(
+        workflow_nodes["design-constraints"]["node_parameters"]["fixed_residue_ids"]
+    )
+    constraint_digest = catalog.require_port_type(
+        "proteinmpnn.constraints"
+    ).content_digest(constraints)
     assert all(
         type(value) is CandidateCollection
         for value in (
@@ -719,13 +742,19 @@ def _assert_2emo_science(
         and design.metadata["num_sequences"] == 8
         and design.metadata["temperature"] == 0.1
         and design.metadata["backbone_noise"] == 0.0
-        and "constraint_digest" in design.metadata
+        and design.metadata["constraint_digest"] == constraint_digest
         for design in designs.items
     )
     assert all(
         "".join(design.data.sequence[index] for index in fixed_span)
         == "SHG"
         for design in designs.items
+    )
+    assert all(
+        design.data.sequence[axis.layout.residue_ids.index(residue_id)]
+        == axis.sequence[axis.layout.residue_ids.index(residue_id)]
+        for design in designs.items
+        for residue_id in constraints.fixed_residue_ids
     )
     assert live_invocations["design-sequences"][0][
         "invocation_provenance"
@@ -994,8 +1023,8 @@ def _assert_5g53_science(
             service,
             catalog,
             projection,
-            f"generate-{branch}",
-            "counterpart_pairs",
+            f"relate-generated-pairs-{branch}",
+            "relation",
         )
         branch_folds = _one(
             service,
@@ -1013,7 +1042,7 @@ def _assert_5g53_science(
                 branch_folds,
             )
         )
-        assert type(branch_pairing) is PairwiseCandidateMapping
+        assert type(branch_pairing) is CandidateRelation
         assert len(branch_sequences.items) == len(branch_pairing.entries) == 2
         expected_seed = {
             "shorter-8": 5353008,
@@ -1297,6 +1326,87 @@ def _environment(tier_name: str) -> dict[str, dict[str, Any]]:
     return environment
 
 
+def _materialize_prompt_compositions(
+    client: Any,
+    project_id: str,
+    project_input_ref: str,
+    base_tier_name: str,
+    workflow: dict[str, Any],
+) -> None:
+    _ = project_input_ref
+    if base_tier_name == "fresh-1pga":
+        return
+    install_prompt_authoring_workflow(client, project_id, workflow)
+    if base_tier_name == "fresh-2emo":
+        node_id = f"{_FRESH_2EMO_PROMPT_COMPOSITION_IDS[0]}.source.author"
+        opened = open_pdb_prompt_document(client, project_id, node_id)
+        apply_prompt_document(
+            client,
+            project_id,
+            node_id,
+            preview_prompt_document(
+                client,
+                project_id,
+                node_id,
+                opened["document"],
+            ),
+        )
+        return
+
+    for composition_id in _FRESH_5G53_PROMPT_COMPOSITION_IDS:
+        node_id = f"{composition_id}.source.author"
+        opened = open_pdb_prompt_document(client, project_id, node_id)
+        document = opened["document"]
+        inserted_ids = [
+            residue["residue_id"]
+            for residue in document["target_residues"]
+            if residue["origin"] == "inserted"
+        ]
+        source_residues = [
+            residue
+            for residue in document["target_residues"]
+            if residue["origin"] == "source"
+        ]
+        insertion_index = next(
+            index
+            for index, residue in enumerate(source_residues)
+            if residue["residue_id"] == "A:224"
+        )
+        source_residues[insertion_index:insertion_index] = [
+            {"residue_id": residue_id, "origin": "inserted"}
+            for residue_id in inserted_ids
+        ]
+        document["target_residues"] = source_residues
+        apply_prompt_document(
+            client,
+            project_id,
+            node_id,
+            preview_prompt_document(client, project_id, node_id, document),
+        )
+
+
+def test_5g53_materialized_prompt_updates_loop_consumer_identities() -> None:
+    workflow = json.loads(
+        files("examples")
+        .joinpath("v2", "source-bound-5g53.workflow.json")
+        .read_text(encoding="utf-8")
+    )
+    nodes = {node["node_id"]: node for node in workflow["nodes"]}
+    for branch, count in (
+        ("shorter-8", 8),
+        ("numbering-implied-12", 12),
+        ("longer-16", 16),
+    ):
+        loop_residue_ids = nodes[f"evaluate-{branch}"]["node_parameters"][
+            "loop_residue_ids"
+        ]
+        assert len(loop_residue_ids) == count
+        assert all(
+            residue_id.startswith("A:inserted.")
+            for residue_id in loop_residue_ids
+        )
+
+
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_fresh_source_bound_public_run() -> None:
@@ -1343,13 +1453,18 @@ def test_fresh_source_bound_public_run() -> None:
             "sha256:" + contract["input_digest"]
         )
         workflow["workflow_id"] = project_id
-        next(
-            node
-            for node in workflow["nodes"]
-            if node["node_id"] == "import-input"
-        )["node_parameters"] = {
-            "project_input_ref": uploaded.json()["project_input_ref"]
-        }
+        for node in workflow["nodes"]:
+            if node["node_type_id"] == "protein_io.import_structure":
+                node["node_parameters"] = {
+                    "project_input_ref": uploaded.json()["project_input_ref"]
+                }
+        _materialize_prompt_compositions(
+            client,
+            project_id,
+            uploaded.json()["project_input_ref"],
+            base_tier_name,
+            workflow,
+        )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={"workflow": workflow},

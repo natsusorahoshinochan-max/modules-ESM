@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from pathlib import Path
@@ -159,7 +161,7 @@ def _decode(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,
@@ -510,7 +512,7 @@ def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
     )
     axis = _decode(catalog, service, projection, _transform_output(projection))
     assert axis.structure == source
-    assert axis.layout.chain_id == "A"
+    assert axis.layout.chain_ids == ("A",)
     assert axis.layout.residue_ids == ("A:1", "A:2", "A:3")
     assert axis.sequence == "AMG"
     assert axis.residue_names == ("ALA", "MET", "GLY")

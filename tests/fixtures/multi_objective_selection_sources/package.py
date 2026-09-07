@@ -25,8 +25,8 @@ from core.catalog.port_contract import (
     BehaviorReference,
 )
 from core.operation import (
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
     OperationCall,
     OperationContext,
     ReadinessResult,
@@ -38,7 +38,7 @@ from datatypes.candidate import (
 )
 from datatypes.observation import (
     PairwiseObservationContext,
-    PairwiseCandidateMapping,
+    CandidateRelation,
     PairwiseParticipant,
     ScoreCollection,
     ScoreObservation,
@@ -142,9 +142,9 @@ class _Source:
                 ],
             ],
         )
-        pairing = CandidatePairingIntent(
+        pairing = CandidateRelationIntent(
             tuple(
-                CandidatePairingIntentEntry(
+                CandidateRelationIntentEntry(
                     subject_candidate_id=candidate_id,
                     reference_candidate_id=f"esm3-{candidate_id}",
                 )
@@ -180,7 +180,7 @@ class _Scorer:
         if (
             type(candidates) is not CandidateCollection
             or type(references) is not CandidateCollection
-            or type(pairing) is not PairwiseCandidateMapping
+            or type(pairing) is not CandidateRelation
         ):
             raise ValueError("canonical selection scorer requires exact inputs")
 
@@ -246,7 +246,7 @@ class _Scorer:
                         context=PairwiseObservationContext(
                             subject=participant("subject", subject),
                             reference=participant("reference", paired),
-                            pairing_mode="per_subject_counterpart",
+                            pairing_mode="explicit_relation",
                             normalization=NORMALIZATION,
                         ),
                         value=paired_value,
@@ -430,7 +430,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                         "kind": "pairwise",
                         "subject_role": "subject",
                         "reference_role": "reference",
-                        "pairing_mode": "per_subject_counterpart",
+                        "pairing_mode": "explicit_relation",
                         "normalization": NORMALIZATION,
                     },
                     subject_grain="candidate",
@@ -456,7 +456,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         _utility(
             "contract_test.multi_objective_selection_score."
             "paired_esm3.identity",
-            "per_subject_counterpart",
+            "explicit_relation",
         ),
     ),
 )

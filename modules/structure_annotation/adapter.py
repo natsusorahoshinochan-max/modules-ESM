@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from io import StringIO
@@ -16,14 +17,32 @@ from core.operation import (
     ReadinessResult,
 )
 from datatypes.candidate import CandidateDataReference
+from datatypes.residue import (
+    CandidateResidueTrack,
+    ResidueTrack,
+)
 from datatypes.structure import ResolvedStructureResidueAxis
-
-from .domain import DSSPAnnotation
 
 
 MKDSSP_BINARY = "mkdssp"
 MKDSSP_PROCESS_TIMEOUT_SECONDS: float = 120.0
-_DSSP_SECONDARY = frozenset("GHITEBSP")
+
+# Canonical observed SS8 values after conversion. Raw DSSP/mkdssp characters
+# that are not keys here are unmappable and fail fast.
+_SS8_FROM_DSSP: Mapping[str, str | None] = {
+    "_": None,
+    "P": "C",
+    ".": "C",
+    "?": None,
+    "H": "H",
+    "B": "B",
+    "E": "E",
+    "G": "G",
+    "I": "I",
+    "T": "T",
+    "S": "S",
+    "C": "C",
+}
 
 
 def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
@@ -151,8 +170,14 @@ def _parse_dssp_output(
     *,
     residue_axis: ResolvedStructureResidueAxis,
     subject: CandidateDataReference,
-) -> DSSPAnnotation:
-    """Admit mkdssp mmCIF while reconciling exact canonical residues."""
+) -> tuple[CandidateResidueTrack[str], CandidateResidueTrack[float]]:
+    """Admit mkdssp mmCIF while reconciling exact canonical residues.
+
+    Returns two observed tracks carrying the authoritative layout and the
+    exact subject Candidate reference. SS8 and SASA conversions are applied
+    centrally; unmappable raw characters fail fast except the documented
+    missing markers ``_`` and ``?``.
+    """
     parsed = MMCIF2Dict(StringIO(text))
     layout = residue_axis.layout
     rows = _parse_dssp_rows(parsed)
@@ -162,7 +187,7 @@ def _parse_dssp_output(
         residue_id: index
         for index, residue_id in enumerate(residue_ids)
     }
-    secondary = ["_"] * layout.length
+    secondary: list[str | None] = [None] * layout.length
     sasa: list[float | None] = [None] * layout.length
     mapped: set[int] = set()
     for row_index, row in enumerate(rows):
@@ -185,30 +210,44 @@ def _parse_dssp_output(
             )
         mapped.add(layout_index)
         raw_secondary = row.secondary_structure
-        normalized_secondary = {
-            ".": "C",
-            "?": "_",
-            **{symbol: symbol for symbol in _DSSP_SECONDARY},
-        }[raw_secondary]
-        secondary[layout_index] = normalized_secondary
+        if raw_secondary not in _SS8_FROM_DSSP:
+            raise ValueError(
+                f"DSSP row {row_index} has unmappable secondary structure "
+                f"{raw_secondary!r}"
+            )
+        secondary[layout_index] = _SS8_FROM_DSSP[raw_secondary]
 
         raw_accessibility = row.accessibility
         if raw_accessibility in {".", "?"}:
-            accessibility = None
+            accessibility: float | None = None
         else:
-            accessibility = float(raw_accessibility)
+            try:
+                accessibility = float(raw_accessibility)
+            except ValueError:
+                raise ValueError(
+                    f"DSSP row {row_index} has non-numeric accessibility "
+                    f"{raw_accessibility!r}"
+                )
+            if not math.isfinite(accessibility) or accessibility < 0:
+                raise ValueError(
+                    f"DSSP row {row_index} has invalid accessibility "
+                    f"{raw_accessibility!r}"
+                )
         sasa[layout_index] = accessibility
     if mapped != set(range(layout.length)):
         raise ValueError(
             "DSSP authored residue identities are not exactly equal to the "
             "authoritative axis layout"
         )
-    return DSSPAnnotation(
+    secondary_track = CandidateResidueTrack(
         subject=subject,
-        layout=layout,
-        secondary_structure=tuple(secondary),
-        sasa=tuple(sasa),
+        track=ResidueTrack(layout, tuple(secondary)),
     )
+    sasa_track = CandidateResidueTrack(
+        subject=subject,
+        track=ResidueTrack(layout, tuple(sasa)),
+    )
+    return secondary_track, sasa_track
 
 
 class MkdsspAdapter:
@@ -228,7 +267,7 @@ class MkdsspAdapter:
         residue_axis: ResolvedStructureResidueAxis,
         *,
         subject: CandidateDataReference,
-    ) -> DSSPAnnotation:
+    ) -> tuple[CandidateResidueTrack[str], CandidateResidueTrack[float]]:
         """Run mkdssp and return only its admitted canonical annotation."""
         binary = self._environment["dssp_binary"]
         with self._resources.local_provider("mkdssp"):
@@ -240,7 +279,7 @@ class MkdsspAdapter:
         *,
         subject: CandidateDataReference,
         binary: Any,
-    ) -> DSSPAnnotation:
+    ) -> tuple[CandidateResidueTrack[str], CandidateResidueTrack[float]]:
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"
         ) as workspace:

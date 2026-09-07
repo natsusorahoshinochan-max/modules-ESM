@@ -6,6 +6,8 @@ production Catalog/compiler, and the public REST/WebSocket Run surface.
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from protein_workbench_public.bootstrap import module_registrations
 
 import hashlib
@@ -38,7 +40,7 @@ from protein_workbench_public.workflow_codec import decode_workflow_document
 from tests.support.application import create_application
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
 )
 from datatypes.structure import ProteinStructure
@@ -64,10 +66,7 @@ from tests.support.workflow_stress import (
     run_committed_workflow,
 )
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -213,6 +212,9 @@ class _ControlledESMFold2:
             pae=torch.zeros((count, count)),
         )
 
+    def close(self) -> None:
+        pass
+
 
 class _ControlledSimpleFold:
     def __init__(self, structure: str, *, plddt: float = 90.0) -> None:
@@ -268,12 +270,8 @@ def _decoded_outputs(
         output["port_type"]["contract_id"])
     return tuple(
         codec.decode(
-            retrieve_typed_output_canonical_bytes(
-                client,
-                projection["project_id"],
-                projection["run_id"],
-                output,
-                index,
+            PublicRunClient(client).typed_output_bytes(
+                projection["project_id"], projection["run_id"], output, index
             )
         )
         for index in range(output["value_count"])
@@ -393,22 +391,13 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         import_node["node_parameters"] = {
             "project_input_ref": uploaded.json()["project_input_ref"]
         }
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="provider-free-source-bound-1pga",
         )
-        assert committed.status_code == 200, committed.json()
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": "provider-free-source-bound-1pga",
-            },
-        )
-        assert started.status_code == 202, started.json()
-        run_id = started.json()["run_id"]
+        run_id = started["run_id"]
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
@@ -442,6 +431,17 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             message["sequence"] for message in events
         )
         assert "values" not in json.dumps(events)
+
+        from tests.test_fresh_source_bound_acceptance_v2 import _assert_1pga_science
+
+        _assert_1pga_science(
+            app.state.run_runtime,
+            catalog,
+            workflow,
+            tuple(events),
+            projection,
+            local_models=False,
+        )
 
         input_candidates = _decoded_output(
             client, catalog, projection, "import-input", "structure_candidates"
@@ -478,9 +478,9 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         )
 
         pairing = _decoded_output(
-            client, catalog, projection, "pair-methods", "pairing"
+            client, catalog, projection, "pair-methods", "relation"
         )
-        assert type(pairing) is PairwiseCandidateMapping
+        assert type(pairing) is CandidateRelation
         assert len(pairing.entries) == 1
         assert pairing.entries[0].subject.candidate_id == (
             esmfold2_structures.items[0].candidate_id
@@ -661,7 +661,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         replay = run_committed_workflow(
             client,
             project_id,
-            committed.json()["workflow_commit_id"],
+            committed["workflow_commit_id"],
             request_id="provider-free-source-bound-1pga-replay",
         )
         assert replay.projection["status"] == "succeeded"
@@ -684,7 +684,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             "three_way_refolding_1pga",
             runs={
                 "first": StressRun(
-                    committed.json()["workflow_commit_id"],
+                    committed["workflow_commit_id"],
                     projection,
                     tuple(events),
                 ),
@@ -792,23 +792,16 @@ def test_source_bound_1pga_public_classification_contract(
         )["node_parameters"] = {
             "project_input_ref": uploaded["project_input_ref"]
         }
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"workflow": workflow},
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="provider-free-1pga-classification",
         )
-        assert committed.status_code == 200, committed.json()
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": "provider-free-1pga-classification",
-            },
-        )
-        assert started.status_code == 202, started.json()
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
-            started.json()["run_id"],
+            started["run_id"],
             timeout_seconds=60,
         )
         assert projection["status"] == "succeeded", projection[

@@ -25,7 +25,7 @@ outputs:
     multiplicity: one
     scientific_meaning: One identity-addressed prediction input sequence.
   - name: pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: true
     multiplicity: one
     scientific_meaning: Exact subject-to-counterpart pairing.

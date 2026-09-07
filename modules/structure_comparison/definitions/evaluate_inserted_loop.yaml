@@ -24,7 +24,7 @@ inputs:
     multiplicity: one
     scientific_meaning: Structure Candidates generated as the explicit counterparts of the sequence parents.
   - name: counterpart_pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: true
     multiplicity: one
     scientific_meaning: Complete one-to-one independently-folded-subject to generated-counterpart mapping.

@@ -29,7 +29,7 @@ from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
     PairwiseObservationContext,
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
     ScoreObservation,
 )
@@ -573,15 +573,6 @@ def admit_produced_observations(
                     "fixed-reference pairing requires one exact reference "
                     "Candidate for the whole partition"
                 )
-            if (
-                pairing_mode == "per_subject_counterpart"
-                and matching_observations
-                and len(reference_identities) != len(matching_observations)
-            ):
-                raise ObservationAdmissionError(
-                    "per-subject pairing requires one distinct exact "
-                    "counterpart per subject"
-                )
 
         for candidate_id in subject_ids:
             expected_subject = exact_subjects[candidate_id]
@@ -643,7 +634,7 @@ def admit_produced_observations(
                         "Pairwise Context reference source does not contain one "
                         "exact Candidate counterpart"
                     )
-                if context.pairing_mode != "per_subject_counterpart":
+                if context.pairing_mode != "explicit_relation":
                     continue
                 pairing_record = _directional_source_record(
                     inputs=inputs,
@@ -655,7 +646,7 @@ def admit_produced_observations(
                     raise ObservationAdmissionError(
                         "Pairwise Candidate pairing source is unavailable"
                     )
-                pairing = cast(PairwiseCandidateMapping, pairing_record.value)
+                pairing = cast(CandidateRelation, pairing_record.value)
                 mapping_matches = [
                     entry
                     for entry in pairing.entries

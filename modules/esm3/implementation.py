@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import hashlib
 from typing import Any, cast
 
 from core.operation import (
     AdmittedPort,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
     OperationCall,
 )
 from datatypes.candidate import (
@@ -36,24 +33,6 @@ from .adapter import (
     ESM3Confidence,
     ESM3GenerationAdapter,
 )
-
-
-def _derived_call_seed(
-    effective_seed: int | None,
-    prompt_content_digest: str,
-    sample_index: int,
-    track: str,
-) -> int | None:
-    """Derive the stable scientific identity for one sample/track slot."""
-    if effective_seed is None:
-        return None
-    digest = hashlib.sha256(
-        (
-            "protein-workbench-esm3-call-seed/v2:"
-            f"{effective_seed}:{prompt_content_digest}:{sample_index}:{track}"
-        ).encode("ascii")
-    ).digest()
-    return int.from_bytes(digest[:6], "big")
 
 
 class ESM3GenerationOperation:
@@ -158,12 +137,10 @@ class ESM3GenerationOperation:
         effective_seed: int | None = call.effective_randomness.get(
             "effective_seed"
         )
-        prompt_content_digest = admitted_prompt.content_digest
         with self._adapter:
             return self._generate(
                 prompt,
                 effective_seed=effective_seed,
-                prompt_content_digest=prompt_content_digest,
                 admitted_prompt=admitted_prompt,
                 num_samples=num_samples,
                 parameters=parameters,
@@ -193,7 +170,7 @@ class ESM3GenerationOperation:
     ) -> PendingConfidenceFact:
         prediction_axis = PredictionResidueAxis(
             source=prompt_reference,
-            layout=prompt.target_layout,
+            layout=prompt.layout,
             sequence=sequence,
         )
         return PendingConfidenceFact(
@@ -209,16 +186,14 @@ class ESM3GenerationOperation:
 
     @staticmethod
     def _require_assigned_prompt_sequence(prompt: ProteinPrompt) -> None:
-        track = prompt.sequence_track
-        if track is None or None in track.values:
+        if None in prompt.sequence:
             raise ValueError(
                 "structure generation requires a complete assigned sequence"
             )
 
     @staticmethod
     def _require_sequence_mask(prompt: ProteinPrompt) -> None:
-        track = prompt.sequence_track
-        if track is not None and None not in track.values:
+        if None not in prompt.sequence:
             raise ValueError(
                 "ESM-3 sequence generation requires at least one masked residue"
             )
@@ -228,7 +203,6 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        prompt_content_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -239,16 +213,11 @@ class ESM3GenerationOperation:
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
-            call_seed = _derived_call_seed(
-                effective_seed,
-                prompt_content_digest,
-                sample_index,
-                "sequence",
-            )
             result = self._adapter.generate_sequence(
                 prompt,
                 parameters=parameters,
-                derived_call_seed=call_seed,
+                base_seed=effective_seed,
+                sample_index=sample_index,
             )
             candidate = Candidate(
                 f"sequence-{sample_index}",
@@ -321,7 +290,6 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        prompt_content_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -334,12 +302,8 @@ class ESM3GenerationOperation:
             result = self._adapter.generate_structure(
                 prompt,
                 parameters=parameters,
-                derived_call_seed=_derived_call_seed(
-                    effective_seed,
-                    prompt_content_digest,
-                    sample_index,
-                    "structure",
-                ),
+                base_seed=effective_seed,
+                sample_index=sample_index,
             )
             candidate_id = f"structure-{sample_index}"
             fact = self._pending_confidence_fact(
@@ -386,7 +350,6 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        prompt_content_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -394,7 +357,6 @@ class ESM3GenerationOperation:
         self._require_sequence_mask(prompt)
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
-        pairing_entries: list[CandidatePairingIntentEntry] = []
         confidence_facts: list[PendingConfidenceFact] = []
         reconstruction_candidates: list[Candidate] = []
         reconstruction_facts: list[PendingConfidenceFact] = []
@@ -403,18 +365,8 @@ class ESM3GenerationOperation:
             result = self._adapter.generate_pair(
                 prompt,
                 parameters=parameters,
-                sequence_derived_call_seed=_derived_call_seed(
-                    effective_seed,
-                    prompt_content_digest,
-                    sample_index,
-                    "sequence",
-                ),
-                structure_derived_call_seed=_derived_call_seed(
-                    effective_seed,
-                    prompt_content_digest,
-                    sample_index,
-                    "structure",
-                ),
+                base_seed=effective_seed,
+                sample_index=sample_index,
             )
             sequence_candidate = Candidate(
                 f"sequence-{sample_index}",
@@ -507,12 +459,6 @@ class ESM3GenerationOperation:
             )
             sequence_candidates.append(sequence_candidate)
             structure_candidates.append(structure_candidate)
-            pairing_entries.append(
-                CandidatePairingIntentEntry(
-                    subject_candidate_id=sequence_candidate.candidate_id,
-                    reference_candidate_id=structure_candidate.candidate_id,
-                )
-            )
             confidence_facts.append(structure_fact)
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
@@ -525,7 +471,6 @@ class ESM3GenerationOperation:
                 "protein.structure",
                 structure_candidates,
             ),
-            "counterpart_pairs": CandidatePairingIntent(tuple(pairing_entries)),
             "confidence_facts": confidence_output_identity_intent(
                 observation_method=self._method,
                 pending_facts=tuple(confidence_facts),

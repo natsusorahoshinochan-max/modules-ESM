@@ -5,6 +5,9 @@ registration, exact catalog contracts, Binding readiness, and V2 Run
 execution through typed Ports.
 """
 
+import json
+from datatypes.observation import ScoreCollection, ScoreObservation
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from contextlib import contextmanager
@@ -14,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -25,10 +29,7 @@ from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
-from tests.support.contract_test_kit import (
-    ModulePackageContractCase,
-    verify_module_package_contract,
-)
+from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -981,7 +982,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,
@@ -1261,17 +1262,26 @@ def test_invalid_sequence_fails_before_soluprot_engine_invocation(
     )
 
 
+@pytest.mark.parametrize(
+    ("case_id", "observation_counts"),
+    [
+        ("soluprot-full", {"scores": 1}),
+        ("soluprot-no_tm", {"scores": 1}),
+        ("protein-sol", {"scores": 3}),
+    ],
+    ids=["soluprot-full", "soluprot-no_tm", "protein-sol"],
+)
 def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    observation_counts: dict[str, int],
 ) -> None:
     import modules.solubility.protein_sol as protein_sol_adapter
     import modules.solubility.soluprot as soluprot_adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
-    from tests.fixtures.folding_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
+    from tests.fixtures.folding_sources.package import MODULE_PACKAGE as SOURCE_PACKAGE
 
     monkeypatch.setattr(
         package,
@@ -1292,18 +1302,12 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ),
     )
     monkeypatch.setattr(
-        soluprot_adapter,
-        "_prepare_soluprot_invocation",
-        _prepare_soluprot_fixture,
+        soluprot_adapter, "_prepare_soluprot_invocation", _prepare_soluprot_fixture
     )
 
     def run_soluprot_fixture(**kwargs: Any) -> int:
         output_path = kwargs["staging_directory"] / "output.csv"
-        mode = (
-            "no_tm"
-            if "--no_tmhmm" in kwargs["command"]
-            else "full"
-        )
+        mode = "no_tm" if "--no_tmhmm" in kwargs["command"] else "full"
         output_path.write_bytes(
             b"runtime_id,fa_id,soluble\n"
             + (
@@ -1313,12 +1317,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
             )
         )
         return 0
-
-    monkeypatch.setattr(
-        soluprot_adapter,
-        "_run_local_process",
-        run_soluprot_fixture,
-    )
+    monkeypatch.setattr(soluprot_adapter, "_run_local_process", run_soluprot_fixture)
     monkeypatch.setattr(
         protein_sol_adapter,
         "_prepare_protein_sol_invocation",
@@ -1328,17 +1327,11 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     def run_protein_sol_fixture(**kwargs: Any) -> int:
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
-            b"0.446,7.130\n"
+            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,population-sol,pI\nSEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,0.446,7.130\n"
         )
         return 0
-
     monkeypatch.setattr(
-        protein_sol_adapter,
-        "_run_local_process",
-        run_protein_sol_fixture,
+        protein_sol_adapter, "_run_local_process", run_protein_sol_fixture
     )
     source = WorkflowNodeInstance(
         node_id="source",
@@ -1347,16 +1340,15 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
-    cases = tuple(
-        ModulePackageContractCase(
-            case_id=f"soluprot-{mode}",
+    case = {
+        "soluprot-full": lambda: ModulePackageContractCase(
+            case_id="soluprot-full",
             node_type_id="solubility.score_sequence",
-            binding_id=f"solubility.soluprot_{mode}.local",
+            binding_id="solubility.soluprot_full.local",
             node_parameters={},
             binding_parameters={},
             environment_values=_soluprot_admitted_environment(
-                private_runtime_path="/secret/runtime",
-                include_tm=mode == "full",
+                private_runtime_path="/secret/runtime", include_tm=True
             ),
             workflow_nodes=(source,),
             workflow_edges=(
@@ -1367,12 +1359,27 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
                     "sequence_candidates",
                 ),
             ),
-            expected_observation_counts={"scores": 1},
-            forbidden_public_fragments=("/secret/runtime",),
-        )
-        for mode in ("full", "no_tm")
-    ) + (
-        ModulePackageContractCase(
+        ),
+        "soluprot-no_tm": lambda: ModulePackageContractCase(
+            case_id="soluprot-no_tm",
+            node_type_id="solubility.score_sequence",
+            binding_id="solubility.soluprot_no_tm.local",
+            node_parameters={},
+            binding_parameters={},
+            environment_values=_soluprot_admitted_environment(
+                private_runtime_path="/secret/runtime", include_tm=False
+            ),
+            workflow_nodes=(source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "sequence_candidates",
+                    "contract-test-node",
+                    "sequence_candidates",
+                ),
+            ),
+        ),
+        "protein-sol": lambda: ModulePackageContractCase(
             case_id="protein-sol",
             node_type_id="solubility.score_sequence",
             binding_id="solubility.protein_sol.local",
@@ -1390,20 +1397,20 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
                     "sequence_candidates",
                 ),
             ),
-            expected_observation_counts={"scores": 3},
-            forbidden_public_fragments=("/secret/runtime",),
         ),
-    )
-
-    report = verify_module_package_contract(
+    }[case_id]()
+    result = execute_module_package_case(
         MODULE_PACKAGE,
-        execution_cases=cases,
+        case,
         supporting_registrations=(SOURCE_PACKAGE,),
         work_root=tmp_path,
     )
-
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
+    for fragment in ("/secret/runtime",):
+        assert fragment not in json.dumps(result.public_evidence)

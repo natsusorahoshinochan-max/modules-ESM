@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from dataclasses import replace
 from contextlib import contextmanager
 from pathlib import Path
@@ -25,7 +27,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
@@ -40,7 +43,12 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.exact_reference import ExactContractReference
-from datatypes.observation import ScoreCollection
+from datatypes.observation import (
+    CandidateRelation,
+    CandidateRelationEntry,
+    ScoreCollection,
+    ScoreObservation,
+)
 from datatypes.structure import ProteinStructure
 from tests.fixtures.observation_admission import (
     admit_test_produced_score_collection,
@@ -796,8 +804,12 @@ def test_alignment_rejects_stale_axis_reference_before_engine_start() -> None:
             ),
         )
     )
+    relation = CandidateRelation((CandidateRelationEntry(
+        subject_reference,
+        reference_reference,
+    ),))
     resources = _CountingRunResources()
-    binding_id = "structure_comparison.align_single.sequence_primary_affine"
+    binding_id = "structure_comparison.align_pairs.sequence_primary_affine"
     build_operation(
         catalog,
         binding_id,
@@ -811,6 +823,7 @@ def test_alignment_rejects_stale_axis_reference_before_engine_start() -> None:
                 "subject_residue_axes": subject_axes,
                 "references": references,
                 "reference_residue_axes": reference_axes,
+                "relation": relation,
             },
             node_parameters={"pin_matching_chain_ids": False},
             binding_parameters={},
@@ -866,8 +879,12 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
             ),
         )
     )
+    relation = CandidateRelation((
+        CandidateRelationEntry(alpha_reference, fixed_reference),
+        CandidateRelationEntry(zeta_reference, fixed_reference),
+    ))
     alignment_binding = (
-        "structure_comparison.align_fixed_reference.sequence_primary_affine"
+        "structure_comparison.align_pairs.sequence_primary_affine"
     )
     aligner = build_operation(
         catalog,
@@ -881,6 +898,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
             "subject_residue_axes": subject_axes,
             "references": references,
             "reference_residue_axes": reference_axes,
+            "relation": relation,
         },
         node_parameters={"pin_matching_chain_ids": False},
         binding_parameters={},
@@ -954,7 +972,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
     )
 
     metric_binding = (
-        "structure_comparison.tm_score_fixed_reference."
+        "structure_comparison.tm_score_from_alignments."
         "from_alignment_evidence"
     )
     scorer = build_operation(
@@ -969,6 +987,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
                 "alignments": aligned,
                 "subjects": subjects,
                 "references": references,
+                "relation": relation,
             },
             node_parameters={},
             binding_parameters={},
@@ -1000,6 +1019,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
         "alignments": aligned,
         "subjects": subjects,
         "references": references,
+        "relation": relation,
     }
     admit_test_produced_score_collection(
         catalog=catalog,
@@ -1053,6 +1073,107 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
             )
 
 
+def test_direct_ancestor_tm_score_allows_one_reference_for_two_subjects() -> None:
+    catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
+    reference_structure = _multi_segment_structure(
+        (("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))),)
+    )
+    subject_structures = tuple(
+        _multi_segment_structure(
+            ((name, "AA", ((offset, 0.0, 0.0), (offset + 1, 0.0, 0.0))),)
+        )
+        for name, offset in (("A", 2.0), ("B", 4.0))
+    )
+    subject_references = tuple(
+        _candidate_reference(f"subject-{index}", structure)
+        for index, structure in enumerate(subject_structures)
+    )
+    ancestor_reference = _candidate_reference("ancestor", reference_structure)
+    subjects = CandidateCollection(
+        "subjects",
+        "protein.structure",
+        tuple(
+            Candidate(f"subject-{index}", structure)
+            for index, structure in enumerate(subject_structures)
+        ),
+    )
+    ancestors = CandidateCollection(
+        "ancestors",
+        "protein.structure",
+        (Candidate("ancestor", reference_structure),),
+    )
+    pairing = CandidateRelation(tuple(
+        CandidateRelationEntry(reference, ancestor_reference)
+        for reference in subject_references
+    ))
+    subject_axes = CandidateResolvedResidueAxisAssociations(tuple(
+        CandidateResolvedResidueAxisAssociation(
+            reference,
+            resolve_residue_axis(structure),
+        )
+        for reference, structure in zip(
+            subject_references,
+            subject_structures,
+            strict=True,
+        )
+    ))
+    ancestor_axes = CandidateResolvedResidueAxisAssociations((
+        CandidateResolvedResidueAxisAssociation(
+            ancestor_reference,
+            resolve_residue_axis(reference_structure),
+        ),
+    ))
+    alignment_binding = (
+        "structure_comparison.align_pairs."
+        "sequence_primary_affine"
+    )
+    alignments = build_operation(
+        catalog,
+        alignment_binding,
+        _RunResources(),
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id=alignment_binding,
+        inputs={
+            "subjects": subjects,
+            "subject_residue_axes": subject_axes,
+            "references": ancestors,
+            "reference_residue_axes": ancestor_axes,
+            "relation": pairing,
+        },
+        node_parameters={"pin_matching_chain_ids": False},
+    ))["alignments"]
+    metric_binding = (
+        "structure_comparison.tm_score_from_alignments."
+        "from_alignment_evidence"
+    )
+    scores = build_operation(
+        catalog,
+        metric_binding,
+        _RunResources(),
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id=metric_binding,
+        inputs={
+            "alignments": alignments,
+            "subjects": subjects,
+            "references": ancestors,
+            "relation": pairing,
+        },
+    ))["scores"]
+
+    assert len(alignments) == 2
+    assert {entry.reference for entry in alignments} == {ancestor_reference}
+    assert [entry.subject for entry in scores.entries] == list(
+        subject_references
+    )
+    assert all(
+        entry.context.pairing_mode == "explicit_relation"
+        and entry.context.reference.candidate == ancestor_reference
+        for entry in scores.entries
+    )
+
+
 def test_structure_comparison_catalog_has_the_split_scientific_paths() -> None:
     catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
     contracts = [
@@ -1067,74 +1188,39 @@ def test_structure_comparison_catalog_has_the_split_scientific_paths() -> None:
         for contract in contracts
         if contract.contract_kind == "node_type"
     } == {
-        "structure_comparison.align_single",
-        "structure_comparison.align_fixed_reference",
-        "structure_comparison.align_counterparts",
+        "structure_comparison.align_pairs",
         "structure_comparison.evaluate_inserted_loop",
         "structure_comparison.classify_three_way_consistency",
-        "structure_comparison.rmsd_fixed_reference",
-        "structure_comparison.rmsd_counterparts",
-        "structure_comparison.tm_score_fixed_reference",
-        "structure_comparison.tm_score_counterparts",
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.tm_score_from_alignments",
     }
-    node_ids = {
-        contract.contract_id
-        for contract in contracts
-        if contract.contract_kind == "node_type"
-    }
-    assert node_ids == {
-        "structure_comparison.align_single",
-        "structure_comparison.align_fixed_reference",
-        "structure_comparison.align_counterparts",
-        "structure_comparison.classify_three_way_consistency",
-        "structure_comparison.evaluate_inserted_loop",
-        "structure_comparison.rmsd_fixed_reference",
-        "structure_comparison.rmsd_counterparts",
-        "structure_comparison.tm_score_fixed_reference",
-        "structure_comparison.tm_score_counterparts",
-    }
-    for operation in ("align", "rmsd", "tm_score"):
-        fixed_name = (
-            "align_fixed_reference"
-            if operation == "align"
-            else f"{operation}_fixed_reference"
+    for name in (
+        "align_pairs",
+        "rmsd_from_alignments",
+        "tm_score_from_alignments",
+    ):
+        node = catalog.require_contract(
+            "node_type", f"structure_comparison.{name}"
         )
-        counterpart_name = (
-            "align_counterparts"
-            if operation == "align"
-            else f"{operation}_counterparts"
-        )
-        fixed = catalog.require_contract(
-            "node_type",
-            f"structure_comparison.{fixed_name}")
-        counterparts = catalog.require_contract(
-            "node_type",
-            f"structure_comparison.{counterpart_name}")
-        assert "pairing" not in {
-            item["name"] for item in fixed.descriptor["inputs"]
-        }
-        pairing = {
-            item["name"]: item
-            for item in counterparts.descriptor["inputs"]
-        }["pairing"]
-        assert pairing["required"] is True
-        if operation != "align":
-            for node in (fixed, counterparts):
-                scores = next(
-                    item
-                    for item in node.descriptor["outputs"]
-                    if item["name"] == "scores"
-                )
-                assert scores["port_type"]["contract_id"] == (
-                    "score.collection"
-                )
+        relation = {
+            item["name"]: item for item in node.descriptor["inputs"]
+        }["relation"]
+        assert relation["required"] is True
+        assert relation["port_type"]["contract_id"] == "candidate.relation"
+        if name != "align_pairs":
+            scores = next(
+                item
+                for item in node.descriptor["outputs"]
+                if item["name"] == "scores"
+            )
+            assert scores["port_type"]["contract_id"] == "score.collection"
     score_bindings = [
         contract
         for contract in contracts
         if contract.contract_kind == "binding"
         and (
-            ".rmsd_" in contract.contract_id
-            or ".tm_score_" in contract.contract_id
+            ".rmsd_from_alignments." in contract.contract_id
+            or ".tm_score_from_alignments." in contract.contract_id
         )
     ]
     assert all(
@@ -1220,54 +1306,33 @@ def _ctk_case(
     binding_id: str,
     pairing_mode: str | None,
 ) -> ModulePackageContractCase:
-    scenario = (
-        "single"
-        if operation == "align_single"
-        else "fixed_reference"
-        if pairing_mode == "fixed_reference"
-        else "per_subject_counterpart"
-    )
-    source = _source_node(scenario)
+    assert pairing_mode == "explicit_relation"
+    source = _source_node("explicit_relation")
     axis_nodes = (_axis_node("subject-axis"), _axis_node("reference-axis"))
+    is_alignment = operation == "align_pairs"
     node_name = (
-        "align_single"
-        if operation == "align_single"
-        else "align_fixed_reference"
-        if operation == "align_pairwise" and pairing_mode == "fixed_reference"
-        else "align_counterparts"
-        if operation == "align_pairwise"
-        else f"{operation}_fixed_reference"
-        if pairing_mode == "fixed_reference"
-        else f"{operation}_counterparts"
+        "align_pairs"
+        if is_alignment
+        else f"{operation}_from_alignments"
     )
-    if operation in {"align_single", "align_pairwise"}:
-        edges = (*_axis_edges(), *_alignment_edges("contract-test-node"))
-        if pairing_mode == "per_subject_counterpart":
-            edges = (
-                *edges,
-                WorkflowEdge(
-                    "source",
-                    "pairing",
-                    "contract-test-node",
-                    "pairing",
-                ),
-            )
+    if is_alignment:
+        edges = (
+            *_axis_edges(),
+            *_alignment_edges("contract-test-node"),
+            WorkflowEdge(
+                "source", "pairing", "contract-test-node", "relation"
+            ),
+        )
         workflow_nodes = (source, *axis_nodes)
-        expected_observations: dict[str, int] = {}
         node_parameters = {"pin_matching_chain_ids": False}
     else:
-        alignment_node_name = (
-            "align_fixed_reference"
-            if pairing_mode == "fixed_reference"
-            else "align_counterparts"
-        )
         alignment_binding = (
-            f"structure_comparison.{alignment_node_name}."
+            "structure_comparison.align_pairs."
             "sequence_primary_affine"
         )
         alignment = WorkflowNodeInstance(
             node_id="alignment",
-            node_type_id=f"structure_comparison.{alignment_node_name}",
+            node_type_id="structure_comparison.align_pairs",
             binding_id=alignment_binding,
             node_parameters={"pin_matching_chain_ids": False},
             binding_parameters={},
@@ -1293,20 +1358,14 @@ def _ctk_case(
                 "contract-test-node",
                 "references",
             ),
+            WorkflowEdge(
+                "source", "pairing", "alignment", "relation"
+            ),
+            WorkflowEdge(
+                "source", "pairing", "contract-test-node", "relation"
+            ),
         )
-        if pairing_mode == "per_subject_counterpart":
-            edges = (
-                *edges,
-                WorkflowEdge("source", "pairing", "alignment", "pairing"),
-                WorkflowEdge(
-                    "source",
-                    "pairing",
-                    "contract-test-node",
-                    "pairing",
-                ),
-            )
         workflow_nodes = (source, *axis_nodes, alignment)
-        expected_observations = {"scores": 2}
         node_parameters = {}
     return ModulePackageContractCase(
         case_id=case_id,
@@ -1317,7 +1376,6 @@ def _ctk_case(
         environment_values={},
         workflow_nodes=workflow_nodes,
         workflow_edges=edges,
-        expected_observation_counts=expected_observations,
     )
 
 
@@ -1376,37 +1434,42 @@ def _inserted_loop_ctk_case(
     )
     reference_axis = replace(subject_axis, node_id="loop-reference-axis")
     counterpart_axis = replace(subject_axis, node_id="loop-counterpart-axis")
+    core_relation = operation_node(
+        "loop-core-relation",
+        "collection_ops.relate_to_single_reference",
+        "collection_ops.relate_to_single_reference.direct",
+    )
     core_alignment = operation_node(
         "loop-core-alignment",
-        "structure_comparison.align_fixed_reference",
-        "structure_comparison.align_fixed_reference.sequence_primary_affine",
+        "structure_comparison.align_pairs",
+        "structure_comparison.align_pairs.sequence_primary_affine",
         {"pin_matching_chain_ids": False},
     )
     core_tm = operation_node(
         "loop-core-tm",
-        "structure_comparison.tm_score_fixed_reference",
-        "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+        "structure_comparison.tm_score_from_alignments",
+        "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
     )
     core_rmsd = operation_node(
         "loop-core-rmsd",
-        "structure_comparison.rmsd_fixed_reference",
-        "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
     )
     counterpart_alignment = operation_node(
         "loop-counterpart-alignment",
-        "structure_comparison.align_counterparts",
-        "structure_comparison.align_counterparts.sequence_primary_affine",
+        "structure_comparison.align_pairs",
+        "structure_comparison.align_pairs.sequence_primary_affine",
         {"pin_matching_chain_ids": False},
     )
     counterpart_tm = operation_node(
         "loop-counterpart-tm",
-        "structure_comparison.tm_score_counterparts",
-        "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+        "structure_comparison.tm_score_from_alignments",
+        "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
     )
     counterpart_rmsd = operation_node(
         "loop-counterpart-rmsd",
-        "structure_comparison.rmsd_counterparts",
-        "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
     )
     prediction_axis = operation_node(
         "loop-prediction-axis",
@@ -1428,29 +1491,34 @@ def _inserted_loop_ctk_case(
         WorkflowEdge("loop-source", "subjects", "loop-subject-axis", "structure_candidates"),
         WorkflowEdge("loop-source", "references", "loop-reference-axis", "structure_candidates"),
         WorkflowEdge("loop-source", "counterparts", "loop-counterpart-axis", "structure_candidates"),
+        WorkflowEdge("loop-source", "subjects", "loop-core-relation", "subjects"),
+        WorkflowEdge("loop-source", "references", "loop-core-relation", "references"),
         WorkflowEdge("loop-source", "subjects", "loop-core-alignment", "subjects"),
         WorkflowEdge("loop-subject-axis", "residue_axes", "loop-core-alignment", "subject_residue_axes"),
         WorkflowEdge("loop-source", "references", "loop-core-alignment", "references"),
         WorkflowEdge("loop-reference-axis", "residue_axes", "loop-core-alignment", "reference_residue_axes"),
+        WorkflowEdge("loop-core-relation", "relation", "loop-core-alignment", "relation"),
         WorkflowEdge("loop-core-alignment", "alignments", "loop-core-tm", "alignments"),
         WorkflowEdge("loop-source", "subjects", "loop-core-tm", "subjects"),
         WorkflowEdge("loop-source", "references", "loop-core-tm", "references"),
+        WorkflowEdge("loop-core-relation", "relation", "loop-core-tm", "relation"),
         WorkflowEdge("loop-core-alignment", "alignments", "loop-core-rmsd", "alignments"),
         WorkflowEdge("loop-source", "subjects", "loop-core-rmsd", "subjects"),
         WorkflowEdge("loop-source", "references", "loop-core-rmsd", "references"),
+        WorkflowEdge("loop-core-relation", "relation", "loop-core-rmsd", "relation"),
         WorkflowEdge("loop-source", "subjects", "loop-counterpart-alignment", "subjects"),
         WorkflowEdge("loop-subject-axis", "residue_axes", "loop-counterpart-alignment", "subject_residue_axes"),
         WorkflowEdge("loop-source", "counterparts", "loop-counterpart-alignment", "references"),
         WorkflowEdge("loop-counterpart-axis", "residue_axes", "loop-counterpart-alignment", "reference_residue_axes"),
-        WorkflowEdge("loop-source", "pairing", "loop-counterpart-alignment", "pairing"),
+        WorkflowEdge("loop-source", "pairing", "loop-counterpart-alignment", "relation"),
         WorkflowEdge("loop-counterpart-alignment", "alignments", "loop-counterpart-tm", "alignments"),
         WorkflowEdge("loop-source", "subjects", "loop-counterpart-tm", "subjects"),
         WorkflowEdge("loop-source", "counterparts", "loop-counterpart-tm", "references"),
-        WorkflowEdge("loop-source", "pairing", "loop-counterpart-tm", "pairing"),
+        WorkflowEdge("loop-source", "pairing", "loop-counterpart-tm", "relation"),
         WorkflowEdge("loop-counterpart-alignment", "alignments", "loop-counterpart-rmsd", "alignments"),
         WorkflowEdge("loop-source", "subjects", "loop-counterpart-rmsd", "subjects"),
         WorkflowEdge("loop-source", "counterparts", "loop-counterpart-rmsd", "references"),
-        WorkflowEdge("loop-source", "pairing", "loop-counterpart-rmsd", "pairing"),
+        WorkflowEdge("loop-source", "pairing", "loop-counterpart-rmsd", "relation"),
         WorkflowEdge("loop-source", "sequence_parents", "loop-prediction-axis", "sequence_parents"),
         WorkflowEdge("loop-source", "subjects", "loop-confidence-facts", "structures"),
         WorkflowEdge("loop-prediction-axis", "prediction_axis", "loop-confidence-facts", "prediction_axis"),
@@ -1494,6 +1562,7 @@ def _inserted_loop_ctk_case(
             subject_axis,
             reference_axis,
             counterpart_axis,
+            core_relation,
             core_alignment,
             core_tm,
             core_rmsd,
@@ -1505,7 +1574,6 @@ def _inserted_loop_ctk_case(
             confidence,
         ),
         workflow_edges=edges,
-        expected_candidate_counts={"passing_candidates": 1},
     )
 
 
@@ -1637,9 +1705,29 @@ def _three_way_ctk_case(
             for role in ("input", "esmfold2", "simplefold")
         ),
         _three_way_node(
+            "relation-esmfold2-parent",
+            "collection_ops.relate_by_parent",
+            "collection_ops.relate_by_parent.direct",
+        ),
+        _three_way_node(
+            "relation-simplefold-parent",
+            "collection_ops.relate_by_parent",
+            "collection_ops.relate_by_parent.direct",
+        ),
+        _three_way_node(
             "pair-methods",
-            "collection_ops.pair_siblings_by_parent",
-            "collection_ops.pair_siblings_by_parent.direct",
+            "collection_ops.join_relation_subjects",
+            "collection_ops.join_relation_subjects.direct",
+        ),
+        _three_way_node(
+            "relation-esmfold2-input",
+            "collection_ops.relate_to_single_reference",
+            "collection_ops.relate_to_single_reference.direct",
+        ),
+        _three_way_node(
+            "relation-simplefold-input",
+            "collection_ops.relate_to_single_reference",
+            "collection_ops.relate_to_single_reference.direct",
         ),
         _three_way_node(
             "prediction-axis",
@@ -1648,25 +1736,25 @@ def _three_way_ctk_case(
         ),
         _three_way_node(
             "align-esmfold2-input",
-            "structure_comparison.align_fixed_reference",
-            "structure_comparison.align_fixed_reference.sequence_primary_affine",
+            "structure_comparison.align_pairs",
+            "structure_comparison.align_pairs.sequence_primary_affine",
         ),
         _three_way_node(
             "align-simplefold-input",
-            "structure_comparison.align_fixed_reference",
-            "structure_comparison.align_fixed_reference.sequence_primary_affine",
+            "structure_comparison.align_pairs",
+            "structure_comparison.align_pairs.sequence_primary_affine",
         ),
         _three_way_node(
             "align-methods",
-            "structure_comparison.align_counterparts",
-            "structure_comparison.align_counterparts.sequence_primary_affine",
+            "structure_comparison.align_pairs",
+            "structure_comparison.align_pairs.sequence_primary_affine",
         ),
         *(
             _three_way_node(
                 f"{metric}-{edge}",
-                f"structure_comparison.{metric}_{mode}",
+                f"structure_comparison.{metric}_from_alignments",
                 (
-                    f"structure_comparison.{metric}_{mode}."
+                    f"structure_comparison.{metric}_from_alignments."
                     "from_alignment_evidence"
                 ),
             )
@@ -1709,8 +1797,16 @@ def _three_way_ctk_case(
         )
     edges.extend(
         (
-            WorkflowEdge("source", "esmfold2_structures", "pair-methods", "subjects"),
-            WorkflowEdge("source", "simplefold_structures", "pair-methods", "references"),
+            WorkflowEdge("source", "esmfold2_structures", "relation-esmfold2-parent", "subjects"),
+            WorkflowEdge("source", "sequence_parents", "relation-esmfold2-parent", "parents"),
+            WorkflowEdge("source", "simplefold_structures", "relation-simplefold-parent", "subjects"),
+            WorkflowEdge("source", "sequence_parents", "relation-simplefold-parent", "parents"),
+            WorkflowEdge("relation-esmfold2-parent", "relation", "pair-methods", "left_relation"),
+            WorkflowEdge("relation-simplefold-parent", "relation", "pair-methods", "right_relation"),
+            WorkflowEdge("source", "esmfold2_structures", "relation-esmfold2-input", "subjects"),
+            WorkflowEdge("source", "input_structures", "relation-esmfold2-input", "references"),
+            WorkflowEdge("source", "simplefold_structures", "relation-simplefold-input", "subjects"),
+            WorkflowEdge("source", "input_structures", "relation-simplefold-input", "references"),
             WorkflowEdge(
                 "source",
                 "sequence_parents",
@@ -1732,8 +1828,14 @@ def _three_way_ctk_case(
                 WorkflowEdge(f"axis-{reference_role}", "residue_axes", alignment_node, "reference_residue_axes"),
             )
         )
-        if edge_id == "methods":
-            edges.append(WorkflowEdge("pair-methods", "pairing", alignment_node, "pairing"))
+        relation_node = (
+            "pair-methods"
+            if edge_id == "methods"
+            else f"relation-{edge_id}"
+        )
+        edges.append(
+            WorkflowEdge(relation_node, "relation", alignment_node, "relation")
+        )
         for metric in ("tm_score", "rmsd"):
             score_node = f"{metric}-{edge_id}"
             edges.extend(
@@ -1743,8 +1845,9 @@ def _three_way_ctk_case(
                     WorkflowEdge("source", f"{reference_role}_structures", score_node, "references"),
                 )
             )
-            if edge_id == "methods":
-                edges.append(WorkflowEdge("pair-methods", "pairing", score_node, "pairing"))
+            edges.append(
+                WorkflowEdge(relation_node, "relation", score_node, "relation")
+            )
     for role in ("esmfold2", "simplefold"):
         edges.extend(
             (
@@ -1777,7 +1880,7 @@ def _three_way_ctk_case(
         "input_residue_axes": ("axis-input", "residue_axes"),
         "esmfold2_residue_axes": ("axis-esmfold2", "residue_axes"),
         "simplefold_residue_axes": ("axis-simplefold", "residue_axes"),
-        "method_pairing": ("pair-methods", "pairing"),
+        "method_pairing": ("pair-methods", "relation"),
         "input_esmfold2_alignments": ("align-esmfold2-input", "alignments"),
         "input_simplefold_alignments": ("align-simplefold-input", "alignments"),
         "method_alignments": ("align-methods", "alignments"),
@@ -2242,15 +2345,85 @@ def test_inserted_loop_port_accepts_exact_local_esmfold2_method() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "case",
+    (
+        _ctk_case(
+            case_id="align-pairs-sequence",
+            operation="align_pairs",
+            binding_id="structure_comparison.align_pairs.sequence_primary_affine",
+            pairing_mode="explicit_relation",
+        ),
+        _ctk_case(
+            case_id="align-pairs-tm",
+            operation="align_pairs",
+            binding_id="structure_comparison.align_pairs.structure_first_tm_align",
+            pairing_mode="explicit_relation",
+        ),
+        _ctk_case(
+            case_id="rmsd-from-alignments",
+            operation="rmsd",
+            binding_id="structure_comparison.rmsd_from_alignments.from_alignment_evidence",
+            pairing_mode="explicit_relation",
+        ),
+        _ctk_case(
+            case_id="tm-score-from-alignments",
+            operation="tm_score",
+            binding_id="structure_comparison.tm_score_from_alignments.from_alignment_evidence",
+            pairing_mode="explicit_relation",
+        ),
+        _three_way_ctk_case(),
+        _three_way_ctk_case(
+            case_id="classify-1pga-three-way-consistency-local-esmfold2",
+            esmfold2_confidence_binding_id="contract_test.local_esmfold2_confidence_source.fixture",
+            esmfold2_confidence_fact_binding_id="contract_test.local_esmfold2_confidence_fact_source.fixture",
+        ),
+        _inserted_loop_ctk_case(),
+        _inserted_loop_ctk_case(
+            case_id="evaluate-inserted-loop-local-esmfold2",
+            confidence_binding_id="contract_test.local_inserted_loop_confidence_source.fixture",
+            confidence_fact_binding_id="contract_test.local_esmfold2_confidence_fact_source.fixture",
+        ),
+    ),
+    ids=lambda case: case.case_id,
+)
 def test_structure_comparison_contract_test_kit(
-    tmp_path: Path,
+    tmp_path: Path, case: ModulePackageContractCase
 ) -> None:
-    axis = _axis("S", "AA", ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0)))
-    reference_axis = _axis(
-        "R",
-        "AA",
-        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    support = (
+        TRANSFORM_PACKAGE,
+        SOURCE_PACKAGE,
+        COLLECTION_OPS_PACKAGE,
+        STRUCTURE_PREDICTION_PACKAGE,
     )
+    result = execute_module_package_case(
+        MODULE_PACKAGE, case, supporting_registrations=support, work_root=tmp_path
+    )
+    assert result.projection.status == "succeeded"
+    if case.node_type_id in {
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.tm_score_from_alignments",
+    }:
+        (scores,) = result.outputs["scores"]
+        assert isinstance(scores, ScoreCollection)
+        assert len(scores.entries) == 2
+        assert all((isinstance(entry, ScoreObservation) for entry in scores.entries))
+    if case.node_type_id == "structure_comparison.evaluate_inserted_loop":
+        (candidates,) = result.outputs["passing_candidates"]
+        assert isinstance(candidates, CandidateCollection)
+        assert len(candidates.items) == 1
+        assert all(
+            (
+                candidate.candidate_id.startswith("candidate-")
+                for candidate in candidates.items
+            )
+        )
+
+
+@pytest.mark.parametrize("port_index", range(3))
+def test_structure_comparison_contract_test_kit_ports(port_index: int) -> None:
+    axis = _axis("S", "AA", ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0)))
+    reference_axis = _axis("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)))
     resolved = align_resolved_axes(axis, reference_axis)
     evidence = StructureAlignmentEvidence(
         subject=CandidateDataReference(
@@ -2274,79 +2447,6 @@ def test_structure_comparison_contract_test_kit(
         coverage=resolved.coverage,
         method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
     )
-    cases = (
-        _ctk_case(
-            case_id="align-single-sequence",
-            operation="align_single",
-            binding_id=(
-                "structure_comparison.align_single.sequence_primary_affine"
-            ),
-            pairing_mode=None,
-        ),
-        _ctk_case(
-            case_id="align-single-tm",
-            operation="align_single",
-            binding_id=(
-                "structure_comparison.align_single.structure_first_tm_align"
-            ),
-            pairing_mode=None,
-        ),
-        _ctk_case(
-            case_id="align-pairwise-fixed",
-            operation="align_pairwise",
-            binding_id=(
-                "structure_comparison.align_fixed_reference."
-                "sequence_primary_affine"
-            ),
-            pairing_mode="fixed_reference",
-        ),
-        _ctk_case(
-            case_id="align-pairwise-counterpart",
-            operation="align_pairwise",
-            binding_id=(
-                "structure_comparison.align_counterparts."
-                "sequence_primary_affine"
-            ),
-            pairing_mode="per_subject_counterpart",
-        ),
-        *tuple(
-            _ctk_case(
-                case_id=f"{operation}-{pairing_mode}",
-                operation=operation,
-                binding_id=(
-                    f"structure_comparison.{operation}_{node_suffix}."
-                    "from_alignment_evidence"
-                ),
-                pairing_mode=pairing_mode,
-            )
-            for operation in ("rmsd", "tm_score")
-            for pairing_mode, node_suffix in (
-                ("fixed_reference", "fixed_reference"),
-                ("per_subject_counterpart", "counterparts"),
-            )
-            ),
-            _three_way_ctk_case(),
-            _three_way_ctk_case(
-                case_id="classify-1pga-three-way-consistency-local-esmfold2",
-                esmfold2_confidence_binding_id=(
-                    "contract_test.local_esmfold2_confidence_source.fixture"
-                ),
-                esmfold2_confidence_fact_binding_id=(
-                    "contract_test.local_esmfold2_confidence_fact_source.fixture"
-                ),
-            ),
-            _inserted_loop_ctk_case(),
-            _inserted_loop_ctk_case(
-                case_id="evaluate-inserted-loop-local-esmfold2",
-                confidence_binding_id=(
-                    "contract_test.local_inserted_loop_confidence_source.fixture"
-                ),
-                confidence_fact_binding_id=(
-                    "contract_test.local_esmfold2_confidence_fact_source.fixture"
-                ),
-            ),
-        )
-
     support = (
         TRANSFORM_PACKAGE,
         SOURCE_PACKAGE,
@@ -2355,10 +2455,7 @@ def test_structure_comparison_contract_test_kit(
     )
     catalog = build_frozen_catalog((MODULE_PACKAGE, *support))
 
-    def reference(
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
+    def reference(kind: str, contract_id: str) -> ExactContractReference:
         return ExactContractReference(
             **catalog.require_contract(kind, contract_id).reference()
         )
@@ -2379,10 +2476,7 @@ def test_structure_comparison_contract_test_kit(
         ThreeWayConfidenceEvidence(
             "esmfold2",
             esmfold2_reference,
-            reference(
-                "method",
-                "folding.fold.esmfold2_fast_biohub_2026_05",
-            ),
+            reference("method", "folding.fold.esmfold2_fast_biohub_2026_05"),
             90.0,
             True,
             "sha256:" + "9" * 64,
@@ -2390,57 +2484,49 @@ def test_structure_comparison_contract_test_kit(
         ThreeWayConfidenceEvidence(
             "simplefold",
             simplefold_reference,
-            reference(
-                "method",
-                "folding.fold.simplefold_100m_c7a5570",
-            ),
+            reference("method", "folding.fold.simplefold_100m_c7a5570"),
             90.0,
             True,
             "sha256:" + "a" * 64,
         ),
     )
     edges = tuple(
-        ThreeWayComparisonEdge(
-            edge_id=edge_id,
-            subject=subject,
-            reference=reference_candidate,
-            alignment_evidence_content_digest="sha256:" + digest * 64,
-            alignment_method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
-            normalization_length=75,
-            aligned_atom_count=75,
-            tm_score=1.0,
-            rmsd_angstrom=0.0,
-            tm_score_method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
-            rmsd_method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
-            tm_score_content_digest="sha256:" + tm_digest * 64,
-            rmsd_content_digest="sha256:" + rmsd_digest * 64,
-            close=True,
-        )
-        for edge_id, subject, reference_candidate, digest, tm_digest, rmsd_digest in (
-            (
-                "input_esmfold2",
-                esmfold2_reference,
-                input_reference,
-                "b",
-                "c",
-                "d",
-            ),
-            (
-                "input_simplefold",
-                simplefold_reference,
-                input_reference,
-                "e",
-                "f",
-                "0",
-            ),
-            (
-                "esmfold2_simplefold",
-                esmfold2_reference,
-                simplefold_reference,
-                "1",
-                "2",
-                "3",
-            ),
+        (
+            ThreeWayComparisonEdge(
+                edge_id=edge_id,
+                subject=subject,
+                reference=reference_candidate,
+                alignment_evidence_content_digest="sha256:" + digest * 64,
+                alignment_method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+                normalization_length=75,
+                aligned_atom_count=75,
+                tm_score=1.0,
+                rmsd_angstrom=0.0,
+                tm_score_method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
+                rmsd_method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
+                tm_score_content_digest="sha256:" + tm_digest * 64,
+                rmsd_content_digest="sha256:" + rmsd_digest * 64,
+                close=True,
+            )
+            for edge_id, subject, reference_candidate, digest, tm_digest, rmsd_digest in (
+                ("input_esmfold2", esmfold2_reference, input_reference, "b", "c", "d"),
+                (
+                    "input_simplefold",
+                    simplefold_reference,
+                    input_reference,
+                    "e",
+                    "f",
+                    "0",
+                ),
+                (
+                    "esmfold2_simplefold",
+                    esmfold2_reference,
+                    simplefold_reference,
+                    "1",
+                    "2",
+                    "3",
+                ),
+            )
         )
     )
     consistency = ThreeWayConsistencyEvidence(
@@ -2449,8 +2535,7 @@ def test_structure_comparison_contract_test_kit(
         esmfold2_structure=esmfold2_reference,
         simplefold_structure=simplefold_reference,
         classification_method=reference(
-            "method",
-            "structure_comparison.three_way_consistency.threshold_graph",
+            "method", "structure_comparison.three_way_consistency.threshold_graph"
         ),
         input_b_factor_semantics="uninterpreted_coordinate_temperature_factor",
         residue_count=75,
@@ -2463,26 +2548,19 @@ def test_structure_comparison_contract_test_kit(
         subreason=None,
     )
     inserted_loop_port_case = _inserted_loop_port_case()
-
-    report = verify_module_package_contract(
-        MODULE_PACKAGE,
-        execution_cases=cases,
-        port_cases=(
-                ModulePackagePortCase(
-                    "structure_comparison.alignment_evidence",
-                evidence,
-                (object(), replace(evidence, correspondence=())),
-            ),
-                ModulePackagePortCase(
-                    "structure_comparison.three_way_consistency",
-                consistency,
-                (object(), replace(consistency, classification="all_disagree")),
-                ),
-                inserted_loop_port_case,
+    port_case = (
+        ModulePackagePortCase(
+            "structure_comparison.alignment_evidence",
+            evidence,
+            (object(), replace(evidence, correspondence=())),
         ),
-        supporting_registrations=support,
-        work_root=tmp_path,
+        ModulePackagePortCase(
+            "structure_comparison.three_way_consistency",
+            consistency,
+            (object(), replace(consistency, classification="all_disagree")),
+        ),
+        inserted_loop_port_case,
+    )[port_index]
+    verify_module_package_port(
+        MODULE_PACKAGE, port_case, supporting_registrations=support
     )
-
-    assert len(report.case_reports) == 12
-    assert {case.status for case in report.case_reports} == {"succeeded"}

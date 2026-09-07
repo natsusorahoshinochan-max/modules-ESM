@@ -1,130 +1,91 @@
 - method_id: collection_ops.concat_candidates.method
   algorithm_identity:
     name: concat_candidates
-    input_partition_order:
-    - candidates_a
-    - candidates_b
-    - candidates_c
+    input_partition_order: [candidates_a, candidates_b, candidates_c]
     identity_policy: exact-input-identity
     duplicate_policy: reject-candidate-partition-collision
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
 - method_id: collection_ops.merge_scores.method
   algorithm_identity:
     name: merge_scores
-    input_partition_order:
-    - scores_a
-    - scores_b
-    - scores_c
+    input_partition_order: [scores_a, scores_b, scores_c]
     identity_policy: exact-input-identity
     duplicate_policy: deduplicate-identical-observation-only
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
-- method_id: collection_ops.concat_pairings.method
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.concat_relations.method
   algorithm_identity:
-    name: concat_pairings
-    input_partition_order:
-    - pairing_a
-    - pairing_b
-    - pairing_c
-    identity_policy: exact-input-identity
-    duplicate_policy: reject-subject-or-reference-partition-collision
-    pairing_contract:
-      participant_identity: CandidateDataReference
-      join: complete-reference-equality
-      cardinality: one-to-one
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
-- method_id: collection_ops.pair_siblings_by_parent.method
+    name: concat_relations
+    input_partition_order: [relation_a, relation_b, relation_c]
+    identity_policy: exact-candidate-data-reference
+    duplicate_policy: reject-subject-partition-collision
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.relate_by_parent.method
   algorithm_identity:
-    name: pair_siblings_by_parent
-    input_partition_order:
-    - subjects
-    - references
-    identity_policy: exact-input-identity
-    duplicate_policy: one-sibling-per-common-parent
-    pairing_contract:
-      participant_identity: CandidateDataReference
-      join: complete-reference-equality
-      cardinality: one-to-one
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
-- method_id: collection_ops.rebind_candidate_pairing.method
+    name: relate_by_parent
+    join: exact-declared-parent-identity
+    cardinality: one-reference-per-subject-shared-reference-allowed
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.relate_to_single_reference.method
   algorithm_identity:
-    name: rebind_candidate_pairing
-    input_partition_order:
-    - subjects
-    - parents
-    - references
-    - parent_pairing
-    identity_policy: exact-input-identity
-    duplicate_policy: complete-one-to-one-parent-composition
-    pairing_contract:
-      participant_identity: CandidateDataReference
-      join: complete-reference-equality
-      cardinality: one-to-one
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
+    name: relate_to_single_reference
+    join: explicit-single-reference
+    cardinality: one-reference-per-subject-shared-reference-required
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.compose_relations.method
+  algorithm_identity:
+    name: compose_relations
+    join: left-reference-equals-right-subject
+    cardinality: one-reference-per-subject-shared-reference-allowed
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.invert_relation.method
+  algorithm_identity:
+    name: invert_relation
+    mapping: swap-subject-and-reference
+    cardinality: one-reference-per-subject
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.join_relation_subjects.method
+  algorithm_identity:
+    name: join_relation_subjects
+    join: shared-reference-equality
+    cardinality: one-right-subject-per-shared-reference
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
 - method_id: collection_ops.take_candidates.method
   algorithm_identity:
     name: take_candidates
-    input_partition_order:
-    - candidates
-    identity_policy: exact-input-identity
     duplicate_policy: preserve-exact-ordered-prefix
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
-- method_id: collection_ops.select_children_by_parent.method
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
+- method_id: collection_ops.select_related_subjects.method
   algorithm_identity:
-    name: select_children_by_parent
-    input_partition_order:
-    - candidates
-    - parents
-    identity_policy: exact-input-identity
-    duplicate_policy: exact-single-parent-membership
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
+    name: select_related_subjects
+    identity_policy: exact-candidate-data-reference
+    duplicate_policy: preserve-subject-input-order
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}
 - method_id: collection_ops.intersect_candidates.method
   algorithm_identity:
     name: intersect_candidates
-    input_partition_order:
-    - candidates_a
-    - candidates_b
-    - candidates_c
-    - candidates_d
+    input_partition_order: [candidates_a, candidates_b, candidates_c, candidates_d]
     identity_policy: exact-input-identity
     duplicate_policy: exact-candidate-equality
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: identity
+  model_identity: {kind: none}
+  featurization_identity: {kind: identity}
+  scale_contract: {kind: identity}

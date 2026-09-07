@@ -26,11 +26,14 @@ from .implementation import CollectionOpsImplementation
 _OPERATIONS = (
     "concat_candidates",
     "merge_scores",
-    "concat_pairings",
-    "pair_siblings_by_parent",
-    "rebind_candidate_pairing",
+    "concat_relations",
+    "relate_by_parent",
+    "relate_to_single_reference",
+    "compose_relations",
+    "invert_relation",
+    "join_relation_subjects",
     "take_candidates",
-    "select_children_by_parent",
+    "select_related_subjects",
     "intersect_candidates",
 )
 
@@ -97,11 +100,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
     node_definitions=(
         DefinitionResource("definitions/concat_candidates.yaml"),
         DefinitionResource("definitions/merge_scores.yaml"),
-        DefinitionResource("definitions/concat_pairings.yaml"),
-        DefinitionResource("definitions/pair_siblings_by_parent.yaml"),
-        DefinitionResource("definitions/rebind_candidate_pairing.yaml"),
+        DefinitionResource("definitions/concat_relations.yaml"),
+        DefinitionResource("definitions/relate_by_parent.yaml"),
+        DefinitionResource("definitions/relate_to_single_reference.yaml"),
+        DefinitionResource("definitions/compose_relations.yaml"),
+        DefinitionResource("definitions/invert_relation.yaml"),
+        DefinitionResource("definitions/join_relation_subjects.yaml"),
         DefinitionResource("definitions/take_candidates.yaml"),
-        DefinitionResource("definitions/select_children_by_parent.yaml"),
+        DefinitionResource("definitions/select_related_subjects.yaml"),
         DefinitionResource("definitions/intersect_candidates.yaml"),
     ),
     methods=load_method_definitions(

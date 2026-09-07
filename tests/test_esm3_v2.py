@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from datatypes.candidate import CandidateCollection
+
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -34,7 +39,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
@@ -45,15 +51,13 @@ from core.workflow.document import WorkflowEdge
 from datatypes.exact_reference import ExactContractReference
 from datatypes.prompt import (
     FunctionAnnotation,
-    FunctionAnnotations,
     ProteinPrompt,
 )
 from datatypes.residue import (
     ResidueLayout,
-    ResidueTrack,
 )
 from datatypes.sequence import ProteinSequence
-from datatypes.structure import ProteinStructure
+from datatypes.structure import NamedAtomCoordinates, ProteinStructure
 from tests.fixtures.esm3_generation import (
     ProviderClient,
     ProviderResponse,
@@ -254,6 +258,9 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -282,9 +289,12 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
                 )).reshape(1, 1, 1152),
             )
 
+        def close(self) -> None:
+            pass
+
     catalog = build_frozen_catalog((
         ESM3_PACKAGE,
-        PROMPT_AUTHORING_PACKAGE,
+        PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
         PROTEIN_IO_PACKAGE,
         STRUCTURE_PREDICTION_PACKAGE,
         STRUCTURE_TRANSFORM_PACKAGE,
@@ -492,6 +502,7 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
     class ESMCClient:
         def __init__(self) -> None:
             self.calls: list[str] = []
+            self.close_calls = 0
 
         def encode(self, protein: object) -> object:
             self.calls.append("encode")
@@ -507,6 +518,9 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
                     torch.zeros(1151),
                 )).reshape(1, 1, 1152),
             )
+
+        def close(self) -> None:
+            self.close_calls += 1
 
     class InvocationResources:
         def __init__(self) -> None:
@@ -542,6 +556,7 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
         sequence_logits_shape=(5, 64),
     )
     assert client.calls == ["encode", "logits"]
+    assert client.close_calls == 1
     assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_encode",
@@ -553,63 +568,125 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
     ]
 
 
-def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
+def test_biohub_esm_client_builders_own_the_fixed_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.sdk
+
+    from modules.esm3.adapter import build_biohub_esm3_client
+    from modules.esm3.esmc_adapter import build_biohub_esmc_client
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def build_esm3(**kwargs: object) -> object:
+        calls.append(("esm3", kwargs))
+        return object()
+
+    def build_esmc(**kwargs: object) -> object:
+        calls.append(("esmc", kwargs))
+        return object()
+
+    monkeypatch.setattr(esm.sdk, "client", build_esm3)
+    monkeypatch.setattr(esm.sdk, "esmc_client", build_esmc)
+
+    build_biohub_esm3_client(
+        model_name="esm3-medium-2024-08",
+        credential_handle="credential",
+    )
+    build_biohub_esmc_client(
+        model_name="esmc-600m-2024-12",
+        credential_handle="credential",
+    )
+
+    assert calls == [
+        (
+            "esm3",
+            {
+                "model": "esm3-medium-2024-08",
+                "url": "https://biohub.ai",
+                "token": "credential",
+                "request_timeout": 150,
+            },
+        ),
+        (
+            "esmc",
+            {
+                "model": "esmc-600m-2024-12",
+                "url": "https://biohub.ai",
+                "token": "credential",
+                "request_timeout": 150,
+            },
+        ),
+    ]
+
+
+def test_adapter_preserves_every_representable_prompt_track_and_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from modules.esm3.adapter import (
-        protein_prompt_to_provider,
-        structure_prompt_for_sequence,
+        BIOHUB_ESM3_MEDIUM_MODEL, BiohubESM3Adapter, ESM3CallParameters,
     )
 
-    layout = ResidueLayout(
-        chain_id="A",
-        length=8,
-        residue_ids=[f"A:{index}" for index in range(1, 9)],
+    class InvocationResources:
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            yield "invocation"
+
+    client = ProviderClient([ProviderResponse("ACDEFGHI") for _ in range(3)])
+    monkeypatch.setattr(
+        "modules.esm3.adapter.build_biohub_esm3_client", lambda **kwargs: client,
     )
+
+    def provider_input(value: ProteinPrompt) -> Any:
+        with BiohubESM3Adapter(
+            environment={"credential_handle": object()},
+            resources=InvocationResources(), model_name=BIOHUB_ESM3_MEDIUM_MODEL,
+        ) as adapter:
+            adapter.generate_sequence(
+                value,
+                parameters=ESM3CallParameters(4, 1.0, 1.0, "cosine", "random", True),
+                base_seed=None, sample_index=0,
+            )
+        return client.calls[-1][0]
+
+    layout = ResidueLayout([f"A:{index}" for index in range(1, 9)])
+    representable_structure = {
+        "N": (1.0, 2.0, 3.0),
+        "CA": (4.0, 5.0, 6.0),
+        "C": (7.0, 8.0, 9.0),
+        "CB": (10.0, 11.0, 12.0),
+        "O": (13.0, 14.0, 15.0),
+    }
     prompt = ProteinPrompt(
-        target_layout=layout,
-        sequence_track=ResidueTrack(
-            ["A", "B", "Z", "U", "O", "X", None, "G"],
-            None,
-        ),
-        structure_track=ResidueTrack(
-            [
+        layout=layout,
+        sequence=("A", "B", "Z", "U", "O", "X", None, "G"),
+        coordinates=(
+            NamedAtomCoordinates.from_mapping(
                 {
-                    "N": (1.0, 2.0, 3.0),
-                    "CA": (4.0, 5.0, 6.0),
-                    "C": (7.0, 8.0, 9.0),
-                    "O": (10.0, 11.0, 12.0),
-                },
-                *([None] * 7),
-            ],
+                    **representable_structure,
+                    "H": (16.0, 17.0, 18.0),
+                }
+            ),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             None,
         ),
-        structure_visibility_track=ResidueTrack(
-            [True, False, True, True, True, True, True, True],
-            None,
-        ),
-        secondary_structure_track=ResidueTrack(
-            ["G", "H", "I", "T", "E", "B", "S", "-"],
-            None,
-        ),
-        sasa_track=ResidueTrack(
-            [0.0, 0.8, 4.0, None, 16.4, 32.9, 70.9, 151.4],
-            None,
-        ),
-        function_annotations=FunctionAnnotations(
-            [
-                FunctionAnnotation(
-                    label="binding site",
-                    start=2,
-                    end=5,
-                    chain_id="A",
-                    start_residue_id="A:2",
-                    end_residue_id="A:5",
-                    overlap_policy="reject",
-                )
-            ]
+        secondary_structure=("G", "H", "I", "T", "E", "B", "S", "C"),
+        sasa=(0.0, 0.8, 4.0, None, 16.4, 32.9, 70.9, 151.4),
+        function_annotations=(
+            FunctionAnnotation(
+                label="binding site",
+                start_residue_id="A:2",
+                end_residue_id="A:5",
+            ),
         ),
     )
 
-    provider = protein_prompt_to_provider(prompt)
+    provider = provider_input(prompt)
 
     assert provider.sequence == "ABZUOX_G"
     assert provider.secondary_structure == "GHITEBSC"
@@ -620,27 +697,30 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
     assert tuple(provider.coordinates.shape) == (8, 37, 3)
     assert provider.coordinates[0, 0].tolist() == [1.0, 2.0, 3.0]
     assert provider.coordinates[0, 1].tolist() == [4.0, 5.0, 6.0]
+    assert provider.coordinates[0, 3].tolist() == [10.0, 11.0, 12.0]
     assert math.isnan(float(provider.coordinates[1, 1, 0]))
-
-    paired_structure_prompt = structure_prompt_for_sequence(
-        provider,
-        "ACDEFGHI",
+    prompt_without_hydrogen = replace(
+        prompt,
+        coordinates=(
+            NamedAtomCoordinates.from_mapping(representable_structure),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
     )
-    assert paired_structure_prompt.sequence == "ACDEFGHI"
-    assert paired_structure_prompt.coordinates is provider.coordinates
-    assert (
-        paired_structure_prompt.secondary_structure
-        == provider.secondary_structure
-    )
-    assert paired_structure_prompt.sasa == provider.sasa
-    assert (
-        paired_structure_prompt.function_annotations
-        is provider.function_annotations
+    without_hydrogen = provider_input(prompt_without_hydrogen)
+    import torch
+    torch.testing.assert_close(
+        provider.coordinates, without_hydrogen.coordinates, equal_nan=True,
     )
 
     with pytest.raises(TypeError, match="does not support item assignment"):
-        prompt.sequence_track.values[0] = "J"
-    assert prompt.sequence_track.values == (
+        prompt.sequence[0] = "J"
+    assert prompt.sequence == (
         "A",
         "B",
         "Z",
@@ -650,17 +730,14 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         None,
         "G",
     )
-    assert protein_prompt_to_provider(prompt).sequence == provider.sequence
+    assert provider_input(prompt).sequence == provider.sequence
 
     invalid_prompt = replace(
         prompt,
-        sequence_track=ResidueTrack(
-            ("J", "B", "Z", "U", "O", "X", None, "G"),
-            None,
-        ),
+        sequence=("J", "B", "Z", "U", "O", "X", None, "G"),
     )
     with pytest.raises(ValueError, match="cannot represent sequence symbol 'J'"):
-        protein_prompt_to_provider(invalid_prompt)
+        provider_input(invalid_prompt)
 
 
 def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
@@ -696,8 +773,9 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
         model_name=BIOHUB_ESM3_MEDIUM_MODEL,
     )
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
 
     with adapter:
@@ -711,7 +789,8 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
                 strategy="random",
                 temperature_annealing=True,
             ),
-            derived_call_seed=17,
+            base_seed=17,
+            sample_index=0,
         )
 
     assert result == ESM3SequenceResult(
@@ -733,6 +812,7 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
         }
     ]
     assert [call[1].track for call in client.calls] == ["sequence"]
+    assert client.close_calls == 1
     with pytest.raises(FrozenInstanceError):
         result.reconstruction = object()  # type: ignore[misc]
 
@@ -797,8 +877,9 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         model_name=BIOHUB_ESM3_MEDIUM_MODEL,
     )
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
     parameters = ESM3CallParameters(
         num_steps=4,
@@ -813,8 +894,8 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         result = adapter.generate_pair(
             prompt,
             parameters=parameters,
-            sequence_derived_call_seed=17,
-            structure_derived_call_seed=23,
+            base_seed=17,
+            sample_index=0,
         )
 
     assert type(result) is ESM3PairResult
@@ -866,13 +947,13 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     ]
 
 
-def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> None:
+def test_generation_operation_passes_sample_intent_and_retains_reported_seed() -> None:
     from modules.esm3.adapter import ESM3SequenceResult
     from modules.esm3.implementation import ESM3GenerationOperation
 
     class RecordingAdapter:
         def __init__(self) -> None:
-            self.seeds: list[int | None] = []
+            self.calls: list[tuple[int | None, int]] = []
 
         def __enter__(self) -> RecordingAdapter:
             return self
@@ -885,24 +966,29 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
             prompt: ProteinPrompt,
             *,
             parameters: object,
-            derived_call_seed: int | None,
+            base_seed: int | None,
+            sample_index: int,
         ) -> ESM3SequenceResult:
             del prompt, parameters
-            self.seeds.append(derived_call_seed)
+            self.calls.append((base_seed, sample_index))
             return ESM3SequenceResult(
                 sequence=ProteinSequence("ACD"),
                 reconstruction=None,
                 confidence=None,
                 effective_num_steps=4,
-                effective_call_seed=derived_call_seed,
+                effective_call_seed=71,
             )
 
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
 
-    def observed(content_digest: str) -> tuple[int | None, ...]:
+    def observed(
+        value: ProteinPrompt,
+        content_digest: str,
+    ) -> tuple[tuple[int | None, int], ...]:
         adapter = RecordingAdapter()
         operation = ESM3GenerationOperation(
             adapter=adapter,
@@ -911,11 +997,11 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
                 "method",
                 "esm3.generate_sequence.fixture"),
         )
-        operation.execute(
+        outputs = operation.execute(
             OperationCall(
                 inputs={
                     "protein_prompt": admitted_port_fixture(
-                        prompt,
+                        value,
                         port_type_id="protein.prompt",
                         value_content_digests=(content_digest,),
                     )
@@ -934,15 +1020,12 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
                 effective_randomness={"effective_seed": 1603},
             )
         )
-        return tuple(adapter.seeds)
+        candidates = outputs["sequence_candidates"].items
+        assert [c.metadata["effective_call_seed"] for c in candidates] == [71, 71]
+        assert [c.metadata["sample_index"] for c in candidates] == [0, 1]
+        return tuple(adapter.calls)
 
-    first = observed("sha256:" + "a" * 64)
-    repeated = observed("sha256:" + "a" * 64)
-    changed_content = observed("sha256:" + "b" * 64)
-
-    assert first == repeated
-    assert first[0] != first[1]
-    assert first != changed_content
+    assert observed(prompt, "sha256:" + "a" * 64) == ((1603, 0), (1603, 1))
 
 
 def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
@@ -964,9 +1047,10 @@ def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
             prompt: ProteinPrompt,
             *,
             parameters: object,
-            derived_call_seed: int | None,
+            base_seed: int | None,
+            sample_index: int,
         ) -> ESM3SequenceResult:
-            del prompt, parameters, derived_call_seed
+            del prompt, parameters, base_seed, sample_index
             self.calls += 1
             return ESM3SequenceResult(
                 sequence=ProteinSequence("ACD"),
@@ -977,8 +1061,9 @@ def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
             )
 
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack(["A", "C", "D"], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=("A", "C", "D"),
+        coordinates=(None, None, None),
     )
     adapter = AcceptingAdapter()
     operation = ESM3GenerationOperation(
@@ -1208,8 +1293,6 @@ def test_open_binding_factory_receives_its_exact_model(
             "control": "provider_uncontrolled",
         }
     }
-
-
 
 
 def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
@@ -1566,8 +1649,6 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
     } == {"sequence": 1, "structure": 2}
 
 
-
-
 def test_structure_generation_normalizes_exact_confidence_before_publication(
     tmp_path: Path,
 ) -> None:
@@ -1628,8 +1709,6 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         fact.prediction_key
     )
     assert fact.prediction_axis.layout == ResidueLayout(
-        "A",
-        3,
         ("A:1", "A:2", "A:3"),
     )
     assert fact.prediction_axis.sequence == ProteinSequence(
@@ -1763,9 +1842,6 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     structures = decode_output(
         service, catalog, projection, outputs["structure_candidates"]
     )
-    pairing = decode_output(
-        service, catalog, projection, outputs["counterpart_pairs"]
-    )
     confidence_facts = decode_output(
         service,
         catalog,
@@ -1773,7 +1849,6 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         outputs["confidence_facts"],
     )
     assert len(sequences.items) == len(structures.items) == 10
-    assert len(pairing.entries) == 10
     assert len(confidence_facts.entries) == 10
     assert {
         candidate.metadata["prediction_key"]
@@ -1786,20 +1861,6 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         structure.parent_ids
         for structure in structures.items
     ] == [(sequence.candidate_id,) for sequence in sequences.items]
-    assert [
-        (
-            entry.subject.candidate_id,
-            entry.reference.candidate_id,
-        )
-        for entry in pairing.entries
-    ] == [
-        (sequence.candidate_id, structure.candidate_id)
-        for sequence, structure in zip(
-            sequences.items,
-            structures.items,
-            strict=True,
-        )
-    ]
     assert [
         candidate.metadata["sample_index"]
         for candidate in sequences.items
@@ -1845,21 +1906,50 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     assert all(event["status"] == "succeeded" for event in terminals)
 
 
+@pytest.mark.parametrize(
+    ("case_id", "candidate_counts"),
+    [
+        ("sequence", {"sequence_candidates": 1}),
+        ("structure", {"structure_candidates": 1}),
+        ("paired", {"sequence_candidates": 10, "structure_candidates": 10}),
+        ("sequence-open", {"sequence_candidates": 1}),
+        ("structure-open", {"structure_candidates": 1}),
+        ("paired-open", {"sequence_candidates": 1, "structure_candidates": 1}),
+        ("sequence-local", {"sequence_candidates": 1}),
+        ("structure-local", {"structure_candidates": 1}),
+        ("paired-local", {"sequence_candidates": 1, "structure_candidates": 1}),
+        ("direct-esmc", {}),
+    ],
+    ids=[
+        "sequence",
+        "structure",
+        "paired",
+        "sequence-open",
+        "structure-open",
+        "paired-open",
+        "sequence-local",
+        "structure-local",
+        "paired-local",
+        "direct-esmc",
+    ],
+)
 def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    candidate_counts: dict[str, int],
 ) -> None:
     import torch
     import modules.esm3.adapter as esm3_adapter
     import modules.esm3.esmc_adapter as esmc_adapter
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as esm3_package
-
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.esm3.domain import ESMCSequenceRepresentation
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA_PACKAGE
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -1867,9 +1957,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
-    from tests.fixtures.esm3_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
+    from tests.fixtures.esm3_sources.package import MODULE_PACKAGE as SOURCE_PACKAGE
 
     def source_node(mode: str) -> WorkflowNodeInstance:
         return WorkflowNodeInstance(
@@ -1879,16 +1967,12 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             node_parameters={"mode": mode},
             binding_parameters={},
         )
-
     remote_clients: list[ProviderClient] = []
     local_clients: list[ProviderClient] = []
 
     def environment(client: ProviderClient) -> dict[str, Any]:
         remote_clients.append(client)
-        return {
-            "credential_handle": "ctk-secret-must-not-publish",
-        }
-
+        return {"credential_handle": "ctk-secret-must-not-publish"}
     local_snapshot = tmp_path / "local-snapshot"
     local_snapshot.mkdir()
 
@@ -1896,25 +1980,17 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         environment_values: Any,
     ) -> local_adapter.LocalESM3Runtime:
         return local_adapter.LocalESM3Runtime(
-            snapshot_path=local_snapshot,
-            device="cpu",
+            snapshot_path=local_snapshot, device="cpu"
         )
 
     monkeypatch.setattr(
-        esm3_package,
-        "local_runtime_structurally_available",
-        lambda: True,
+        esm3_package, "local_runtime_structurally_available", lambda: True
     )
-    monkeypatch.setattr(
-        local_adapter,
-        "resolve_local_runtime",
-        resolve_local_runtime,
-    )
+    monkeypatch.setattr(local_adapter, "resolve_local_runtime", resolve_local_runtime)
 
     def local_environment(client: ProviderClient) -> dict[str, Any]:
         local_clients.append(client)
         return {"model_snapshot_path": local_snapshot}
-
     structure_response = lambda: ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
@@ -1934,16 +2010,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         for _ in range(10)
         for response in (ProviderResponse("ACD"), structure_response())
     ]
-    generation_common = {
-        "binding_parameters": {},
-        "forbidden_public_fragments": (
-            "ctk-secret-must-not-publish",
-        ),
-    }
-    local_generation_common = {"binding_parameters": {}}
-    esmc_common = {"binding_parameters": {}}
 
     class ESMCClient:
+
         def encode(self, protein: object) -> object:
             del protein
             return SimpleNamespace(sequence=torch.tensor([0, 1, 2, 3, 4]))
@@ -1952,243 +2021,14 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             del encoded, config
             return SimpleNamespace(
                 logits=SimpleNamespace(
-                    sequence=torch.zeros((5, 64), dtype=torch.float32),
+                    sequence=torch.zeros((5, 64), dtype=torch.float32)
                 ),
-                mean_embedding=torch.zeros(
-                    (1, 1, 1152),
-                    dtype=torch.float32,
-                ),
+                mean_embedding=torch.zeros((1, 1, 1152), dtype=torch.float32),
             )
 
+        def close(self) -> None:
+            pass
     esmc_client = ESMCClient()
-    cases = (
-        ModulePackageContractCase(
-            case_id="sequence",
-            node_type_id="esm3.generate_sequence",
-            binding_id="esm3.generate_sequence.biohub_medium",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=environment(
-                ProviderClient([ProviderResponse("ACD")])
-            ),
-            workflow_nodes=(source_node("unassigned"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={"sequence_candidates": 1},
-            **generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="structure",
-            node_type_id="esm3.generate_structure",
-            binding_id="esm3.generate_structure.biohub_medium",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=environment(
-                ProviderClient([structure_response()])
-            ),
-            workflow_nodes=(source_node("assigned_sequence"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={"structure_candidates": 1},
-            **generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="paired",
-            node_type_id="esm3.generate_paired",
-            binding_id="esm3.generate_paired.biohub_medium",
-            node_parameters={"effective_seed": 1603, "num_samples": 10},
-            environment_values=environment(
-                ProviderClient(paired_responses)
-            ),
-            workflow_nodes=(source_node("unassigned"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={
-                "sequence_candidates": 10,
-                "structure_candidates": 10,
-            },
-            **generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="sequence-open",
-            node_type_id="esm3.generate_sequence",
-            binding_id="esm3.generate_sequence.biohub_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=environment(
-                ProviderClient([ProviderResponse("ACD")])
-            ),
-            workflow_nodes=(source_node("unassigned"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={"sequence_candidates": 1},
-            **generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="structure-open",
-            node_type_id="esm3.generate_structure",
-            binding_id="esm3.generate_structure.biohub_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=environment(
-                ProviderClient([structure_response()])
-            ),
-            workflow_nodes=(source_node("assigned_sequence"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={"structure_candidates": 1},
-            **generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="paired-open",
-            node_type_id="esm3.generate_paired",
-            binding_id="esm3.generate_paired.biohub_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=environment(
-                ProviderClient(
-                    [ProviderResponse("ACD"), structure_response()]
-                )
-            ),
-            workflow_nodes=(source_node("unassigned"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={
-                "sequence_candidates": 1,
-                "structure_candidates": 1,
-            },
-            **generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="sequence-local",
-            node_type_id="esm3.generate_sequence",
-            binding_id="esm3.generate_sequence.local_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=local_environment(
-                ProviderClient([ProviderResponse("ACD")])
-            ),
-            workflow_nodes=(source_node("unassigned"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={"sequence_candidates": 1},
-            **local_generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="structure-local",
-            node_type_id="esm3.generate_structure",
-            binding_id="esm3.generate_structure.local_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=local_environment(
-                ProviderClient([local_structure_response()])
-            ),
-            workflow_nodes=(source_node("assigned_sequence"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={"structure_candidates": 1},
-            **local_generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="paired-local",
-            node_type_id="esm3.generate_paired",
-            binding_id="esm3.generate_paired.local_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
-            environment_values=local_environment(
-                ProviderClient(
-                    [ProviderResponse("ACD"), local_structure_response()]
-                )
-            ),
-            workflow_nodes=(source_node("unassigned"),),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
-                ),
-            ),
-            expected_candidate_counts={
-                "sequence_candidates": 1,
-                "structure_candidates": 1,
-            },
-            **local_generation_common,
-        ),
-        ModulePackageContractCase(
-            case_id="direct-esmc",
-            node_type_id="esm3.represent_sequence",
-            binding_id=(
-                "esm3.represent_sequence.biohub_esmc_600m_2024_12"
-            ),
-            node_parameters={},
-            environment_values={
-                "credential_handle": "ctk-secret-must-not-publish",
-            },
-            workflow_nodes=(
-                WorkflowNodeInstance(
-                    node_id="sequence-source",
-                    node_type_id="protein_io.import_sequence",
-                    binding_id="protein_io.import_sequence.direct",
-                    node_parameters={
-                        "project_input_ref": "sequence-input",
-                    },
-                    binding_parameters={},
-                ),
-            ),
-            workflow_edges=(
-                WorkflowEdge(
-                    "sequence-source",
-                    "sequence",
-                    "contract-test-node",
-                    "sequence",
-                ),
-            ),
-            project_inputs={"sequence-input": b">ctk\nACD\n"},
-            **esmc_common,
-        ),
-    )
-
     monkeypatch.setattr(
         esm3_adapter,
         "build_biohub_esm3_client",
@@ -2200,33 +2040,176 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         lambda *_args, **_kwargs: local_clients.pop(0),
     )
     monkeypatch.setattr(
-        local_adapter,
-        "release_local_esm3_client",
-        lambda _client: None,
+        local_adapter, "release_local_esm3_client", lambda _client: None
     )
     monkeypatch.setattr(
-        esmc_adapter,
-        "build_biohub_esmc_client",
-        lambda **_kwargs: esmc_client,
+        esmc_adapter, "build_biohub_esmc_client", lambda **_kwargs: esmc_client
     )
-
-    report = verify_module_package_contract(
-        ESM3_PACKAGE,
-        execution_cases=cases,
-        port_cases=(
-            ModulePackagePortCase(
-                type_id="esm3.esmc_sequence_representation",
-                valid_value=ESMCSequenceRepresentation(
-                    sequence="ACD",
-                    residue_ids=None,
-                    mean_embedding=(0.125, -0.25, 0.5) + (0.0,) * 1149,
-                    sequence_logits_shape=(5, 64),
+    case = {
+        "sequence": lambda: ModulePackageContractCase(
+            case_id="sequence",
+            node_type_id="esm3.generate_sequence",
+            binding_id="esm3.generate_sequence.biohub_medium",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(ProviderClient([ProviderResponse("ACD")])),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
                 ),
-                invalid_values=(ProteinSequence("ACD"),),
             ),
+            binding_parameters={},
         ),
+        "structure": lambda: ModulePackageContractCase(
+            case_id="structure",
+            node_type_id="esm3.generate_structure",
+            binding_id="esm3.generate_structure.biohub_medium",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(ProviderClient([structure_response()])),
+            workflow_nodes=(source_node("assigned_sequence"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "paired": lambda: ModulePackageContractCase(
+            case_id="paired",
+            node_type_id="esm3.generate_paired",
+            binding_id="esm3.generate_paired.biohub_medium",
+            node_parameters={"effective_seed": 1603, "num_samples": 10},
+            environment_values=environment(ProviderClient(paired_responses)),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "sequence-open": lambda: ModulePackageContractCase(
+            case_id="sequence-open",
+            node_type_id="esm3.generate_sequence",
+            binding_id="esm3.generate_sequence.biohub_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(ProviderClient([ProviderResponse("ACD")])),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "structure-open": lambda: ModulePackageContractCase(
+            case_id="structure-open",
+            node_type_id="esm3.generate_structure",
+            binding_id="esm3.generate_structure.biohub_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(ProviderClient([structure_response()])),
+            workflow_nodes=(source_node("assigned_sequence"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "paired-open": lambda: ModulePackageContractCase(
+            case_id="paired-open",
+            node_type_id="esm3.generate_paired",
+            binding_id="esm3.generate_paired.biohub_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(
+                ProviderClient([ProviderResponse("ACD"), structure_response()])
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "sequence-local": lambda: ModulePackageContractCase(
+            case_id="sequence-local",
+            node_type_id="esm3.generate_sequence",
+            binding_id="esm3.generate_sequence.local_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=local_environment(
+                ProviderClient([ProviderResponse("ACD")])
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "structure-local": lambda: ModulePackageContractCase(
+            case_id="structure-local",
+            node_type_id="esm3.generate_structure",
+            binding_id="esm3.generate_structure.local_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=local_environment(
+                ProviderClient([local_structure_response()])
+            ),
+            workflow_nodes=(source_node("assigned_sequence"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "paired-local": lambda: ModulePackageContractCase(
+            case_id="paired-local",
+            node_type_id="esm3.generate_paired",
+            binding_id="esm3.generate_paired.local_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=local_environment(
+                ProviderClient([ProviderResponse("ACD"), local_structure_response()])
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source", "protein_prompt", "contract-test-node", "protein_prompt"
+                ),
+            ),
+            binding_parameters={},
+        ),
+        "direct-esmc": lambda: ModulePackageContractCase(
+            case_id="direct-esmc",
+            node_type_id="esm3.represent_sequence",
+            binding_id="esm3.represent_sequence.biohub_esmc_600m_2024_12",
+            node_parameters={},
+            environment_values={"credential_handle": "ctk-secret-must-not-publish"},
+            workflow_nodes=(
+                WorkflowNodeInstance(
+                    node_id="sequence-source",
+                    node_type_id="protein_io.import_sequence",
+                    binding_id="protein_io.import_sequence.direct",
+                    node_parameters={"project_input_ref": "sequence-input"},
+                    binding_parameters={},
+                ),
+            ),
+            workflow_edges=(
+                WorkflowEdge(
+                    "sequence-source", "sequence", "contract-test-node", "sequence"
+                ),
+            ),
+            project_inputs={"sequence-input": b">ctk\nACD\n"},
+            binding_parameters={},
+        ),
+    }[case_id]()
+    result = execute_module_package_case(
+        ESM3_PACKAGE,
+        case,
         supporting_registrations=(
             PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
             PROTEIN_IO_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,
@@ -2234,19 +2217,62 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         ),
         work_root=tmp_path / "ctk",
     )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in candidate_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, CandidateCollection)
+        assert len(value.items) == expected_count
+        assert all(
+            (
+                candidate.candidate_id.startswith("candidate-")
+                for candidate in value.items
+            )
+        )
+    for fragment in ("ctk-secret-must-not-publish",):
+        assert fragment not in json.dumps(result.public_evidence)
 
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
-    assert report.verified_port_types == (
-        "esm3.esmc_sequence_representation",
+
+@pytest.mark.parametrize("port_index", [0])
+def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk_ports(
+    port_index: int,
+) -> None:
+    from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
+    from modules.esm3.domain import ESMCSequenceRepresentation
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA_PACKAGE
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from tests.fixtures.esm3_sources.package import MODULE_PACKAGE as SOURCE_PACKAGE
+
+    port_case = (
+        ModulePackagePortCase(
+            type_id="esm3.esmc_sequence_representation",
+            valid_value=ESMCSequenceRepresentation(
+                sequence="ACD",
+                residue_ids=None,
+                mean_embedding=(0.125, -0.25, 0.5) + (0.0,) * 1149,
+                sequence_logits_shape=(5, 64),
+            ),
+            invalid_values=(ProteinSequence("ACD"),),
+        ),
+    )[port_index]
+    verify_module_package_port(
+        ESM3_PACKAGE,
+        port_case,
+        supporting_registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
+            PROTEIN_IO_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        ),
     )

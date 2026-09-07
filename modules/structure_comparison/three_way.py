@@ -18,7 +18,7 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
 )
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -284,7 +284,7 @@ class ThreeWayConsistencyImplementation:
             raise ValueError("three-way alignments contradict their exact axes")
 
         pairing = cast(
-            PairwiseCandidateMapping,
+            CandidateRelation,
             call.inputs["method_pairing"].value,
         )
         if (

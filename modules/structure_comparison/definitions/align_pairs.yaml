@@ -1,0 +1,19 @@
+node_type_id: structure_comparison.align_pairs
+title: Align related structure Candidates
+summary: Aligns every subject-reference entry from one explicit Candidate relation using exact Candidate-associated residue axes.
+category: structure_comparison
+inputs:
+  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Nonempty subject structure Candidate scope.}
+  - {name: subject_residue_axes, port_type_id: structure_transform.candidate_resolved_residue_axis_associations, required: true, multiplicity: one, scientific_meaning: Exact-reference-associated subject axes.}
+  - {name: references, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Nonempty reference structure Candidate scope.}
+  - {name: reference_residue_axes, port_type_id: structure_transform.candidate_resolved_residue_axis_associations, required: true, multiplicity: one, scientific_meaning: Exact-reference-associated reference axes.}
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Ordered exact subject-to-reference relation; references may be shared.}
+outputs:
+  - {name: alignments, port_type_id: structure_comparison.alignment_evidence, required: true, multiplicity: many, scientific_meaning: One alignment evidence value per relation entry.}
+parameter_groups: []
+node_parameters:
+  pin_matching_chain_ids:
+    parameter_scope: scientific
+    scientific_meaning: When true, uniquely and identically named segments are pinned before sequence-based assignment; duplicate names fail.
+    value_contract: {type: boolean}
+    default: false

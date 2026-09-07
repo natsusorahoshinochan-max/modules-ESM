@@ -1,0 +1,23 @@
+node_type_id: residue_data.materialize_sequence
+title: Materialize sequence
+summary: Projects one complete single-chain sequence conditioning track into a ProteinSequence and a root sequence Candidate collection.
+category: residue_data
+inputs:
+  - name: sequence
+    port_type_id: residue.condition.sequence
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete single-chain nullable amino-acid conditioning aligned to one exact residue layout.
+outputs:
+  - name: sequence
+    port_type_id: protein.sequence
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete amino-acid sequence preserving the input residue identities.
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Root Candidate collection holding the materialized ProteinSequence.
+parameter_groups: []
+node_parameters: {}

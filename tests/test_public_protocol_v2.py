@@ -43,8 +43,8 @@ from tests.support.protocol import (
     validate_response,
     validate_typed_value_response,
 )
-from tests.public_protocol_acceptance_client import (
-    PublicProtocolAcceptanceClient,
+from tests.support.public_runs import (
+    PublicRunClient,
 )
 
 
@@ -58,7 +58,7 @@ def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
 
     assert bundle["schema_namespace"] == "protein-workbench-public/v2"
     assert PUBLIC_PROTOCOL_NAMESPACE == bundle["schema_namespace"]
-    assert bundle["schema_version"] == "2.3.0"
+    assert bundle["schema_version"] == "2.4.0"
     assert bundle["identity"] == {
         "canonicalization": "RFC 8785",
         "character_encoding": "UTF-8",
@@ -85,11 +85,17 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
 
     assert set(operations) == {
         "artifact_retrieval",
+        "apply_prompt_authoring",
+        "authoring_capability_projection",
         "cancel_run",
         "catalog_snapshot",
-        "commit_project_workflow",
-        "create_project",
-        "publish_project_input",
+            "commit_project_workflow",
+            "copy_example_project",
+            "create_project",
+            "list_projects",
+            "open_prompt_authoring",
+            "preview_prompt_authoring",
+            "publish_project_input",
         "project_active_workflow_commit",
         "project_input_metadata",
         "project_workflow_draft",
@@ -105,12 +111,33 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
             "{artifact_reference}",
         ),
+        "apply_prompt_authoring": (
+            "POST",
+            "/api/v2/projects/{project_id}/prompt-authoring:apply",
+        ),
+        "authoring_capability_projection": (
+            "GET",
+            "/api/v2/authoring-capabilities",
+        ),
         "cancel_run": (
             "POST",
             "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
         ),
         "catalog_snapshot": ("GET", "/api/v2/catalog"),
+        "open_prompt_authoring": (
+            "POST",
+            "/api/v2/projects/{project_id}/prompt-authoring:open",
+        ),
+        "preview_prompt_authoring": (
+            "POST",
+            "/api/v2/projects/{project_id}/prompt-authoring:preview",
+        ),
         "create_project": ("POST", "/api/v2/projects"),
+        "copy_example_project": (
+            "POST",
+            "/api/v2/projects/{project_id}:copy",
+        ),
+        "list_projects": ("GET", "/api/v2/projects?name={name}"),
         "commit_project_workflow": (
             "POST",
             "/api/v2/projects/{project_id}/workflow:commit",
@@ -264,10 +291,12 @@ def test_acceptance_client_returns_validated_typed_value_metadata() -> None:
             },
         )
 
-    with PublicProtocolAcceptanceClient(
-        "http://backend.invalid",
+    with httpx.Client(
+        base_url="http://backend.invalid",
         transport=httpx.MockTransport(handler),
-    ) as client:
+        trust_env=False,
+    ) as http:
+        client = PublicRunClient(http)
         assert client.typed_value(
             {
                 "project_id": "project-1",
@@ -368,7 +397,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
     }
 
     errors = bundle["structured_errors"]
-    assert errors["vocabulary_version"] == "2.3.0"
+    assert errors["vocabulary_version"] == "2.4.0"
     assert errors["envelope_schema"] == "#/$defs/StructuredErrorEnvelope"
     assert errors["details_max_bytes"] == 16384
     assert errors["redaction_contract"] == {
@@ -1360,7 +1389,7 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
 def test_backend_public_route_inventory_equals_the_bundle() -> None:
     bundle = load_bundle()
     expected_http = {
-        (operation["method"], operation["route"])
+        (operation["method"], operation["route"].partition("?")[0])
         for operation in bundle["rest_operations"].values()
     }
     discovery = bundle["bundle_discovery"]
@@ -1442,6 +1471,9 @@ def test_project_and_immutable_input_publication_use_only_bundle_operations(
         "created_at",
         "modified_at",
         "seed",
+        "project_kind",
+        "copied_from_project_id",
+        "latest_run_id",
     }
     assert project["name"] == "public project"
     assert project["seed"] is False
@@ -1896,10 +1928,12 @@ def test_acceptance_client_validates_response_without_backend_imports() -> None:
         assert request.url.path == "/api/v2/projects/project-1/runs"
         return httpx.Response(202, json=receipt)
 
-    with PublicProtocolAcceptanceClient(
-        "http://backend.invalid",
+    with httpx.Client(
+        base_url="http://backend.invalid",
         transport=httpx.MockTransport(handler),
-    ) as client:
+        trust_env=False,
+    ) as http:
+        client = PublicRunClient(http)
         assert client.request(
             "start_run",
             {
@@ -1918,6 +1952,9 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
         "created_at": "2026-08-03T00:00:00+00:00",
         "modified_at": "2026-08-03T00:00:00+00:00",
         "seed": False,
+        "project_kind": "personal",
+        "copied_from_project_id": None,
+        "latest_run_id": None,
     }
     publication = {
         "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
@@ -1947,10 +1984,12 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
         assert request.content == b""
         return httpx.Response(200, json=publication)
 
-    with PublicProtocolAcceptanceClient(
-        "http://backend.invalid",
+    with httpx.Client(
+        base_url="http://backend.invalid",
         transport=httpx.MockTransport(handler),
-    ) as client:
+        trust_env=False,
+    ) as http:
+        client = PublicRunClient(http)
         assert client.create_project("public project") == project
         assert client.publish_project_input(
             "project-1",
@@ -1961,3 +2000,5 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
             "project-1",
             "input-1",
         ) == publication
+        "open_prompt_authoring",
+        "preview_prompt_authoring",

@@ -1,5 +1,1316 @@
 {
   "$defs": {
+    "AuthoringCapabilityEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "port_type": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "role": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "role",
+        "port_type"
+      ],
+      "type": "object"
+    },
+    "AuthoringCapabilityProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthoringCapability"
+          }
+        },
+        "node_roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthoringNodeRole"
+          }
+        },
+        "protocol_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "protocol_digest",
+        "capabilities",
+        "node_roles"
+      ],
+      "type": "object"
+    },
+    "AuthoringCapabilityProjectionRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "AuthoringNodeRole": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "node_type": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "role": {
+          "enum": [
+            "ordinary_node"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_type",
+        "role"
+      ],
+      "type": "object"
+    },
+    "AuthoringSourceKind": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_port_types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ContractReference"
+          }
+        },
+        "source_kind": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "source_kind",
+        "title",
+        "accepted_port_types"
+      ],
+      "type": "object"
+    },
+    "AuthoringCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "category": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "editor_kind": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "exposed_inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthoringCapabilityEndpoint"
+          }
+        },
+        "exposed_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthoringCapabilityEndpoint"
+          }
+        },
+        "role": {
+          "const": "ordinary_node"
+        },
+        "source_kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuthoringSourceKind"
+          }
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "capability_id",
+        "role",
+        "title",
+        "summary",
+        "category",
+        "editor_kind",
+        "source_kinds",
+        "exposed_inputs",
+        "exposed_outputs"
+      ],
+      "type": "object"
+    },
+    "PromptSourceFacts": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chains": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PromptChainDeclaration"
+              }
+            },
+            "kind": {
+              "const": "blank"
+            }
+          },
+          "required": [
+            "kind",
+            "chains"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chain_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "content_digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "kind": {
+              "enum": [
+                "fasta",
+                "pdb"
+              ]
+            },
+            "project_input_ref": {
+              "$ref": "#/$defs/ProjectInputReference"
+            }
+          },
+          "required": [
+            "kind",
+            "project_input_ref",
+            "content_digest",
+            "chain_ids"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chain_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "content_digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "kind": {
+              "const": "protein_prompt"
+            }
+          },
+          "required": [
+            "kind",
+            "content_digest",
+            "chain_ids"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptChainDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "chain_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]$"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000000
+        }
+      },
+      "required": [
+        "chain_id",
+        "length"
+      ],
+      "type": "object"
+    },
+    "PromptTargetResidue": {
+      "additionalProperties": false,
+      "properties": {
+        "residue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "enum": [
+            "source",
+            "inserted"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "residue_id",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "PromptTrackReplacementValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "pattern": "^[A-Z-]$"
+        },
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "atom_coordinates": {
+              "type": "array",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "atom_name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "coordinates": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {"type": "number"}
+                  }
+                },
+                "required": ["atom_name", "coordinates"],
+                "type": "object"
+              }
+            }
+          },
+          "required": ["atom_coordinates"],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptFunctionAnnotationIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "start_residue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "end_residue_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "label",
+        "start_residue_id",
+        "end_residue_id"
+      ],
+      "type": "object"
+    },
+    "PromptFunctionAnnotationProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "end_residue_handle": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "start_residue_handle": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "state": {
+          "enum": [
+            "source",
+            "current",
+            "changed",
+            "cleared",
+            "inserted",
+            "pending-delete"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "start_residue_handle",
+        "end_residue_handle",
+        "state"
+      ],
+      "type": "object"
+    },
+    "PromptRandomOperation": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "mask"
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2000000
+            },
+            "track": {
+              "enum": [
+                "sequence",
+                "coordinates",
+                "secondary_structure",
+                "sasa"
+              ],
+              "type": "string"
+            },
+            "eligible_residue_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "seed",
+            "count",
+            "track"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "insert"
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2000000
+            },
+            "eligible_chain_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]$"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "seed",
+            "count"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptRigidTransform": {
+      "additionalProperties": false,
+      "properties": {
+        "rotation_matrix": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "origin": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "translation": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "residue_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "rotation_matrix",
+        "origin",
+        "translation",
+        "residue_ids"
+      ],
+      "type": "object"
+    },
+    "PromptCorrespondenceRow": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {"const": "match"},
+            "source_residue_id": {"type": "string", "minLength": 1},
+            "target_residue_id": {"type": "string", "minLength": 1}
+          },
+          "required": ["disposition", "source_residue_id", "target_residue_id"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {"const": "source_gap"},
+            "source_residue_id": {"type": "string", "minLength": 1}
+          },
+          "required": ["disposition", "source_residue_id"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {"const": "target_gap"},
+            "target_residue_id": {"type": "string", "minLength": 1}
+          },
+          "required": ["disposition", "target_residue_id"],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptTrackDecisions": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "enum": [
+            "adopt",
+            "preserve"
+          ],
+          "type": "string"
+        },
+        "coordinates": {
+          "enum": [
+            "adopt",
+            "preserve"
+          ],
+          "type": "string"
+        },
+        "secondary_structure": {
+          "enum": [
+            "adopt",
+            "preserve"
+          ],
+          "type": "string"
+        },
+        "sasa": {
+          "enum": [
+            "adopt",
+            "preserve"
+          ],
+          "type": "string"
+        },
+        "function_annotations": {
+          "enum": [
+            "adopt",
+            "preserve"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "coordinates",
+        "secondary_structure",
+        "sasa",
+        "function_annotations"
+      ],
+      "type": "object"
+    },
+    "PromptSourceMerge": {
+      "additionalProperties": false,
+      "properties": {
+        "source_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "correspondence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptCorrespondenceRow"
+          }
+        },
+        "track_decisions": {
+          "$ref": "#/$defs/PromptTrackDecisions"
+        }
+      },
+      "required": [
+        "source_index",
+        "correspondence",
+        "track_decisions"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptChainDeclaration"
+          }
+        },
+        "target_residues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptTargetResidue"
+          }
+        },
+        "track_edits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptTrackEdit"
+          }
+        },
+        "rigid_transforms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptRigidTransform"
+          }
+        },
+        "function_annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptFunctionAnnotationIntent"
+          }
+        },
+        "random_operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptRandomOperation"
+          }
+        },
+        "source_merges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptSourceMerge"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "PromptAuthoringOpenRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project_id",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "PromptResidueProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "chain_id": {
+          "type": "string"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "residue_handle": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "residue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "residue_label": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "current",
+            "inserted",
+            "pending-delete"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "residue_handle",
+        "residue_id",
+        "chain_id",
+        "residue_label",
+        "position",
+        "state"
+      ],
+      "type": "object"
+    },
+    "PromptCoordinatesProjectionValue": {
+      "additionalProperties": false,
+      "properties": {
+        "atoms": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "atom_handle": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "atom_name": {
+                "type": "string"
+              },
+              "coordinates": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number"
+                }
+              }
+            },
+            "required": [
+              "atom_handle",
+              "atom_name",
+              "coordinates"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "atoms"
+      ],
+      "type": "object"
+    },
+    "PromptProjectedValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/PromptCoordinatesProjectionValue"
+        }
+      ]
+    },
+    "PromptTrackProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "residue_handle": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "state": {
+          "enum": [
+            "source",
+            "current",
+            "changed",
+            "cleared",
+            "inserted",
+            "pending-delete"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/PromptProjectedValue"
+        }
+      },
+      "required": [
+        "residue_handle",
+        "value",
+        "state"
+      ],
+      "type": "object"
+    },
+    "PromptTrackProjectionSet": {
+      "additionalProperties": false,
+      "properties": {
+        "sasa": {
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
+        },
+        "secondary_structure": {
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
+        },
+        "sequence": {
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
+        },
+        "coordinates": {
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
+        }
+      },
+      "required": [
+        "sequence",
+        "coordinates",
+        "secondary_structure",
+        "sasa"
+      ],
+      "type": "object"
+    },
+    "PromptTrackProjectionCollection": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptTrackProjection"
+          }
+        }
+      },
+      "required": [
+        "present",
+        "values"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/PromptAuthoringDocument"
+        },
+        "function_annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptFunctionAnnotationProjection"
+          }
+        },
+        "residues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptResidueProjection"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/PromptSourceFacts"
+        },
+        "tracks": {
+          "$ref": "#/$defs/PromptTrackProjectionSet"
+        },
+        "baseline_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDiagnostic"
+          }
+        },
+        "random_selections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptRandomSelection"
+          }
+        }
+      },
+      "required": [
+        "document",
+        "residues",
+        "tracks",
+        "function_annotations",
+        "source",
+        "baseline_diagnostics",
+        "random_selections"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringPreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/PromptAuthoringDocument"
+        },
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project_id",
+        "node_id",
+        "document"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringChange": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "insert",
+                "delete"
+              ]
+            },
+            "kind": {
+              "const": "residue"
+            },
+            "residue_handle": {
+              "$ref": "#/$defs/Identifier"
+            }
+          },
+          "required": [
+            "kind",
+            "action",
+            "residue_handle"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "insert",
+                "delete"
+              ]
+            },
+            "kind": {
+              "const": "track_presence"
+            },
+            "track": {
+              "enum": [
+                "sequence",
+                "coordinates",
+                "secondary_structure",
+                "sasa"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "track",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "clear",
+                "replace"
+              ]
+            },
+            "kind": {
+              "const": "track_value"
+            },
+            "residue_handle": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "track": {
+              "enum": [
+                "sequence",
+                "coordinates",
+                "secondary_structure",
+                "sasa"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "track",
+            "residue_handle",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "insert",
+                "delete"
+              ]
+            },
+            "annotation": {
+              "additionalProperties": false,
+              "properties": {
+                "end_residue_handle": {
+                  "$ref": "#/$defs/Identifier"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "start_residue_handle": {
+                  "$ref": "#/$defs/Identifier"
+                }
+              },
+              "required": [
+                "label",
+                "start_residue_handle",
+                "end_residue_handle"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "const": "function_annotation"
+            }
+          },
+          "required": [
+            "kind",
+            "action",
+            "annotation"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "residue_order"
+            },
+            "action": {
+              "const": "replace"
+            },
+            "before_residue_handles": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              }
+            },
+            "after_residue_handles": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "action",
+            "before_residue_handles",
+            "after_residue_handles"
+          ]
+        }
+      ]
+    },
+    "PromptRandomSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["insert", "mask"]
+        },
+        "operation_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "realized_residue_handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      },
+      "required": [
+        "operation_index",
+        "kind",
+        "realized_residue_handles"
+      ],
+      "type": "object"
+    },
+    "PromptDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "field_path": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "residue_handle": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "field_path"
+      ],
+      "type": "object"
+    },
+    "PromptTrackSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "specified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unspecified": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "specified",
+        "unspecified"
+      ],
+      "type": "object"
+    },
+    "PromptSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptChainDeclaration"
+          }
+        },
+        "function_annotation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tracks": {
+          "additionalProperties": false,
+          "properties": {
+            "sasa": {
+              "$ref": "#/$defs/PromptTrackSummary"
+            },
+            "secondary_structure": {
+              "$ref": "#/$defs/PromptTrackSummary"
+            },
+            "sequence": {
+              "$ref": "#/$defs/PromptTrackSummary"
+            },
+            "coordinates": {
+              "$ref": "#/$defs/PromptTrackSummary"
+            }
+          },
+          "required": [
+            "sequence",
+            "coordinates",
+            "secondary_structure",
+            "sasa"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "chains",
+        "tracks",
+        "function_annotation_count"
+      ],
+      "type": "object"
+    },
+    "PromptMergeProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmed": {
+          "type": "boolean"
+        },
+        "correspondence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptCorrespondenceRow"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/PromptSourceFacts"
+        },
+        "track_decisions": {
+          "$ref": "#/$defs/PromptTrackDecisions"
+        }
+      },
+      "required": [
+        "source",
+        "correspondence",
+        "track_decisions",
+        "confirmed"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptAuthoringChange"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDiagnostic"
+          }
+        },
+        "function_annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptFunctionAnnotationProjection"
+          }
+        },
+        "normalized_document": {
+          "$ref": "#/$defs/PromptAuthoringDocument"
+        },
+        "preview_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "random_selections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptRandomSelection"
+          }
+        },
+        "residues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptResidueProjection"
+          }
+        },
+        "source_merges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptMergeProjection"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/PromptSummary"
+        },
+        "tracks": {
+          "$ref": "#/$defs/PromptTrackProjectionSet"
+        },
+        "baseline_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDiagnostic"
+          }
+        }
+      },
+      "required": [
+        "normalized_document",
+        "preview_digest",
+        "residues",
+        "tracks",
+        "function_annotations",
+        "changes",
+        "random_selections",
+        "source_merges",
+        "diagnostics",
+        "summary",
+        "baseline_diagnostics"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringApplyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/PromptAuthoringDocument"
+        },
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "preview_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project_id",
+        "node_id",
+        "document",
+        "preview_digest"
+      ],
+      "type": "object"
+    },
+    "PromptAuthoringApplyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "draft": {
+          "$ref": "#/$defs/ProjectWorkflowDraft"
+        }
+      },
+      "required": [
+        "draft"
+      ],
+      "type": "object"
+    },
     "ArtifactDescriptor": {
       "oneOf": [
         {
@@ -563,9 +1874,9 @@
     "EngineInvocationStartedEvent": {
       "additionalProperties": false,
       "properties": {
-      "engine_identity": {
-        "$ref": "#/$defs/Identifier"
-      },
+        "engine_identity": {
+          "$ref": "#/$defs/Identifier"
+        },
         "engine_role": {
           "$ref": "#/$defs/Identifier"
         },
@@ -1486,6 +2797,54 @@
       ],
       "type": "object"
     },
+    "CopyExampleProjectRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ListProjectsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ProjectList": {
+      "additionalProperties": false,
+      "properties": {
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/ProjectMetadata"
+          },
+          "type": "array"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "projects"
+      ],
+      "type": "object"
+    },
     "ProjectMetadata": {
       "additionalProperties": false,
       "properties": {
@@ -1498,6 +2857,26 @@
         "modified_at": {
           "$ref": "#/$defs/Timestamp"
         },
+        "latest_run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "copied_from_project_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "name": {
           "maxLength": 256,
           "minLength": 1,
@@ -1505,6 +2884,14 @@
         },
         "schema_namespace": {
           "const": "protein-workbench-public/v2"
+        },
+        "project_kind": {
+          "enum": [
+            "default_example",
+            "canonical_verification",
+            "personal"
+          ],
+          "type": "string"
         },
         "seed": {
           "type": "boolean"
@@ -1516,7 +2903,10 @@
         "name",
         "created_at",
         "modified_at",
-        "seed"
+        "seed",
+        "project_kind",
+        "copied_from_project_id",
+        "latest_run_id"
       ],
       "type": "object"
     },
@@ -3155,7 +4545,7 @@
         "pairing_mode": {
           "enum": [
             "fixed_reference",
-            "per_subject_counterpart"
+            "explicit_relation"
           ]
         },
         "reference_role": {
@@ -3630,6 +5020,52 @@
         "target_port"
       ],
       "type": "object"
+    },
+    "PromptTrackEdit": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {"const": "preserve"},
+            "residue_id": {"type": "string", "minLength": 1},
+            "track": {
+              "enum": ["sequence", "coordinates", "secondary_structure", "sasa"],
+              "type": "string"
+            }
+          },
+          "required": ["track", "action", "residue_id"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {"const": "clear"},
+            "residue_id": {"type": "string", "minLength": 1},
+            "track": {
+              "enum": ["sequence", "coordinates", "secondary_structure", "sasa"],
+              "type": "string"
+            }
+          },
+          "required": ["track", "action", "residue_id"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {"const": "replace"},
+            "residue_id": {"type": "string", "minLength": 1},
+            "track": {
+              "enum": ["sequence", "coordinates", "secondary_structure", "sasa"],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/PromptTrackReplacementValue"
+            }
+          },
+          "required": ["track", "action", "residue_id", "value"],
+          "type": "object"
+        }
+      ]
     }
   },
   "bundle_discovery": {
@@ -3736,6 +5172,71 @@
         "default": "structured_error"
       }
     },
+    "authoring_capability_projection": {
+      "method": "GET",
+      "request_schema": "#/$defs/AuthoringCapabilityProjectionRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/AuthoringCapabilityProjection",
+        "success_status": 200
+      },
+      "route": "/api/v2/authoring-capabilities",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "open_prompt_authoring": {
+      "method": "POST",
+      "request_schema": "#/$defs/PromptAuthoringOpenRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PromptAuthoringSnapshot",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/prompt-authoring:open",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "preview_prompt_authoring": {
+      "method": "POST",
+      "request_schema": "#/$defs/PromptAuthoringPreviewRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PromptAuthoringPreview",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/prompt-authoring:preview",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "apply_prompt_authoring": {
+      "method": "POST",
+      "request_schema": "#/$defs/PromptAuthoringApplyRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PromptAuthoringApplyResult",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/prompt-authoring:apply",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
     "commit_project_workflow": {
       "method": "POST",
       "request_schema": "#/$defs/SubmitProjectWorkflowRequest",
@@ -3765,6 +5266,37 @@
       "status_mapping": {
         "201": "response",
         "400": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "copy_example_project": {
+      "method": "POST",
+      "request_schema": "#/$defs/CopyExampleProjectRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectMetadata",
+        "success_status": 201
+      },
+      "route": "/api/v2/projects/{project_id}:copy",
+      "status_mapping": {
+        "201": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "list_projects": {
+      "method": "GET",
+      "request_schema": "#/$defs/ListProjectsRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectList",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects?name={name}",
+      "status_mapping": {
+        "200": "response",
         "default": "structured_error"
       }
     },
@@ -3939,7 +5471,7 @@
     "transport": "websocket"
   },
   "schema_namespace": "protein-workbench-public/v2",
-  "schema_version": "2.3.0",
+  "schema_version": "2.4.0",
   "structured_errors": {
     "details_max_bytes": 16384,
     "envelope_schema": "#/$defs/StructuredErrorEnvelope",
@@ -4094,6 +5626,6 @@
         "retryable": false
       }
     },
-    "vocabulary_version": "2.3.0"
+    "vocabulary_version": "2.4.0"
   }
 }

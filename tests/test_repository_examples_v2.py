@@ -33,6 +33,9 @@ from examples.v2_suite import (
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
 )
+from modules.residue_data.package import (
+    MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+)
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
@@ -75,6 +78,26 @@ UNSUPPORTED_WORKFLOW_FIXTURE = (
 )
 def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_prompt_examples_use_canonical_materializer_nodes() -> None:
+    for filename in (
+        "canonical-3gb1.workflow.json",
+        "source-bound-2emo.workflow.json",
+        "source-bound-5g53.workflow.json",
+    ):
+        workflow = _load(PROJECT_ROOT / "examples" / "v2" / filename)
+        nodes = workflow["nodes"]
+        prompt_nodes = [
+            node
+            for node in nodes
+            if node["node_type_id"].startswith("prompt_authoring.")
+        ]
+        assert prompt_nodes
+        assert all(
+            node["node_id"].startswith("prompt-composition-")
+            for node in prompt_nodes
+        )
 
 
 def _selection_catalog():
@@ -122,6 +145,56 @@ def test_repository_examples_are_compilable_v2_workflows() -> None:
                 node.binding_id,
             )
             assert binding.descriptor["node_type"] == node_type.reference()
+
+
+def test_prompt_downstream_example_closes_fold_and_proteinmpnn_interfaces() -> None:
+    payload = _load(
+        PROJECT_ROOT
+        / "examples"
+        / "v2"
+        / "prompt-downstream-interfaces.workflow.json"
+    )
+    edges = {
+        (
+            edge["source_node_id"],
+            edge["source_port"],
+            edge["target_node_id"],
+            edge["target_port"],
+        )
+        for edge in payload["edges"]
+    }
+    assert {
+        (
+            "author-prompt",
+            "protein_prompt",
+            "decompose-prompt",
+            "protein_prompt",
+        ),
+        (
+            "decompose-prompt",
+            "sequence",
+            "materialize-prompt-sequence",
+            "sequence",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence_candidates",
+            "fold-prompt-sequence",
+            "sequence_candidates",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence",
+            "design-with-reference",
+            "sequence",
+        ),
+        (
+            "resolve-proteinmpnn-targets",
+            "residue_axes",
+            "design-with-reference",
+            "structure_residue_axes",
+        ),
+    } <= edges
 
 
 def test_examples_never_select_methods_or_environment_implicitly() -> None:
@@ -238,7 +311,7 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
     assert {
         objective.context_selector.pairing_mode
         for objective in workflow.selection_objectives
-    } == {"fixed_reference", "per_subject_counterpart"}
+    } == {"fixed_reference", "explicit_relation"}
     assert all(
         objective.metric.contract_id
         == "contract_test.multi_objective_selection_score"
@@ -262,7 +335,7 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
 def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
     catalog = build_frozen_catalog(
         (
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
             PROMPT_AUTHORING_SOURCE_PACKAGE,
         )
@@ -279,8 +352,8 @@ def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
         for node in workflow.nodes
         if node.binding_id.startswith("prompt_authoring.")
     } == {
-        "prompt_authoring.map_residue_track.direct",
-        "prompt_authoring.override_residue_track.direct",
+        "prompt_authoring.author.direct",
+        "prompt_authoring.author.direct",
     }
 
 
@@ -309,15 +382,11 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         and contract.contract_id.startswith("structure_comparison.")
     }
     assert comparison_nodes == {
-        "structure_comparison.align_counterparts",
-        "structure_comparison.align_fixed_reference",
-        "structure_comparison.align_single",
+        "structure_comparison.align_pairs",
         "structure_comparison.classify_three_way_consistency",
         "structure_comparison.evaluate_inserted_loop",
-        "structure_comparison.rmsd_counterparts",
-        "structure_comparison.rmsd_fixed_reference",
-        "structure_comparison.tm_score_counterparts",
-        "structure_comparison.tm_score_fixed_reference",
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.tm_score_from_alignments",
     }
     comparison_bindings = {
         contract.contract_id
@@ -326,16 +395,12 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         and contract.contract_id.startswith("structure_comparison.")
     }
     assert comparison_bindings == {
-        "structure_comparison.align_counterparts.sequence_primary_affine",
-        "structure_comparison.align_fixed_reference.sequence_primary_affine",
-        "structure_comparison.align_single.sequence_primary_affine",
-        "structure_comparison.align_single.structure_first_tm_align",
+        "structure_comparison.align_pairs.sequence_primary_affine",
+        "structure_comparison.align_pairs.structure_first_tm_align",
         "structure_comparison.classify_three_way_consistency.direct",
         "structure_comparison.evaluate_inserted_loop.direct",
-        "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-        "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-        "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-        "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+        "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
+        "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
     }
     comparison_scientific_contracts = {
         (contract.contract_kind, contract.contract_id)

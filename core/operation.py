@@ -442,18 +442,18 @@ class AdmittedPort:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidatePairingIntentEntry:
-    """Raw producer identities intended to form one exact Candidate pair."""
+class CandidateRelationIntentEntry:
+    """Raw producer identities intended to form one exact relation entry."""
 
     subject_candidate_id: str
     reference_candidate_id: str
 
 
 @dataclass(frozen=True, slots=True)
-class CandidatePairingIntent:
-    """Pre-admission pairing projected after Candidate identity normalization."""
+class CandidateRelationIntent:
+    """Pre-admission relation projected after Candidate identity normalization."""
 
-    entries: tuple[CandidatePairingIntentEntry, ...] = ()
+    entries: tuple[CandidateRelationIntentEntry, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

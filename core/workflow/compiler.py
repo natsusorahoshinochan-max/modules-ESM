@@ -309,6 +309,9 @@ def compile(
 
         input_ports = resolved_ports(node_definition.inputs)
         output_ports = resolved_ports(node_definition.outputs)
+        objective_consumption = (
+            binding_definition.selection_objective_consumption
+        )
         frozen_input_sources = {
             port_name: tuple(
                 _ExecutionPlanValueSource(
@@ -319,6 +322,23 @@ def compile(
             )
             for port_name, admitted_sources in graph.input_sources[node_id].items()
         }
+        if (
+            objective_consumption is not None
+            and selected_objectives
+            and input_ports[
+                objective_consumption.score_collection_input_port
+            ].multiplicity
+            == "many"
+        ):
+            frozen_input_sources[
+                objective_consumption.score_collection_input_port
+            ] = tuple(
+                _ExecutionPlanValueSource(
+                    objective.score_collection_input.node_id,
+                    objective.score_collection_input.output_port,
+                )
+                for objective in selected_objectives
+            )
         required_port_names = {
             name
             for name, port in input_ports.items()
@@ -355,7 +375,6 @@ def compile(
                     ),
                 )
             )
-        objective_consumption = binding_definition.selection_objective_consumption
         selector_consumption = binding_definition.observation_selector_consumption
         selection_consumption = (
             selector_consumption

@@ -20,7 +20,7 @@ observation_context_schema:
     reference_role:
       const: reference
     pairing_mode:
-      enum: [fixed_reference, per_subject_counterpart]
+      enum: [fixed_reference, explicit_relation]
     normalization:
       const: literal-unit-interval
   required:

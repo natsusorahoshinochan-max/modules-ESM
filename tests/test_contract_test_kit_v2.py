@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from protein_workbench_public.bootstrap import module_registrations
 
 from dataclasses import replace
@@ -18,11 +20,18 @@ from starlette.websockets import WebSocketDisconnect
 from core.catalog.builder import (
     build_frozen_catalog,
 )
+from core.execution.ledger import EngineInvocationStarted, EngineInvocationTerminal
+from datatypes.candidate import CandidateCollection
+from datatypes.observation import ScoreCollection
+from datatypes.sequence import ProteinSequence
 from core.catalog.errors import CatalogBuildError
 from core.catalog.port_contract import PortTypeDefinition
 from tests.support.contract_test_kit import (
     ModulePackageConformanceError,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
+    ModulePackageContractCase,
+    ModulePackagePortCase,
 )
 from tests.support.application import create_application
 from tests.support.public_request import (
@@ -40,10 +49,7 @@ from tests.fixtures.zero_core_packages.synthetic_echo.tests.cases import (
     PORT_CASE,
     SOURCE_EXECUTION_CASE,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_values,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registrations import (
     FALSE_READINESS_PACKAGE,
     INCOMPLETE_PROVENANCE_PACKAGE,
@@ -58,7 +64,50 @@ FIXTURE_ROOT = (
 )
 
 
-EXECUTION_CASES = (SOURCE_EXECUTION_CASE, EXECUTION_CASE)
+@pytest.mark.parametrize(
+    "case", (SOURCE_EXECUTION_CASE, EXECUTION_CASE), ids=lambda case: case.case_id
+)
+@pytest.mark.parametrize("invocation_count", (0, 1, 2))
+def test_contract_test_kit_returns_only_the_target_engine_calls(
+    tmp_path: Path,
+    case: ModulePackageContractCase,
+    invocation_count: int,
+) -> None:
+    case = replace(
+        case,
+        environment_values={
+            **case.environment_values,
+            "invocation_count": invocation_count,
+        },
+    )
+    result = execute_module_package_case(FIXTURE_PACKAGE, case, work_root=tmp_path)
+    assert result.projection.status == "succeeded"
+    calls = [
+        fact.payload
+        for fact in result.node_events
+        if isinstance(fact.payload, EngineInvocationStarted)
+    ]
+    terminals = [
+        fact.payload
+        for fact in result.node_events
+        if isinstance(fact.payload, EngineInvocationTerminal)
+    ]
+    assert len(calls) == invocation_count
+    assert {call.invocation_id for call in calls} == {
+        terminal.invocation_id for terminal in terminals
+    }
+    upstream_count = 1 if case.workflow_nodes else 0
+    assert (
+        sum(
+            isinstance(fact.payload, EngineInvocationStarted)
+            for fact in result.run_events
+        )
+        == invocation_count + upstream_count
+    )
+    # An owner expecting a target call must fail even when the upstream called an engine.
+    if invocation_count == 0 and upstream_count:
+        with pytest.raises(AssertionError):
+            assert len(calls) == 1
 
 
 def _forget_packages(root_name: str) -> None:
@@ -68,67 +117,56 @@ def _forget_packages(root_name: str) -> None:
     importlib.invalidate_caches()
 
 
-def test_contract_test_kit_executes_the_explicit_fixture_registration(
+@pytest.mark.parametrize(
+    ("case", "text", "has_scores"),
+    ((SOURCE_EXECUTION_CASE, "SOURCE", False), (EXECUTION_CASE, "ECHOECHO", True)),
+    ids=("source", "scorer"),
+)
+def test_contract_test_kit_returns_values_after_releasing_storage(
     tmp_path: Path,
+    case: ModulePackageContractCase,
+    text: str,
+    has_scores: bool,
 ) -> None:
-    registration = FIXTURE_PACKAGE
-    report = verify_module_package_contract(
-        registration,
-        execution_cases=EXECUTION_CASES,
-        port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
-        work_root=tmp_path,
+    result = execute_module_package_case(FIXTURE_PACKAGE, case, work_root=tmp_path)
+    assert list(tmp_path.iterdir()) == []
+    assert result.outputs["text"] == (text,)
+    (artifact,) = result.publication.artifacts
+    assert artifact.output_port == "artifact"
+    assert result.artifacts == {artifact.artifact_reference: text.encode()}
+    (candidates,) = result.outputs["candidates"]
+    assert isinstance(candidates, CandidateCollection)
+    assert len(candidates.items) == 1
+    assert candidates.items[0].candidate_id.startswith("candidate-")
+    assert candidates.items[0].data == ProteinSequence("M")
+    if has_scores:
+        (scores,) = result.outputs["scores"]
+        assert isinstance(scores, ScoreCollection)
+        assert len(scores.entries) == 1
+        assert scores.entries[0].candidate_id == candidates.items[0].candidate_id
+    assert result.publication.node_id == "contract-test-node"
+    assert result.publication.result_identity.startswith("sha256:")
+    assert all(
+        output.producer_run_id == result.projection.run_id
+        for output in result.publication.outputs
     )
-
-    assert report.package_id == registration.package_id
-    case_reports = {
-        case_report.case_id: case_report
-        for case_report in report.case_reports
-    }
-    source_report = case_reports[SOURCE_EXECUTION_CASE.case_id]
-    scorer_report = case_reports[EXECUTION_CASE.case_id]
-    assert source_report.status == "succeeded"
-    assert source_report.output_ports == ("candidates", "text")
-    assert source_report.artifact_ports == ("artifact",)
-    assert scorer_report.status == "succeeded"
-    assert scorer_report.output_ports == (
-        "candidates",
-        "scores",
-        "text",
-    )
-    assert scorer_report.artifact_ports == ("artifact",)
-    assert scorer_report.event_types[-1] == "run_terminal"
-    assert len(scorer_report.event_sequences) == len(
-        set(scorer_report.event_sequences)
-    )
-    published = json.dumps(report.to_public(), sort_keys=True)
-    assert "contract-test-secret-must-not-publish" not in published
-    assert "/private/contract-test-runtime" not in published
-
-
-def test_contract_test_case_rejects_a_path_like_case_identity() -> None:
-    with pytest.raises(
-        ModulePackageConformanceError,
-        match="case_id must be one safe path segment",
+    assert result.projection.workflow_commit_id
+    published = json.dumps(result.public_evidence, sort_keys=True)
+    for fragment in (
+        "contract-test-secret-must-not-publish",
+        "/private/contract-test-runtime",
+        str(tmp_path),
     ):
-        replace(EXECUTION_CASE, case_id="../escaped-case")
+        assert fragment not in published
 
 
-def test_contract_test_kit_runs_only_explicitly_supplied_cases(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "case", (PORT_CASE, ARTIFACT_PORT_CASE), ids=lambda case: case.type_id
+)
+def test_port_conformance_is_independent_of_workflow_execution(
+    case: ModulePackagePortCase,
 ) -> None:
-    report = verify_module_package_contract(
-        FIXTURE_PACKAGE,
-        execution_cases=(EXECUTION_CASE,),
-        port_cases=(PORT_CASE,),
-        work_root=tmp_path,
-    )
-
-    assert [case.case_id for case in report.case_reports] == [
-        EXECUTION_CASE.case_id
-    ]
-    assert report.verified_port_types == (
-        "contract_test.synthetic_text",
-    )
+    verify_module_package_port(FIXTURE_PACKAGE, case)
 
 
 def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
@@ -206,7 +244,7 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
         frozen_catalog_override=build_frozen_catalog((FIXTURE_PACKAGE,)),
         v2_environment_configuration={
             case.binding_id: dict(case.environment_values)
-            for case in EXECUTION_CASES
+            for case in (SOURCE_EXECUTION_CASE, EXECUTION_CASE)
         },
     )
 
@@ -299,11 +337,8 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
             if output["node_id"] == "synthetic-echo"
             and output["output_port"] == "text"
         )
-        assert retrieve_typed_output_values(
-            client,
-            project_id,
-            run_id,
-            text_output,
+        assert PublicRunClient(client).typed_output_values(
+            project_id, run_id, text_output
         ) == ["ECHOECHO"]
         assert len(payload["artifact_index"]) == 2
         artifact = next(
@@ -391,14 +426,10 @@ def test_contract_test_kit_rejects_a_false_readiness_attestation(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(
-        ModulePackageConformanceError,
-        match="execution did not succeed",
+        ModulePackageConformanceError, match="execution did not succeed"
     ):
-        verify_module_package_contract(
-            FALSE_READINESS_PACKAGE,
-            execution_cases=EXECUTION_CASES,
-            port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
-            work_root=tmp_path,
+        execute_module_package_case(
+            FALSE_READINESS_PACKAGE, EXECUTION_CASE, work_root=tmp_path
         )
 
 
@@ -421,7 +452,7 @@ def test_contract_test_kit_rejects_an_invalid_package_codec(
         ModulePackageConformanceError,
         match="codec conformance failed",
     ):
-        verify_module_package_contract(
+        verify_module_package_port(
             replace(
                 registration,
                 port_types=(
@@ -429,9 +460,7 @@ def test_contract_test_kit_rejects_an_invalid_package_codec(
                     registration.port_types[1],
                 ),
             ),
-            execution_cases=EXECUTION_CASES,
-            port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
-            work_root=tmp_path,
+            PORT_CASE,
         )
 
 
@@ -439,14 +468,10 @@ def test_contract_test_kit_rejects_incomplete_observation_provenance(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(
-        ModulePackageConformanceError,
-        match="execution did not succeed",
+        ModulePackageConformanceError, match="execution did not succeed"
     ):
-        verify_module_package_contract(
-            INCOMPLETE_PROVENANCE_PACKAGE,
-            execution_cases=EXECUTION_CASES,
-            port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
-            work_root=tmp_path,
+        execute_module_package_case(
+            INCOMPLETE_PROVENANCE_PACKAGE, EXECUTION_CASE, work_root=tmp_path
         )
 
 

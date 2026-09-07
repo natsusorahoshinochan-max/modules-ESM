@@ -4,14 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.catalog.builtins import (
-    builtin_frozen_catalog,
-)
 from core.catalog.errors import PortValueError
-from datatypes.residue import (
-    ResidueLayout,
-    ResidueMap,
-)
+from datatypes.residue import ResidueLayout
 from datatypes.residue import residue_identity_chain
 
 
@@ -48,20 +42,46 @@ def test_signed_pdb_residue_identity_form_is_closed(residue_id: str) -> None:
         residue_identity_chain(residue_id)
 
 
-def test_signed_residue_id_round_trips_layout_and_map_codecs() -> None:
-    catalog = builtin_frozen_catalog()
-    layout_type = catalog.require_port_type("residue.layout")
-    map_type = catalog.require_port_type("residue.map")
-    source = ResidueLayout("A", 2, ("A:-3", "A:-3A"))
-    residue_map = ResidueMap(
-        source,
-        source,
-        ((0, 0, "match"), (1, 1, "match")),
+def test_signed_residue_id_round_trips_layout_codec() -> None:
+    from core.catalog.port_contract import (
+        PORT_VALUE_NAMESPACE,
+        BehaviorReference,
+        PortTypeDefinition,
     )
 
-    assert layout_type.decode(layout_type.encode(source)) == source
-    assert map_type.decode(map_type.encode(residue_map)) == residue_map
+    layout_type = PortTypeDefinition(
+        type_id="residue_layout",
+        validator=BehaviorReference(
+            behavior_id="protein-workbench.port-type/residue_layout/validate",
+            parameters={"accepted_value_kind": "residue_layout"},
+        ),
+        codec=BehaviorReference(
+            behavior_id=(
+                "protein-workbench.port-type/residue_layout/"
+                "canonical-json-codec"
+            ),
+            parameters={
+                "canonicalization": "RFC 8785",
+                "character_encoding": "UTF-8",
+                "envelope_namespace": PORT_VALUE_NAMESPACE,
+                "value_kind": "residue_layout",
+            },
+        ),
+        content_identity=BehaviorReference(
+            behavior_id=(
+                "protein-workbench.port-type/residue_layout/content-sha256"
+            ),
+            parameters={
+                "digest_algorithm": "SHA-256",
+                "digest_input": "canonical_codec_bytes",
+                "digest_representation": "sha256:<64 lowercase hexadecimal digits>",
+            },
+        ),
+    )
+    source = ResidueLayout(("A:-3", "A:-3A"))
 
-    invalid = ResidueLayout("A", 1, ("A:-1234",))
+    assert layout_type.decode(layout_type.encode(source)) == source
+
+    invalid = ResidueLayout(("A:-1234",))
     with pytest.raises(PortValueError, match="residue identity"):
         layout_type.encode(invalid)

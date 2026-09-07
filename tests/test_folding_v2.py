@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from datatypes.observation import ScoreCollection
+from datatypes.observation import ScoreObservation
+
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -42,10 +47,7 @@ from core.execution.runtime import (
     V2RunService,
 )
 from tests.support.result_store import result_store
-from tests.support.contract_test_kit import (
-    ModulePackageContractCase,
-    verify_module_package_contract,
-)
+from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -64,7 +66,7 @@ from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
-from tests.fixtures.public_v2 import decode_service_typed_output_value
+from tests.support.runtime_results import decode_service_typed_output_value
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
 )
@@ -853,18 +855,31 @@ def test_remote_provider_native_result_translates_to_canonical_confidence() -> N
     assert result.confidence.pae == ((0.0, 1.0), (1.0, 0.0))
 
 
-def test_remote_provider_official_error_union_is_an_operational_failure() -> None:
-    from esm.sdk.api import ESMProteinError
-    from modules.folding.esmfold2_remote import decode_remote_fold_result
+def test_biohub_esmfold2_client_builder_owns_the_fixed_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.sdk
 
-    with pytest.raises(
-        RuntimeError,
-        match="remote ESMFold2 provider returned an error",
-    ):
-        decode_remote_fold_result(
-            ESMProteinError(error_code=503, error_msg="provider unavailable"),
-            ProteinSequence("AG", ["A:1", "A:2"]),
-        )
+    from modules.folding.esmfold2_remote import build_remote_engine
+
+    calls: list[dict[str, object]] = []
+
+    def build_client(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(esm.sdk, "esmfold2_client", build_client)
+
+    build_remote_engine({"credential_handle": "credential"})
+
+    assert calls == [
+        {
+            "model": "esmfold2-fast-2026-05",
+            "url": "https://biohub.ai",
+            "token": "credential",
+            "request_timeout": 150,
+        }
+    ]
 
 
 def test_folding_operation_failure_publishes_no_partial_samples(
@@ -881,6 +896,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     class Client:
         def __init__(self) -> None:
             self.calls = 0
+            self.close_calls = 0
 
         def fold(self, **_kwargs: Any) -> object:
             self.calls += 1
@@ -891,6 +907,9 @@ def test_folding_operation_failure_publishes_no_partial_samples(
                 error_msg="provider unavailable",
             )
 
+        def close(self) -> None:
+            self.close_calls += 1
+
     client = Client()
     _, _, projection, events = _run_fold(
         tmp_path,
@@ -900,6 +919,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     )
 
     assert client.calls == 2
+    assert client.close_calls == 2
     assert projection["status"] == "failed"
     assert all(
         output["node_id"] != "fold"
@@ -931,7 +951,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     assert [
         terminals_by_invocation[event["invocation_id"]]["status"]
         for event in started
-    ] == ["succeeded", "succeeded"]
+    ] == ["succeeded", "failed"]
 
     operation_attempt_id = started[0]["operation_attempt_id"]
     operation_terminal = next(
@@ -1414,6 +1434,9 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
             self.calls.append((sequence, model_name, config))
             return RemoteResult()
 
+        def close(self) -> None:
+            pass
+
     class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
 
@@ -1599,9 +1622,27 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         assert isinstance(client.calls[0][1], int)
 
 
+@pytest.mark.parametrize(
+    ("case_id", "candidate_counts", "observation_counts"),
+    [
+        ("esmfold2-remote", {"structure_candidates": 1}, {}),
+        ("esmfold2-local", {"structure_candidates": 1}, {}),
+        ("simplefold-local", {"structure_candidates": 1}, {}),
+        ("simplefold-confidence-local", {}, {"confidence_observations": 2}),
+    ],
+    ids=[
+        "esmfold2-remote",
+        "esmfold2-local",
+        "simplefold-local",
+        "simplefold-confidence-local",
+    ],
+)
 def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    candidate_counts: dict[str, int],
+    observation_counts: dict[str, int],
 ) -> None:
     from core.local_torch_device import expected_local_torch_device
     import modules.folding.esmfold2_local as local_adapter
@@ -1613,35 +1654,37 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
-    from tests.fixtures.folding_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
+    from tests.fixtures.folding_sources.package import MODULE_PACKAGE as SOURCE_PACKAGE
 
     class RemoteResult(_RemoteResultRenderer):
         sequence = "AG"
-        plddt = torch.tensor([0.70, 0.80])
+        plddt = torch.tensor([0.7, 0.8])
         ptm = torch.tensor(0.625)
         pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
 
     class RemoteClient:
+
         def fold(self, **kwargs: Any) -> RemoteResult:
             del kwargs
             return RemoteResult()
+
+        def close(self) -> None:
+            pass
 
     class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
 
     class LocalResult:
         complex = LocalComplex()
-        plddt = torch.tensor([0.70, 0.80])
+        plddt = torch.tensor([0.7, 0.8])
         ptm = 0.625
         pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
 
     class LocalClient:
+
         def fold(self, **kwargs: Any) -> LocalResult:
             del kwargs
             return LocalResult()
-
     source_node = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
@@ -1649,31 +1692,21 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
-    local_environment = _write_local_runtime_fixture(
-        tmp_path,
-        monkeypatch,
-    )
+    local_environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
     import modules.folding.simplefold_confidence_adapter as confidence_adapter
     import modules.folding.simplefold_contract as simplefold_contract
     import modules.folding.simplefold_runtime as simplefold_runtime
-
     simplefold_model_root = tmp_path / "simplefold-models"
     simplefold_esm2_models = tmp_path / "simplefold-esm2-models"
     simplefold_esm2_source = tmp_path / "simplefold-esm2-source"
     simplefold_model_root.mkdir()
     simplefold_esm2_models.mkdir()
     (simplefold_esm2_source / "esm").mkdir(parents=True)
-    (simplefold_esm2_source / "esm" / "__init__.py").write_bytes(
-        b"fixture"
-    )
-    (simplefold_esm2_source / "esm" / "pretrained.py").write_bytes(
-        b"fixture"
-    )
+    (simplefold_esm2_source / "esm" / "__init__.py").write_bytes(b"fixture")
+    (simplefold_esm2_source / "esm" / "pretrained.py").write_bytes(b"fixture")
     simplefold_payloads = {
         entry.runtime_filename: f"fixture-{entry.runtime_filename}".encode()
-        for entry in (
-            simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
-        )
+        for entry in simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
         if entry.environment_key == "model_root"
     }
     simplefold_esm2_payloads = {
@@ -1688,62 +1721,52 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         simplefold_contract,
         "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
         build_fixture_simplefold_closure(
-            simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+            simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
         ),
     )
     monkeypatch.setattr(
         simplefold_contract,
         "SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE",
         build_fixture_simplefold_closure(
-            simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+            simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
         ),
     )
 
     class SimpleFoldClient:
+
         def fold(
-            self,
-            **kwargs: Any,
+            self, **kwargs: Any
         ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             assert kwargs["num_steps"] == 10
             assert kwargs["num_samples"] == 1
             return (
-                [
-                    ProteinStructure(_upstream_simplefold_serialized_pdb())
-                ],
+                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
                 [{"per_residue": [70.0, 80.0], "sample_index": 0}],
             )
 
     class ConfidenceClient:
+
         def evaluate(self, **kwargs: Any) -> dict[str, Any]:
             residue_axis = kwargs["residue_axis"]
             assert residue_axis.layout.residue_ids == ("A:1", "A:2")
             assert residue_axis.sequence == "AG"
-            return {
-                "native_plddt": [0.70, 0.80],
-                "valid_protein_residues": [True, True],
-            }
+            return {"native_plddt": [0.7, 0.8], "valid_protein_residues": [True, True]}
 
     simplefold_client = SimpleFoldClient()
     confidence_client = ConfidenceClient()
     loaded_esmfold2_devices: list[str] = []
 
-    def load_local_engine(
-        runtime: local_adapter.LocalESMFold2Runtime,
-    ) -> LocalClient:
+    def load_local_engine(runtime: local_adapter.LocalESMFold2Runtime) -> LocalClient:
         loaded_esmfold2_devices.append(runtime.device)
         return LocalClient()
 
     monkeypatch.setattr(
-        remote_adapter,
-        "build_remote_engine",
-        lambda _environment: RemoteClient(),
+        remote_adapter, "build_remote_engine", lambda _environment: RemoteClient()
     )
-    monkeypatch.setattr(
-        local_adapter,
-        "load_local_engine",
-        load_local_engine,
-    )
+    monkeypatch.setattr(local_adapter, "load_local_engine", load_local_engine)
+
     class ActivatedSimpleFoldFixture:
+
         def __init__(self, kwargs: dict[str, Any]) -> None:
             self._kwargs = kwargs
 
@@ -1757,6 +1780,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             return simplefold_client.fold(**self._kwargs)
 
     class ActivatedConfidenceFixture:
+
         def __init__(self, kwargs: dict[str, Any]) -> None:
             self._kwargs = kwargs
 
@@ -1768,10 +1792,8 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
 
         def invoke(self) -> Any:
             return confidence_client.evaluate(
-                residue_axis=self._kwargs["residue_axis"],
-                device=self._kwargs["device"],
+                residue_axis=self._kwargs["residue_axis"], device=self._kwargs["device"]
             )
-
     monkeypatch.setattr(
         simplefold_runtime,
         "activate_fold_sequence",
@@ -1801,22 +1823,14 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     )
     structure_axis_node = WorkflowNodeInstance(
         node_id="structure-axis",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform."
-            "resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
     common = {
         "node_type_id": "folding.fold",
-        "node_parameters": {
-            "effective_seed": 1603,
-            "num_samples": 1,
-        },
+        "node_parameters": {"effective_seed": 1603, "num_samples": 1},
         "workflow_nodes": (source_node,),
         "workflow_edges": (
             WorkflowEdge(
@@ -1826,53 +1840,41 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 "sequence_candidates",
             ),
         ),
-        "expected_candidate_counts": {
-            "structure_candidates": 1,
-        },
-        "forbidden_public_fragments": (
-            "ctk-secret-must-not-publish",
-        ),
     }
-    cases = (
-        ModulePackageContractCase(
+    monkeypatch.setattr(
+        folding_package, "simplefold_runtime_structurally_available", lambda: True
+    )
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_confidence_runtime_structurally_available",
+        lambda: True,
+    )
+    case = {
+        "esmfold2-remote": lambda: ModulePackageContractCase(
             case_id="esmfold2-remote",
             binding_id="folding.fold.esmfold2_remote",
             binding_parameters={},
-            environment_values={
-                "credential_handle": "ctk-secret-must-not-publish",
-            },
+            environment_values={"credential_handle": "ctk-secret-must-not-publish"},
             **common,
         ),
-        ModulePackageContractCase(
+        "esmfold2-local": lambda: ModulePackageContractCase(
             case_id="esmfold2-local",
             binding_id="folding.fold.esmfold2_local",
             binding_parameters={},
             environment_values=local_environment,
             **common,
         ),
-        ModulePackageContractCase(
+        "simplefold-local": lambda: ModulePackageContractCase(
             case_id="simplefold-local",
             binding_id="folding.fold.simplefold_local",
             binding_parameters={"num_steps": 10},
             environment_values=simplefold_environment,
-            expected_candidate_counts={
-                "structure_candidates": 1,
-            },
-            **{
-                key: value
-                for key, value in common.items()
-                if key
-                not in {
-                    "expected_candidate_counts",
-                }
-            },
+            **common,
         ),
-        ModulePackageContractCase(
+        "simplefold-confidence-local": lambda: ModulePackageContractCase(
             case_id="simplefold-confidence-local",
             node_type_id="folding.simplefold_confidence",
-            binding_id=(
-                "folding.simplefold_confidence.simplefold_local"
-            ),
+            binding_id="folding.simplefold_confidence.simplefold_local",
             node_parameters={},
             binding_parameters={},
             environment_values=confidence_environment,
@@ -1897,28 +1899,11 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                     "structure_residue_axes",
                 ),
             ),
-            expected_observation_counts={
-                "confidence_observations": 2,
-            },
-            forbidden_public_fragments=(
-                "ctk-secret-must-not-publish",
-            ),
         ),
-    )
-
-    monkeypatch.setattr(
-        folding_package,
-        "simplefold_runtime_structurally_available",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        folding_package,
-        "simplefold_confidence_runtime_structurally_available",
-        lambda: True,
-    )
-    report = verify_module_package_contract(
+    }[case_id]()
+    result = execute_module_package_case(
         folding_package.MODULE_PACKAGE,
-        execution_cases=cases,
+        case,
         supporting_registrations=(
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,
@@ -1926,11 +1911,25 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ),
         work_root=tmp_path / "ctk",
     )
-
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
-    assert loaded_esmfold2_devices == [expected_local_torch_device()]
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    assert loaded_esmfold2_devices == (
+        [expected_local_torch_device()] if case.case_id == "esmfold2-local" else []
+    )
+    for port, expected_count in candidate_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, CandidateCollection)
+        assert len(value.items) == expected_count
+        assert all(
+            (
+                candidate.candidate_id.startswith("candidate-")
+                for candidate in value.items
+            )
+        )
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
+    for fragment in ("ctk-secret-must-not-publish",):
+        assert fragment not in json.dumps(result.public_evidence)

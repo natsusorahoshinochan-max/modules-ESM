@@ -70,6 +70,11 @@ def _schema_example(schema: dict[str, Any]) -> Any:
     if value_type == "string":
         if schema.get("format") == "date-time":
             return "2026-08-03T00:00:00Z"
+        if schema.get("pattern") in {
+            "^[A-Za-z0-9]$",
+            "^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$",
+        }:
+            return "A"
         return "value-1"
     if value_type == "integer":
         return schema.get("minimum", 0)
@@ -333,7 +338,11 @@ def test_every_bundle_bodyless_operation_rejects_any_explicit_json_body(
         decode_rest_request(
             operation_id,
             path_parameters={field: request[field] for field in path_fields},
-            query_parameters={field: request[field] for field in query_fields},
+            query_parameters={
+                field: request[field]
+                for field in query_fields
+                if field in request
+            },
             json_body=explicit_body,
         )
 

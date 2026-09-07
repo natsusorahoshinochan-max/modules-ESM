@@ -1,0 +1,11 @@
+node_type_id: collection_ops.join_relation_subjects
+title: Join relation subjects by shared reference
+summary: Relates left subjects to right subjects whose relation entries name the same exact reference.
+category: collection_ops
+inputs:
+  - {name: left_relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Left subjects grouped by exact reference.}
+  - {name: right_relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Right subjects grouped by the same exact references.}
+outputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Left-subject to matching right-subject relation in left entry order.}
+parameter_groups: []
+node_parameters: {}

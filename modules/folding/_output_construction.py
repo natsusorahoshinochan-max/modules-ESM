@@ -87,11 +87,7 @@ def _prediction_axis(
     if len(chains) != 1:
         raise ValueError("folding requires a single-chain protein sequence")
     layout = validate_residue_layout(
-        ResidueLayout(
-            chain_id=chains[0],
-            length=len(sequence.sequence),
-            residue_ids=residue_ids,
-        ),
+        ResidueLayout(residue_ids=residue_ids),
         subject="folding prediction residue axis",
     )
     return PredictionResidueAxis(

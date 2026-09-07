@@ -17,6 +17,7 @@ from core.catalog.declarations import (
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
+    UtilityTransformDefinition,
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
@@ -92,6 +93,38 @@ _BIOHUB_ENVIRONMENT_FIELDS = (
 )
 _LOCAL_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
+)
+
+
+def _plddt_percent_to_unit(
+    value: float,
+    _parameters: Mapping[str, Any],
+) -> float:
+    return value / 100.0
+
+
+ESM3_MEAN_PLDDT_UTILITY = UtilityTransformDefinition(
+    transform_id=(
+        "structure.plddt.mean_residue."
+        "esm3_medium_2024_08.percent_to_unit"
+    ),
+    compatible_input_contract={
+        "metric": ContractIdentity(
+            "metric",
+            "structure.plddt.mean_residue",
+        ),
+        "method": ContractIdentity(
+            "method",
+            "esm3.generate_paired.esm3_medium_2024_08",
+        ),
+        "context_profile": {"kind": "intrinsic"},
+    },
+    parameters={},
+    behavior=BehaviorReference(
+        "esm3.generate_paired/mean-plddt-percent-to-unit",
+        {"mapping": "x / 100"},
+    ),
+    transform=_plddt_percent_to_unit,
 )
 
 
@@ -395,10 +428,11 @@ def _local_method(
                 else "not_applicable"
             ),
             "determinism_contract": (
-                "exact Torch seed derived from configured base seed, canonical "
-                "ProteinPrompt content digest, and zero-based sample-track "
-                "slot; exact outputs are runtime-device-specific and are not "
-                "cacheable"
+                "exact Torch seed derived from configured base seed, exact "
+                "translated ESM-3 functional input, and zero-based "
+                "sample-track slot; paired structure input includes the "
+                "generated sequence; exact outputs are runtime-device-specific "
+                "and are not cacheable"
             ),
             "step_count_contract": {
                 "requested": "num_steps is an upper bound",
@@ -642,5 +676,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ) + tuple(_local_binding(operation) for operation in _OPERATIONS) + (
         _esmc_binding(),
     ),
+    utility_transforms=(ESM3_MEAN_PLDDT_UTILITY,),
     port_types=(_port_types.ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE,),
 )

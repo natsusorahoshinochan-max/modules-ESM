@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import string
 from typing import Any
 
 from core.operation import (
@@ -19,11 +17,7 @@ from datatypes.candidate import (
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
-
-_ASCII_UPPER_TRANSLATION = str.maketrans(
-    string.ascii_lowercase,
-    string.ascii_uppercase,
-)
+from .fasta import parse_fasta_sequence
 
 
 def _native_pdb_bytes(structure: ProteinStructure) -> bytes:
@@ -45,27 +39,8 @@ class SequenceImportImplementation:
                 project_input_filename=descriptor.filename
             )
         ):
-            try:
-                text = payload.decode("utf-8")
-            except UnicodeDecodeError as error:
-                raise ValueError("Sequence input must be UTF-8 text") from error
-            nonempty_lines = [line for line in text.splitlines() if line.strip()]
-            header_indices = [
-                index
-                for index, line in enumerate(nonempty_lines)
-                if line.lstrip().startswith(">")
-            ]
-            if len(header_indices) > 1:
-                raise ValueError("Sequence input must contain exactly one record")
-            if header_indices and header_indices != [0]:
-                raise ValueError("Sequence input has a misplaced FASTA header")
-            sequence_parts = [
-                re.sub(r"\s+", "", line)
-                for line in nonempty_lines[len(header_indices) :]
-            ]
-            raw_sequence = "".join(sequence_parts)
             imported = ProteinSequence(
-                sequence=raw_sequence.translate(_ASCII_UPPER_TRANSLATION),
+                sequence=parse_fasta_sequence(payload),
             )
         return {
             "sequence": imported,

@@ -37,37 +37,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "author-base-prompt",
-      "node_type_id": "prompt_authoring.prompt_from_structure",
-      "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "insert-shorter-8",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:211",
-            "before_residue_id": "A:224",
-            "inserted_residue_ids": [
-              "A:gap211_224.short.01",
-              "A:gap211_224.short.02",
-              "A:gap211_224.short.03",
-              "A:gap211_224.short.04",
-              "A:gap211_224.short.05",
-              "A:gap211_224.short.06",
-              "A:gap211_224.short.07",
-              "A:gap211_224.short.08"
-            ]
-          }
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "generate-shorter-8",
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
@@ -81,6 +50,20 @@
         "strategy": "random",
         "temperature_annealing": true
       },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-structures-shorter-8",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-pairs-shorter-8",
+      "node_type_id": "collection_ops.invert_relation",
+      "binding_id": "collection_ops.invert_relation.direct",
+      "node_parameters": {},
       "binding_parameters": {}
     },
     {
@@ -123,50 +106,50 @@
     },
     {
       "node_id": "align-core-shorter-8",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-shorter-8",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-shorter-8",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-shorter-8",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_type_id": "collection_ops.compose_relations",
+      "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-shorter-8",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-shorter-8",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-shorter-8",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -461,14 +444,14 @@
           "A:312"
         ],
         "loop_residue_ids": [
-          "A:gap211_224.short.01",
-          "A:gap211_224.short.02",
-          "A:gap211_224.short.03",
-          "A:gap211_224.short.04",
-          "A:gap211_224.short.05",
-          "A:gap211_224.short.06",
-          "A:gap211_224.short.07",
-          "A:gap211_224.short.08"
+          "A:inserted.245e2418360c7a47f44afade",
+          "A:inserted.ddce628f4ffea6fac3f7cfc7",
+          "A:inserted.d88e78eac1f5c25653088143",
+          "A:inserted.75de7e8a4d6eeb6cb6eeb678",
+          "A:inserted.f9c1799746e96de6ded9d6f2",
+          "A:inserted.bf056591adf99fd223819227",
+          "A:inserted.5d97acf062ff7b32b921a58b",
+          "A:inserted.fccd41523b36a70fcc2dd250"
         ],
         "left_junction_residue_id": "A:211",
         "right_junction_residue_id": "A:224",
@@ -480,34 +463,6 @@
         "junction_cn_distance_angstrom_minimum": 1.15,
         "junction_cn_distance_angstrom_maximum": 1.55,
         "loop_core_nonbonded_distance_angstrom_minimum": 2.0
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "insert-numbering-implied-12",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:211",
-            "before_residue_id": "A:224",
-            "inserted_residue_ids": [
-              "A:212",
-              "A:213",
-              "A:214",
-              "A:215",
-              "A:216",
-              "A:217",
-              "A:218",
-              "A:219",
-              "A:220",
-              "A:221",
-              "A:222",
-              "A:223"
-            ]
-          }
-        ]
       },
       "binding_parameters": {}
     },
@@ -525,6 +480,20 @@
         "strategy": "random",
         "temperature_annealing": true
       },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-structures-numbering-implied-12",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-pairs-numbering-implied-12",
+      "node_type_id": "collection_ops.invert_relation",
+      "binding_id": "collection_ops.invert_relation.direct",
+      "node_parameters": {},
       "binding_parameters": {}
     },
     {
@@ -567,50 +536,50 @@
     },
     {
       "node_id": "align-core-numbering-implied-12",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-numbering-implied-12",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-numbering-implied-12",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-numbering-implied-12",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_type_id": "collection_ops.compose_relations",
+      "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-numbering-implied-12",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-numbering-implied-12",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-numbering-implied-12",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -905,18 +874,18 @@
           "A:312"
         ],
         "loop_residue_ids": [
-          "A:212",
-          "A:213",
-          "A:214",
-          "A:215",
-          "A:216",
-          "A:217",
-          "A:218",
-          "A:219",
-          "A:220",
-          "A:221",
-          "A:222",
-          "A:223"
+          "A:inserted.05e51139d5f7d351bf09d725",
+          "A:inserted.03739068d2c3c7cda5991603",
+          "A:inserted.1a8616b1e7583a32059cb14f",
+          "A:inserted.a8b50d8342203b27dc19dce1",
+          "A:inserted.4da1003225f185fc68c0dd0b",
+          "A:inserted.cfab6fef9ebd1665c79e0f88",
+          "A:inserted.615325793d778fdbfa707621",
+          "A:inserted.dd1a947079e78ae90a8ac473",
+          "A:inserted.71061ec54e888944728e0d53",
+          "A:inserted.4a0c192b49d374e7946496a8",
+          "A:inserted.a798321f4f1dac52abf7cd44",
+          "A:inserted.75494a9bb7f7816999f40ccd"
         ],
         "left_junction_residue_id": "A:211",
         "right_junction_residue_id": "A:224",
@@ -928,38 +897,6 @@
         "junction_cn_distance_angstrom_minimum": 1.15,
         "junction_cn_distance_angstrom_maximum": 1.55,
         "loop_core_nonbonded_distance_angstrom_minimum": 2.0
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "insert-longer-16",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:211",
-            "before_residue_id": "A:224",
-            "inserted_residue_ids": [
-              "A:gap211_224.long.01",
-              "A:gap211_224.long.02",
-              "A:gap211_224.long.03",
-              "A:gap211_224.long.04",
-              "A:gap211_224.long.05",
-              "A:gap211_224.long.06",
-              "A:gap211_224.long.07",
-              "A:gap211_224.long.08",
-              "A:gap211_224.long.09",
-              "A:gap211_224.long.10",
-              "A:gap211_224.long.11",
-              "A:gap211_224.long.12",
-              "A:gap211_224.long.13",
-              "A:gap211_224.long.14",
-              "A:gap211_224.long.15",
-              "A:gap211_224.long.16"
-            ]
-          }
-        ]
       },
       "binding_parameters": {}
     },
@@ -977,6 +914,20 @@
         "strategy": "random",
         "temperature_annealing": true
       },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-structures-longer-16",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-pairs-longer-16",
+      "node_type_id": "collection_ops.invert_relation",
+      "binding_id": "collection_ops.invert_relation.direct",
+      "node_parameters": {},
       "binding_parameters": {}
     },
     {
@@ -1019,50 +970,50 @@
     },
     {
       "node_id": "align-core-longer-16",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-longer-16",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-longer-16",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-longer-16",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_type_id": "collection_ops.compose_relations",
+      "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-longer-16",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-longer-16",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-longer-16",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -1357,22 +1308,22 @@
           "A:312"
         ],
         "loop_residue_ids": [
-          "A:gap211_224.long.01",
-          "A:gap211_224.long.02",
-          "A:gap211_224.long.03",
-          "A:gap211_224.long.04",
-          "A:gap211_224.long.05",
-          "A:gap211_224.long.06",
-          "A:gap211_224.long.07",
-          "A:gap211_224.long.08",
-          "A:gap211_224.long.09",
-          "A:gap211_224.long.10",
-          "A:gap211_224.long.11",
-          "A:gap211_224.long.12",
-          "A:gap211_224.long.13",
-          "A:gap211_224.long.14",
-          "A:gap211_224.long.15",
-          "A:gap211_224.long.16"
+          "A:inserted.c9c2ac08e22ad4fe87bc146b",
+          "A:inserted.06c934faa8447e6a02a86884",
+          "A:inserted.5a940c0a104ee5499c76e232",
+          "A:inserted.a2e44c023bc6dc4dc0e44446",
+          "A:inserted.a9dff7a58db53921475e00a3",
+          "A:inserted.c8e649df9fb178ed019e8014",
+          "A:inserted.0ba6431b662b47ca7eeb537a",
+          "A:inserted.025b46692a30601f2fdf5bdd",
+          "A:inserted.5a692366e314a11c7563842b",
+          "A:inserted.1a562f08fa6d35866edee40d",
+          "A:inserted.10324d953ecbfa92d7f95c23",
+          "A:inserted.f58ced362cf5b3b02accc47a",
+          "A:inserted.897997d5a24dc76872fb9f2a",
+          "A:inserted.68c0c9540104ed910ba2882b",
+          "A:inserted.a964a42aa545324afedcb772",
+          "A:inserted.214604790703b0395d7a3920"
         ],
         "left_junction_residue_id": "A:211",
         "right_junction_residue_id": "A:224",
@@ -1424,15 +1375,15 @@
     },
     {
       "node_id": "merge-counterpart-pairings",
-      "node_type_id": "collection_ops.concat_pairings",
-      "binding_id": "collection_ops.concat_pairings.direct",
+      "node_type_id": "collection_ops.concat_relations",
+      "binding_id": "collection_ops.concat_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-fold-counterpart-pairings",
-      "node_type_id": "collection_ops.concat_pairings",
-      "binding_id": "collection_ops.concat_pairings.direct",
+      "node_type_id": "collection_ops.concat_relations",
+      "binding_id": "collection_ops.concat_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -1441,6 +1392,3747 @@
       "node_type_id": "protein_io.export_structure",
       "binding_id": "protein_io.export_structure.direct",
       "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-shorter-8-subject-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-longer-16-subject-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-shorter-8-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-shorter-8-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-shorter-8-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-numbering-implied-12-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-numbering-implied-12-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-numbering-implied-12-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-longer-16-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-longer-16-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-longer-16-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.author",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {
+          "target_residues": [
+            {
+              "residue_id": "A:6",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:7",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:8",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:9",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:10",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:11",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:12",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:13",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:14",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:15",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:16",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:17",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:18",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:19",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:20",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:21",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:22",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:23",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:24",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:25",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:26",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:27",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:28",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:29",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:30",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:31",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:32",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:33",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:34",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:35",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:36",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:37",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:38",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:39",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:40",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:41",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:42",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:43",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:44",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:45",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:46",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:47",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:48",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:49",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:50",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:51",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:52",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:53",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:54",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:55",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:56",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:57",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:58",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:59",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:60",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:61",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:62",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:63",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:64",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:65",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:66",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:67",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:68",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:69",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:70",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:71",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:72",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:73",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:74",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:75",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:76",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:77",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:78",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:79",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:80",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:81",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:82",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:83",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:84",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:85",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:86",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:87",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:88",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:89",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:90",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:91",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:92",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:93",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:94",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:95",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:96",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:97",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:98",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:99",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:100",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:101",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:102",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:103",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:104",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:105",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:106",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:107",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:108",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:109",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:110",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:111",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:112",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:113",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:114",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:115",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:116",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:117",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:118",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:119",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:120",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:121",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:122",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:123",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:124",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:125",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:126",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:127",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:128",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:129",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:130",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:131",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:132",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:133",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:134",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:135",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:136",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:137",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:138",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:139",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:140",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:141",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:142",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:143",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:144",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:145",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:146",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:159",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:160",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:161",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:162",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:163",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:164",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:165",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:166",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:167",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:168",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:169",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:170",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:171",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:172",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:173",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:174",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:175",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:176",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:177",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:178",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:179",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:180",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:181",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:182",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:183",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:184",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:185",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:186",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:187",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:188",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:189",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:190",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:191",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:192",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:193",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:194",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:195",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:196",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:197",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:198",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:199",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:200",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:201",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:202",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:203",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:204",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:205",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:206",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:207",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:208",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:209",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:210",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:211",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:inserted.245e2418360c7a47f44afade",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.ddce628f4ffea6fac3f7cfc7",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.d88e78eac1f5c25653088143",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.75de7e8a4d6eeb6cb6eeb678",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.f9c1799746e96de6ded9d6f2",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.bf056591adf99fd223819227",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.5d97acf062ff7b32b921a58b",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.fccd41523b36a70fcc2dd250",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:224",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:225",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:226",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:227",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:228",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:229",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:230",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:231",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:232",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:233",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:234",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:235",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:236",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:237",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:238",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:239",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:240",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:241",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:242",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:243",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:244",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:245",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:246",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:247",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:248",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:249",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:250",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:251",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:252",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:253",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:254",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:255",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:256",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:257",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:258",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:259",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:260",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:261",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:262",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:263",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:264",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:265",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:266",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:267",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:268",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:269",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:270",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:271",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:272",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:273",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:274",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:275",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:276",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:277",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:278",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:279",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:280",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:281",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:282",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:283",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:284",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:285",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:286",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:287",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:288",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:289",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:290",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:291",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:292",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:293",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:294",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:295",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:296",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:297",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:298",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:299",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:300",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:301",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:302",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:303",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:304",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:305",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:306",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:307",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:308",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:309",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:310",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:311",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:312",
+              "origin": "source"
+            }
+          ]
+        }
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.author",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {
+          "target_residues": [
+            {
+              "residue_id": "A:6",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:7",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:8",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:9",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:10",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:11",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:12",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:13",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:14",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:15",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:16",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:17",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:18",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:19",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:20",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:21",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:22",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:23",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:24",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:25",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:26",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:27",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:28",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:29",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:30",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:31",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:32",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:33",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:34",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:35",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:36",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:37",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:38",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:39",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:40",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:41",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:42",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:43",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:44",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:45",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:46",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:47",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:48",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:49",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:50",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:51",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:52",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:53",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:54",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:55",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:56",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:57",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:58",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:59",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:60",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:61",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:62",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:63",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:64",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:65",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:66",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:67",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:68",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:69",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:70",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:71",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:72",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:73",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:74",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:75",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:76",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:77",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:78",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:79",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:80",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:81",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:82",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:83",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:84",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:85",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:86",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:87",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:88",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:89",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:90",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:91",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:92",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:93",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:94",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:95",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:96",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:97",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:98",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:99",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:100",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:101",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:102",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:103",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:104",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:105",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:106",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:107",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:108",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:109",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:110",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:111",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:112",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:113",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:114",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:115",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:116",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:117",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:118",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:119",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:120",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:121",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:122",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:123",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:124",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:125",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:126",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:127",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:128",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:129",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:130",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:131",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:132",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:133",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:134",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:135",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:136",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:137",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:138",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:139",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:140",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:141",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:142",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:143",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:144",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:145",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:146",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:159",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:160",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:161",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:162",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:163",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:164",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:165",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:166",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:167",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:168",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:169",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:170",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:171",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:172",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:173",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:174",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:175",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:176",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:177",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:178",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:179",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:180",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:181",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:182",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:183",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:184",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:185",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:186",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:187",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:188",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:189",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:190",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:191",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:192",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:193",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:194",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:195",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:196",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:197",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:198",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:199",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:200",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:201",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:202",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:203",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:204",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:205",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:206",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:207",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:208",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:209",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:210",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:211",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:inserted.05e51139d5f7d351bf09d725",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.03739068d2c3c7cda5991603",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.1a8616b1e7583a32059cb14f",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.a8b50d8342203b27dc19dce1",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.4da1003225f185fc68c0dd0b",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.cfab6fef9ebd1665c79e0f88",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.615325793d778fdbfa707621",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.dd1a947079e78ae90a8ac473",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.71061ec54e888944728e0d53",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.4a0c192b49d374e7946496a8",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.a798321f4f1dac52abf7cd44",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.75494a9bb7f7816999f40ccd",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:224",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:225",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:226",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:227",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:228",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:229",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:230",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:231",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:232",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:233",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:234",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:235",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:236",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:237",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:238",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:239",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:240",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:241",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:242",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:243",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:244",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:245",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:246",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:247",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:248",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:249",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:250",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:251",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:252",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:253",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:254",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:255",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:256",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:257",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:258",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:259",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:260",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:261",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:262",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:263",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:264",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:265",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:266",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:267",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:268",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:269",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:270",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:271",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:272",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:273",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:274",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:275",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:276",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:277",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:278",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:279",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:280",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:281",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:282",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:283",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:284",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:285",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:286",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:287",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:288",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:289",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:290",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:291",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:292",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:293",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:294",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:295",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:296",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:297",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:298",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:299",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:300",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:301",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:302",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:303",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:304",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:305",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:306",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:307",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:308",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:309",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:310",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:311",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:312",
+              "origin": "source"
+            }
+          ]
+        }
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.author",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {
+          "target_residues": [
+            {
+              "residue_id": "A:6",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:7",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:8",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:9",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:10",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:11",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:12",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:13",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:14",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:15",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:16",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:17",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:18",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:19",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:20",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:21",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:22",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:23",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:24",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:25",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:26",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:27",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:28",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:29",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:30",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:31",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:32",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:33",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:34",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:35",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:36",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:37",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:38",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:39",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:40",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:41",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:42",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:43",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:44",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:45",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:46",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:47",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:48",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:49",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:50",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:51",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:52",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:53",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:54",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:55",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:56",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:57",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:58",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:59",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:60",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:61",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:62",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:63",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:64",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:65",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:66",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:67",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:68",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:69",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:70",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:71",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:72",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:73",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:74",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:75",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:76",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:77",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:78",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:79",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:80",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:81",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:82",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:83",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:84",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:85",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:86",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:87",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:88",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:89",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:90",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:91",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:92",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:93",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:94",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:95",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:96",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:97",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:98",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:99",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:100",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:101",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:102",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:103",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:104",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:105",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:106",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:107",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:108",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:109",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:110",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:111",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:112",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:113",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:114",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:115",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:116",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:117",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:118",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:119",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:120",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:121",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:122",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:123",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:124",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:125",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:126",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:127",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:128",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:129",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:130",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:131",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:132",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:133",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:134",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:135",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:136",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:137",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:138",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:139",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:140",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:141",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:142",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:143",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:144",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:145",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:146",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:159",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:160",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:161",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:162",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:163",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:164",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:165",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:166",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:167",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:168",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:169",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:170",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:171",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:172",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:173",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:174",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:175",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:176",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:177",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:178",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:179",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:180",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:181",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:182",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:183",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:184",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:185",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:186",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:187",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:188",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:189",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:190",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:191",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:192",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:193",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:194",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:195",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:196",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:197",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:198",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:199",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:200",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:201",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:202",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:203",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:204",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:205",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:206",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:207",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:208",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:209",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:210",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:211",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:inserted.c9c2ac08e22ad4fe87bc146b",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.06c934faa8447e6a02a86884",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.5a940c0a104ee5499c76e232",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.a2e44c023bc6dc4dc0e44446",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.a9dff7a58db53921475e00a3",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.c8e649df9fb178ed019e8014",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.0ba6431b662b47ca7eeb537a",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.025b46692a30601f2fdf5bdd",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.5a692366e314a11c7563842b",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.1a562f08fa6d35866edee40d",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.10324d953ecbfa92d7f95c23",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.f58ced362cf5b3b02accc47a",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.897997d5a24dc76872fb9f2a",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.68c0c9540104ed910ba2882b",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.a964a42aa545324afedcb772",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:inserted.214604790703b0395d7a3920",
+              "origin": "inserted"
+            },
+            {
+              "residue_id": "A:224",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:225",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:226",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:227",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:228",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:229",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:230",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:231",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:232",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:233",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:234",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:235",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:236",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:237",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:238",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:239",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:240",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:241",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:242",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:243",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:244",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:245",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:246",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:247",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:248",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:249",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:250",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:251",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:252",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:253",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:254",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:255",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:256",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:257",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:258",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:259",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:260",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:261",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:262",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:263",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:264",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:265",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:266",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:267",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:268",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:269",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:270",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:271",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:272",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:273",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:274",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:275",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:276",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:277",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:278",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:279",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:280",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:281",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:282",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:283",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:284",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:285",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:286",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:287",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:288",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:289",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:290",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:291",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:292",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:293",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:294",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:295",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:296",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:297",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:298",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:299",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:300",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:301",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:302",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:303",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:304",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:305",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:306",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:307",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:308",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:309",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:310",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:311",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:312",
+              "origin": "source"
+            }
+          ]
+        }
+      },
       "binding_parameters": {}
     }
   ],
@@ -1468,24 +5160,6 @@
       "source_port": "residue_axes",
       "target_node_id": "project-reference-axis",
       "target_port": "residue_axes"
-    },
-    {
-      "source_node_id": "project-reference-axis",
-      "source_port": "residue_axis",
-      "target_node_id": "author-base-prompt",
-      "target_port": "residue_axis"
-    },
-    {
-      "source_node_id": "author-base-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-shorter-8",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-shorter-8",
-      "source_port": "protein_prompt",
-      "target_node_id": "generate-shorter-8",
-      "target_port": "protein_prompt"
     },
     {
       "source_node_id": "generate-shorter-8",
@@ -1592,26 +5266,20 @@
     {
       "source_node_id": "fold-shorter-8",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_node_id": "pair-fold-counterpart-shorter-8-subject-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "generate-shorter-8",
       "source_port": "sequence_candidates",
-      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_node_id": "pair-fold-counterpart-shorter-8-subject-parent",
       "target_port": "parents"
     },
     {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "structure_candidates",
+      "source_node_id": "relate-generated-pairs-shorter-8",
+      "source_port": "relation",
       "target_node_id": "pair-fold-counterpart-shorter-8",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "counterpart_pairs",
-      "target_node_id": "pair-fold-counterpart-shorter-8",
-      "target_port": "parent_pairing"
+      "target_port": "right_relation"
     },
     {
       "source_node_id": "fold-shorter-8",
@@ -1639,9 +5307,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-counterpart-shorter-8",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-shorter-8",
@@ -1663,9 +5331,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-counterpart-shorter-8",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-shorter-8",
@@ -1687,9 +5355,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-counterpart-shorter-8",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "fold-shorter-8",
@@ -1717,7 +5385,7 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "evaluate-shorter-8",
       "target_port": "counterpart_pairing"
     },
@@ -1762,18 +5430,6 @@
       "source_port": "observations",
       "target_node_id": "evaluate-shorter-8",
       "target_port": "confidence_observations"
-    },
-    {
-      "source_node_id": "author-base-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-numbering-implied-12",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-numbering-implied-12",
-      "source_port": "protein_prompt",
-      "target_node_id": "generate-numbering-implied-12",
-      "target_port": "protein_prompt"
     },
     {
       "source_node_id": "generate-numbering-implied-12",
@@ -1880,26 +5536,20 @@
     {
       "source_node_id": "fold-numbering-implied-12",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "generate-numbering-implied-12",
       "source_port": "sequence_candidates",
-      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
       "target_port": "parents"
     },
     {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "structure_candidates",
+      "source_node_id": "relate-generated-pairs-numbering-implied-12",
+      "source_port": "relation",
       "target_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "counterpart_pairs",
-      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "target_port": "parent_pairing"
+      "target_port": "right_relation"
     },
     {
       "source_node_id": "fold-numbering-implied-12",
@@ -1927,9 +5577,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-counterpart-numbering-implied-12",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-numbering-implied-12",
@@ -1951,9 +5601,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-counterpart-numbering-implied-12",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-numbering-implied-12",
@@ -1975,9 +5625,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-counterpart-numbering-implied-12",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "fold-numbering-implied-12",
@@ -2005,7 +5655,7 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "evaluate-numbering-implied-12",
       "target_port": "counterpart_pairing"
     },
@@ -2050,18 +5700,6 @@
       "source_port": "observations",
       "target_node_id": "evaluate-numbering-implied-12",
       "target_port": "confidence_observations"
-    },
-    {
-      "source_node_id": "author-base-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-longer-16",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-longer-16",
-      "source_port": "protein_prompt",
-      "target_node_id": "generate-longer-16",
-      "target_port": "protein_prompt"
     },
     {
       "source_node_id": "generate-longer-16",
@@ -2168,26 +5806,20 @@
     {
       "source_node_id": "fold-longer-16",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_node_id": "pair-fold-counterpart-longer-16-subject-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "generate-longer-16",
       "source_port": "sequence_candidates",
-      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_node_id": "pair-fold-counterpart-longer-16-subject-parent",
       "target_port": "parents"
     },
     {
-      "source_node_id": "generate-longer-16",
-      "source_port": "structure_candidates",
+      "source_node_id": "relate-generated-pairs-longer-16",
+      "source_port": "relation",
       "target_node_id": "pair-fold-counterpart-longer-16",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "generate-longer-16",
-      "source_port": "counterpart_pairs",
-      "target_node_id": "pair-fold-counterpart-longer-16",
-      "target_port": "parent_pairing"
+      "target_port": "right_relation"
     },
     {
       "source_node_id": "fold-longer-16",
@@ -2215,9 +5847,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-counterpart-longer-16",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-longer-16",
@@ -2239,9 +5871,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-counterpart-longer-16",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-longer-16",
@@ -2263,9 +5895,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-counterpart-longer-16",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "fold-longer-16",
@@ -2293,7 +5925,7 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "evaluate-longer-16",
       "target_port": "counterpart_pairing"
     },
@@ -2430,46 +6062,352 @@
       "target_port": "candidates_c"
     },
     {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "counterpart_pairs",
+      "source_node_id": "relate-generated-pairs-shorter-8",
+      "source_port": "relation",
       "target_node_id": "merge-counterpart-pairings",
-      "target_port": "pairing_a"
+      "target_port": "relation_a"
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "merge-fold-counterpart-pairings",
-      "target_port": "pairing_a"
+      "target_port": "relation_a"
     },
     {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "counterpart_pairs",
+      "source_node_id": "relate-generated-pairs-numbering-implied-12",
+      "source_port": "relation",
       "target_node_id": "merge-counterpart-pairings",
-      "target_port": "pairing_b"
+      "target_port": "relation_b"
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "merge-fold-counterpart-pairings",
-      "target_port": "pairing_b"
+      "target_port": "relation_b"
     },
     {
-      "source_node_id": "generate-longer-16",
-      "source_port": "counterpart_pairs",
+      "source_node_id": "relate-generated-pairs-longer-16",
+      "source_port": "relation",
       "target_node_id": "merge-counterpart-pairings",
-      "target_port": "pairing_c"
+      "target_port": "relation_c"
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "merge-fold-counterpart-pairings",
-      "target_port": "pairing_c"
+      "target_port": "relation_c"
     },
     {
       "source_node_id": "merge-folds",
       "source_port": "candidates",
       "target_node_id": "export-folds",
       "target_port": "structures"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8-subject-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16-subject-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-shorter-8-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-shorter-8-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-shorter-8-relation",
+      "source_port": "relation",
+      "target_node_id": "align-core-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-shorter-8-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-shorter-8-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-core-shorter-8-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-core-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-shorter-8-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-shorter-8-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-core-shorter-8-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-core-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-numbering-implied-12-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-numbering-implied-12-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-numbering-implied-12-relation",
+      "source_port": "relation",
+      "target_node_id": "align-core-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-numbering-implied-12-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-numbering-implied-12-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-core-numbering-implied-12-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-core-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-numbering-implied-12-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-numbering-implied-12-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-core-numbering-implied-12-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-core-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-longer-16-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-longer-16-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-longer-16-relation",
+      "source_port": "relation",
+      "target_node_id": "align-core-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-longer-16-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-longer-16-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-core-longer-16-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-core-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-longer-16-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-longer-16-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-core-longer-16-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-core-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "relate-generated-structures-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "sequence_candidates",
+      "target_node_id": "relate-generated-structures-shorter-8",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "relate-generated-structures-shorter-8",
+      "source_port": "relation",
+      "target_node_id": "relate-generated-pairs-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "relate-generated-structures-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "sequence_candidates",
+      "target_node_id": "relate-generated-structures-numbering-implied-12",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "relate-generated-structures-numbering-implied-12",
+      "source_port": "relation",
+      "target_node_id": "relate-generated-pairs-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "relate-generated-structures-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "sequence_candidates",
+      "target_node_id": "relate-generated-structures-longer-16",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "relate-generated-structures-longer-16",
+      "source_port": "relation",
+      "target_node_id": "relate-generated-pairs-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.author",
+      "target_port": "structure_source"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.author",
+      "target_port": "structure_source"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.author",
+      "target_port": "structure_source"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.author",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-shorter-8",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.author",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-numbering-implied-12",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.author",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-longer-16",
+      "target_port": "protein_prompt"
     }
   ],
   "observation_selectors": [],

@@ -37,50 +37,83 @@ from datatypes.candidate import (
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     ScoreCollection,
     ScoreObservation,
 )
 from datatypes.prompt import (
-    FunctionAnnotations,
     FunctionAnnotation,
+    FunctionAnnotationTrack,
     ProteinPrompt,
 )
 from datatypes.residue import (
-    ModifiedResidueAtomMapping,
-    ModifiedResidueNormalization,
-    ModifiedResidueNormalizationCollection,
     ResidueLayout,
-    ResidueMap,
     ResidueTrack,
+    validate_residue_layout,
 )
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.proteinmpnn.domain import ProteinMPNNConstraints
-from datatypes.residue import validate_residue_map as validate_canonical_residue_map
 from tests.support.protocol import validate_response
 
 
 EXPECTED_PORT_TYPE_IDS = {
     "candidate.collection",
-    "candidate.pairing",
-    "function.annotations",
+    "candidate.relation",
+    "esm3.esmc_sequence_representation",
     "protein.prompt",
     "protein.sequence",
     "protein.structure",
-    "residue.layout",
-    "residue.map",
-    "residue.track",
-    "residue.track.sasa",
-    "residue.track.secondary_structure",
+    "protein_io.artifact_payload",
+    "proteinmpnn.constraints",
+    "residue.condition.coordinates",
+    "residue.condition.function_annotations",
+    "residue.condition.sasa",
+    "residue.condition.secondary_structure",
+    "residue.condition.sequence",
     "score.collection",
+    "structure_annotation.sasa.observed",
+    "structure_annotation.secondary_structure.observed",
+    "structure_comparison.alignment_evidence",
+    "structure_comparison.inserted_loop_evaluation",
+    "structure_comparison.three_way_consistency",
+    "structure_prediction.confidence_facts",
+    "structure_prediction.prediction_residue_axis",
+    "structure_transform.backbone_structure",
+    "structure_transform.candidate_modified_residue_normalization_associations",
+    "structure_transform.candidate_normalization_facts",
+    "structure_transform.candidate_resolved_residue_axis_associations",
+    "structure_transform.modified_residue_normalizations",
+    "structure_transform.resolved_residue_axis",
     "text",
 }
 EXPECTED_BUILTIN_PORT_TYPE_IDS = EXPECTED_PORT_TYPE_IDS - {
-    "function.annotations",
+    "esm3.esmc_sequence_representation",
     "protein.prompt",
+    "protein_io.artifact_payload",
+    "proteinmpnn.constraints",
+    "residue.condition.coordinates",
+    "residue.condition.function_annotations",
+    "residue.condition.sasa",
+    "residue.condition.secondary_structure",
+    "residue.condition.sequence",
+    "structure_annotation.sasa.observed",
+    "structure_annotation.secondary_structure.observed",
+    "structure_comparison.alignment_evidence",
+    "structure_comparison.inserted_loop_evaluation",
+    "structure_comparison.three_way_consistency",
+    "structure_prediction.confidence_facts",
+    "structure_prediction.prediction_residue_axis",
+    "structure_transform.backbone_structure",
+    "structure_transform.candidate_modified_residue_normalization_associations",
+    "structure_transform.candidate_normalization_facts",
+    "structure_transform.candidate_resolved_residue_axis_associations",
+    "structure_transform.modified_residue_normalizations",
+    "structure_transform.resolved_residue_axis",
 }
+
+
 def _port_type_package(
     *port_types: PortTypeDefinition,
 ) -> ModulePackageRegistration:
@@ -98,7 +131,8 @@ def test_superseded_structure_alignment_port_type_is_not_active() -> None:
     ):
         with pytest.raises(UnknownPortTypeError):
             catalog.require_port_type(
-                "structure.alignment",)
+                "structure.alignment",
+            )
 
 
 def _typed_observation(value: object) -> ScoreObservation:
@@ -110,21 +144,19 @@ def _typed_observation(value: object) -> ScoreObservation:
         ),
         metric=ExactContractReference(
             "metric",
-            "metric.plddt",),
+            "metric.plddt",
+        ),
         method=ExactContractReference(
             "method",
-            "method.fixture",),
+            "method.fixture",
+        ),
         context=IntrinsicObservationContext(),
         source_partition="default",
         value=value,
-)
+    )
 
 
-PROTEINMPNN_TEST_LAYOUT = ResidueLayout(
-    "A",
-    3,
-    ["A:1", "A:2", "A:3"],
-)
+PROTEINMPNN_TEST_LAYOUT = ResidueLayout(["A:1", "A:2", "A:3"])
 
 
 def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
@@ -184,21 +216,20 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "codec",
             "content_identity",
         }
-        if descriptor["contract_id"] in {
-            "candidate.collection",
-            "candidate.pairing",
-            "score.collection",
-        }:
-            expected_descriptor_fields.add("candidate_data_projection")
-        assert set(descriptor) == expected_descriptor_fields
+        projection_fields = {
+            "candidate_data_projection",
+            "scientific_axis_projection",
+            "observation_method_projection",
+        }
+        assert set(descriptor) == expected_descriptor_fields | (
+            projection_fields & set(descriptor)
+        )
         for behavior_name in (
             "validator",
             "codec",
             "content_identity",
             *(
-                ("candidate_data_projection",)
-                if "candidate_data_projection" in descriptor
-                else ()
+                (projection_fields & set(descriptor))
             ),
         ):
             behavior = descriptor[behavior_name]
@@ -210,7 +241,8 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
 
 def test_port_type_codec_round_trips_a_complete_valid_value() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
     value = ProteinSequence(
         sequence="META",
         residue_ids=["A:1", "A:2", "A:3", "A:4"],
@@ -240,7 +272,8 @@ def test_protein_sequence_cuts_caller_aliases_without_changing_wire_bytes() -> N
         value.sequence = "AA"
 
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
     encoded = port_type.encode(value)
 
     assert b'"$tuple"' not in encoded
@@ -253,7 +286,8 @@ def test_protein_sequence_admission_requires_the_exact_uppercase_alphabet(
     sequence: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
 
     with pytest.raises(PortValueError, match="uppercase amino-acid alphabet"):
         port_type.encode(ProteinSequence(sequence))
@@ -270,7 +304,8 @@ def test_protein_sequence_admission_requires_canonical_unique_residue_identities
     residue_ids: tuple[str, str],
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
 
     with pytest.raises(PortValueError, match="residue identit"):
         port_type.encode(ProteinSequence("MA", residue_ids))
@@ -289,7 +324,8 @@ def test_protein_sequence_codec_rejects_noncanonical_residue_identities(
     message: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
     canonical = port_type.encode(
         ProteinSequence("MA", ("A:1", "A:2"))
     )
@@ -300,7 +336,8 @@ def test_protein_sequence_codec_rejects_noncanonical_residue_identities(
 
 def test_protein_sequence_does_not_claim_residue_layout_chain_contiguity() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
     sequence = ProteinSequence(
         "MAG",
         ("A:1", "B:1", "A:2"),
@@ -314,7 +351,8 @@ def test_builtin_sequence_and_candidate_descriptors_declare_identity_invariants(
     catalog = builtin_frozen_catalog()
 
     assert catalog.require_port_type(
-        "protein.sequence",).validator.parameters["sequence_invariants"] == {
+        "protein.sequence",
+    ).validator.parameters["sequence_invariants"] == {
         "alphabet": "ACDEFGHIKLMNPQRSTVWYBXZJUO",
         "nonempty": True,
         "residue_ids": {
@@ -325,7 +363,8 @@ def test_builtin_sequence_and_candidate_descriptors_declare_identity_invariants(
         },
     }
     assert catalog.require_port_type(
-        "candidate.collection",).validator.parameters["candidate_invariants"] == {
+        "candidate.collection",
+    ).validator.parameters["candidate_invariants"] == {
         "candidate_id": "canonical-identifier",
         "internal_lineage": {
             "acyclic": True,
@@ -340,54 +379,27 @@ def test_builtin_sequence_and_candidate_descriptors_declare_identity_invariants(
     }
 
 
-def test_immutable_residue_map_preserves_list_and_tuple_wire_semantics() -> None:
-    layout = ResidueLayout("A", 1, ["A:1"])
-    value = ResidueMap(layout, layout, [(0, 0, "match")])
-    port_type = builtin_frozen_catalog().require_port_type(
-        "residue.map",)
-
-    encoded = port_type.encode(value)
-
-    assert b'"mappings":[{"$tuple":[0,0,"match"]}]' in encoded
-    assert port_type.decode(encoded) == value
-
-
 def test_canonical_scientific_values_are_deeply_immutable() -> None:
     residue_ids = ["A:1", "A:2"]
-    mappings = [(0, 0, "match"), (1, 1, "match")]
     track_values = [{"atom": [1.0, 2.0, 3.0]}, None]
     annotations = [
         FunctionAnnotation(
             label="site",
-            start=1,
-            end=1,
-            chain_id="A",
             start_residue_id="A:1",
             end_residue_id="A:1",
-            overlap_policy="allow",
         )
     ]
     parent_ids = ["parent-1"]
     metadata_samples = [1]
     score_values = [0.25, None]
-    normalization_entries = [
-        ModifiedResidueNormalization(
-            component_id="CSH",
-            observed_residue_id="A:1",
-            parent_residue_ids=["A:1", "A:2"],
-            parent_sequence="CS",
-            atom_mappings=[
-                ModifiedResidueAtomMapping("CA", "A:1", "CA")
-            ],
-        )
-    ]
 
-    layout = ResidueLayout("A", 2, residue_ids)
-    track = ResidueTrack(track_values, None)
-    function_annotations = FunctionAnnotations(annotations)
+    layout = ResidueLayout(("A:1", "A:2"))
+    track = ResidueTrack(layout, track_values)
+    function_annotations = tuple(annotations)
     prompt = ProteinPrompt(
-        target_layout=layout,
-        structure_track=track,
+        layout=layout,
+        sequence=(None, None),
+        coordinates=(None, None),
         function_annotations=function_annotations,
     )
     candidate = Candidate(
@@ -403,9 +415,8 @@ def test_canonical_scientific_values_are_deeply_immutable() -> None:
     )
     observation = _typed_observation({"values": score_values})
     scores = ScoreCollection("scores", [observation])
-    residue_map = ResidueMap(layout, layout, mappings)
-    pairing = PairwiseCandidateMapping([
-        PairwiseCandidateMatch(
+    pairing = CandidateRelation([
+        CandidateRelationEntry(
             CandidateDataReference(
                 "candidate-1",
                 "protein.sequence",
@@ -418,38 +429,26 @@ def test_canonical_scientific_values_are_deeply_immutable() -> None:
             ),
         )
     ])
-    normalizations = ModifiedResidueNormalizationCollection(
-        normalization_entries
-    )
 
     residue_ids.append("A:3")
-    mappings.append((2, 2, "match"))
     track_values[0]["atom"].append(4.0)
     annotations.clear()
     parent_ids.append("parent-2")
     metadata_samples.append(2)
     score_values.append(0.5)
-    normalization_entries.clear()
 
     assert layout.residue_ids == ("A:1", "A:2")
-    assert residue_map.mappings == (
-        (0, 0, "match"),
-        (1, 1, "match"),
-    )
     assert track.values[0]["atom"] == (1.0, 2.0, 3.0)
-    assert function_annotations.annotations == (
-        prompt.function_annotations.annotations[0],
-    )
+    assert function_annotations == (prompt.function_annotations[0],)
     assert candidate.parent_ids == ("parent-1",)
     assert candidate.metadata["samples"] == (1,)
     assert collection.items == (candidate,)
     assert observation.value["values"] == (0.25, None)
     assert scores.entries == (observation,)
     assert pairing.entries[0].subject.candidate_id == "candidate-1"
-    assert len(normalizations.entries) == 1
 
     with pytest.raises(FrozenInstanceError):
-        layout.length = 3
+        layout.residue_ids = ("A:1", "A:2", "A:3")
     with pytest.raises(TypeError):
         candidate.metadata["samples"] = ()
 
@@ -471,8 +470,9 @@ def test_canonical_scientific_values_reject_ambiguous_or_mutable_inputs() -> Non
         )
     with pytest.raises(ValueError, match="string object key"):
         _typed_observation({("A:1", "A:2"): 0.5})
-    with pytest.raises(ValueError, match="sentinel must be null"):
-        ResidueTrack([1, []], [])
+    layout = ResidueLayout(("A:1", "A:2"))
+    with pytest.raises(ValueError, match="length"):
+        ResidueTrack(layout, [None])
 
 
 def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
@@ -481,8 +481,6 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
         "ATOM      1  CA  ALA A   1       1.000   2.000   3.000"
         "  1.00 20.00           C  \nEND\n"
     )
-    layout = ResidueLayout("A", 2, ["A:1", "A:2"])
-    track = ResidueTrack(["M", None], None)
     samples = {
         "candidate.collection": CandidateCollection(
             "candidates",
@@ -498,25 +496,13 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
         ),
         "protein.sequence": sequence,
         "protein.structure": structure,
-        "residue.layout": layout,
-        "residue.map": ResidueMap(
-            layout,
-            layout,
-            [(0, 0, "match"), (1, 1, "match")],
-        ),
-        "residue.track": track,
-        "residue.track.sasa": ResidueTrack([0.25, None], None),
-        "residue.track.secondary_structure": ResidueTrack(
-            ["H", "E"],
-            None,
-        ),
         "score.collection": ScoreCollection(
             "scores",
             [_typed_observation(83.5)],
         ),
-        "candidate.pairing": PairwiseCandidateMapping(
+        "candidate.relation": CandidateRelation(
             entries=[
-                PairwiseCandidateMatch(
+                CandidateRelationEntry(
                     subject=CandidateDataReference(
                         "candidate-1",
                         "protein.sequence",
@@ -537,14 +523,16 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
     assert set(samples) == EXPECTED_BUILTIN_PORT_TYPE_IDS
     for type_id, value in samples.items():
         definition = catalog.require_port_type(
-            type_id,)
+            type_id,
+        )
         definition.validate(value)
         assert definition.decode(definition.encode(value)) == value
 
 
 def test_protein_structure_scientific_identity_excludes_source_provenance() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",)
+        "protein.structure",
+    )
     pdb_string = (
         "ATOM      1  CA  ALA A   1       1.000   2.000   3.000"
         "  1.00 20.00           C  \nEND\n"
@@ -602,7 +590,8 @@ def test_protein_structure_admission_rejects_noncanonical_pdb_text(
     pdb_string: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",)
+        "protein.structure",
+    )
 
     with pytest.raises(PortValueError, match="canonical PDB"):
         port_type.encode(ProteinStructure(pdb_string))
@@ -610,7 +599,8 @@ def test_protein_structure_admission_rejects_noncanonical_pdb_text(
 
 def test_protein_structure_admission_does_not_impose_single_model_or_ca() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",)
+        "protein.structure",
+    )
     structure = ProteinStructure(
         "MODEL        1\n"
         "ATOM      1  N   ALA A   1       0.000   0.000   0.000"
@@ -631,7 +621,8 @@ def test_protein_structure_accepts_supported_uninterpreted_metadata_record_names
     record_name: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",)
+        "protein.structure",
+    )
     structure = ProteinStructure(
         f"{record_name:<6} canonical metadata\n"
         "ATOM      1  N   ALA A   1       0.000   0.000   0.000"
@@ -644,7 +635,8 @@ def test_protein_structure_accepts_supported_uninterpreted_metadata_record_names
 
 def test_protein_structure_admission_preserves_pdb_residue_number_zero() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",)
+        "protein.structure",
+    )
     structure = ProteinStructure(
         "ATOM      1  N   ALA A   0       0.000   0.000   0.000"
         "  1.00 20.00           N  \nEND\n"
@@ -655,7 +647,8 @@ def test_protein_structure_admission_preserves_pdb_residue_number_zero() -> None
 
 def test_protein_structure_admission_accepts_standard_padded_end_record() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",)
+        "protein.structure",
+    )
     structure = ProteinStructure(
         "ATOM      1  N   ALA A   1       0.000   0.000   0.000"
         "  1.00 20.00           N  \nEND   \n"
@@ -667,75 +660,23 @@ def test_protein_structure_admission_accepts_standard_padded_end_record() -> Non
 @pytest.mark.parametrize(
     "layout",
     (
-        ResidueLayout("A", 2),
-        ResidueLayout("A", 2, ["A:1", "A:1"]),
-        ResidueLayout("A,B,A", 3, ["A:1", "B:1", "A:2"]),
-        ResidueLayout("A", 1, ["A1"]),
+        ResidueLayout(()),
+        ResidueLayout(("A:1", "A:1")),
+        ResidueLayout(("A:1", "B:1", "A:2")),
+        ResidueLayout(("A1",)),
     ),
 )
 def test_residue_layout_admission_requires_complete_unique_contiguous_identities(
     layout: ResidueLayout,
 ) -> None:
-    port_type = builtin_frozen_catalog().require_port_type(
-        "residue.layout",)
-
-    with pytest.raises(PortValueError, match="identit|contiguous"):
-        port_type.encode(layout)
-
-
-@pytest.mark.parametrize(
-    "residue_map",
-    (
-        ResidueMap(
-            ResidueLayout("A", 2, ["A:1", "A:2"]),
-            ResidueLayout("A", 2, ["A:1", "A:2"]),
-            [(0, 0, "match")],
-        ),
-        ResidueMap(
-            ResidueLayout("A", 1, ["A:1"]),
-            ResidueLayout("A", 1, ["A:1"]),
-            [(0, 0, "match"), (0, 0, "match")],
-        ),
-        ResidueMap(
-            ResidueLayout("A", 2, ["A:1", "A:2"]),
-            ResidueLayout("A", 2, ["A:2", "A:1"]),
-            [(0, 0, "match"), (1, 1, "match")],
-        ),
-        ResidueMap(
-            ResidueLayout("A", 1, ["A:1"]),
-            ResidueLayout("A", 1, ["A:1"]),
-            [(0, -1, "delete"), (-1, 0, "insert")],
-        ),
-    ),
-)
-def test_residue_map_admission_requires_complete_one_to_one_identity_mapping(
-    residue_map: ResidueMap,
-) -> None:
-    port_type = builtin_frozen_catalog().require_port_type(
-        "residue.map",)
-
-    with pytest.raises(
-        PortValueError,
-        match="cover|overlap|identit|insert|delete",
-    ):
-        port_type.encode(residue_map)
-
-
-def test_canonical_residue_map_owner_rejects_boolean_indices() -> None:
-    layout = ResidueLayout("A", 2, ["A:1", "A:2"])
-    residue_map = ResidueMap(
-        layout,
-        layout,
-        [(False, False, "match"), (True, True, "match")],
-    )
-
-    with pytest.raises(ValueError, match="integer indices"):
-        validate_canonical_residue_map(residue_map)
+    with pytest.raises(ValueError, match="identit|contiguous"):
+        validate_residue_layout(layout)
 
 
 def test_codec_rejects_malformed_and_noncanonical_values() -> None:
     sequence_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",)
+        "protein.sequence",
+    )
     canonical = sequence_type.encode(ProteinSequence("MA"))
 
     with pytest.raises(PortValueError, match="requires ProteinSequence"):
@@ -788,15 +729,24 @@ def test_codec_rejects_malformed_and_noncanonical_values() -> None:
                 [Candidate("candidate-1", ProteinStructure("ATOM\n"))],
             ),
         ),
-        ("residue.track.sasa", ResidueTrack(["buried"], None)),
+        (
+            "residue.condition.sasa",
+            ResidueTrack(
+                ResidueLayout(("A:1", "A:2")),
+                ["buried", None],
+            ),
+        ),
     ],
 )
 def test_runtime_validators_reject_malformed_complete_values(
     type_id: str,
     malformed: object,
 ) -> None:
-    definition = builtin_frozen_catalog().require_port_type(
-        type_id,)
+    definition = build_frozen_catalog(
+        module_registrations(),
+    ).require_port_type(
+        type_id,
+    )
 
     with pytest.raises(
         PortValueError,
@@ -809,47 +759,41 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
 
     catalog = build_frozen_catalog(module_registrations())
     sequence = ProteinSequence("MA", ["A:1", "A:2"])
-    layout = ResidueLayout("A", 1, ["A:1"])
+    layout = ResidueLayout(["A:1"])
     with pytest.raises(FrozenInstanceError):
         sequence.residue_ids = ("A:1",)
     with pytest.raises(FrozenInstanceError):
-        layout.length = -1
+        layout.residue_ids = ()
     with pytest.raises(ValueError, match="residue_ids length"):
         ProteinSequence("MA", ["A:1"])
-    with pytest.raises(ValueError, match="length must be"):
-        ResidueLayout("A", -1)
+    with pytest.raises(ValueError, match="residue identit"):
+        validate_residue_layout(ResidueLayout(("A1",)))
     malformed_values = [
         (
-            "residue.map",
-            ResidueMap(
-                ResidueLayout("A", 1),
-                ResidueLayout("A", 1),
-                [(99, 99, "match")],
-            ),
-        ),
-        (
-            "function.annotations",
-            FunctionAnnotations(
+            "residue.condition.function_annotations",
+            tuple(
                 [{"label": "site", "start": "zero", "unexpected": True}]
             ),
         ),
         (
             "protein.prompt",
             ProteinPrompt(
-                target_layout=ResidueLayout("A", 2),
-                sequence_track=ResidueTrack(["A"]),
+                layout=ResidueLayout(("A:1",)),
+                sequence=("z",),
+                coordinates=(None,),
             ),
         ),
         (
-            "residue.track.secondary_structure",
-            ResidueTrack(["helix"]),
+            "residue.condition.secondary_structure",
+            ResidueTrack(ResidueLayout(("A:1",)), ["X"]),
         ),
     ]
 
     for type_id, malformed in malformed_values:
         with pytest.raises(PortValueError):
             catalog.require_port_type(
-                type_id,).encode(malformed)
+                type_id,
+            ).encode(malformed)
 
 
 @pytest.mark.parametrize(
@@ -879,7 +823,8 @@ def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
 ) -> None:
 
     definition = build_frozen_catalog(module_registrations()).require_port_type(
-        "proteinmpnn.constraints",)
+        "proteinmpnn.constraints",
+    )
 
     with pytest.raises(PortValueError):
         definition.encode(constraints)
@@ -910,7 +855,8 @@ def test_score_constructor_rejects_non_i_json_numbers(
 
 def test_i_json_array_admission_normalizes_list_and_tuple_wire_identity() -> None:
     score_type = builtin_frozen_catalog().require_port_type(
-        "score.collection",)
+        "score.collection",
+    )
     list_observation = _typed_observation({"samples": [1, 2]})
     tuple_observation = _typed_observation({"samples": (1, 2)})
     list_scores = ScoreCollection("scores", [list_observation])
@@ -977,7 +923,7 @@ def test_rfc8785_and_sha256_match_the_published_golden_vector() -> None:
 
 def test_codec_differentials_materialize_defaults_and_preserve_semantic_order() -> None:
     catalog = builtin_frozen_catalog()
-    sequence_type = catalog.require_port_type("protein.sequence",)
+    sequence_type = catalog.require_port_type("protein.sequence")
     from modules.proteinmpnn.package import MODULE_PACKAGE as package
 
     constraints_type = package.port_types[0]
@@ -1011,7 +957,7 @@ def test_codec_differentials_materialize_defaults_and_preserve_semantic_order() 
 
 def test_port_type_catalog_build_is_atomic_on_duplicate_identity() -> None:
     published = builtin_frozen_catalog()
-    duplicate = published.require_port_type("text",)
+    duplicate = published.require_port_type("text")
 
     with pytest.raises(CatalogBuildError, match="duplicate contract identity"):
         build_frozen_catalog(

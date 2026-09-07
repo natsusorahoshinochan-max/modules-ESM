@@ -667,7 +667,7 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
                     "kind": "pairwise",
                     "subject_role": "subject",
                     "reference_role": "reference",
-                    "pairing_mode": "per_subject_counterpart",
+                    "pairing_mode": "explicit_relation",
                     "normalization": "none",
                 },
                 "reference_direction": "input",

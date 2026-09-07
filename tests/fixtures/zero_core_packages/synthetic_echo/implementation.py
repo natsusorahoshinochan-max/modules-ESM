@@ -32,17 +32,18 @@ def _execute_echo(
     message = call.node_parameters["message"]
     repeat_count = call.binding_parameters["repeat_count"]
     echoed = message * repeat_count
-    with run_resources.engine_invocation():
-        marker_value = environment.get("block_marker")
-        if isinstance(marker_value, str):
-            marker = Path(marker_value)
-            if marker.exists():
-                marker.with_suffix(".started").write_text(
-                    "started",
-                    encoding="utf-8",
-                )
-                while marker.exists():
-                    time.sleep(0.05)
+    for _ in range(environment.get("invocation_count", 1)):
+        with run_resources.engine_invocation():
+            marker_value = environment.get("block_marker")
+            if isinstance(marker_value, str):
+                marker = Path(marker_value)
+                if marker.exists():
+                    marker.with_suffix(".started").write_text(
+                        "started",
+                        encoding="utf-8",
+                    )
+                    while marker.exists():
+                        time.sleep(0.05)
     return echoed, ArtifactPayload(
         body=echoed.encode("utf-8"),
         media_type="text/plain",

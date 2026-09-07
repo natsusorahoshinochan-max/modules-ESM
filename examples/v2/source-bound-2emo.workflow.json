@@ -47,210 +47,10 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "author-reference-layout",
-      "node_type_id": "prompt_authoring.prompt_from_structure",
-      "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "author-constraints",
+      "node_id": "design-constraints",
       "node_type_id": "proteinmpnn.constraints",
       "binding_id": "proteinmpnn.constraints.local",
       "node_parameters": {
-        "designable_residue_ids": [
-          "A:6",
-          "A:7",
-          "A:8",
-          "A:9",
-          "A:10",
-          "A:11",
-          "A:12",
-          "A:13",
-          "A:14",
-          "A:15",
-          "A:16",
-          "A:17",
-          "A:18",
-          "A:19",
-          "A:20",
-          "A:21",
-          "A:22",
-          "A:23",
-          "A:24",
-          "A:25",
-          "A:26",
-          "A:27",
-          "A:28",
-          "A:29",
-          "A:30",
-          "A:31",
-          "A:32",
-          "A:33",
-          "A:34",
-          "A:35",
-          "A:36",
-          "A:37",
-          "A:38",
-          "A:39",
-          "A:40",
-          "A:41",
-          "A:43",
-          "A:45",
-          "A:47",
-          "A:48",
-          "A:49",
-          "A:50",
-          "A:51",
-          "A:52",
-          "A:53",
-          "A:54",
-          "A:55",
-          "A:56",
-          "A:57",
-          "A:58",
-          "A:59",
-          "A:73",
-          "A:74",
-          "A:75",
-          "A:76",
-          "A:77",
-          "A:78",
-          "A:79",
-          "A:80",
-          "A:81",
-          "A:82",
-          "A:83",
-          "A:84",
-          "A:85",
-          "A:86",
-          "A:87",
-          "A:88",
-          "A:89",
-          "A:90",
-          "A:91",
-          "A:93",
-          "A:95",
-          "A:97",
-          "A:98",
-          "A:99",
-          "A:100",
-          "A:101",
-          "A:102",
-          "A:103",
-          "A:104",
-          "A:105",
-          "A:106",
-          "A:107",
-          "A:108",
-          "A:109",
-          "A:111",
-          "A:113",
-          "A:114",
-          "A:115",
-          "A:116",
-          "A:117",
-          "A:118",
-          "A:119",
-          "A:120",
-          "A:122",
-          "A:124",
-          "A:125",
-          "A:126",
-          "A:127",
-          "A:128",
-          "A:129",
-          "A:130",
-          "A:131",
-          "A:132",
-          "A:133",
-          "A:134",
-          "A:135",
-          "A:136",
-          "A:137",
-          "A:138",
-          "A:139",
-          "A:140",
-          "A:141",
-          "A:142",
-          "A:143",
-          "A:144",
-          "A:146",
-          "A:147",
-          "A:149",
-          "A:151",
-          "A:152",
-          "A:153",
-          "A:154",
-          "A:155",
-          "A:156",
-          "A:157",
-          "A:158",
-          "A:159",
-          "A:160",
-          "A:161",
-          "A:162",
-          "A:163",
-          "A:164",
-          "A:166",
-          "A:168",
-          "A:169",
-          "A:170",
-          "A:171",
-          "A:172",
-          "A:173",
-          "A:174",
-          "A:175",
-          "A:176",
-          "A:177",
-          "A:178",
-          "A:179",
-          "A:180",
-          "A:181",
-          "A:182",
-          "A:184",
-          "A:185",
-          "A:186",
-          "A:187",
-          "A:188",
-          "A:189",
-          "A:190",
-          "A:191",
-          "A:192",
-          "A:193",
-          "A:194",
-          "A:195",
-          "A:196",
-          "A:197",
-          "A:198",
-          "A:199",
-          "A:200",
-          "A:201",
-          "A:202",
-          "A:204",
-          "A:206",
-          "A:207",
-          "A:208",
-          "A:209",
-          "A:210",
-          "A:211",
-          "A:212",
-          "A:213",
-          "A:214",
-          "A:215",
-          "A:216",
-          "A:217",
-          "A:218",
-          "A:219",
-          "A:221",
-          "A:223",
-          "A:224",
-          "A:225",
-          "A:226",
-          "A:227",
-          "A:228",
-          "A:229"
-        ],
         "fixed_residue_ids": [
           "A:42",
           "A:44",
@@ -285,14 +85,7 @@
           "A:205",
           "A:220",
           "A:222"
-        ],
-        "designed_chains": [
-          "A"
-        ],
-        "fixed_chains": [],
-        "omit_amino_acids": [],
-        "tied_residue_groups": [],
-        "bias_by_residue": []
+        ]
       },
       "binding_parameters": {}
     },
@@ -334,22 +127,22 @@
     },
     {
       "node_id": "align-folds",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-tm",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-rmsd",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -414,8 +207,8 @@
     },
     {
       "node_id": "select-soluble-folds",
-      "node_type_id": "collection_ops.select_children_by_parent",
-      "binding_id": "collection_ops.select_children_by_parent.direct",
+      "node_type_id": "collection_ops.select_related_subjects",
+      "binding_id": "collection_ops.select_related_subjects.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -424,6 +217,77 @@
       "node_type_id": "collection_ops.intersect_candidates",
       "binding_id": "collection_ops.intersect_candidates.direct",
       "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "2EMO.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "node_type_id": "structure_transform.normalize_csh_parent_span",
+      "binding_id": "structure_transform.normalize_csh_parent_span.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-soluble-folds-parent-relation",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-folds-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "score-tm-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "score-rmsd-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.author",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {}
+      },
       "binding_parameters": {}
     }
   ],
@@ -479,14 +343,14 @@
     {
       "source_node_id": "project-reference-axis",
       "source_port": "residue_axis",
-      "target_node_id": "author-reference-layout",
-      "target_port": "residue_axis"
+      "target_node_id": "design-constraints",
+      "target_port": "structure_residue_axis"
     },
     {
-      "source_node_id": "author-reference-layout",
-      "source_port": "layout",
-      "target_node_id": "author-constraints",
-      "target_port": "layout"
+      "source_node_id": "design-constraints",
+      "source_port": "constraints",
+      "target_node_id": "design-sequences",
+      "target_port": "constraints"
     },
     {
       "source_node_id": "normalize-reference",
@@ -505,12 +369,6 @@
       "source_port": "sequence",
       "target_node_id": "design-sequences",
       "target_port": "sequence"
-    },
-    {
-      "source_node_id": "author-constraints",
-      "source_port": "constraints",
-      "target_node_id": "design-sequences",
-      "target_port": "constraints"
     },
     {
       "source_node_id": "design-sequences",
@@ -654,13 +512,19 @@
       "source_node_id": "fold-esmfold2",
       "source_port": "structure_candidates",
       "target_node_id": "select-soluble-folds",
-      "target_port": "candidates"
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "select-soluble-folds-parent-relation",
+      "target_port": "subjects"
     },
     {
       "source_node_id": "filter-protein-sol",
       "source_port": "candidates",
       "target_node_id": "select-soluble-folds",
-      "target_port": "parents"
+      "target_port": "selected_references"
     },
     {
       "source_node_id": "filter-tm",
@@ -685,6 +549,102 @@
       "source_port": "candidates",
       "target_node_id": "passing-candidates",
       "target_port": "candidates_d"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "source_port": "modified_residue_normalizations",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "target_port": "modified_residue_normalizations"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "design-sequences",
+      "source_port": "sequence_candidates",
+      "target_node_id": "select-soluble-folds-parent-relation",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "select-soluble-folds-parent-relation",
+      "source_port": "relation",
+      "target_node_id": "select-soluble-folds",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-folds-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "normalize-reference",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-folds-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-folds-relation",
+      "source_port": "relation",
+      "target_node_id": "align-folds",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-tm-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "normalize-reference",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-tm-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "score-tm-relation",
+      "source_port": "relation",
+      "target_node_id": "score-tm",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-rmsd-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "normalize-reference",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-rmsd-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "score-rmsd-relation",
+      "source_port": "relation",
+      "target_node_id": "score-rmsd",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.author",
+      "target_port": "structure_source"
     }
   ],
   "observation_selectors": [
@@ -698,7 +658,7 @@
         "node_id": "score-tm",
         "output_port": "scores"
       },
-      "source_partition": "structure_comparison.tm_score.fixed_reference",
+      "source_partition": "structure_comparison.tm_score.explicit_relation",
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.tm_score"
@@ -711,7 +671,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "fixed_reference",
+        "pairing_mode": "explicit_relation",
         "normalization": "reference-axis-residue-count"
       },
       "match_cardinality": "exactly_one",
@@ -727,7 +687,7 @@
         "node_id": "score-rmsd",
         "output_port": "scores"
       },
-      "source_partition": "structure_comparison.rmsd.fixed_reference",
+      "source_partition": "structure_comparison.rmsd.explicit_relation",
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.rmsd"
@@ -740,7 +700,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "fixed_reference",
+        "pairing_mode": "explicit_relation",
         "normalization": "aligned-CA-mean-square-distance"
       },
       "match_cardinality": "exactly_one",

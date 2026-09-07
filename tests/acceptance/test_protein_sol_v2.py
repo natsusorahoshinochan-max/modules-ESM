@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 import csv
@@ -27,7 +29,7 @@ from core.workflow.document import (
 )
 from core.workflow.document import WorkflowEdge
 from tests.acceptance.retained_evidence import retain_service_run
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.runtime_results import wait_for_service_run_terminal_events
 
 
 pytestmark = [pytest.mark.acceptance, pytest.mark.local_provider]
@@ -95,7 +97,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,

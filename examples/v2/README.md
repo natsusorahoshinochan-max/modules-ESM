@@ -1,10 +1,19 @@
 # Protein Workbench v2 examples
 
-`repository-capabilities.workflow.json` is a provider-free-to-verify authoring
-example. It fixes its production Execution Bindings by stable ID, separates Node
-and Binding parameters, and uses production scientific values. Verification
-parses and compiles the Workflow against the current Catalog without invoking a
-Provider or selecting a sibling Binding.
+`repository-capabilities.workflow.json` is a provider-free Catalog compilation
+fixture. It fixes its Execution Bindings by stable ID and separates Node and
+Binding parameters. Its materialized Prompt Nodes demonstrate current scientific
+contracts; they are not ordinary Palette entries or a public authoring surface.
+Verification parses and compiles the Workflow against the current Catalog without
+invoking a Provider or selecting a sibling Binding.
+
+`prompt-downstream-interfaces.workflow.json` closes both required Prompt Studio
+downstream interfaces without a converter: `author → decompose.sequence →
+materialize_sequence.sequence_candidates → folding.fold`, and the same
+materialized sequence as the optional reference for `proteinmpnn.design` while
+its authoritative structure target remains the independently resolved structure
+Candidate axis. It is a compile-only interface example for a complete
+single-chain Project Input.
 
 The repository examples are representative scientific Workflows, not a
 mechanical inventory of every Catalog registration. Prediction and folding
@@ -43,6 +52,15 @@ and Protein-Sol scaled observations; their exact Candidate intersection may be
 empty without turning the scientific result into a failed Run. Provider-free
 public REST/WebSocket acceptance uses lawful controlled Binding clients and
 does not invoke a remote Provider or load ProteinMPNN or Protein-Sol.
+
+The `design-constraints` Node authors explicit ProteinMPNN constraints from the
+resolved reference axis. It fixes A:42, A:44, A:46, A:60–A:72, A:92, A:94, A:96,
+A:110, A:112, A:121, A:123, A:145, A:148, A:150, A:165, A:167, A:183, A:203,
+A:205, A:220, and A:222, preserving the SHG precursor and the declared functional
+neighborhood. This is the fixed set in the [source-bound scientific contract](../../docs/legacy/2026-07-31-workflow-usability-debug-test-contracts.md#76-设计约束要求).
+The Adapter maps these residue identities to Provider positions. Prompt sequence
+masking does not supply ProteinMPNN constraints, and the missing backbone oxygen
+at normalized A:65 remains missing.
 
 `source-bound-5g53.workflow.json` is the exact source-bound loop-insertion
 acceptance Workflow for `examples/v2/structures/5G53.pdb` (SHA-256

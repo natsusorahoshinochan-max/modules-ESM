@@ -26,6 +26,7 @@ def build_biohub_esmc_client(
         model=model_name,
         url="https://biohub.ai",
         token=credential_handle,
+        request_timeout=150,
     )
 
 
@@ -103,24 +104,27 @@ class BiohubESMCAdapter:
     ) -> ESMCSequenceRepresentation:
         """Return only the admitted provider-independent representation."""
         client = self._client()
-        provider_protein = provider_sequence(sequence)
-        with self._resources.engine_invocation(
-            engine_role="sequence_encode",
-        ) as encode_invocation_id:
-            encoded = require_provider_success(
-                client.encode(provider_protein),
-                "encode",
+        try:
+            provider_protein = provider_sequence(sequence)
+            with self._resources.engine_invocation(
+                engine_role="sequence_encode",
+            ) as encode_invocation_id:
+                encoded = require_provider_success(
+                    client.encode(provider_protein),
+                    "encode",
+                )
+            config = logits_config()
+            with self._resources.engine_invocation(
+                engine_role="sequence_logits",
+                parent_invocation_id=encode_invocation_id,
+            ):
+                result = require_provider_success(
+                    client.logits(encoded, config),
+                    "logits",
+                )
+            return normalize_representation(
+                sequence,
+                result,
             )
-        config = logits_config()
-        with self._resources.engine_invocation(
-            engine_role="sequence_logits",
-            parent_invocation_id=encode_invocation_id,
-        ):
-            result = require_provider_success(
-                client.logits(encoded, config),
-                "logits",
-            )
-        return normalize_representation(
-            sequence,
-            result,
-        )
+        finally:
+            client.close()

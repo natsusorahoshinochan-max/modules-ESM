@@ -14,12 +14,12 @@ inputs:
     multiplicity: one
     scientific_meaning: Exactly one reference Candidate that supplied the expected annotation.
   - name: expected
-    port_type_id: structure_annotation.secondary_structure_track
+    port_type_id: structure_annotation.secondary_structure.observed
     required: true
     multiplicity: one
     scientific_meaning: Expected exact SS8 values explicitly associated with the admitted reference Candidate and carrying the comparison residue layout.
   - name: observed
-    port_type_id: structure_annotation.secondary_structure_track
+    port_type_id: structure_annotation.secondary_structure.observed
     required: true
     multiplicity: one
     scientific_meaning: Observed exact SS8 values explicitly associated with the admitted subject Candidate and carrying the same comparison residue layout.

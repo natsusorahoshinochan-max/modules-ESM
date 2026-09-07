@@ -1,0 +1,11 @@
+node_type_id: collection_ops.compose_relations
+title: Compose Candidate relations
+summary: Composes subject-to-intermediate and intermediate-to-reference relations by exact Candidate identity.
+category: collection_ops
+inputs:
+  - {name: left_relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Subject-to-intermediate relation.}
+  - {name: right_relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Intermediate-to-reference relation.}
+outputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Composed subject-to-reference relation in left entry order.}
+parameter_groups: []
+node_parameters: {}

@@ -52,7 +52,12 @@ include = [
 ]
 
 [tool.setuptools.package-data]
-examples = ["*.json", "v2/*.json", "v2/*.md", "v2/structures/*.pdb"]
+examples = [
+    "*.json",
+    "v2/*.json",
+    "v2/*.md",
+    "v2/structures/*.pdb",
+]
 modules = ["**/*.yaml"]
 protein_workbench_public = ["resources/v2/*.json"]
 

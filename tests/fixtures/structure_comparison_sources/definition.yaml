@@ -15,7 +15,7 @@ outputs:
     multiplicity: one
     scientific_meaning: Independent reference structure Candidates.
   - name: pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: false
     multiplicity: one
     scientific_meaning: Explicit one-to-one counterpart identities for the counterpart scenario; absent for single and fixed-reference scenarios.
@@ -27,4 +27,4 @@ node_parameters:
     required: true
     value_contract:
       type: string
-      enum: [single, fixed_reference, per_subject_counterpart]
+      enum: [single, fixed_reference, explicit_relation]

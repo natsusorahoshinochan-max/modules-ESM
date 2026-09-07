@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Any, Protocol
+from dataclasses import dataclass, replace
+import hashlib
+import struct
+from typing import Any, Literal, Protocol
 
+from core.catalog.canonical import canonical_sha256
 from core.operation import (
     OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
 )
-from datatypes.prompt import ProteinPrompt
+from datatypes.prompt import FunctionAnnotation, ProteinPrompt
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
@@ -77,6 +80,7 @@ def build_biohub_esm3_client(
         model=model_name,
         url="https://biohub.ai",
         token=credential_handle,
+        request_timeout=150,
     )
 
 
@@ -148,7 +152,8 @@ class ESM3GenerationAdapter(Protocol):
         prompt: ProteinPrompt,
         *,
         parameters: ESM3CallParameters,
-        derived_call_seed: int | None,
+        base_seed: int | None,
+        sample_index: int,
     ) -> ESM3SequenceResult: ...
 
     def generate_structure(
@@ -156,7 +161,8 @@ class ESM3GenerationAdapter(Protocol):
         prompt: ProteinPrompt,
         *,
         parameters: ESM3CallParameters,
-        derived_call_seed: int | None,
+        base_seed: int | None,
+        sample_index: int,
     ) -> ESM3StructureResult: ...
 
     def generate_pair(
@@ -164,19 +170,14 @@ class ESM3GenerationAdapter(Protocol):
         prompt: ProteinPrompt,
         *,
         parameters: ESM3CallParameters,
-        sequence_derived_call_seed: int | None,
-        structure_derived_call_seed: int | None,
+        base_seed: int | None,
+        sample_index: int,
     ) -> ESM3PairResult: ...
 
 
-def _sequence_track(prompt: ProteinPrompt) -> str:
-    values = (
-        [None] * prompt.num_residues
-        if prompt.sequence_track is None
-        else prompt.sequence_track.values
-    )
+def _provider_sequence(prompt: ProteinPrompt) -> str:
     symbols: list[str] = []
-    for position, value in enumerate(values):
+    for position, value in enumerate(prompt.sequence):
         if value is None:
             symbols.append("_")
             continue
@@ -189,102 +190,187 @@ def _sequence_track(prompt: ProteinPrompt) -> str:
     return "".join(symbols)
 
 
-def _secondary_structure_track(
+def _provider_secondary_structure(
     prompt: ProteinPrompt,
 ) -> str | None:
-    if prompt.secondary_structure_track is None:
+    if prompt.secondary_structure is None:
         return None
     symbols: list[str] = []
-    for value in prompt.secondary_structure_track.values:
+    for value in prompt.secondary_structure:
         if value is None:
             symbols.append("_")
-            continue
-        if value == "-":
-            symbols.append("C")
             continue
         symbols.append(value)
     return "".join(symbols)
 
 
-def _sasa_track(prompt: ProteinPrompt) -> list[float | None] | None:
-    if prompt.sasa_track is None:
+def _provider_sasa(prompt: ProteinPrompt) -> tuple[float | None, ...] | None:
+    if prompt.sasa is None:
         return None
-    return [
+    return tuple(
         None if value is None else float(value)
-        for value in prompt.sasa_track.values
-    ]
-
-
-def _coordinates(prompt: ProteinPrompt) -> Any | None:
-    if prompt.structure_track is None:
-        return None
-    import torch
-
-    visibility = (
-        [True] * prompt.num_residues
-        if prompt.structure_visibility_track is None
-        else [
-            value is True
-            for value in prompt.structure_visibility_track.values
-        ]
+        for value in prompt.sasa
     )
-    coordinates = torch.full(
-        (prompt.num_residues, 37, 3),
-        float("nan"),
-        dtype=torch.float32,
-    )
-    any_visible_atom = False
-    for position, residue in enumerate(prompt.structure_track.values):
-        is_visible = visibility[position]
-        if residue is None or not is_visible:
+
+
+def _atom37_entries(
+    prompt: ProteinPrompt,
+) -> tuple[tuple[int, int, tuple[float, float, float]], ...]:
+    entries: list[tuple[int, int, tuple[float, float, float]]] = []
+    for position, residue in enumerate(prompt.coordinates):
+        if residue is None:
             continue
-        for atom_name, raw_coordinate in residue.items():
+        for atom_name, raw_coordinate in residue.atoms:
             atom_index = _ATOM37_INDEX.get(atom_name)
             if atom_index is None:
-                raise ValueError(
-                    f"ESM-3 atom37 cannot represent atom {atom_name!r} "
-                    f"at residue {position}"
+                continue
+            entries.append(
+                (
+                    position,
+                    atom_index,
+                    tuple(float(value) for value in raw_coordinate),
                 )
-            coordinates[position, atom_index] = torch.tensor(
-                raw_coordinate,
-                dtype=torch.float32,
             )
-            any_visible_atom = True
-    return coordinates if any_visible_atom else None
+    return tuple(sorted(entries))
 
 
-def _function_annotations(prompt: ProteinPrompt) -> list[Any] | None:
-    if not prompt.function_annotations.annotations:
-        return None
-    from esm.utils.types import FunctionAnnotation as ProviderFunctionAnnotation
+def _function_annotation_provider_interval(
+    prompt: ProteinPrompt,
+    annotation: FunctionAnnotation,
+) -> tuple[int, int]:
+    """Resolve identity-addressed annotation bounds to provider indices.
 
-    result: list[Any] = []
-    for annotation in prompt.function_annotations.annotations:
-        result.append(
-            ProviderFunctionAnnotation(
-                label=annotation.label,
-                start=annotation.start,
-                end=annotation.end,
-            )
-        )
-    return result
-
-
-def protein_prompt_to_provider(prompt: ProteinPrompt) -> Any:
-    """Translate one exact ProteinPrompt without silently mutating tracks."""
-    if "," in prompt.target_layout.chain_id:
+    Provider FunctionAnnotation uses one-based inclusive integer bounds. The
+    bounds are looked up in the prompt layout; an absent identity is an
+    internal invariant violation (the aggregate validator guarantees
+    membership), so it fails fast.
+    """
+    residue_ids = prompt.layout.residue_ids
+    try:
+        start = residue_ids.index(annotation.start_residue_id) + 1
+    except ValueError:
         raise ValueError(
-            "The ESM SDK cannot preserve multi-chain aligned tracks"
+            f"function annotation start residue "
+            f"{annotation.start_residue_id!r} is absent from the prompt layout"
         )
-    from esm.sdk.api import ESMProtein
+    try:
+        end = residue_ids.index(annotation.end_residue_id) + 1
+    except ValueError:
+        raise ValueError(
+            f"function annotation end residue "
+            f"{annotation.end_residue_id!r} is absent from the prompt layout"
+        )
+    return start, end
 
-    return ESMProtein(
-        sequence=_sequence_track(prompt),
-        secondary_structure=_secondary_structure_track(prompt),
-        sasa=_sasa_track(prompt),
-        function_annotations=_function_annotations(prompt),
-        coordinates=_coordinates(prompt),
-    )
+
+@dataclass(frozen=True, slots=True)
+class _ConditioningProjection:
+    """One immutable ESM-3 view feeding identity and SDK input encodings."""
+
+    sequence: str
+    secondary_structure: str | None
+    sasa: tuple[float | None, ...] | None
+    function_annotations: tuple[tuple[str, int, int], ...]
+    atom37_entries: tuple[tuple[int, int, tuple[float, float, float]], ...]
+
+    @classmethod
+    def from_prompt(cls, prompt: ProteinPrompt) -> _ConditioningProjection:
+        if len(prompt.layout.chain_ids) > 1:
+            raise ValueError(
+                "The ESM SDK cannot preserve multi-chain aligned tracks"
+            )
+        return cls(
+            sequence=_provider_sequence(prompt),
+            secondary_structure=_provider_secondary_structure(prompt),
+            sasa=_provider_sasa(prompt),
+            function_annotations=tuple(
+                (annotation.label, *_function_annotation_provider_interval(
+                    prompt, annotation,
+                ))
+                for annotation in prompt.function_annotations
+            ),
+            atom37_entries=_atom37_entries(prompt),
+        )
+
+    def functional_input_digest(self) -> str:
+        """Retain the exact scientific input encoding used by call randomness."""
+        return canonical_sha256(
+            {
+                "schema_namespace": "protein-workbench-esm3-functional-input/v1",
+                "sequence": self.sequence,
+                "secondary_structure": self.secondary_structure,
+                "sasa_float64": (
+                    None if self.sasa is None else [
+                        None if value is None else struct.pack("!d", value).hex()
+                        for value in self.sasa
+                    ]
+                ),
+                "function_annotations": [
+                    {"label": label, "start": start, "end": end}
+                    for label, start, end in self.function_annotations
+                ],
+                "atom37_float32": (
+                    None if not self.atom37_entries else [
+                        {
+                            "position": position,
+                            "atom_index": atom_index,
+                            "coordinate": [
+                                struct.pack("!f", value).hex()
+                                for value in coordinate
+                            ],
+                        }
+                        for position, atom_index, coordinate in self.atom37_entries
+                    ]
+                ),
+            }
+        )
+
+    def call_seed(
+        self,
+        base_seed: int | None,
+        sample_index: int,
+        track: Literal["sequence", "structure"],
+    ) -> int | None:
+        functional_input_digest = self.functional_input_digest()
+        if base_seed is None:
+            return None
+        digest = hashlib.sha256(
+            (
+                "protein-workbench-esm3-call-seed/v2:"
+                f"{base_seed}:{functional_input_digest}:{sample_index}:{track}"
+            ).encode("ascii")
+        ).digest()
+        return int.from_bytes(digest[:6], "big")
+
+    def provider_input(self) -> Any:
+        """Encode a fresh SDK value without sharing mutable Provider state."""
+        from esm.sdk.api import ESMProtein
+        from esm.utils.types import FunctionAnnotation as ProviderFunctionAnnotation
+
+        coordinates = None
+        if self.atom37_entries:
+            import torch
+
+            coordinates = torch.full(
+                (len(self.sequence), 37, 3), float("nan"), dtype=torch.float32,
+            )
+            for position, atom_index, coordinate in self.atom37_entries:
+                coordinates[position, atom_index] = torch.tensor(
+                    coordinate, dtype=torch.float32,
+                )
+        return ESMProtein(
+            sequence=self.sequence,
+            secondary_structure=self.secondary_structure,
+            sasa=None if self.sasa is None else list(self.sasa),
+            function_annotations=(
+                [
+                    ProviderFunctionAnnotation(label=label, start=start, end=end)
+                    for label, start, end in self.function_annotations
+                ]
+                if self.function_annotations else None
+            ),
+            coordinates=coordinates,
+        )
 
 
 def generation_config(
@@ -340,7 +426,7 @@ def complete_sequence(
     prompt: ProteinPrompt,
 ) -> ProteinSequence:
     """Translate the documented provider sequence onto the Prompt axis."""
-    layout = prompt.target_layout
+    layout = prompt.layout
     return ProteinSequence(
         sequence=result.sequence,
         residue_ids=list(layout.residue_ids),
@@ -372,22 +458,6 @@ def biohub_confidence(
         )
     )
     return ESM3Confidence(ptm=ptm, plddt_per_residue=plddt, pae=pae)
-
-
-def structure_prompt_for_sequence(
-    provider_prompt: Any,
-    sequence: str,
-) -> Any:
-    """Preserve every non-structure condition for one paired structure call."""
-    from esm.sdk.api import ESMProtein
-
-    return ESMProtein(
-        sequence=sequence,
-        secondary_structure=provider_prompt.secondary_structure,
-        sasa=provider_prompt.sasa,
-        function_annotations=provider_prompt.function_annotations,
-        coordinates=provider_prompt.coordinates,
-    )
 
 
 class _BaseESM3Adapter:
@@ -518,16 +588,20 @@ class _BaseESM3Adapter:
         prompt: ProteinPrompt,
         *,
         parameters: ESM3CallParameters,
-        derived_call_seed: int | None,
+        base_seed: int | None,
+        sample_index: int,
     ) -> ESM3SequenceResult:
         """Invoke and admit one sequence sample without leaking SDK values."""
-        provider_prompt = protein_prompt_to_provider(prompt)
+        conditioning = _ConditioningProjection.from_prompt(prompt)
+        provider_prompt = conditioning.provider_input()
         result, _, effective_num_steps, effective_call_seed = self._invoke(
             provider_prompt,
             generation_config("sequence", parameters),
             role="sequence_sample",
             provider_operation="generate(track=sequence)",
-            derived_call_seed=derived_call_seed,
+            derived_call_seed=conditioning.call_seed(
+                base_seed, sample_index, "sequence",
+            ),
         )
         return self._admit_sequence_result(
             prompt,
@@ -541,16 +615,20 @@ class _BaseESM3Adapter:
         prompt: ProteinPrompt,
         *,
         parameters: ESM3CallParameters,
-        derived_call_seed: int | None,
+        base_seed: int | None,
+        sample_index: int,
     ) -> ESM3StructureResult:
         """Invoke and admit one structure sample without leaking SDK values."""
-        provider_prompt = protein_prompt_to_provider(prompt)
+        conditioning = _ConditioningProjection.from_prompt(prompt)
+        provider_prompt = conditioning.provider_input()
         result, _, effective_num_steps, effective_call_seed = self._invoke(
             provider_prompt,
             generation_config("structure", parameters),
             role="structure_sample",
             provider_operation="generate(track=structure)",
-            derived_call_seed=derived_call_seed,
+            derived_call_seed=conditioning.call_seed(
+                base_seed, sample_index, "structure",
+            ),
         )
         return self._admit_structure_result(
             prompt,
@@ -564,11 +642,12 @@ class _BaseESM3Adapter:
         prompt: ProteinPrompt,
         *,
         parameters: ESM3CallParameters,
-        sequence_derived_call_seed: int | None,
-        structure_derived_call_seed: int | None,
+        base_seed: int | None,
+        sample_index: int,
     ) -> ESM3PairResult:
         """Invoke one causally linked sequence/structure provider pair."""
-        provider_prompt = protein_prompt_to_provider(prompt)
+        conditioning = _ConditioningProjection.from_prompt(prompt)
+        provider_prompt = conditioning.provider_input()
         (
             sequence_response,
             sequence_invocation_id,
@@ -579,7 +658,9 @@ class _BaseESM3Adapter:
             generation_config("sequence", parameters),
             role="sequence_parent",
             provider_operation="generate(track=sequence)",
-            derived_call_seed=sequence_derived_call_seed,
+            derived_call_seed=conditioning.call_seed(
+                base_seed, sample_index, "sequence",
+            ),
         )
         sequence = self._admit_sequence_result(
             prompt,
@@ -587,20 +668,22 @@ class _BaseESM3Adapter:
             sequence_effective_num_steps,
             sequence_effective_call_seed,
         )
+        structure_conditioning = replace(
+            conditioning, sequence=sequence.sequence.sequence,
+        )
         (
             structure_response,
             _,
             structure_effective_num_steps,
             structure_effective_call_seed,
         ) = self._invoke(
-            structure_prompt_for_sequence(
-                provider_prompt,
-                sequence.sequence.sequence,
-            ),
+            structure_conditioning.provider_input(),
             generation_config("structure", parameters),
             role="structure_child",
             provider_operation="generate(track=structure)",
-            derived_call_seed=structure_derived_call_seed,
+            derived_call_seed=structure_conditioning.call_seed(
+                base_seed, sample_index, "structure",
+            ),
             parent_invocation_id=sequence_invocation_id,
         )
         return ESM3PairResult(
@@ -631,6 +714,18 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
         )
         self._environment = environment
         self._resolved_client: Any | None = None
+
+    def __exit__(
+        self,
+        exception_type: object,
+        exception: object,
+        traceback: object,
+    ) -> None:
+        del exception_type, exception, traceback
+        if self._resolved_client is not None:
+            client = self._resolved_client
+            self._resolved_client = None
+            client.close()
 
     def _client(self) -> Any:
         if self._resolved_client is not None:

@@ -17,6 +17,10 @@ Covers the local-process profile and source-boundary check from
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events
+
+from tests.support.public_runs import PublicRunClient
+
 import ast
 import os
 from pathlib import Path
@@ -38,12 +42,11 @@ from core.execution.resources import (
 )
 from core.execution.results.cache import ResultIndexError
 from core.operation import secondary_cleanup_exception_types
-from protein_workbench_public.ledger_codec import encode_event
 from tests.support.application import create_application
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
-from tests.test_run_runtime import (
-    _commit_one_node,
-    _direct_catalog,
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
+from tests.fixtures.run_scenarios import (
+    commit_one_node,
+    direct_catalog,
 )
 
 
@@ -87,43 +90,14 @@ def test_core_managed_process_owner_is_the_only_subprocess_exception() -> None:
     assert owners == ["core/execution/resources.py"], owners
 
 
-def _start(
-    client: TestClient,
-    project_id: str,
-    committed: dict[str, Any],
-    request_id: str,
-) -> dict[str, Any]:
-    response = client.post(
-        f"/api/v2/projects/{project_id}/runs",
-        json={
-            "workflow_commit_id": committed["workflow_commit_id"],
-            "client_request_id": request_id,
-        },
-    )
-    assert response.status_code == 202
-    return response.json()
-
-
-def _wait_terminal(
-    client: TestClient,
-    project_id: str,
-    run_id: str,
-) -> dict[str, Any]:
-    return wait_for_testclient_run_terminal(client, project_id, run_id)
-
-
 def _public_events(
     app: Any,
     project_id: str,
     run_id: str,
 ) -> list[dict[str, Any]]:
     return [
-        encode_event(
-            project_id=project_id,
-            run_id=run_id,
-            fact=fact,
-        )["event"]
-        for fact in app.state.run_runtime.events(project_id, run_id)
+        message["event"]
+        for message in public_run_events(app.state.run_runtime, project_id, run_id)
     ]
 
 
@@ -177,7 +151,7 @@ def test_managed_local_process_leader_first_exit_leaves_no_descendant(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_with_managed_owner,
         ),
@@ -187,9 +161,15 @@ def test_managed_local_process_leader_first_exit_leaves_no_descendant(
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "managed-leader-exit")
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="managed-leader-exit",
+        )
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert projection["status"] == "succeeded"
     with pytest.raises(ProcessLookupError):
@@ -238,7 +218,7 @@ def test_managed_local_process_timeout_terminates_group_and_raises_managed_timeo
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_with_timeout,
         ),
@@ -248,9 +228,13 @@ def test_managed_local_process_timeout_terminates_group_and_raises_managed_timeo
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "managed-timeout")
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id, committed["workflow_commit_id"], request_id="managed-timeout"
+        )
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert projection["status"] == "succeeded", captured
     assert captured.get("error") == "timeout", captured
@@ -288,7 +272,7 @@ def test_non_cancelled_process_group_cleanup_failure_cannot_publish_success(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_managed_provider,
         ),
@@ -298,9 +282,15 @@ def test_non_cancelled_process_group_cleanup_failure_cannot_publish_success(
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "failed-normal-cleanup")
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="failed-normal-cleanup",
+        )
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert projection["status"] == "failed"
     node_terminal = next(
@@ -337,7 +327,7 @@ def test_generic_process_group_cleanup_failure_cannot_publish_success(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_owned_group,
         ),
@@ -347,9 +337,15 @@ def test_generic_process_group_cleanup_failure_cannot_publish_success(
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "failed-generic-cleanup")
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="failed-generic-cleanup",
+        )
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert projection["status"] == "failed"
     node_terminal = next(
@@ -386,7 +382,7 @@ def test_generic_process_group_cleanup_is_secondary_to_its_body_error(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_owned_group,
         ),
@@ -396,9 +392,15 @@ def test_generic_process_group_cleanup_is_secondary_to_its_body_error(
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "generic-primary-error")
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="generic-primary-error",
+        )
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert projection["status"] == "failed"
     node_terminal = next(
@@ -439,7 +441,7 @@ def test_handled_body_error_cannot_hide_process_group_cleanup_failure(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_owned_group,
         ),
@@ -449,9 +451,13 @@ def test_handled_body_error_cannot_hide_process_group_cleanup_failure(
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "handled-body-error")
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id, committed["workflow_commit_id"], request_id="handled-body-error"
+        )
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert projection["status"] == "failed"
     node_terminal = next(
@@ -811,7 +817,7 @@ def test_cancelled_managed_process_records_cancelled_engine_invocation(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             execution_action=execute_managed_provider,
         ),
@@ -821,8 +827,10 @@ def test_cancelled_managed_process_records_cancelled_engine_invocation(
     )
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "cancel-provider")
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id, committed["workflow_commit_id"], request_id="cancel-provider"
+        )
         deadline = time.monotonic() + 2
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -831,7 +839,9 @@ def test_cancelled_managed_process_records_cancelled_engine_invocation(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
             json={},
         )
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
 
     assert cancelled.status_code == 200
     assert projection["status"] == "cancelled"
@@ -896,7 +906,7 @@ def test_cleanup_error_concluded_while_waiting_is_retained_in_terminal_evidence(
         else {"factory_action": execute_during_failed_cleanup}
     )
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             **action_argument,
         ),
@@ -907,8 +917,10 @@ def test_cleanup_error_concluded_while_waiting_is_retained_in_terminal_evidence(
 
     cancel_response: dict[str, Any] = {}
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
-        receipt = _start(client, project_id, committed, "cleanup-evidence")
+        project_id, committed = commit_one_node(client)
+        receipt = PublicRunClient(client).start_run(
+            project_id, committed["workflow_commit_id"], request_id="cleanup-evidence"
+        )
         assert registration_ready.wait(timeout=2)
 
         def cancel() -> None:
@@ -921,7 +933,9 @@ def test_cleanup_error_concluded_while_waiting_is_retained_in_terminal_evidence(
         cancellation.start()
         assert cleanup_started.wait(timeout=2)
         finish_operation.set()
-        projection = _wait_terminal(client, project_id, receipt["run_id"])
+        projection = wait_for_testclient_run_terminal(
+            client, project_id, receipt["run_id"]
+        )
         cancellation.join(timeout=2)
         release_registration.set()
         for holder in holder_threads:

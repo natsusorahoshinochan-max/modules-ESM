@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from core.catalog.builder import build_frozen_catalog
@@ -171,6 +173,9 @@ def _run_rich_esm3_generation(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -185,7 +190,7 @@ def _run_rich_esm3_generation(
     catalog = build_frozen_catalog(
         (
             ESM3_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
@@ -410,12 +415,6 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                     projection,
                     outputs["structure_candidates"],
                 )
-                pairing = decode_output(
-                    service,
-                    catalog,
-                    projection,
-                    outputs["counterpart_pairs"],
-                )
                 facts = decode_output(
                     service,
                     catalog,
@@ -429,12 +428,6 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 )
                 assert facts.observation_method.contract_id == (
                     method.contract_id
-                )
-                assert pairing.entries[0].subject.candidate_id == (
-                    sequences.items[0].candidate_id
-                )
-                assert pairing.entries[0].reference.candidate_id == (
-                    structures.items[0].candidate_id
                 )
                 assert structures.items[0].metadata[
                     "requested_generation_parameters"
@@ -806,7 +799,10 @@ def test_mkdssp_executes_exact_method_through_public_run(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
-    from modules.structure_annotation.domain import DSSPAnnotation
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
+    from datatypes.residue import CandidateResidueTrack
     from modules.structure_annotation.package import (
         MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE
     )
@@ -819,7 +815,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
     catalog = build_frozen_catalog(
         (
             PROTEIN_IO_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_ANNOTATION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         )
@@ -925,18 +921,31 @@ def test_mkdssp_executes_exact_method_through_public_run(
         service.shutdown()
 
     assert projection["status"] == "succeeded", events
-    output = next(
+    from tests.support.runtime_results import decode_service_typed_output_value
+
+    secondary_structure_output = next(
         item
         for item in projection["outputs"]
         if item["node_id"] == "annotate"
+        and item["output_port"] == "secondary_structure"
     )
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
-
-    annotation = decode_service_typed_output_value(
+    sasa_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "annotate"
+        and item["output_port"] == "sasa"
+    )
+    secondary_structure = decode_service_typed_output_value(
         service,
         catalog,
         projection,
-        output,
+        secondary_structure_output,
+    )
+    sasa = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        sasa_output,
     )
     axis_output = next(
         item
@@ -951,16 +960,18 @@ def test_mkdssp_executes_exact_method_through_public_run(
         axis_output,
     )
     association = axis_associations.entries[0]
-    assert type(annotation) is DSSPAnnotation
-    assert annotation.subject == association.subject
-    assert annotation.layout == association.residue_axis.layout
-    assert annotation.layout.residue_ids == tuple(
+    assert type(secondary_structure) is CandidateResidueTrack
+    assert type(sasa) is CandidateResidueTrack
+    assert secondary_structure.subject == association.subject
+    assert sasa.subject == association.subject
+    assert secondary_structure.track.layout == association.residue_axis.layout
+    assert secondary_structure.track.layout.residue_ids == tuple(
         f"A:{residue_number}" for residue_number in range(1, 57)
     )
-    assert "".join(annotation.secondary_structure) == (
+    assert "".join(secondary_structure.track.values) == (
         "CEEEEEEECSSCEEEEEEECSSHHHHHHHHHHHHHHTTCCSEEEEETTTTEEEEEC"
     )
-    assert annotation.sasa == (
+    assert sasa.track.values == (
         123.5,
         83.4,
         15.7,
