@@ -51,7 +51,7 @@ from tests.acceptance.retained_evidence import (
 from tests.acceptance.biohub_environment import (
     biohub_esm3_esmfold2_environment,
 )
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.runtime_results import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
     apply_prompt_document,
     install_prompt_authoring_workflow,

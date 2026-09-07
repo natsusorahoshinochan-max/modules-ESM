@@ -30,7 +30,7 @@ from core.workflow.document import (
     WorkflowNodeInstance,
 )
 from core.workflow.document import WorkflowEdge
-from tests.fixtures.public_v2 import decode_service_typed_output_value
+from tests.support.runtime_results import decode_service_typed_output_value
 
 
 class ProviderResponse:

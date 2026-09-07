@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from tests.support import inprocess_runs
+
+
 from tests.support.ledger import public_run_events
 
 import json
@@ -15,25 +18,19 @@ from core.project.manager import ProjectManager
 from core.project.objects import ObjectIntegrityError, ProjectObjectStore
 from tests.support.application import create_application
 from tests.support.protocol import validate_error
-from tests.fixtures.public_v2 import (
-    retrieve_service_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
-from tests.test_run_runtime import _commit_pipeline, _pipeline_catalog
+from tests.support.runtime_results import retrieve_service_typed_output_canonical_bytes
+from tests.fixtures.run_scenarios import commit_pipeline, pipeline_catalog
 
 
 def _start_pipeline(client: TestClient) -> tuple[str, str, dict[str, object]]:
-    project_id, committed = _commit_pipeline(client)
-    started = client.post(
-        f"/api/v2/projects/{project_id}/runs",
-        json={
-            "workflow_commit_id": committed["workflow_commit_id"],
-            "client_request_id": "typed-value-publication",
-        },
+    project_id, committed = commit_pipeline(client)
+    projection = inprocess_runs.run_committed_workflow(
+        client,
+        project_id,
+        workflow_commit_id=committed["workflow_commit_id"],
+        request_id="typed-value-publication",
     )
-    assert started.status_code == 202
-    run_id = started.json()["run_id"]
-    projection = wait_for_testclient_run_terminal(client, project_id, run_id)
+    run_id = projection["run_id"]
     return project_id, run_id, projection
 
 
@@ -43,7 +40,7 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
 ) -> None:
     calls: list[str] = []
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    app = create_application(frozen_catalog_override=_pipeline_catalog(calls))
+    app = create_application(frozen_catalog_override=pipeline_catalog(calls))
 
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
@@ -108,7 +105,7 @@ def test_typed_value_retrieval_is_strictly_run_node_port_and_index_scoped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    app = create_application(frozen_catalog_override=_pipeline_catalog([]))
+    app = create_application(frozen_catalog_override=pipeline_catalog([]))
 
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
@@ -193,7 +190,7 @@ def test_object_write_failure_closes_node_without_public_output(
         raise OSError("injected immutable object write failure")
 
     monkeypatch.setattr(ProjectObjectStore, "store", fail_write)
-    app = create_application(frozen_catalog_override=_pipeline_catalog([]))
+    app = create_application(frozen_catalog_override=pipeline_catalog([]))
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
         events = public_run_events(app.state.run_runtime, project_id, run_id)

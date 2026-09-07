@@ -43,8 +43,8 @@ from tests.support.protocol import (
     validate_response,
     validate_typed_value_response,
 )
-from tests.public_protocol_acceptance_client import (
-    PublicProtocolAcceptanceClient,
+from tests.support.public_runs import (
+    PublicRunClient,
 )
 
 
@@ -291,10 +291,12 @@ def test_acceptance_client_returns_validated_typed_value_metadata() -> None:
             },
         )
 
-    with PublicProtocolAcceptanceClient(
-        "http://backend.invalid",
+    with httpx.Client(
+        base_url="http://backend.invalid",
         transport=httpx.MockTransport(handler),
-    ) as client:
+        trust_env=False,
+    ) as http:
+        client = PublicRunClient(http)
         assert client.typed_value(
             {
                 "project_id": "project-1",
@@ -1926,10 +1928,12 @@ def test_acceptance_client_validates_response_without_backend_imports() -> None:
         assert request.url.path == "/api/v2/projects/project-1/runs"
         return httpx.Response(202, json=receipt)
 
-    with PublicProtocolAcceptanceClient(
-        "http://backend.invalid",
+    with httpx.Client(
+        base_url="http://backend.invalid",
         transport=httpx.MockTransport(handler),
-    ) as client:
+        trust_env=False,
+    ) as http:
+        client = PublicRunClient(http)
         assert client.request(
             "start_run",
             {
@@ -1980,10 +1984,12 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
         assert request.content == b""
         return httpx.Response(200, json=publication)
 
-    with PublicProtocolAcceptanceClient(
-        "http://backend.invalid",
+    with httpx.Client(
+        base_url="http://backend.invalid",
         transport=httpx.MockTransport(handler),
-    ) as client:
+        trust_env=False,
+    ) as http:
+        client = PublicRunClient(http)
         assert client.create_project("public project") == project
         assert client.publish_project_input(
             "project-1",

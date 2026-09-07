@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from protein_workbench_public.bootstrap import module_registrations
 
 from dataclasses import replace
@@ -70,10 +72,7 @@ from tests.support.workflow_stress import (
     run_committed_workflow,
 )
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -263,13 +262,11 @@ def _decode_values(
     codec = catalog.require_port_type(
         output["port_type"]["contract_id"])
     return tuple(
-        codec.decode(retrieve_typed_output_canonical_bytes(
-            client,
-            projection["project_id"],
-            projection["run_id"],
-            output,
-            index,
-        ))
+        codec.decode(
+            PublicRunClient(client).typed_output_bytes(
+                projection["project_id"], projection["run_id"], output, index
+            )
+        )
         for index in range(output["value_count"])
     )
 
@@ -703,21 +700,14 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
                 opened_prompt["document"],
             ),
         )
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"workflow": payload},
+        committed = PublicRunClient(client).commit_workflow(project_id, payload)
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id=f"provider-free-2emo-{expected_passing}",
         )
-        assert committed.status_code == 200, committed.json()
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": f"provider-free-2emo-{expected_passing}",
-            },
-        )
-        assert started.status_code == 202, started.json()
         projection = wait_for_testclient_run_terminal(
-            client, project_id, started.json()["run_id"], timeout_seconds=90
+            client, project_id, started["run_id"], timeout_seconds=90
         )
         assert projection["status"] == "succeeded", json.dumps(
             projection, indent=2
@@ -904,7 +894,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         replay = run_committed_workflow(
             client,
             project_id,
-            committed.json()["workflow_commit_id"],
+            committed["workflow_commit_id"],
             request_id=f"provider-free-2emo-replay-{expected_passing}",
             timeout_seconds=90,
         )
@@ -920,7 +910,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             "fixed_backbone_design_2emo",
             runs={
                 "first": StressRun(
-                    committed.json()["workflow_commit_id"],
+                    committed["workflow_commit_id"],
                     projection,
                     tuple(events),
                 ),

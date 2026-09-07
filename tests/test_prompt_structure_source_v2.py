@@ -1,30 +1,23 @@
-"""Public Workflow regressions for the workflow-usability repair contracts."""
+"""Structure-to-Prompt Workflow contracts for exact identity and normalization."""
 
 from __future__ import annotations
-
-from core.catalog.authoring import AuthoringCapabilityProjection
-
-from tests.support.ledger import public_run_projection
 
 from pathlib import Path
 from typing import Any
 
-import pytest
-
-from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
-from tests.support.result_store import result_store
+from core.project.manager import ProjectManager
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
+    WorkflowEdge,
     WorkflowNodeInstance,
 )
-from core.workflow.document import WorkflowEdge
 from datatypes.prompt import ProteinPrompt
 from datatypes.structure import ProteinStructure
 from modules.prompt_authoring.package import (
@@ -39,7 +32,8 @@ from modules.structure_transform.package import (
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
 )
-
+from tests.support.ledger import public_run_projection
+from tests.support.result_store import result_store
 
 VERSION = "2.1.0"
 
@@ -58,15 +52,13 @@ def _run(
         output_root=tmp_path / "outputs",
         run_root=tmp_path / "runs",
     )
-    project = projects.create("workflow usability repair regression")
+    project = projects.create("structure to Prompt contract")
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(
-            schema_version=VERSION,
-            workflow_id=project.id,
-            nodes=nodes,
-            edges=edges),
+            schema_version=VERSION, workflow_id=project.id, nodes=nodes, edges=edges
+        ),
     )
     service = V2RunService(
         projects,
@@ -82,7 +74,7 @@ def _run(
     receipt = service.start(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
-        client_request_id="workflow-usability-repair",
+        client_request_id="structure-prompt-contract",
     )
     projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
@@ -94,7 +86,7 @@ def _decoded_outputs(
     service: V2RunService,
     projection: dict[str, Any],
 ) -> dict[tuple[str, str], object]:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     decoded: dict[tuple[str, str], object] = {}
     for output in projection["outputs"]:
@@ -122,9 +114,7 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     normalize = WorkflowNodeInstance(
         node_id="normalize",
         node_type_id="structure_transform.normalize_csh_parent_span",
-        binding_id=(
-            "structure_transform.normalize_csh_parent_span.direct"
-        ),
+        binding_id=("structure_transform.normalize_csh_parent_span.direct"),
         node_parameters={},
         binding_parameters={},
     )
@@ -168,7 +158,8 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
         ),
         registrations=(
             STRUCTURE_TRANSFORM_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
             STRUCTURE_SOURCE_PACKAGE,
         ),
     )
@@ -202,47 +193,12 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     assert mapping.entries[0].component_id == "CSH"
     assert mapping.entries[0].observed_residue_id == "A:66"
     assert mapping.entries[0].parent_residue_ids == ("A:65", "A:66", "A:67")
-    normalized_lines = normalized.pdb_string.splitlines()
-    last_a64 = max(
-        index
-        for index, line in enumerate(normalized_lines)
-        if line.startswith("ATOM  ")
-        and line[21] == "A"
-        and line[22:26].strip() == "64"
-    )
-    first_a65 = min(
-        index
-        for index, line in enumerate(normalized_lines)
-        if line.startswith("ATOM  ")
-        and line[21] == "A"
-        and line[22:26].strip() == "65"
-    )
-    assert "TER" not in normalized_lines[last_a64 + 1 : first_a65]
-
     axis = outputs[("resolve-axis", "residue_axis")]
     assert axis.structure == normalized
-    assert axis.layout.length == 224
-    assert len(axis.segments) == 1
-    assert axis.segments[0].chain_id == "A"
-    assert axis.segments[0].residue_ids == axis.layout.residue_ids
-    axis_index = axis.layout.residue_ids.index("A:64")
-    assert axis.layout.residue_ids[axis_index : axis_index + 5] == (
-        "A:64",
-        "A:65",
-        "A:66",
-        "A:67",
-        "A:68",
-    )
-    assert axis.sequence[axis_index + 1 : axis_index + 4] == "SHG"
-    assert axis.ca_coordinate_mask[axis_index + 1] is True
-    assert axis.complete_backbone_mask[axis_index + 1] is False
-    assert axis.coordinate_for("A:65", "CA") == pytest.approx(
-        (-12.147, 73.489, 39.240)
-    )
+    assert prompt_value.layout == axis.layout
+    assert prompt_value.sequence == tuple(axis.sequence)
     csh_disposition = next(
-        item
-        for item in axis.component_dispositions
-        if item.component_id == "CSH"
+        item for item in axis.component_dispositions if item.component_id == "CSH"
     )
     assert csh_disposition.observed_residue_id == "A:66"
     assert csh_disposition.parent_residue_ids == ("A:65", "A:66", "A:67")
@@ -282,8 +238,7 @@ def test_2emo_raw_modified_polymer_is_rejected_at_residue_axis_seam(
 
     assert projection["status"] == "failed"
     assert not any(
-        output["node_id"] == "resolve-axis"
-        for output in projection["outputs"]
+        output["node_id"] == "resolve-axis" for output in projection["outputs"]
     )
 
 
@@ -319,13 +274,9 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         binding_parameters={},
     )
     branch_insertions = {
-        "shorter": [
-            f"A:gap211_224.short.{index:02d}" for index in range(1, 9)
-        ],
+        "shorter": [f"A:gap211_224.short.{index:02d}" for index in range(1, 9)],
         "numbering": [f"A:{index}" for index in range(212, 224)],
-        "longer": [
-            f"A:gap211_224.long.{index:02d}" for index in range(1, 17)
-        ],
+        "longer": [f"A:gap211_224.long.{index:02d}" for index in range(1, 17)],
     }
 
     def _5g53_source_residue_ids() -> list[str]:
@@ -341,9 +292,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
             residues.append({"residue_id": residue_id, "origin": "source"})
             if residue_id == "A:211":
                 for inserted_id in inserted_ids:
-                    residues.append(
-                        {"residue_id": inserted_id, "origin": "inserted"}
-                    )
+                    residues.append({"residue_id": inserted_id, "origin": "inserted"})
         return residues
 
     edit_nodes = tuple(
@@ -391,7 +340,8 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
             ),
         ),
         registrations=(
-            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
             STRUCTURE_SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         ),
@@ -413,15 +363,18 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         target_ids = edited.layout.residue_ids
         assert edited.layout.length == 283 + len(inserted_ids)
         assert target_ids[-1] == "A:312"
-        assert tuple(
-            residue_id
-            for residue_id in target_ids
-            if residue_id not in set(inserted_ids)
-        ) == source_ids
+        assert (
+            tuple(
+                residue_id
+                for residue_id in target_ids
+                if residue_id not in set(inserted_ids)
+            )
+            == source_ids
+        )
         junction = target_ids.index("A:211")
-        assert target_ids[
-            junction + 1 : junction + 1 + len(inserted_ids)
-        ] == tuple(inserted_ids)
+        assert target_ids[junction + 1 : junction + 1 + len(inserted_ids)] == tuple(
+            inserted_ids
+        )
         assert target_ids[junction + 1 + len(inserted_ids)] == "A:224"
         assert all(f"A:{index}" in target_ids for index in range(292, 313))
         for attribute in (

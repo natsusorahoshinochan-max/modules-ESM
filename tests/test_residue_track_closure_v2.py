@@ -121,3 +121,18 @@ def test_named_atom_coordinates_expose_atom_names_and_lookup() -> None:
     )
     assert coords.atom_names == ("CA", "N")
     assert coords.coordinate_for("N") == (0.0, 0.0, 0.0)
+
+
+def test_protein_prompt_codec_normalizes_only_sasa_json_integers() -> None:
+    from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
+
+    prompt = ProteinPrompt(
+        layout=ResidueLayout(("A:1", "A:2")),
+        sequence=("A", "C"),
+        coordinates=(None, None),
+        sasa=(0.0, 12.0),
+    )
+    decoded = PROTEIN_PROMPT_PORT_TYPE.decode(PROTEIN_PROMPT_PORT_TYPE.encode(prompt))
+    assert decoded == prompt
+    assert decoded.sasa is not None
+    assert all(type(value) is float for value in decoded.sasa)

@@ -6,6 +6,8 @@ production Catalog/compiler, and the public installed-backend protocol.
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -50,10 +52,7 @@ from tests.fixtures.canonical_3gb1_v2 import (
     controlled_environment,
     controlled_module_registrations,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_canonical_bytes,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -210,12 +209,8 @@ def _decoded_outputs(
         reference["contract_id"])
     return tuple(
         codec.decode(
-            retrieve_typed_output_canonical_bytes(
-                client,
-                projection["project_id"],
-                projection["run_id"],
-                output,
-                value_index,
+            PublicRunClient(client).typed_output_bytes(
+                projection["project_id"], projection["run_id"], output, value_index
             )
         )
         for value_index in range(output["value_count"])
@@ -446,12 +441,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                 "producer_provenance",
             } <= set(output)
             for value_index in range(output["value_count"]):
-                canonical = retrieve_typed_output_canonical_bytes(
-                    client,
-                    first["project_id"],
-                    first["run_id"],
-                    output,
-                    value_index,
+                canonical = PublicRunClient(client).typed_output_bytes(
+                    first["project_id"], first["run_id"], output, value_index
                 )
                 assert canonical
 

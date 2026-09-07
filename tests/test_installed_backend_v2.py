@@ -36,11 +36,11 @@ from tests.support.protocol import (
     validate_artifact_response,
     validate_event,
 )
-from tests.public_protocol_acceptance_client import PublicProtocolAcceptanceClient
+from tests.support.public_runs import PublicRunClient, collect_run_events
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
     build_artifacts,
-    installed_artifact,
+    installed_artifact,  # noqa: F401 - registered pytest fixture
     run_external_acceptance,
 )
 from tests.acceptance.retained_evidence import (
@@ -236,53 +236,6 @@ def _stop_server(process: subprocess.Popen[str]) -> str:
         return process.communicate(timeout=5)[0]
 
 
-def _wait_terminal(
-    client: PublicProtocolAcceptanceClient,
-    project_id: str,
-    run_id: str,
-    *,
-    timeout: float = 30,
-) -> dict[str, object]:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        projection = client.request(
-            "run_projection",
-            {"project_id": project_id, "run_id": run_id},
-        )
-        if projection["status"] in {
-            "succeeded",
-            "failed",
-            "cancelled",
-            "interrupted",
-        }:
-            return projection
-        time.sleep(0.02)
-    raise AssertionError("installed Run did not reach a terminal projection")
-
-
-def _collect_run_events(
-    port: int,
-    project_id: str,
-    run_id: str,
-) -> list[dict[str, object]]:
-    stream = prepare_run_event_stream_request(
-        {"project_id": project_id, "run_id": run_id}
-    )
-    messages: list[dict[str, object]] = []
-    with connect(
-        f"ws://127.0.0.1:{port}{stream.route}",
-        open_timeout=5,
-        close_timeout=5,
-        proxy=None,
-    ) as websocket:
-        while True:
-            message = json.loads(websocket.recv(timeout=30))
-            validate_event(message)
-            messages.append(message)
-            if message["event"]["type"] == "run_terminal":
-                return messages
-
-
 def test_built_artifact_is_reproducible_complete_and_fixture_free(
     tmp_path: Path,
 ) -> None:
@@ -417,9 +370,10 @@ def test_installed_server_preserves_project_identity_across_working_directories(
         )
         try:
             _wait_for_server(port, server)
-            with PublicProtocolAcceptanceClient(
-                f"http://127.0.0.1:{port}"
-            ) as client:
+            with httpx.Client(
+                base_url=f"http://127.0.0.1:{port}", trust_env=False
+            ) as http:
+                client = PublicRunClient(http)
                 if index == 0:
                     project_id = client.create_project("stable installed data")[
                         "id"
@@ -487,7 +441,8 @@ def test_installed_backend_completes_full_public_v2_journey(
         ) as response:
             assert response.read() == SOURCE_PROTOCOL_BYTES
             assert response.headers["Digest"] == SOURCE_PROTOCOL_DIGEST
-        with PublicProtocolAcceptanceClient(base_url) as client:
+        with httpx.Client(base_url=base_url, trust_env=False) as http:
+            client = PublicRunClient(http)
             catalog = client.request("catalog_snapshot", {})
             assert catalog["contracts"]
             project_id = client.create_project(
@@ -572,27 +527,16 @@ def test_installed_backend_completes_full_public_v2_journey(
                 {"project_id": project_id},
             )
             assert draft == saved
-            committed = client.request(
-                "commit_project_workflow",
-                {
-                    "project_id": project_id,
-                    "workflow": workflow,
-                },
-            )
+            committed = client.commit_workflow(project_id, workflow)
             active = client.request(
                 "project_active_workflow_commit",
                 {"project_id": project_id},
             )
             assert active == committed
-            first = client.request(
-                "start_run",
-                {
-                    "project_id": project_id,
-                    "workflow_commit_id": committed[
-                        "workflow_commit_id"
-                    ],
-                    "client_request_id": "installed-first",
-                },
+            first = client.start_run(
+                project_id,
+                committed["workflow_commit_id"],
+                request_id="installed-first",
             )
             stream = prepare_run_event_stream_request(
                 {"project_id": project_id, "run_id": first["run_id"]}
@@ -628,8 +572,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                 "replay_complete",
             } <= event_types
 
-            first_projection = _wait_terminal(
-                client,
+            first_projection = client.wait_terminal(
                 project_id,
                 first["run_id"],
             )
@@ -674,18 +617,12 @@ def test_installed_backend_completes_full_public_v2_journey(
                 payload,
             )
 
-            second = client.request(
-                "start_run",
-                {
-                    "project_id": project_id,
-                    "workflow_commit_id": committed[
-                        "workflow_commit_id"
-                    ],
-                    "client_request_id": "installed-cache-replay",
-                },
+            second = client.start_run(
+                project_id,
+                committed["workflow_commit_id"],
+                request_id="installed-cache-replay",
             )
-            second_projection = _wait_terminal(
-                client,
+            second_projection = client.wait_terminal(
                 project_id,
                 second["run_id"],
             )
@@ -715,8 +652,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                     "reason": "installed acceptance cancellation race",
                 },
             )
-            derived_projection = _wait_terminal(
-                client,
+            derived_projection = client.wait_terminal(
                 project_id,
                 derived["run_id"],
             )
@@ -883,7 +819,7 @@ def _assert_installed_esmc_catalog(
 
 
 def _start_installed_esmc_run(
-    client: PublicProtocolAcceptanceClient,
+    client: PublicRunClient,
     binding_id: str,
 ) -> tuple[str, str]:
     project_id = client.create_project(
@@ -934,20 +870,9 @@ def _start_installed_esmc_run(
             "workflow": workflow,
         },
     )
-    committed = client.request(
-        "commit_project_workflow",
-        {
-            "project_id": project_id,
-            "workflow": workflow,
-        },
-    )
-    started = client.request(
-        "start_run",
-        {
-            "project_id": project_id,
-            "workflow_commit_id": committed["workflow_commit_id"],
-            "client_request_id": "installed-biohub-esmc",
-        },
+    committed = client.commit_workflow(project_id, workflow)
+    started = client.start_run(
+        project_id, committed["workflow_commit_id"], request_id="installed-biohub-esmc"
     )
     return project_id, started["run_id"]
 
@@ -961,7 +886,8 @@ def test_installed_biohub_esmc_gate(
         installed_artifact,
         tmp_path,
     ) as (port, base_url):
-        with PublicProtocolAcceptanceClient(base_url) as client:
+        with httpx.Client(base_url=base_url, trust_env=False) as http:
+            client = PublicRunClient(http)
             catalog_snapshot = client.request("catalog_snapshot", {})
             binding_id, method_id = _assert_installed_esmc_catalog(
                 catalog_snapshot
@@ -970,12 +896,11 @@ def test_installed_biohub_esmc_gate(
                 client,
                 binding_id,
             )
-            messages = _collect_run_events(port, project_id, run_id)
-            projection = _wait_terminal(
-                client,
+            messages = collect_run_events(f"ws://127.0.0.1:{port}", project_id, run_id)
+            projection = client.wait_terminal(
                 project_id,
                 run_id,
-                timeout=120,
+                timeout_seconds=120,
             )
 
             assert projection["status"] == "succeeded", projection

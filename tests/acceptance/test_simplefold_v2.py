@@ -167,7 +167,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         "confidence_facts",
     } == set(outputs)
     structure_output = outputs["structure_candidates"]
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     structures = decode_service_typed_output_value(
         service,

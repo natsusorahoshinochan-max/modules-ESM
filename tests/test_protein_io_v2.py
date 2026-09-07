@@ -41,7 +41,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import (
     WorkflowAuthoringError,
@@ -83,78 +84,6 @@ _STRUCTURE_SOURCE = WorkflowNodeInstance(
     binding_id="contract_test.protein_structure.direct",
     node_parameters={},
     binding_parameters={},
-)
-_CTK_CASES = (
-    ModulePackageContractCase(
-        case_id="protein-io-import-sequence",
-        node_type_id="protein_io.import_sequence",
-        binding_id="protein_io.import_sequence.direct",
-        node_parameters={"project_input_ref": "sequence-input"},
-        binding_parameters={},
-        environment_values={},
-        project_inputs={"sequence-input": b">ctk\nACDEFG\n"},
-    ),
-    ModulePackageContractCase(
-        case_id="protein-io-import-structure",
-        node_type_id="protein_io.import_structure",
-        binding_id="protein_io.import_structure.direct",
-        node_parameters={"project_input_ref": "structure-input"},
-        binding_parameters={},
-        environment_values={},
-        project_inputs={
-            "structure-input": (
-                b"ATOM      1  CA  GLY A   1       "
-                b"1.000   2.000   3.000  1.00 20.00           C  \nEND\n"
-            )
-        },
-    ),
-    ModulePackageContractCase(
-        case_id="protein-io-export-sequence",
-        node_type_id="protein_io.export_sequence",
-        binding_id="protein_io.export_sequence.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SEQUENCE_SOURCE,),
-        workflow_edges=(
-            WorkflowEdge(
-                "source",
-                "sequence",
-                "contract-test-node",
-                "sequence",
-            ),
-        ),
-        expected_artifacts={
-            "standalone_artifact": (
-                b">protein-workbench-sequence\nACDEFG\n"
-            )
-        },
-    ),
-    ModulePackageContractCase(
-        case_id="protein-io-export-structure",
-        node_type_id="protein_io.export_structure",
-        binding_id="protein_io.export_structure.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_STRUCTURE_SOURCE,),
-        workflow_edges=(
-            WorkflowEdge(
-                "source",
-                "structure",
-                "contract-test-node",
-                "structure",
-            ),
-        ),
-        expected_artifacts={
-            "standalone_artifact": (
-                b"REMARK contract-test-provider-native\n"
-                b"ATOM      1  CA  GLY A   1       "
-                b"1.000   2.000   3.000  1.00 20.00           C  \n"
-                b"END\n"
-            )
-        },
-    ),
 )
 _CTK_PORT_CASE = ModulePackagePortCase(
     type_id="protein_io.artifact_payload",
@@ -284,29 +213,99 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
     ) is not None
 
 
+@pytest.mark.parametrize(
+    ("case_id", "artifact_contents"),
+    [
+        ("protein-io-import-sequence", {}),
+        ("protein-io-import-structure", {}),
+        (
+            "protein-io-export-sequence",
+            {"standalone_artifact": b">protein-workbench-sequence\nACDEFG\n"},
+        ),
+        (
+            "protein-io-export-structure",
+            {
+                "standalone_artifact": b"REMARK contract-test-provider-native\nATOM      1  CA  GLY A   1       1.000   2.000   3.000  1.00 20.00           C  \nEND\n"
+            },
+        ),
+    ],
+    ids=[
+        "protein-io-import-sequence",
+        "protein-io-import-structure",
+        "protein-io-export-sequence",
+        "protein-io-export-structure",
+    ],
+)
 def test_protein_io_passes_the_shared_contract_test_kit(
-    tmp_path: Path,
+    tmp_path: Path, case_id: str, artifact_contents: dict[str, bytes]
 ) -> None:
-    report = verify_module_package_contract(
+    case = {
+        "protein-io-import-sequence": lambda: ModulePackageContractCase(
+            case_id="protein-io-import-sequence",
+            node_type_id="protein_io.import_sequence",
+            binding_id="protein_io.import_sequence.direct",
+            node_parameters={"project_input_ref": "sequence-input"},
+            binding_parameters={},
+            environment_values={},
+            project_inputs={"sequence-input": b">ctk\nACDEFG\n"},
+        ),
+        "protein-io-import-structure": lambda: ModulePackageContractCase(
+            case_id="protein-io-import-structure",
+            node_type_id="protein_io.import_structure",
+            binding_id="protein_io.import_structure.direct",
+            node_parameters={"project_input_ref": "structure-input"},
+            binding_parameters={},
+            environment_values={},
+            project_inputs={
+                "structure-input": b"ATOM      1  CA  GLY A   1       1.000   2.000   3.000  1.00 20.00           C  \nEND\n"
+            },
+        ),
+        "protein-io-export-sequence": lambda: ModulePackageContractCase(
+            case_id="protein-io-export-sequence",
+            node_type_id="protein_io.export_sequence",
+            binding_id="protein_io.export_sequence.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SEQUENCE_SOURCE,),
+            workflow_edges=(
+                WorkflowEdge("source", "sequence", "contract-test-node", "sequence"),
+            ),
+        ),
+        "protein-io-export-structure": lambda: ModulePackageContractCase(
+            case_id="protein-io-export-structure",
+            node_type_id="protein_io.export_structure",
+            binding_id="protein_io.export_structure.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_STRUCTURE_SOURCE,),
+            workflow_edges=(
+                WorkflowEdge("source", "structure", "contract-test-node", "structure"),
+            ),
+        ),
+    }[case_id]()
+    result = execute_module_package_case(
         PROTEIN_IO_PACKAGE,
-        execution_cases=_CTK_CASES,
-        port_cases=(_CTK_PORT_CASE,),
+        case,
         supporting_registrations=(STRUCTURE_SOURCE_PACKAGE,),
         work_root=tmp_path,
     )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_body in artifact_contents.items():
+        (artifact,) = (
+            item for item in result.publication.artifacts if item.output_port == port
+        )
+        assert result.artifacts[artifact.artifact_reference] == expected_body
 
-    assert report.package_id == "protein_io"
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
-    assert {
-        port
-        for case in report.case_reports
-        for port in case.artifact_ports
-    } == {"standalone_artifact"}
+
+def test_protein_io_passes_the_shared_contract_test_kit_ports() -> None:
+    verify_module_package_port(
+        PROTEIN_IO_PACKAGE,
+        _CTK_PORT_CASE,
+        supporting_registrations=(STRUCTURE_SOURCE_PACKAGE,),
+    )
 
 
 def test_artifact_output_requires_a_nominal_publication_contract() -> None:
@@ -496,7 +495,7 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
         for item in projection["outputs"]
         if item["output_port"] == "sequence"
     )
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     port_type = catalog.require_port_type("protein.sequence")
     sequence = decode_service_typed_output_value(
@@ -552,7 +551,7 @@ def test_sequence_import_concatenates_multi_fasta_records_in_file_order(
         for item in projection["outputs"]
         if item["output_port"] == "sequence"
     )
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     assert decode_service_typed_output_value(
         service,
@@ -667,7 +666,7 @@ def test_structure_import_parses_then_port_admits_canonical_project_pdb(
     assert projection["status"] == "succeeded"
     output = projection["outputs"][0]
     port_type = catalog.require_port_type("protein.structure")
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     structure = decode_service_typed_output_value(
         service,
@@ -758,3 +757,49 @@ def test_import_rejects_private_paths_and_cross_project_references(
         )
     assert unavailable.value.code == "evidence_unavailable"
     assert isinstance(unavailable.value.__cause__, FileNotFoundError)
+
+
+def test_contract_test_kit_retains_every_candidate_artifact_after_cleanup(
+    tmp_path: Path,
+) -> None:
+    case = ModulePackageContractCase(
+        case_id="export-fifteen-structures",
+        node_type_id="protein_io.export_structure",
+        binding_id="protein_io.export_structure.direct",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(
+            WorkflowNodeInstance(
+                node_id="source",
+                node_type_id="contract_test.structure_candidates",
+                binding_id="contract_test.structure_candidates.direct",
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        workflow_edges=(
+            WorkflowEdge("source", "structures", "contract-test-node", "structures"),
+        ),
+    )
+    result = execute_module_package_case(
+        PROTEIN_IO_PACKAGE,
+        case,
+        supporting_registrations=(STRUCTURE_SOURCE_PACKAGE,),
+        work_root=tmp_path,
+    )
+    assert list(tmp_path.iterdir()) == []
+    assert len(result.artifacts) == 15
+    assert len({item.candidate_id for item in result.publication.artifacts}) == 15
+    for index, artifact in enumerate(result.publication.artifacts):
+        assert artifact.output_port == "candidate_artifacts"
+        assert result.artifacts[artifact.artifact_reference].startswith(
+            f"REMARK provider-native-{index:02d}\n".encode()
+        )
+
+
+def test_fasta_parser_leaves_empty_sequence_rejection_to_port_admission() -> None:
+    from modules.protein_io.fasta import parse_fasta_records, parse_fasta_sequence
+
+    assert parse_fasta_records(b">empty\n") == ("",)
+    assert parse_fasta_sequence(b">empty\n") == ""

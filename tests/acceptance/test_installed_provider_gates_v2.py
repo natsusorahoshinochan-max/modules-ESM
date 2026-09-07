@@ -921,7 +921,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
         service.shutdown()
 
     assert projection["status"] == "succeeded", events
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     secondary_structure_output = next(
         item

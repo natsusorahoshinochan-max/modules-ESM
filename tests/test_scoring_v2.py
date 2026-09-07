@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 
@@ -94,10 +96,7 @@ from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     select_admitted_candidates,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_values,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_prediction.port_types import (
     CONFIDENCE_FACTS_PORT_TYPE,
@@ -2056,25 +2055,14 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         project_id = project["id"]
         workflow = _workflow_payload(contracts)
         workflow["workflow_id"] = project_id
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
+        started = PublicRunClient(client).start_run(
+            project_id, committed["workflow_commit_id"], request_id="scoring-run-1"
         )
-        assert committed.status_code == 200
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
-                "client_request_id": "scoring-run-1",
-            },
-        )
-        assert started.status_code == 202
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
-            started.json()["run_id"],
+            started["run_id"],
         )
 
         candidate_output = next(
@@ -2082,11 +2070,8 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
             for output in projection["outputs"]
             if output["output_port"] == "candidates"
         )
-        candidate_value = retrieve_typed_output_values(
-            client,
-            project_id,
-            projection["run_id"],
-            candidate_output,
+        candidate_value = PublicRunClient(client).typed_output_values(
+            project_id, projection["run_id"], candidate_output
         )[0]
 
     assert projection["status"] == "succeeded"
@@ -2136,8 +2121,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     )
     with TestClient(reloaded_app) as client:
         reloaded = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{started.json()['run_id']}"
+            f"/api/v2/projects/{project_id}/runs/" f"{started['run_id']}"
         )
     assert reloaded.status_code == 200
     assert reloaded.json()["selection_results"] == (
@@ -2179,17 +2163,11 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         project_id = project["id"]
         workflow = _workflow_payload(contracts)
         workflow["workflow_id"] = project_id
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
-        )
-        assert committed.status_code == 200
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_commit_id": committed.json()["workflow_commit_id"],
+                "workflow_commit_id": committed["workflow_commit_id"],
                 "client_request_id": "unsafe-scoring-run-1",
             },
         )

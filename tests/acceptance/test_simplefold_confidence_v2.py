@@ -272,7 +272,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if item["node_id"] == "confidence"
         and item["output_port"] == "confidence_observations"
     )
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     scores = decode_service_typed_output_value(
         service,

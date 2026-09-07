@@ -153,9 +153,12 @@ alone cannot produce a Binding Failure.
 _Avoid_: Operation failure, admission failure, provider failure
 
 **Contract Test Kit**:
-Shared focused conformance helpers used by maintainers to verify a Module
-Package's extension, execution, data, and provenance behavior. They do not
-require exact-set equality over every registered Node, Binding, or Port.
+Shared focused conformance helpers that execute representative Module Package
+cases and expose the target Node's outputs and evidence to check shared
+extension, execution, data, and provenance contracts, without requiring exact-set
+coverage of registered Nodes, Bindings, or Ports. Package-owned tests state
+case-specific scientific results and Engine Invocation expectations; runtime and
+the Run Evidence Ledger own causal closure.
 _Avoid_: Package-specific smoke tests, manual checklist
 
 ## Scientific Data and Scoring

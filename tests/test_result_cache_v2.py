@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support import inprocess_runs
+
+from tests.support.public_runs import PublicRunClient
+
 from tests.support.ledger import public_run_events
 
 from datetime import datetime, timezone
@@ -41,20 +45,16 @@ from datatypes.candidate import (
     CandidateCollection,
 )
 from datatypes.sequence import ProteinSequence
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_values,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 from tests.support.catalog import binding_availability, install_runtime
-from tests.test_run_runtime import (
-    _artifact_catalog,
-    _commit_artifact_node,
-    _commit_one_node,
-    _commit_pipeline,
-    _commit_public_workflow,
-    _contract,
-    _direct_catalog,
-    _pipeline_catalog,
+from tests.fixtures.run_scenarios import (
+    artifact_catalog,
+    commit_artifact_node,
+    commit_one_node,
+    commit_pipeline,
+    contract,
+    direct_catalog,
+    pipeline_catalog,
 )
 
 
@@ -64,16 +64,13 @@ def _start_run(
     compiled: dict[str, object],
     request_id: str,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
-    started = client.post(
-        f"/api/v2/projects/{project_id}/runs",
-        json={
-            "workflow_commit_id": compiled["workflow_commit_id"],
-            "client_request_id": request_id,
-        },
+    projection = inprocess_runs.run_committed_workflow(
+        client,
+        project_id,
+        workflow_commit_id=compiled["workflow_commit_id"],
+        request_id=request_id,
     )
-    assert started.status_code == 202
-    run_id = started.json()["run_id"]
-    projection = wait_for_testclient_run_terminal(client, project_id, run_id)
+    run_id = projection["run_id"]
     events = public_run_events(
         client.app.state.run_runtime,
         project_id,
@@ -87,10 +84,10 @@ def test_one_plan_facts_projection_drives_result_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    app = create_application(frozen_catalog_override=_direct_catalog([]))
+    app = create_application(frozen_catalog_override=direct_catalog([]))
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
+        project_id, committed = commit_one_node(client)
         compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
@@ -141,7 +138,7 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
     parameter_name: str,
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    catalog = _direct_catalog(
+    catalog = direct_catalog(
         [],
         node_parameter_declarations={
             parameter_name: {
@@ -155,7 +152,7 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
     app = create_application(frozen_catalog_override=catalog)
 
     with TestClient(app) as client:
-        project_id, committed = _commit_one_node(client)
+        project_id, committed = commit_one_node(client)
         compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
@@ -182,7 +179,7 @@ def _candidate_catalog(
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     candidates = builtin.require_port_type("candidate.collection")
-    method = _contract(
+    method = contract(
         "method",
         "test.candidate.method",
         {
@@ -192,7 +189,7 @@ def _candidate_catalog(
             "scale_contract": {"kind": "identity"},
         },
     )
-    node = _contract(
+    node = contract(
         "node_type",
         "test.candidate",
         {
@@ -221,7 +218,7 @@ def _candidate_catalog(
         "test.candidate/readiness",
         {},
     )
-    binding = _contract(
+    binding = contract(
         "binding",
         "test.candidate.direct",
         {
@@ -337,7 +334,7 @@ def _commit_candidate_node(
             }
         ],
         "edges": []}
-    return project_id, _commit_public_workflow(client, project_id, workflow)
+    return project_id, PublicRunClient(client).commit_workflow(project_id, workflow)
 
 
 def _candidate_value(
@@ -345,11 +342,8 @@ def _candidate_value(
     project_id: str,
     projection: dict[str, Any],
 ) -> dict[str, Any]:
-    return retrieve_typed_output_values(
-        client,
-        project_id,
-        projection["run_id"],
-        projection["outputs"][0],
+    return PublicRunClient(client).typed_output_values(
+        project_id, projection["run_id"], projection["outputs"][0]
     )[0]
 
 
@@ -361,14 +355,14 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
     calls: list[str] = []
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        frozen_catalog_override=direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             "test.direct.local": {"credential": "credential-value"}
         },
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "first")
         second, second_events = _start_run(
             client,
@@ -410,24 +404,20 @@ def test_node_instance_rename_reuses_the_same_scientific_result(
     calls: list[str] = []
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        frozen_catalog_override=direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             "test.direct.local": {"credential": "credential-value"}
         },
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "before-rename")
         renamed_workflow = client.get(
             f"/api/v2/projects/{project_id}/workflow/draft"
         ).json()["workflow"]
         renamed_workflow["nodes"][0]["node_id"] = "renamed"
-        renamed = _commit_public_workflow(
-            client,
-            project_id,
-            renamed_workflow,
-        )
+        renamed = PublicRunClient(client).commit_workflow(project_id, renamed_workflow)
         replayed, _ = _start_run(
             client,
             project_id,
@@ -456,14 +446,14 @@ def test_cache_entry_is_manifest_only_and_ledger_commits_node_result_manifest(
     run_root = tmp_path / "runs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        frozen_catalog_override=direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             "test.direct.local": {"credential": "credential-value"}
         },
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "manifest-source")
 
     result_identity = first["outputs"][0]["result_identity"]
@@ -498,7 +488,7 @@ def test_cached_manifest_restores_ordinary_and_artifact_output_ports(
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_artifact_catalog(
+        frozen_catalog_override=artifact_catalog(
             [],
             cacheable=True,
             include_ordinary_output=True,
@@ -506,7 +496,7 @@ def test_cached_manifest_restores_ordinary_and_artifact_output_ports(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_artifact_node(client)
+        project_id, compiled = commit_artifact_node(client)
         first, _ = _start_run(client, project_id, compiled, "artifact-source")
         replayed, _ = _start_run(client, project_id, compiled, "artifact-replay")
 
@@ -530,14 +520,14 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
     calls: list[str] = []
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_pipeline_catalog(
+        frozen_catalog_override=pipeline_catalog(
             calls,
             cacheable=True,
         )
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_pipeline(client)
+        project_id, compiled = commit_pipeline(client)
         first, _ = _start_run(client, project_id, compiled, "admission-a")
         second, _ = _start_run(client, project_id, compiled, "admission-b")
 
@@ -565,14 +555,14 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog([], cacheable=True),
+        frozen_catalog_override=direct_catalog([], cacheable=True),
         v2_environment_configuration={
             "test.direct.local": {"credential": "credential-value"}
         },
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         projection, events = _start_run(
             client,
             project_id,
@@ -733,7 +723,7 @@ def test_same_result_identity_is_physically_isolated_between_projects(
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             calls,
             cacheable=True,
             binding_environment_fields=(
@@ -745,15 +735,15 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         ),
         v2_environment_configuration={
             "test.direct.local": {
-                    "credential": "credential-value",
-                    "runtime_path": str(tmp_path / "private-runtime"),
-                }
+                "credential": "credential-value",
+                "runtime_path": str(tmp_path / "private-runtime"),
+            }
         },
     )
 
     with TestClient(app) as client:
-        first_project, first_compiled = _commit_one_node(client)
-        second_project, second_compiled = _commit_one_node(client)
+        first_project, first_compiled = commit_one_node(client)
+        second_project, second_compiled = commit_one_node(client)
         first, _ = _start_run(
             client,
             first_project,
@@ -803,7 +793,7 @@ def test_runtime_credentials_and_paths_do_not_change_identity(
     first_calls: list[str] = []
     with TestClient(
         create_application(
-            frozen_catalog_override=_direct_catalog(
+            frozen_catalog_override=direct_catalog(
                 first_calls,
                 cacheable=True,
                 readiness_checks=readiness,
@@ -816,13 +806,13 @@ def test_runtime_credentials_and_paths_do_not_change_identity(
             ),
             v2_environment_configuration={
                 "test.direct.local": {
-                        "credential": "secret-a",
-                        "runtime_path": str(tmp_path / "private-a"),
-                    }
+                    "credential": "secret-a",
+                    "runtime_path": str(tmp_path / "private-a"),
+                }
             },
         )
     ) as first_client:
-        project_id, compiled = _commit_one_node(first_client)
+        project_id, compiled = commit_one_node(first_client)
         first, _ = _start_run(
             first_client,
             project_id,
@@ -833,7 +823,7 @@ def test_runtime_credentials_and_paths_do_not_change_identity(
     second_calls: list[str] = []
     with TestClient(
         create_application(
-            frozen_catalog_override=_direct_catalog(
+            frozen_catalog_override=direct_catalog(
                 second_calls,
                 cacheable=True,
                 readiness_checks=readiness,
@@ -846,9 +836,9 @@ def test_runtime_credentials_and_paths_do_not_change_identity(
             ),
             v2_environment_configuration={
                 "test.direct.local": {
-                        "credential": "secret-b",
-                        "runtime_path": str(tmp_path / "private-b"),
-                    }
+                    "credential": "secret-b",
+                    "runtime_path": str(tmp_path / "private-b"),
+                }
             },
         )
     ) as second_client:
@@ -882,7 +872,7 @@ def test_presentation_only_catalog_change_preserves_result_identity(
         "test.direct.local": {"credential": "credential-value"}
     }
     first_calls: list[str] = []
-    producer_catalog = _direct_catalog(
+    producer_catalog = direct_catalog(
         first_calls,
         cacheable=True,
         node_title="Scientific text producer",
@@ -893,7 +883,7 @@ def test_presentation_only_catalog_change_preserves_result_identity(
             v2_environment_configuration=environment,
         )
     ) as first_client:
-        project_id, compiled = _commit_one_node(first_client)
+        project_id, compiled = commit_one_node(first_client)
         first, _ = _start_run(
             first_client,
             project_id,
@@ -902,7 +892,7 @@ def test_presentation_only_catalog_change_preserves_result_identity(
         )
 
     second_calls: list[str] = []
-    active_catalog = _direct_catalog(
+    active_catalog = direct_catalog(
         second_calls,
         cacheable=True,
         node_title="Renamed UI label",
@@ -939,7 +929,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             calls,
             cacheable=True,
             node_parameter_declarations={
@@ -959,7 +949,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "parameter-alpha")
         loaded = client.get(
             f"/api/v2/projects/{project_id}/workflow/draft"
@@ -1017,7 +1007,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             [],
             cacheable=True,
             execution_action=terminate,
@@ -1028,7 +1018,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         failed, _ = _start_run(
             client,
             project_id,
@@ -1057,7 +1047,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             calls,
             cacheable=True,
             deterministic=False,
@@ -1068,7 +1058,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "stochastic-a")
         second, _ = _start_run(client, project_id, compiled, "stochastic-b")
 
@@ -1110,7 +1100,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
         resolve=resolve_randomness,
     )
     app = create_application(
-        frozen_catalog_override=_direct_catalog(
+        frozen_catalog_override=direct_catalog(
             calls,
             cacheable=True,
             node_parameter_declarations={
@@ -1130,7 +1120,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
+        project_id, compiled = commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "resolved-once-a")
         second, _ = _start_run(client, project_id, compiled, "resolved-once-b")
 

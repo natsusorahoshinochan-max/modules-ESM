@@ -25,7 +25,8 @@ from core.operation import (
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.compiler import (
     CompilationRequest,
@@ -805,19 +806,40 @@ def test_raw_structure_cannot_enter_resolved_axis_projection_nodes(
     assert rejected.value.code == "port_type_mismatch"
 
 
+@pytest.mark.parametrize(
+    "case_id",
+    [
+        "structure-transform-select_chains",
+        "structure-transform-extract_backbone",
+        "structure-transform-extract_sequence",
+        "structure-transform-select_candidate_chains",
+        "structure-transform-extract_sequence_candidates",
+        "structure-transform-normalize-csh-parent-span",
+        "structure-transform-normalize-csh-parent-span-candidates",
+        "structure-transform-materialize-candidate-normalizations",
+        "structure-transform-backbone-to-structure",
+        "structure-transform-resolve-residue-axis",
+        "structure-transform-resolve-candidate-residue-axes",
+        "structure-transform-project-single-residue-axis",
+    ],
+    ids=[
+        "structure-transform-select_chains",
+        "structure-transform-extract_backbone",
+        "structure-transform-extract_sequence",
+        "structure-transform-select_candidate_chains",
+        "structure-transform-extract_sequence_candidates",
+        "structure-transform-normalize-csh-parent-span",
+        "structure-transform-normalize-csh-parent-span-candidates",
+        "structure-transform-materialize-candidate-normalizations",
+        "structure-transform-backbone-to-structure",
+        "structure-transform-resolve-residue-axis",
+        "structure-transform-resolve-candidate-residue-axes",
+        "structure-transform-project-single-residue-axis",
+    ],
+)
 def test_all_nodes_pass_the_shared_contract_test_kit(
-    tmp_path: Path,
+    tmp_path: Path, case_id: str
 ) -> None:
-    selection_case = ModulePackageContractCase(
-        case_id="structure-transform-select_chains",
-        node_type_id="structure_transform.select_chains",
-        binding_id="structure_transform.select_chains.direct",
-        node_parameters={"chain_ids": ["A"]},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE,),
-        workflow_edges=(_SOURCE_EDGE,),
-    )
     resolve_axis_node = WorkflowNodeInstance(
         node_id="resolve-axis",
         node_type_id="structure_transform.resolve_residue_axis",
@@ -825,87 +847,12 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
     )
-    axis_projection_cases = tuple(
-        ModulePackageContractCase(
-            case_id=f"structure-transform-{operation}",
-            node_type_id=f"structure_transform.{operation}",
-            binding_id=f"structure_transform.{operation}.direct",
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            workflow_nodes=(_SOURCE, resolve_axis_node),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "structure",
-                    "resolve-axis",
-                    "structure",
-                ),
-                WorkflowEdge(
-                    "resolve-axis",
-                    "residue_axis",
-                    "contract-test-node",
-                    "residue_axis",
-                ),
-            ),
-        )
-        for operation in (
-            "extract_backbone",
-            "extract_sequence",
-        )
-    )
-    candidate_selection_case = ModulePackageContractCase(
-        case_id="structure-transform-select_candidate_chains",
-        node_type_id="structure_transform.select_candidate_chains",
-        binding_id="structure_transform.select_candidate_chains.direct",
-        node_parameters={"chain_ids": ["A"]},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE,),
-        workflow_edges=(WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "contract-test-node",
-            "structure_candidates",
-        ),),
-    )
     resolve_candidate_axes_node = WorkflowNodeInstance(
         node_id="resolve-candidate-axes",
         node_type_id="structure_transform.resolve_candidate_residue_axes",
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
-    )
-    candidate_extraction_case = ModulePackageContractCase(
-        case_id="structure-transform-extract_sequence_candidates",
-        node_type_id="structure_transform.extract_sequence_candidates",
-        binding_id="structure_transform.extract_sequence_candidates.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
-        workflow_edges=(
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "contract-test-node",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "resolve-candidate-axes",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "resolve-candidate-axes",
-                "residue_axes",
-                "contract-test-node",
-                "residue_axes",
-            ),
-        ),
     )
     csh_source = WorkflowNodeInstance(
         node_id="source",
@@ -914,85 +861,12 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={"fixture": "csh"},
         binding_parameters={},
     )
-    normalization_case = ModulePackageContractCase(
-        case_id="structure-transform-normalize-csh-parent-span",
-        node_type_id="structure_transform.normalize_csh_parent_span",
-        binding_id=(
-            "structure_transform.normalize_csh_parent_span.direct"
-        ),
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(csh_source,),
-        workflow_edges=(WorkflowEdge(
-            "source",
-            "structure",
-            "contract-test-node",
-            "structure",
-        ),),
-    )
-    candidate_normalization_case = ModulePackageContractCase(
-        case_id="structure-transform-normalize-csh-parent-span-candidates",
-        node_type_id=(
-            "structure_transform.normalize_csh_parent_span_candidates"
-        ),
-        binding_id=(
-            "structure_transform.normalize_csh_parent_span_candidates.direct"
-        ),
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(csh_source,),
-        workflow_edges=(WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "contract-test-node",
-            "structure_candidates",
-        ),),
-    )
     normalize_candidates_node = WorkflowNodeInstance(
         node_id="normalize-candidates",
-        node_type_id=(
-            "structure_transform.normalize_csh_parent_span_candidates"
-        ),
-        binding_id=(
-            "structure_transform.normalize_csh_parent_span_candidates.direct"
-        ),
+        node_type_id="structure_transform.normalize_csh_parent_span_candidates",
+        binding_id="structure_transform.normalize_csh_parent_span_candidates.direct",
         node_parameters={},
         binding_parameters={},
-    )
-    materialize_normalizations_case = ModulePackageContractCase(
-        case_id="structure-transform-materialize-candidate-normalizations",
-        node_type_id=(
-            "structure_transform.materialize_candidate_normalizations"
-        ),
-        binding_id=(
-            "structure_transform.materialize_candidate_normalizations.direct"
-        ),
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(csh_source, normalize_candidates_node),
-        workflow_edges=(
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "normalize-candidates",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "normalize-candidates",
-                "structure_candidates",
-                "contract-test-node",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "normalize-candidates",
-                "normalization_facts",
-                "contract-test-node",
-                "normalization_facts",
-            ),
-        ),
     )
     backbone_node = WorkflowNodeInstance(
         node_id="extract-backbone",
@@ -1001,134 +875,260 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
     )
-    bridge_case = ModulePackageContractCase(
-        case_id="structure-transform-backbone-to-structure",
-        node_type_id="structure_transform.backbone_to_structure",
-        binding_id="structure_transform.backbone_to_structure.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE, resolve_axis_node, backbone_node),
-        workflow_edges=(
-            WorkflowEdge(
-                "source",
-                "structure",
-                "resolve-axis",
-                "structure",
-            ),
-            WorkflowEdge(
-                "resolve-axis",
-                "residue_axis",
-                "extract-backbone",
-                "residue_axis",
-            ),
-            WorkflowEdge(
-                "extract-backbone",
-                "backbone",
-                "contract-test-node",
-                "backbone",
-            ),
+    case = {
+        "structure-transform-select_chains": lambda: ModulePackageContractCase(
+            case_id="structure-transform-select_chains",
+            node_type_id="structure_transform.select_chains",
+            binding_id="structure_transform.select_chains.direct",
+            node_parameters={"chain_ids": ["A"]},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE,),
+            workflow_edges=(_SOURCE_EDGE,),
         ),
-    )
-    residue_axis_case = ModulePackageContractCase(
-        case_id="structure-transform-resolve-residue-axis",
-        node_type_id="structure_transform.resolve_residue_axis",
-        binding_id="structure_transform.resolve_residue_axis.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE,),
-        workflow_edges=(WorkflowEdge(
-            "source",
-            "structure",
-            "contract-test-node",
-            "structure",
-        ),),
-    )
-    candidate_residue_axis_case = ModulePackageContractCase(
-        case_id="structure-transform-resolve-candidate-residue-axes",
-        node_type_id="structure_transform.resolve_candidate_residue_axes",
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE,),
-        workflow_edges=(WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "contract-test-node",
-            "structure_candidates",
-        ),),
-    )
-    project_single_axis_case = ModulePackageContractCase(
-        case_id="structure-transform-project-single-residue-axis",
-        node_type_id="structure_transform.project_single_residue_axis",
-        binding_id="structure_transform.project_single_residue_axis.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
-        workflow_edges=(
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "resolve-candidate-axes",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "contract-test-node",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "resolve-candidate-axes",
-                "residue_axes",
-                "contract-test-node",
-                "residue_axes",
-            ),
-        ),
-    )
-    report = verify_module_package_contract(
-        MODULE_PACKAGE,
-        execution_cases=(
-            selection_case,
-            *axis_projection_cases,
-            candidate_selection_case,
-            candidate_extraction_case,
-            normalization_case,
-            candidate_normalization_case,
-            materialize_normalizations_case,
-            bridge_case,
-            residue_axis_case,
-            candidate_residue_axis_case,
-            project_single_axis_case,
-        ),
-        port_cases=(
-            ModulePackagePortCase(
-                "structure_transform.backbone_structure",
-                _BACKBONE,
-                (
-                    ProteinStructure(
-                        pdb_string=_BACKBONE.pdb_string.replace(
-                            "TER\n",
-                            (
-                                "ATOM      5  CB  ALA A   1       5.000"
-                                "   2.000   3.000  1.00 20.00"
-                                "           C  \nTER\n"
-                            ),
-                        ),
-                    ),
-                    ProteinStructure("END\n"),
-                    _MID_RESIDUE_BREAK,
-                    _MISSING_CHAIN_BREAK,
+        "structure-transform-extract_backbone": lambda: ModulePackageContractCase(
+            case_id="structure-transform-extract_backbone",
+            node_type_id="structure_transform.extract_backbone",
+            binding_id="structure_transform.extract_backbone.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE, resolve_axis_node),
+            workflow_edges=(
+                WorkflowEdge("source", "structure", "resolve-axis", "structure"),
+                WorkflowEdge(
+                    "resolve-axis", "residue_axis", "contract-test-node", "residue_axis"
                 ),
             ),
-            ModulePackagePortCase(
-                "structure_transform.modified_residue_normalizations",
-                ModifiedResidueNormalizationCollection(entries=[
+        ),
+        "structure-transform-extract_sequence": lambda: ModulePackageContractCase(
+            case_id="structure-transform-extract_sequence",
+            node_type_id="structure_transform.extract_sequence",
+            binding_id="structure_transform.extract_sequence.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE, resolve_axis_node),
+            workflow_edges=(
+                WorkflowEdge("source", "structure", "resolve-axis", "structure"),
+                WorkflowEdge(
+                    "resolve-axis", "residue_axis", "contract-test-node", "residue_axis"
+                ),
+            ),
+        ),
+        "structure-transform-select_candidate_chains": lambda: ModulePackageContractCase(
+            case_id="structure-transform-select_candidate_chains",
+            node_type_id="structure_transform.select_candidate_chains",
+            binding_id="structure_transform.select_candidate_chains.direct",
+            node_parameters={"chain_ids": ["A"]},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+            ),
+        ),
+        "structure-transform-extract_sequence_candidates": lambda: ModulePackageContractCase(
+            case_id="structure-transform-extract_sequence_candidates",
+            node_type_id="structure_transform.extract_sequence_candidates",
+            binding_id="structure_transform.extract_sequence_candidates.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "resolve-candidate-axes",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "resolve-candidate-axes",
+                    "residue_axes",
+                    "contract-test-node",
+                    "residue_axes",
+                ),
+            ),
+        ),
+        "structure-transform-normalize-csh-parent-span": lambda: ModulePackageContractCase(
+            case_id="structure-transform-normalize-csh-parent-span",
+            node_type_id="structure_transform.normalize_csh_parent_span",
+            binding_id="structure_transform.normalize_csh_parent_span.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(csh_source,),
+            workflow_edges=(
+                WorkflowEdge("source", "structure", "contract-test-node", "structure"),
+            ),
+        ),
+        "structure-transform-normalize-csh-parent-span-candidates": lambda: ModulePackageContractCase(
+            case_id="structure-transform-normalize-csh-parent-span-candidates",
+            node_type_id="structure_transform.normalize_csh_parent_span_candidates",
+            binding_id="structure_transform.normalize_csh_parent_span_candidates.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(csh_source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+            ),
+        ),
+        "structure-transform-materialize-candidate-normalizations": lambda: ModulePackageContractCase(
+            case_id="structure-transform-materialize-candidate-normalizations",
+            node_type_id="structure_transform.materialize_candidate_normalizations",
+            binding_id="structure_transform.materialize_candidate_normalizations.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(csh_source, normalize_candidates_node),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "normalize-candidates",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "normalize-candidates",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "normalize-candidates",
+                    "normalization_facts",
+                    "contract-test-node",
+                    "normalization_facts",
+                ),
+            ),
+        ),
+        "structure-transform-backbone-to-structure": lambda: ModulePackageContractCase(
+            case_id="structure-transform-backbone-to-structure",
+            node_type_id="structure_transform.backbone_to_structure",
+            binding_id="structure_transform.backbone_to_structure.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE, resolve_axis_node, backbone_node),
+            workflow_edges=(
+                WorkflowEdge("source", "structure", "resolve-axis", "structure"),
+                WorkflowEdge(
+                    "resolve-axis", "residue_axis", "extract-backbone", "residue_axis"
+                ),
+                WorkflowEdge(
+                    "extract-backbone", "backbone", "contract-test-node", "backbone"
+                ),
+            ),
+        ),
+        "structure-transform-resolve-residue-axis": lambda: ModulePackageContractCase(
+            case_id="structure-transform-resolve-residue-axis",
+            node_type_id="structure_transform.resolve_residue_axis",
+            binding_id="structure_transform.resolve_residue_axis.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE,),
+            workflow_edges=(
+                WorkflowEdge("source", "structure", "contract-test-node", "structure"),
+            ),
+        ),
+        "structure-transform-resolve-candidate-residue-axes": lambda: ModulePackageContractCase(
+            case_id="structure-transform-resolve-candidate-residue-axes",
+            node_type_id="structure_transform.resolve_candidate_residue_axes",
+            binding_id="structure_transform.resolve_candidate_residue_axes.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+            ),
+        ),
+        "structure-transform-project-single-residue-axis": lambda: ModulePackageContractCase(
+            case_id="structure-transform-project-single-residue-axis",
+            node_type_id="structure_transform.project_single_residue_axis",
+            binding_id="structure_transform.project_single_residue_axis.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "resolve-candidate-axes",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "resolve-candidate-axes",
+                    "residue_axes",
+                    "contract-test-node",
+                    "residue_axes",
+                ),
+            ),
+        ),
+    }[case_id]()
+    result = execute_module_package_case(
+        MODULE_PACKAGE,
+        case,
+        supporting_registrations=(SOURCE_PACKAGE,),
+        work_root=tmp_path,
+    )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+
+
+@pytest.mark.parametrize("port_index", [0, 1, 2, 3, 4, 5])
+def test_all_nodes_pass_the_shared_contract_test_kit_ports(port_index: int) -> None:
+    port_case = (
+        ModulePackagePortCase(
+            "structure_transform.backbone_structure",
+            _BACKBONE,
+            (
+                ProteinStructure(
+                    pdb_string=_BACKBONE.pdb_string.replace(
+                        "TER\n",
+                        "ATOM      5  CB  ALA A   1       5.000   2.000   3.000  1.00 20.00           C  \nTER\n",
+                    )
+                ),
+                ProteinStructure("END\n"),
+                _MID_RESIDUE_BREAK,
+                _MISSING_CHAIN_BREAK,
+            ),
+        ),
+        ModulePackagePortCase(
+            "structure_transform.modified_residue_normalizations",
+            ModifiedResidueNormalizationCollection(
+                entries=[
                     ModifiedResidueNormalization(
                         component_id="CSH",
                         observed_residue_id="A:66",
@@ -1152,95 +1152,61 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                             ),
                         ),
                     )
-                ]),
-                (object(), ModifiedResidueNormalizationCollection()),
+                ]
             ),
-            ModulePackagePortCase(
-                "structure_transform.candidate_normalization_facts",
-                _NORMALIZATION_FACTS,
-                (object(),),
+            (object(), ModifiedResidueNormalizationCollection()),
+        ),
+        ModulePackagePortCase(
+            "structure_transform.candidate_normalization_facts",
+            _NORMALIZATION_FACTS,
+            (object(),),
+        ),
+        ModulePackagePortCase(
+            "structure_transform.resolved_residue_axis",
+            _RESOLVED_AXIS,
+            (
+                object(),
+                replace(_RESOLVED_AXIS, ca_coordinate_mask=(False,)),
+                replace(
+                    _RESOLVED_AXIS, segments=(StructureAxisSegment(0, "B", ("A:1",)),)
+                ),
+                replace(_RESOLVED_AXIS, component_dispositions=()),
             ),
-            ModulePackagePortCase(
-                "structure_transform.resolved_residue_axis",
-                _RESOLVED_AXIS,
-                (
-                    object(),
-                    replace(
-                        _RESOLVED_AXIS,
-                        ca_coordinate_mask=(False,),
-                    ),
-                    replace(
-                        _RESOLVED_AXIS,
-                        segments=(
-                            StructureAxisSegment(0, "B", ("A:1",)),
-                        ),
-                    ),
-                    replace(
-                        _RESOLVED_AXIS,
-                        component_dispositions=(),
-                    ),
+        ),
+        ModulePackagePortCase(
+            "structure_transform.candidate_modified_residue_normalization_associations",
+            _CANDIDATE_NORMALIZATIONS,
+            (
+                object(),
+                CandidateModifiedResidueNormalizationAssociations(),
+                CandidateModifiedResidueNormalizationAssociations(
+                    entries=(
+                        _CANDIDATE_NORMALIZATIONS.entries[0],
+                        _CANDIDATE_NORMALIZATIONS.entries[0],
+                    )
                 ),
             ),
-            ModulePackagePortCase(
-                (
-                    "structure_transform."
-                    "candidate_modified_residue_normalization_associations"
-                ),
-                _CANDIDATE_NORMALIZATIONS,
-                (
-                    object(),
-                    CandidateModifiedResidueNormalizationAssociations(),
-                    CandidateModifiedResidueNormalizationAssociations(
-                        entries=(
-                            _CANDIDATE_NORMALIZATIONS.entries[0],
-                            _CANDIDATE_NORMALIZATIONS.entries[0],
-                        )
-                    ),
-                ),
-            ),
-            ModulePackagePortCase(
-                (
-                    "structure_transform."
-                    "candidate_resolved_residue_axis_associations"
-                ),
-                _CANDIDATE_RESOLVED_AXES,
-                (
-                    object(),
-                    CandidateResolvedResidueAxisAssociations(),
-                    CandidateResolvedResidueAxisAssociations(
-                        entries=(
-                            replace(
-                                _CANDIDATE_RESOLVED_AXES.entries[0],
-                                subject=replace(
-                                    _RESOLVED_AXIS_SUBJECT,
-                                    content_digest=(
-                                        "sha256:" + ("f" * 64)
-                                    ),
-                                ),
+        ),
+        ModulePackagePortCase(
+            "structure_transform.candidate_resolved_residue_axis_associations",
+            _CANDIDATE_RESOLVED_AXES,
+            (
+                object(),
+                CandidateResolvedResidueAxisAssociations(),
+                CandidateResolvedResidueAxisAssociations(
+                    entries=(
+                        replace(
+                            _CANDIDATE_RESOLVED_AXES.entries[0],
+                            subject=replace(
+                                _RESOLVED_AXIS_SUBJECT,
+                                content_digest="sha256:" + "f" * 64,
                             ),
-                        )
-                    ),
+                        ),
+                    )
                 ),
             ),
         ),
-        supporting_registrations=(SOURCE_PACKAGE,),
-        work_root=tmp_path,
-    )
-
-    assert [case.status for case in report.case_reports] == [
-        "succeeded"
-    ] * 12
-    assert report.verified_port_types == (
-        "structure_transform.backbone_structure",
-        (
-            "structure_transform."
-            "candidate_modified_residue_normalization_associations"
-        ),
-        "structure_transform.candidate_normalization_facts",
-        (
-            "structure_transform."
-            "candidate_resolved_residue_axis_associations"
-        ),
-        "structure_transform.modified_residue_normalizations",
-        "structure_transform.resolved_residue_axis",
+    )[port_index]
+    verify_module_package_port(
+        MODULE_PACKAGE, port_case, supporting_registrations=(SOURCE_PACKAGE,)
     )

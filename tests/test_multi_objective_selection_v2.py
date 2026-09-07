@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
+from datatypes.candidate import CandidateCollection
+
 from tests.support.ledger import public_run_events
 
 from dataclasses import replace
@@ -16,14 +20,10 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.catalog.model import (
-    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.canonical import canonical_json_bytes
-from tests.support.contract_test_kit import (
-    ModulePackageContractCase,
-    verify_module_package_contract,
-)
+from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
@@ -40,7 +40,6 @@ from core.scoring.selection import (
     SelectionObjective,
 )
 from core.project.manager import ProjectManager
-from core.parameters.contract import admit_declarations
 from tests.support.application import create_application
 from protein_workbench_public.workflow_codec import encode_workflow_document
 import core.execution.runtime as run_runtime
@@ -68,8 +67,8 @@ from tests.fixtures.multi_objective_selection_sources.package import (
     PAIRED_PARTITION,
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
-from tests.fixtures.public_v2 import (
-    retrieve_typed_output_values,
+from tests.support.inprocess_runs import (
+    run_committed_workflow,
     wait_for_testclient_run_terminal,
 )
 from tests.fixtures.scientific_operation import build_operation, operation_call
@@ -1107,7 +1106,20 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         ))
 
 
-def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("operation", "expected_count"),
+    [
+        ("filter", 3),
+        ("sort", 4),
+        ("top_k", 2),
+        ("weighted_rank", 4),
+        ("pareto", 2),
+        ("diversity", 3),
+    ],
+)
+def test_all_three_nodes_pass_contract_test_kit(
+    tmp_path: Path, operation: str, expected_count: int
+) -> None:
     catalog = _catalog()
     single_objective_parameters = {
         "filter": {
@@ -1129,55 +1141,33 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
             "tie_policy": "candidate_id_ascending",
         },
     }
-    cases = tuple(
-        ModulePackageContractCase(
-            case_id=f"multi-objective-{operation}",
-            node_type_id=f"selection.{operation}",
-            binding_id=f"selection.{operation}.direct",
-            node_parameters=(
-                _selection(operation).node_parameters
-                if operation in OPERATIONS
-                else single_objective_parameters[operation]
-            ),
-            binding_parameters={},
-            environment_values={},
-            workflow_nodes=(_source(), _scorer()),
-            workflow_edges=(
-                *_scorer_edges(),
-                *_selection_edges("contract-test-node"),
-            ),
-            selection_objectives=(
-                ()
-                if operation == "filter"
-                else _objectives(catalog)
+    case = ModulePackageContractCase(
+        case_id=f"multi-objective-{operation}",
+        node_type_id=f"selection.{operation}",
+        binding_id=f"selection.{operation}.direct",
+        node_parameters=(
+            _selection(operation).node_parameters
+            if operation in OPERATIONS
+            else single_objective_parameters[operation]
+        ),
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(_source(), _scorer()),
+        workflow_edges=(*_scorer_edges(), *_selection_edges("contract-test-node")),
+        selection_objectives=(
+            ()
+            if operation == "filter"
+            else (
+                _objectives(catalog)
                 if operation in OPERATIONS
                 else (_objectives(catalog)[0],)
-            ),
-            observation_selectors=(
-                _selectors(catalog) if operation == "filter" else ()
-            ),
-            expected_candidate_counts={
-                "candidates": {
-                    "filter": 3,
-                    "sort": 4,
-                    "top_k": 2,
-                    "weighted_rank": 4,
-                    "pareto": 2,
-                    "diversity": 3,
-                }[operation],
-            },
-        )
-        for operation in (
-            "filter",
-            "sort",
-            "top_k",
-            *OPERATIONS,
-        )
+            )
+        ),
+        observation_selectors=_selectors(catalog) if operation == "filter" else (),
     )
-
-    report = verify_module_package_contract(
+    result = execute_module_package_case(
         MODULE_PACKAGE,
-        execution_cases=cases,
+        case,
         supporting_registrations=(
             STRUCTURE_COMPARISON_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
@@ -1185,44 +1175,14 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
         ),
         work_root=tmp_path,
     )
-
-    assert all(case.status == "succeeded" for case in report.case_reports)
-
-
-def _commit_public_workflow(
-    client: TestClient,
-    project_id: str,
-    workflow: WorkflowDocument,
-) -> dict[str, Any]:
-    committed = client.post(
-        f"/api/v2/projects/{project_id}/workflow:commit",
-        json={
-            "workflow": encode_workflow_document(workflow),
-        },
-    )
-    assert committed.status_code == 200
-    return committed.json()
-
-
-def _run_public_workflow(
-    client: TestClient,
-    project_id: str,
-    *,
-    workflow_commit_id: str,
-    request_id: str,
-) -> dict[str, Any]:
-    started = client.post(
-        f"/api/v2/projects/{project_id}/runs",
-        json={
-            "workflow_commit_id": workflow_commit_id,
-            "client_request_id": request_id,
-        },
-    )
-    assert started.status_code == 202
-    return wait_for_testclient_run_terminal(
-        client,
-        project_id,
-        started.json()["run_id"],
+    (candidates,) = result.outputs["candidates"]
+    assert isinstance(candidates, CandidateCollection)
+    assert len(candidates.items) == expected_count
+    assert all(
+        (
+            candidate.candidate_id.startswith("candidate-")
+            for candidate in candidates.items
+        )
     )
 
 
@@ -1316,23 +1276,19 @@ def test_result_identity_ignores_node_renames(
     )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
-        first_committed = _commit_public_workflow(
-            client,
-            project_id,
-            original,
+        first_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(original)
         )
-        first = _run_public_workflow(
+        first = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=first_committed["workflow_commit_id"],
             request_id="identity-before-rename",
         )
-        second_committed = _commit_public_workflow(
-            client,
-            project_id,
-            renamed,
+        second_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(renamed)
         )
-        second = _run_public_workflow(
+        second = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=second_committed["workflow_commit_id"],
@@ -1403,23 +1359,19 @@ def test_selection_result_identity_ignores_objective_label_renames(
     )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
-        first_committed = _commit_public_workflow(
-            client,
-            project_id,
-            original,
+        first_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(original)
         )
-        first = _run_public_workflow(
+        first = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=first_committed["workflow_commit_id"],
             request_id="objective-label-before-rename",
         )
-        second_committed = _commit_public_workflow(
-            client,
-            project_id,
-            renamed,
+        second_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(renamed)
         )
-        second = _run_public_workflow(
+        second = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=second_committed["workflow_commit_id"],
@@ -1479,23 +1431,19 @@ def test_consumed_objective_weight_invalidates_only_the_selection_result(
     )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
-        first_committed = _commit_public_workflow(
-            client,
-            project_id,
-            original,
+        first_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(original)
         )
-        first = _run_public_workflow(
+        first = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=first_committed["workflow_commit_id"],
             request_id="objective-weight-before",
         )
-        second_committed = _commit_public_workflow(
-            client,
-            project_id,
-            reweighted,
+        second_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(reweighted)
         )
-        second = _run_public_workflow(
+        second = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=second_committed["workflow_commit_id"],
@@ -1548,23 +1496,19 @@ def test_upstream_result_identity_ignores_unrelated_downstream_utility(
     )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
-        first_committed = _commit_public_workflow(
-            client,
-            project_id,
-            source_only,
+        first_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(source_only)
         )
-        first = _run_public_workflow(
+        first = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=first_committed["workflow_commit_id"],
             request_id="identity-without-downstream-utility",
         )
-        second_committed = _commit_public_workflow(
-            client,
-            project_id,
-            with_selection,
+        second_committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(with_selection)
         )
-        second = _run_public_workflow(
+        second = run_committed_workflow(
             client,
             project_id,
             workflow_commit_id=second_committed["workflow_commit_id"],
@@ -1629,10 +1573,8 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
     )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
-        committed = _commit_public_workflow(
-            client,
-            project_id,
-            workflow,
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
 
         def forbid_execution_lookup(*_args: Any, **_kwargs: Any) -> Any:
@@ -1654,18 +1596,15 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
                 forbid_execution_lookup,
             )
 
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed["workflow_commit_id"],
-                "client_request_id": "resolved-selection-plan",
-            },
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="resolved-selection-plan",
         )
-        assert started.status_code == 202
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
-            started.json()["run_id"],
+            started["run_id"],
         )
 
     assert projection["status"] == "succeeded"
@@ -1698,29 +1637,20 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
     with TestClient(
         create_application(frozen_catalog_override=catalog)
     ) as client:
-        committed = _commit_public_workflow(
-            client,
-            project_id,
-            workflow,
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
 
         projections = []
         for request_id in ("multi-objective-first", "multi-objective-replay"):
-            started = client.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": committed[
-                        "workflow_commit_id"
-                    ],
-                    "client_request_id": request_id,
-                },
+            started = PublicRunClient(client).start_run(
+                project_id, committed["workflow_commit_id"], request_id=request_id
             )
-            assert started.status_code == 202
             projections.append(
                 wait_for_testclient_run_terminal(
                     client,
                     project_id,
-                    started.json()["run_id"],
+                    started["run_id"],
                 )
             )
         selected_values = []
@@ -1732,11 +1662,8 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
                 and output["output_port"] == "candidates"
             )
             selected_values.append(
-                retrieve_typed_output_values(
-                    client,
-                    project_id,
-                    projection["run_id"],
-                    selected_output,
+                PublicRunClient(client).typed_output_values(
+                    project_id, projection["run_id"], selected_output
                 )[0]
             )
 
@@ -1792,16 +1719,15 @@ def test_selection_conclusion_and_run_terminal_publish_as_one_closure(
     with TestClient(
         create_application(frozen_catalog_override=catalog)
     ) as client:
-        committed = _commit_public_workflow(client, project_id, workflow)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed["workflow_commit_id"],
-                "client_request_id": "atomic-selection-closure",
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
-        assert started.status_code == 202
-        run_id = started.json()["run_id"]
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="atomic-selection-closure",
+        )
+        run_id = started["run_id"]
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
@@ -1871,16 +1797,15 @@ def test_selection_derivation_failure_closes_selection_and_run_together(
     with TestClient(
         create_application(frozen_catalog_override=catalog)
     ) as client:
-        committed = _commit_public_workflow(client, project_id, workflow)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed["workflow_commit_id"],
-                "client_request_id": "failed-selection-closure",
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
-        assert started.status_code == 202
-        run_id = started.json()["run_id"]
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="failed-selection-closure",
+        )
+        run_id = started["run_id"]
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,
@@ -1934,18 +1859,17 @@ def test_run_closure_failure_publishes_neither_selection_nor_run_terminal(
         ledger_transaction_store=_FailRunClosureStore(),
     )
     with TestClient(app) as client:
-        committed = _commit_public_workflow(client, project_id, workflow)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed["workflow_commit_id"],
-                "client_request_id": "unavailable-selection-closure",
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
-        assert started.status_code == 202
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="unavailable-selection-closure",
+        )
         app.state.run_runtime.shutdown()
         unavailable = client.get(
-            f"/api/v2/projects/{project_id}/runs/{started.json()['run_id']}"
+            f"/api/v2/projects/{project_id}/runs/{started['run_id']}"
         )
 
     assert unavailable.status_code == 503

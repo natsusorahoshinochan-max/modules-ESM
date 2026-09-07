@@ -395,6 +395,11 @@ Open、Preview 和 execution 的 provider-free 来源解析复用同一值合同
 来源 ProteinSequence 必须完成 admission 后才能应用下游 edits。上游 Node 参数使用当前 Catalog 的
 参数合同，不编译整个 Draft 来执行 Preview，也不建立新的通用 evaluator。
 
+Preview 对以下来源科学错误返回 HTTP 400 structured error：上游 assembly 的轨道 Layout
+不一致，以及 FASTA 来源包含非法序列字符。下游 edits 不得覆盖来源错误并使其通过 admission。
+错误须定位对应来源契约；Apply 不写入 Document，实际 Run 在对应 source / assemble Node 失败。
+该分类不扩展到 Provider 操作故障，也不改变合法来源上不可求值 baseline 的处理。
+
 Open/Preview 的 `baseline_diagnostics` 单独说明已保存 document 对当前合法来源无法求值的原因。
 此时 Open 保留可编辑 document，Preview 可独立计算候选；候选有效即可 Apply，且 `changes` 为空，
 UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误仍

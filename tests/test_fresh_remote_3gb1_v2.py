@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from core.catalog.builder import build_frozen_catalog
@@ -33,7 +35,7 @@ from tests.acceptance.retained_evidence import (
 from tests.acceptance.biohub_environment import (
     biohub_esm3_esmfold2_environment,
 )
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.runtime_results import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
     apply_prompt_document,
     install_prompt_authoring_workflow,
@@ -212,12 +214,7 @@ def test_local_canonical_fixture_commits_with_materialized_ownership(
             uploaded.json()["project_input_ref"],
             workflow,
         )
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"workflow": workflow},
-        )
-
-    assert committed.status_code == 200, committed.json()
+        committed = PublicRunClient(client).commit_workflow(project_id, workflow)
 
 
 def _environment(route: str) -> dict[str, dict[str, Any]]:

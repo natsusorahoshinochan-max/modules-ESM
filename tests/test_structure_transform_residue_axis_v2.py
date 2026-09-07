@@ -239,8 +239,22 @@ def test_2emo_normalization_repairs_parent_span_topology_and_masks() -> None:
     assert normalized != raw
     assert normalized.pdb_string.splitlines().count("TER") == 1
     assert axis.structure == normalized
+    normalized_lines = normalized.pdb_string.splitlines()
+    last_a64 = max(
+        index
+        for index, line in enumerate(normalized_lines)
+        if line.startswith("ATOM  ") and line[21] == "A" and line[22:26].strip() == "64"
+    )
+    first_a65 = min(
+        index
+        for index, line in enumerate(normalized_lines)
+        if line.startswith("ATOM  ") and line[21] == "A" and line[22:26].strip() == "65"
+    )
+    assert "TER" not in normalized_lines[last_a64 + 1 : first_a65]
+
     assert axis.layout.length == 224
     assert len(axis.segments) == 1
+    assert axis.segments[0].chain_id == "A"
     assert axis.segments[0].residue_ids == axis.layout.residue_ids
     index = axis.layout.residue_ids.index("A:64")
     assert axis.layout.residue_ids[index : index + 5] == (

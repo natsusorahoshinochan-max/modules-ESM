@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.public_runs import PublicRunClient
+
 from protein_workbench_public.bootstrap import module_registrations
 
 from dataclasses import replace
@@ -18,10 +20,7 @@ from core.catalog.builder import (
 from core.operation import (
     OperationCall,
 )
-from tests.support.contract_test_kit import (
-    ModulePackageContractCase,
-    verify_module_package_contract,
-)
+from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
@@ -47,10 +46,8 @@ from datatypes.observation import (
 from datatypes.sequence import ProteinSequence
 from modules.collection_ops.package import MODULE_PACKAGE
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
-from tests.fixtures.public_v2 import (
-    decode_service_typed_output_value,
-    wait_for_testclient_run_terminal,
-)
+from tests.support.runtime_results import decode_service_typed_output_value
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     build_operation,
@@ -626,8 +623,40 @@ def test_score_fixture_separates_candidate_admission_from_score_production(
     )
 
 
+@pytest.mark.parametrize(
+    ("case_id", "candidate_counts", "observation_counts"),
+    [
+        ("collection-ops-concat-candidates", {"candidates": 2}, {}),
+        ("collection-ops-merge-scores", {}, {"scores": 2}),
+        ("collection-ops-concat-relations", {}, {}),
+        ("collection-ops-relate-by-parent", {}, {}),
+        ("collection-ops-relate-to-single-reference", {}, {}),
+        ("collection-ops-compose-relations", {}, {}),
+        ("collection-ops-invert-relation", {}, {}),
+        ("collection-ops-join-relation-subjects", {}, {}),
+        ("collection-ops-take-candidates", {"candidates": 1}, {}),
+        ("collection-ops-select-related-subjects", {"candidates": 2}, {}),
+        ("collection-ops-intersect-candidates", {"candidates": 1}, {}),
+    ],
+    ids=[
+        "collection-ops-concat-candidates",
+        "collection-ops-merge-scores",
+        "collection-ops-concat-relations",
+        "collection-ops-relate-by-parent",
+        "collection-ops-relate-to-single-reference",
+        "collection-ops-compose-relations",
+        "collection-ops-invert-relation",
+        "collection-ops-join-relation-subjects",
+        "collection-ops-take-candidates",
+        "collection-ops-select-related-subjects",
+        "collection-ops-intersect-candidates",
+    ],
+)
 def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     tmp_path: Path,
+    case_id: str,
+    candidate_counts: dict[str, int],
+    observation_counts: dict[str, int],
 ) -> None:
     from tests.fixtures.collection_ops_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -638,147 +667,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     scorer_a = _scorer("a", "a")
     scorer_b = _scorer("b", "b")
     lineage_source = _lineage_source()
-    candidate_case = ModulePackageContractCase(
-        case_id="collection-ops-concat-candidates",
-        node_type_id="collection_ops.concat_candidates",
-        binding_id="collection_ops.concat_candidates.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(source_a, source_b),
-        workflow_edges=(
-            WorkflowEdge(
-                "source-a",
-                "candidates",
-                "contract-test-node",
-                "candidates_a",
-            ),
-            WorkflowEdge(
-                "source-b",
-                "candidates",
-                "contract-test-node",
-                "candidates_b",
-            ),
-        ),
-        expected_candidate_counts={"candidates": 2},
-    )
-    score_case = ModulePackageContractCase(
-        case_id="collection-ops-merge-scores",
-        node_type_id="collection_ops.merge_scores",
-        binding_id="collection_ops.merge_scores.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(source_a, source_b, scorer_a, scorer_b),
-        workflow_edges=(
-            WorkflowEdge(
-                "source-a",
-                "candidates",
-                "scorer-a",
-                "candidates",
-            ),
-            WorkflowEdge(
-                "source-b",
-                "candidates",
-                "scorer-b",
-                "candidates",
-            ),
-            WorkflowEdge(
-                "scorer-a",
-                "scores",
-                "contract-test-node",
-                "scores_a",
-            ),
-            WorkflowEdge(
-                "scorer-b",
-                "scores",
-                "contract-test-node",
-                "scores_b",
-            ),
-        ),
-        expected_observation_counts={"scores": 2},
-    )
-    take_case = ModulePackageContractCase(
-        case_id="collection-ops-take-candidates",
-        node_type_id="collection_ops.take_candidates",
-        binding_id="collection_ops.take_candidates.direct",
-        node_parameters={"k": 1},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(source_a,),
-        workflow_edges=(
-            WorkflowEdge(
-                "source-a",
-                "candidates",
-                "contract-test-node",
-                "candidates",
-            ),
-        ),
-        expected_candidate_counts={"candidates": 1},
-    )
-    concat_relations_case = ModulePackageContractCase(
-        case_id="collection-ops-concat-relations",
-        node_type_id="collection_ops.concat_relations",
-        binding_id="collection_ops.concat_relations.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "relation_a",
-            ),
-        ),
-    )
-    relate_by_parent_case = ModulePackageContractCase(
-        case_id="collection-ops-relate-by-parent",
-        node_type_id="collection_ops.relate_by_parent",
-        binding_id="collection_ops.relate_by_parent.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "subjects",
-                "contract-test-node",
-                "subjects",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "parents",
-                "contract-test-node",
-                "parents",
-            ),
-        ),
-    )
-    relate_single_case = ModulePackageContractCase(
-        case_id="collection-ops-relate-to-single-reference",
-        node_type_id="collection_ops.relate_to_single_reference",
-        binding_id="collection_ops.relate_to_single_reference.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(source_a, source_b),
-        workflow_edges=(
-            WorkflowEdge(
-                "source-a",
-                "candidates",
-                "contract-test-node",
-                "subjects",
-            ),
-            WorkflowEdge(
-                "source-b",
-                "candidates",
-                "contract-test-node",
-                "references",
-            ),
-        ),
-    )
     parent_relation_node = WorkflowNodeInstance(
         node_id="parent-relation",
         node_type_id="collection_ops.relate_by_parent",
@@ -786,168 +674,229 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
     )
-    compose_case = ModulePackageContractCase(
-        case_id="collection-ops-compose-relations",
-        node_type_id="collection_ops.compose_relations",
-        binding_id="collection_ops.compose_relations.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source, parent_relation_node),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "subjects",
-                "parent-relation",
-                "subjects",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "parents",
-                "parent-relation",
-                "parents",
-            ),
-            WorkflowEdge(
-                "parent-relation",
-                "relation",
-                "contract-test-node",
-                "left_relation",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "right_relation",
+    case = {
+        "collection-ops-concat-candidates": lambda: ModulePackageContractCase(
+            case_id="collection-ops-concat-candidates",
+            node_type_id="collection_ops.concat_candidates",
+            binding_id="collection_ops.concat_candidates.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(source_a, source_b),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source-a", "candidates", "contract-test-node", "candidates_a"
+                ),
+                WorkflowEdge(
+                    "source-b", "candidates", "contract-test-node", "candidates_b"
+                ),
             ),
         ),
-    )
-    invert_case = ModulePackageContractCase(
-        case_id="collection-ops-invert-relation",
-        node_type_id="collection_ops.invert_relation",
-        binding_id="collection_ops.invert_relation.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "relation",
+        "collection-ops-merge-scores": lambda: ModulePackageContractCase(
+            case_id="collection-ops-merge-scores",
+            node_type_id="collection_ops.merge_scores",
+            binding_id="collection_ops.merge_scores.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(source_a, source_b, scorer_a, scorer_b),
+            workflow_edges=(
+                WorkflowEdge("source-a", "candidates", "scorer-a", "candidates"),
+                WorkflowEdge("source-b", "candidates", "scorer-b", "candidates"),
+                WorkflowEdge("scorer-a", "scores", "contract-test-node", "scores_a"),
+                WorkflowEdge("scorer-b", "scores", "contract-test-node", "scores_b"),
             ),
         ),
-    )
-    join_case = ModulePackageContractCase(
-        case_id="collection-ops-join-relation-subjects",
-        node_type_id="collection_ops.join_relation_subjects",
-        binding_id="collection_ops.join_relation_subjects.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "left_relation",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "right_relation",
+        "collection-ops-concat-relations": lambda: ModulePackageContractCase(
+            case_id="collection-ops-concat-relations",
+            node_type_id="collection_ops.concat_relations",
+            binding_id="collection_ops.concat_relations.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(lineage_source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "lineage-source",
+                    "parent_pairing",
+                    "contract-test-node",
+                    "relation_a",
+                ),
             ),
         ),
-    )
-    select_related_case = ModulePackageContractCase(
-        case_id="collection-ops-select-related-subjects",
-        node_type_id="collection_ops.select_related_subjects",
-        binding_id="collection_ops.select_related_subjects.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "parents",
-                "contract-test-node",
-                "subjects",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "references",
-                "contract-test-node",
-                "selected_references",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "relation",
+        "collection-ops-relate-by-parent": lambda: ModulePackageContractCase(
+            case_id="collection-ops-relate-by-parent",
+            node_type_id="collection_ops.relate_by_parent",
+            binding_id="collection_ops.relate_by_parent.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(lineage_source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "lineage-source", "subjects", "contract-test-node", "subjects"
+                ),
+                WorkflowEdge(
+                    "lineage-source", "parents", "contract-test-node", "parents"
+                ),
             ),
         ),
-        expected_candidate_counts={"candidates": 2},
-    )
-    intersect_case = ModulePackageContractCase(
-        case_id="collection-ops-intersect-candidates",
-        node_type_id="collection_ops.intersect_candidates",
-        binding_id="collection_ops.intersect_candidates.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(source_a,),
-        workflow_edges=(
-            WorkflowEdge(
-                "source-a",
-                "candidates",
-                "contract-test-node",
-                "candidates_a",
-            ),
-            WorkflowEdge(
-                "source-a",
-                "candidates",
-                "contract-test-node",
-                "candidates_b",
+        "collection-ops-relate-to-single-reference": lambda: ModulePackageContractCase(
+            case_id="collection-ops-relate-to-single-reference",
+            node_type_id="collection_ops.relate_to_single_reference",
+            binding_id="collection_ops.relate_to_single_reference.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(source_a, source_b),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source-a", "candidates", "contract-test-node", "subjects"
+                ),
+                WorkflowEdge(
+                    "source-b", "candidates", "contract-test-node", "references"
+                ),
             ),
         ),
-        expected_candidate_counts={"candidates": 1},
-    )
-
-    report = verify_module_package_contract(
+        "collection-ops-compose-relations": lambda: ModulePackageContractCase(
+            case_id="collection-ops-compose-relations",
+            node_type_id="collection_ops.compose_relations",
+            binding_id="collection_ops.compose_relations.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(lineage_source, parent_relation_node),
+            workflow_edges=(
+                WorkflowEdge(
+                    "lineage-source", "subjects", "parent-relation", "subjects"
+                ),
+                WorkflowEdge("lineage-source", "parents", "parent-relation", "parents"),
+                WorkflowEdge(
+                    "parent-relation", "relation", "contract-test-node", "left_relation"
+                ),
+                WorkflowEdge(
+                    "lineage-source",
+                    "parent_pairing",
+                    "contract-test-node",
+                    "right_relation",
+                ),
+            ),
+        ),
+        "collection-ops-invert-relation": lambda: ModulePackageContractCase(
+            case_id="collection-ops-invert-relation",
+            node_type_id="collection_ops.invert_relation",
+            binding_id="collection_ops.invert_relation.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(lineage_source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "lineage-source", "parent_pairing", "contract-test-node", "relation"
+                ),
+            ),
+        ),
+        "collection-ops-join-relation-subjects": lambda: ModulePackageContractCase(
+            case_id="collection-ops-join-relation-subjects",
+            node_type_id="collection_ops.join_relation_subjects",
+            binding_id="collection_ops.join_relation_subjects.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(lineage_source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "lineage-source",
+                    "parent_pairing",
+                    "contract-test-node",
+                    "left_relation",
+                ),
+                WorkflowEdge(
+                    "lineage-source",
+                    "parent_pairing",
+                    "contract-test-node",
+                    "right_relation",
+                ),
+            ),
+        ),
+        "collection-ops-take-candidates": lambda: ModulePackageContractCase(
+            case_id="collection-ops-take-candidates",
+            node_type_id="collection_ops.take_candidates",
+            binding_id="collection_ops.take_candidates.direct",
+            node_parameters={"k": 1},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(source_a,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source-a", "candidates", "contract-test-node", "candidates"
+                ),
+            ),
+        ),
+        "collection-ops-select-related-subjects": lambda: ModulePackageContractCase(
+            case_id="collection-ops-select-related-subjects",
+            node_type_id="collection_ops.select_related_subjects",
+            binding_id="collection_ops.select_related_subjects.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(lineage_source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "lineage-source", "parents", "contract-test-node", "subjects"
+                ),
+                WorkflowEdge(
+                    "lineage-source",
+                    "references",
+                    "contract-test-node",
+                    "selected_references",
+                ),
+                WorkflowEdge(
+                    "lineage-source", "parent_pairing", "contract-test-node", "relation"
+                ),
+            ),
+        ),
+        "collection-ops-intersect-candidates": lambda: ModulePackageContractCase(
+            case_id="collection-ops-intersect-candidates",
+            node_type_id="collection_ops.intersect_candidates",
+            binding_id="collection_ops.intersect_candidates.direct",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            workflow_nodes=(source_a,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source-a", "candidates", "contract-test-node", "candidates_a"
+                ),
+                WorkflowEdge(
+                    "source-a", "candidates", "contract-test-node", "candidates_b"
+                ),
+            ),
+        ),
+    }[case_id]()
+    result = execute_module_package_case(
         MODULE_PACKAGE,
-        execution_cases=(
-            candidate_case,
-            score_case,
-            concat_relations_case,
-            relate_by_parent_case,
-            relate_single_case,
-            compose_case,
-            invert_case,
-            join_case,
-            take_case,
-            select_related_case,
-            intersect_case,
-        ),
+        case,
         supporting_registrations=(SOURCE_PACKAGE,),
         work_root=tmp_path,
     )
-
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in candidate_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, CandidateCollection)
+        assert len(value.items) == expected_count
+        assert all(
+            (
+                candidate.candidate_id.startswith("candidate-")
+                for candidate in value.items
+            )
+        )
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
 
 
 @pytest.mark.parametrize(
@@ -1094,33 +1043,22 @@ def _run_public_collection_workflow(
             workflow_id=project_id,
             nodes=workflow_nodes,
             edges=workflow_edges)
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": encode_workflow_document(workflow),
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(workflow)
         )
-        assert committed.status_code == 200
         _assert_workflow_commit_owner(
             app,
             project_id,
             source_draft_revision=1)
 
         def run(request_id: str) -> dict[str, object]:
-            started = client.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": committed.json()[
-                        "workflow_commit_id"
-                    ],
-                    "client_request_id": request_id,
-                },
+            started = PublicRunClient(client).start_run(
+                project_id, committed["workflow_commit_id"], request_id=request_id
             )
-            assert started.status_code == 202
             return wait_for_testclient_run_terminal(
                 client,
                 project_id,
-                started.json()["run_id"],
+                started["run_id"],
             )
 
         first = run("collection-ops-first")
@@ -1410,28 +1348,19 @@ def _run_through_public_rest(
         public_workflow = replace(
             workflow,
             workflow_id=project_id)
-        committed = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": encode_workflow_document(public_workflow),
-            },
+        committed = PublicRunClient(client).commit_workflow(
+            project_id, encode_workflow_document(public_workflow)
         )
-        assert committed.status_code == 200
         _assert_workflow_commit_owner(
             app,
             project_id,
             source_draft_revision=1)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed.json()[
-                    "workflow_commit_id"
-                ],
-                "client_request_id": "collection-ops-failure-case",
-            },
+        started = PublicRunClient(client).start_run(
+            project_id,
+            committed["workflow_commit_id"],
+            request_id="collection-ops-failure-case",
         )
-        assert started.status_code == 202
-        run_id = started.json()["run_id"]
+        run_id = started["run_id"]
         projection = wait_for_testclient_run_terminal(
             client,
             project_id,

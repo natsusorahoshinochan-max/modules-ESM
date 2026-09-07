@@ -17,7 +17,7 @@ from tests.support.protocol import (
     validate_artifact_response,
     validate_response,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.support.inprocess_runs import wait_for_testclient_run_terminal
 
 
 VERSION = "2.1.0"

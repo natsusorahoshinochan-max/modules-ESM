@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from core.catalog.authoring import AuthoringCapabilityProjection
 
 from tests.support.ledger import public_run_events, public_run_projection
@@ -52,7 +54,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
@@ -615,7 +618,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,
@@ -4040,22 +4043,29 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
     ]
 
 
+@pytest.mark.parametrize(
+    ("case_id", "candidate_counts", "observation_counts"),
+    [
+        ("constraints", {}, {}),
+        ("random-fixed", {}, {}),
+        ("design", {"sequence_candidates": 15}, {}),
+        ("score", {}, {"scores": 1}),
+    ],
+    ids=["constraints", "random-fixed", "design", "score"],
+)
 def test_proteinmpnn_passes_the_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    candidate_counts: dict[str, int],
+    observation_counts: dict[str, int],
 ) -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
-    from modules.residue_data.package import (
-        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
-    )
-    from modules.protein_io.package import (
-        MODULE_PACKAGE as PROTEIN_IO_PACKAGE,
-    )
-    from modules.proteinmpnn.package import (
-        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
-    )
+    from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA_PACKAGE
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN_PACKAGE
     from tests.fixtures.proteinmpnn_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -4083,34 +4093,25 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     )
     design_axis_resolver = WorkflowNodeInstance(
         node_id="design-axis-resolver",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
     score_axis_resolver = WorkflowNodeInstance(
         node_id="score-axis-resolver",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
     design_provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, design_provider)
     constraints_axis_nodes, constraints_axis_edges = _axis_subgraph(
-        (("A", 2), ("B", 3)),
-        target_node_id="contract-test-node",
+        (("A", 2), ("B", 3)), target_node_id="contract-test-node"
     )
-    cases = (
-        ModulePackageContractCase(
+    case = {
+        "constraints": lambda: ModulePackageContractCase(
             case_id="constraints",
             node_type_id="proteinmpnn.constraints",
             binding_id="proteinmpnn.constraints.local",
@@ -4122,24 +4123,20 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                 "omit_amino_acids": ["C", "M"],
                 "tied_residue_groups": [["A:1", "B:1"]],
                 "bias_by_residue": [
-                    {
-                        "residue_id": "B:3",
-                        "amino_acid": "A",
-                        "bias": 1.5,
-                    }
+                    {"residue_id": "B:3", "amino_acid": "A", "bias": 1.5}
                 ],
             },
             binding_parameters={},
             environment_values={},
             project_inputs={
-                _RESOLVED_AXIS_INPUT_REF: _pdb_for_chains(
-                    (("A", 2), ("B", 3)),
-                ).encode("ascii"),
+                _RESOLVED_AXIS_INPUT_REF: _pdb_for_chains((("A", 2), ("B", 3))).encode(
+                    "ascii"
+                )
             },
             workflow_nodes=constraints_axis_nodes,
             workflow_edges=constraints_axis_edges,
         ),
-        ModulePackageContractCase(
+        "random-fixed": lambda: ModulePackageContractCase(
             case_id="random-fixed",
             node_type_id="proteinmpnn.random_fixed_positions",
             binding_id="proteinmpnn.random_fixed_positions.local",
@@ -4147,9 +4144,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             binding_parameters={},
             environment_values={},
             project_inputs={
-                _RESOLVED_AXIS_INPUT_REF: _pdb_for_chains(
-                    (("A", 2), ("B", 3)),
-                ).encode("ascii"),
+                _RESOLVED_AXIS_INPUT_REF: _pdb_for_chains((("A", 2), ("B", 3))).encode(
+                    "ascii"
+                )
             },
             workflow_nodes=_axis_subgraph(
                 (("A", 2), ("B", 3)),
@@ -4166,7 +4163,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                 resolve_node_id="random-fixed-resolve-axis",
             )[1],
         ),
-        ModulePackageContractCase(
+        "design": lambda: ModulePackageContractCase(
             case_id="design",
             node_type_id="proteinmpnn.design",
             binding_id="proteinmpnn.design.local",
@@ -4178,7 +4175,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             },
             binding_parameters={},
             environment_values={
-                    "provider_root": _controlled_proteinmpnn_provider_root(),
+                "provider_root": _controlled_proteinmpnn_provider_root()
             },
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
@@ -4188,12 +4185,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "contract-test-node",
                     "structure_candidates",
                 ),
-                WorkflowEdge(
-                    "source",
-                    "sequence",
-                    "contract-test-node",
-                    "sequence",
-                ),
+                WorkflowEdge("source", "sequence", "contract-test-node", "sequence"),
                 WorkflowEdge(
                     "source",
                     "structure_candidates",
@@ -4207,23 +4199,17 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "structure_residue_axes",
                 ),
             ),
-            expected_candidate_counts={"sequence_candidates": 15},
-            forbidden_public_fragments=("ctk-proteinmpnn-secret",),
         ),
-        ModulePackageContractCase(
+        "score": lambda: ModulePackageContractCase(
             case_id="score",
             node_type_id="proteinmpnn.score",
             binding_id="proteinmpnn.score.local",
             node_parameters={},
             binding_parameters={},
             environment_values={
-                    "provider_root": _controlled_proteinmpnn_provider_root(),
+                "provider_root": _controlled_proteinmpnn_provider_root()
             },
-            workflow_nodes=(
-                score_source,
-                sequence_source,
-                score_axis_resolver,
-            ),
+            workflow_nodes=(score_source, sequence_source, score_axis_resolver),
             workflow_edges=(
                 WorkflowEdge(
                     "score-source",
@@ -4256,39 +4242,73 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "structure_residue_axes",
                 ),
             ),
-            expected_observation_counts={"scores": 1},
-            forbidden_public_fragments=("ctk-proteinmpnn-secret",),
         ),
-    )
-
-    report = verify_module_package_contract(
+    }[case_id]()
+    result = execute_module_package_case(
         PROTEINMPNN_PACKAGE,
-        execution_cases=cases,
-        port_cases=(
-            ModulePackagePortCase(
-                type_id="proteinmpnn.constraints",
-                valid_value=ProteinMPNNConstraints(
-                    layout=ResidueLayout(["A:1"]),
-                    fixed_residue_ids=["A:1"],
-                ),
-                invalid_values=(object(),),
-            ),
-        ),
+        case,
         supporting_registrations=(
-            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
             PROTEIN_IO_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         ),
         work_root=tmp_path / "ctk",
     )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in candidate_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, CandidateCollection)
+        assert len(value.items) == expected_count
+        assert all(
+            (
+                candidate.candidate_id.startswith("candidate-")
+                for candidate in value.items
+            )
+        )
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
+    for fragment in ("ctk-proteinmpnn-secret",):
+        assert fragment not in json.dumps(result.public_evidence)
 
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+
+@pytest.mark.parametrize("port_index", [0])
+def test_proteinmpnn_passes_the_shared_contract_test_kit_ports(port_index: int) -> None:
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA_PACKAGE
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN_PACKAGE
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    port_case = (
+        ModulePackagePortCase(
+            type_id="proteinmpnn.constraints",
+            valid_value=ProteinMPNNConstraints(
+                layout=ResidueLayout(["A:1"]), fixed_residue_ids=["A:1"]
+            ),
+            invalid_values=(object(),),
+        ),
+    )[port_index]
+    verify_module_package_port(
+        PROTEINMPNN_PACKAGE,
+        port_case,
+        supporting_registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            RESIDUE_DATA_PACKAGE,
+            PROTEIN_IO_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        ),
+    )
 
 
 def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(

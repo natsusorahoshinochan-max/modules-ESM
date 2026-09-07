@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datatypes.observation import ScoreCollection
+from datatypes.observation import ScoreObservation
+
 from core.catalog.authoring import AuthoringCapabilityProjection
 
 from tests.support.ledger import public_run_events, public_run_projection
@@ -39,7 +42,8 @@ from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    verify_module_package_contract,
+    execute_module_package_case,
+    verify_module_package_port,
 )
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
@@ -1214,7 +1218,7 @@ def _decode_output(
     projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    from tests.fixtures.public_v2 import decode_service_typed_output_value
+    from tests.support.runtime_results import decode_service_typed_output_value
 
     return decode_service_typed_output_value(
         service,
@@ -1826,57 +1830,46 @@ def test_unready_dssp_rejects_before_invocation(
     assert failed_terminal["error"]["code"] == "readiness_rejected"
 
 
+@pytest.mark.parametrize(
+    ("case_id", "observation_counts"),
+    [
+        ("structure-annotation-dssp", {}),
+        ("structure-annotation-secondary", {}),
+        ("structure-annotation-sasa", {}),
+        ("structure-annotation-agreement", {"scores": 1}),
+        ("structure-annotation-expected-secondary-from-prompt", {}),
+    ],
+    ids=[
+        "structure-annotation-dssp",
+        "structure-annotation-secondary",
+        "structure-annotation-sasa",
+        "structure-annotation-agreement",
+        "structure-annotation-expected-secondary-from-prompt",
+    ],
+)
 def test_structure_annotation_passes_ctk_for_all_four_nodes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case_id: str,
+    observation_counts: dict[str, int],
 ) -> None:
     from tests.fixtures.structure_annotation_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    dssp_output = """\
-data_fixture
-loop_
-_atom_site.label_asym_id
-_atom_site.label_seq_id
-_atom_site.auth_asym_id
-_atom_site.auth_seq_id
-_atom_site.pdbx_PDB_ins_code
-A 1 A 1 ?
-A 2 A 2 ?
-#
-loop_
-_dssp_struct_summary.entry_id
-_dssp_struct_summary.label_asym_id
-_dssp_struct_summary.label_seq_id
-_dssp_struct_summary.label_comp_id
-_dssp_struct_summary.secondary_structure
-_dssp_struct_summary.accessibility
-_dssp_struct_summary.x_ca
-_dssp_struct_summary.y_ca
-_dssp_struct_summary.z_ca
-fixture A 1 GLY H 10.0 1.0 2.0 3.0
-fixture A 2 ALA . 20.0 2.0 3.0 4.0
-#
-"""
+    dssp_output = "data_fixture\nloop_\n_atom_site.label_asym_id\n_atom_site.label_seq_id\n_atom_site.auth_asym_id\n_atom_site.auth_seq_id\n_atom_site.pdbx_PDB_ins_code\nA 1 A 1 ?\nA 2 A 2 ?\n#\nloop_\n_dssp_struct_summary.entry_id\n_dssp_struct_summary.label_asym_id\n_dssp_struct_summary.label_seq_id\n_dssp_struct_summary.label_comp_id\n_dssp_struct_summary.secondary_structure\n_dssp_struct_summary.accessibility\n_dssp_struct_summary.x_ca\n_dssp_struct_summary.y_ca\n_dssp_struct_summary.z_ca\nfixture A 1 GLY H 10.0 1.0 2.0 3.0\nfixture A 2 ALA . 20.0 2.0 3.0 4.0\n#\n"
     binary = _fake_dssp_binary(tmp_path, output=dssp_output)
     candidate_source = WorkflowNodeInstance(
         node_id="candidates",
         node_type_id="contract_test.structure_annotation_candidate_source",
-        binding_id=(
-            "contract_test.structure_annotation_candidate_source.direct"
-        ),
+        binding_id="contract_test.structure_annotation_candidate_source.direct",
         node_parameters={},
         binding_parameters={},
     )
     residue_axis_resolver = WorkflowNodeInstance(
         node_id="resolve-axis",
-        node_type_id=(
-            "structure_transform.resolve_candidate_residue_axes"
-        ),
-        binding_id=(
-            "structure_transform.resolve_candidate_residue_axes.direct"
-        ),
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
         node_parameters={},
         binding_parameters={},
     )
@@ -1891,8 +1884,10 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
         WorkflowEdge("candidates", "subjects", "values", "subjects"),
         WorkflowEdge("candidates", "references", "values", "references"),
     )
-    cases = (
-        ModulePackageContractCase(
+    layout = ResidueLayout(["A:1", "A:2"])
+    subject = _candidate_reference("fixture-structure-subject")
+    case = {
+        "structure-annotation-dssp": lambda: ModulePackageContractCase(
             case_id="structure-annotation-dssp",
             node_type_id="structure_annotation.dssp_compute",
             binding_id="structure_annotation.dssp_compute.mkdssp_local",
@@ -1902,10 +1897,7 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             workflow_nodes=(candidate_source, residue_axis_resolver),
             workflow_edges=(
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "resolve-axis",
-                    "structure_candidates",
+                    "candidates", "subjects", "resolve-axis", "structure_candidates"
                 ),
                 WorkflowEdge(
                     "candidates",
@@ -1914,15 +1906,11 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
                     "structure_candidates",
                 ),
                 WorkflowEdge(
-                    "resolve-axis",
-                    "residue_axes",
-                    "contract-test-node",
-                    "residue_axes",
+                    "resolve-axis", "residue_axes", "contract-test-node", "residue_axes"
                 ),
             ),
-            forbidden_public_fragments=(str(binary),),
         ),
-        ModulePackageContractCase(
+        "structure-annotation-secondary": lambda: ModulePackageContractCase(
             case_id="structure-annotation-secondary",
             node_type_id="structure_annotation.observed_to_conditioning",
             binding_id="structure_annotation.observed_to_conditioning.direct",
@@ -1930,16 +1918,14 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             binding_parameters={},
             environment_values={},
             workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
+            workflow_edges=value_source_edges
+            + (
                 WorkflowEdge(
-                    "values",
-                    "annotations",
-                    "contract-test-node",
-                    "secondary_structure",
+                    "values", "annotations", "contract-test-node", "secondary_structure"
                 ),
             ),
         ),
-        ModulePackageContractCase(
+        "structure-annotation-sasa": lambda: ModulePackageContractCase(
             case_id="structure-annotation-sasa",
             node_type_id="structure_annotation.observed_to_conditioning",
             binding_id="structure_annotation.observed_to_conditioning.direct",
@@ -1947,62 +1933,30 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             binding_parameters={},
             environment_values={},
             workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
-                WorkflowEdge(
-                    "values",
-                    "sasa",
-                    "contract-test-node",
-                    "sasa",
-                ),
-            ),
+            workflow_edges=value_source_edges
+            + (WorkflowEdge("values", "sasa", "contract-test-node", "sasa"),),
         ),
-        ModulePackageContractCase(
+        "structure-annotation-agreement": lambda: ModulePackageContractCase(
             case_id="structure-annotation-agreement",
-            node_type_id=(
-                "structure_annotation.secondary_structure_agreement"
-            ),
-            binding_id=(
-                "structure_annotation.secondary_structure_agreement.direct"
-            ),
+            node_type_id="structure_annotation.secondary_structure_agreement",
+            binding_id="structure_annotation.secondary_structure_agreement.direct",
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            workflow_nodes=(
-                candidate_source,
-                value_source,
-                residue_axis_resolver,
-            ),
-            workflow_edges=value_source_edges + (
+            workflow_nodes=(candidate_source, value_source, residue_axis_resolver),
+            workflow_edges=value_source_edges
+            + (
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "resolve-axis",
-                    "structure_candidates",
+                    "candidates", "subjects", "resolve-axis", "structure_candidates"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "contract-test-node",
-                    "subjects",
+                    "candidates", "subjects", "contract-test-node", "subjects"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "references",
-                    "contract-test-node",
-                    "references",
+                    "candidates", "references", "contract-test-node", "references"
                 ),
-                WorkflowEdge(
-                    "values",
-                    "expected",
-                    "contract-test-node",
-                    "expected",
-                ),
-                WorkflowEdge(
-                    "values",
-                    "observed",
-                    "contract-test-node",
-                    "observed",
-                ),
+                WorkflowEdge("values", "expected", "contract-test-node", "expected"),
+                WorkflowEdge("values", "observed", "contract-test-node", "observed"),
                 WorkflowEdge(
                     "resolve-axis",
                     "residue_axes",
@@ -2010,73 +1964,74 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
                     "subject_residue_axes",
                 ),
             ),
-            expected_observation_counts={"scores": 1},
         ),
-        ModulePackageContractCase(
+        "structure-annotation-expected-secondary-from-prompt": lambda: ModulePackageContractCase(
             case_id="structure-annotation-expected-secondary-from-prompt",
-            node_type_id=(
-                "structure_annotation.expected_secondary_structure_from_prompt"
-            ),
-            binding_id=(
-                "structure_annotation."
-                "expected_secondary_structure_from_prompt.direct"
-            ),
+            node_type_id="structure_annotation.expected_secondary_structure_from_prompt",
+            binding_id="structure_annotation.expected_secondary_structure_from_prompt.direct",
             node_parameters={},
             binding_parameters={},
             environment_values={},
             workflow_nodes=(candidate_source, value_source),
-            workflow_edges=value_source_edges + (
+            workflow_edges=value_source_edges
+            + (
                 WorkflowEdge(
-                    "values",
-                    "protein_prompt",
-                    "contract-test-node",
-                    "protein_prompt",
+                    "values", "protein_prompt", "contract-test-node", "protein_prompt"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "references",
-                    "contract-test-node",
-                    "references",
+                    "candidates", "references", "contract-test-node", "references"
                 ),
             ),
         ),
+    }[case_id]()
+    result = execute_module_package_case(
+        STRUCTURE_ANNOTATION_PACKAGE,
+        case,
+        supporting_registrations=(SOURCE_PACKAGE, *_prompt_authoring_packages()),
+        work_root=tmp_path / "ctk",
     )
+    assert result.projection.status == "succeeded"
+    assert result.publication.node_id == "contract-test-node"
+    for port, expected_count in observation_counts.items():
+        (value,) = result.outputs[port]
+        assert isinstance(value, ScoreCollection)
+        assert len(value.entries) == expected_count
+        assert all((isinstance(entry, ScoreObservation) for entry in value.entries))
+    for fragment in (str(binary),):
+        assert fragment not in json.dumps(result.public_evidence)
+
+
+@pytest.mark.parametrize("port_index", [0, 1])
+def test_structure_annotation_passes_ctk_for_all_four_nodes_ports(
+    port_index: int,
+) -> None:
+    from tests.fixtures.structure_annotation_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
     layout = ResidueLayout(["A:1", "A:2"])
     subject = _candidate_reference("fixture-structure-subject")
-    port_cases = (
+    port_case = (
         ModulePackagePortCase(
             type_id="structure_annotation.secondary_structure.observed",
             valid_value=CandidateResidueTrack(
-                subject=subject,
-                track=ResidueTrack(layout, ("H", "C")),
+                subject=subject, track=ResidueTrack(layout, ("H", "C"))
             ),
             invalid_values=(7,),
         ),
         ModulePackagePortCase(
             type_id="structure_annotation.sasa.observed",
             valid_value=CandidateResidueTrack(
-                subject=subject,
-                track=ResidueTrack(layout, (10.0, None)),
+                subject=subject, track=ResidueTrack(layout, (10.0, None))
             ),
             invalid_values=(7,),
         ),
-    )
-
-    report = verify_module_package_contract(
+    )[port_index]
+    verify_module_package_port(
         STRUCTURE_ANNOTATION_PACKAGE,
-        execution_cases=cases,
-        port_cases=port_cases,
+        port_case,
         supporting_registrations=(SOURCE_PACKAGE, *_prompt_authoring_packages()),
-        work_root=tmp_path / "ctk",
     )
-
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
 
 
 def test_agreement_emits_one_exact_subject_metric_method_observation(
@@ -2295,3 +2250,20 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         "pairing_mode": "fixed_reference",
         "normalization": "exact-SS8-present-residue",
     }
+
+
+def test_observed_annotation_subject_must_reference_structure() -> None:
+    observed = CandidateResidueTrack(
+        subject=CandidateDataReference(
+            candidate_id="sequence",
+            data_type_id="protein.sequence",
+            content_digest="sha256:" + "1" * 64,
+        ),
+        track=ResidueTrack(ResidueLayout(("A:1",)), ("H",)),
+    )
+    catalog = build_frozen_catalog(module_registrations())
+    port = catalog.require_port_type(
+        "structure_annotation.secondary_structure.observed"
+    )
+    with pytest.raises(PortValueError, match="protein.structure"):
+        port.encode(observed)
