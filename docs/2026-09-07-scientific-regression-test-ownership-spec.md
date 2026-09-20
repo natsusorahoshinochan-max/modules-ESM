@@ -50,7 +50,7 @@ interface 归属，跨 Node 科学组合继续保留完整 Workflow journey。
   重复非法；explicit / inherited / merged 三种来源路径均保留。
 - SASA codec 的既有 wire normalization，以及 Observed subject 必须引用 structure。
 - 来源先 admission，下游 edits 不掩盖非法来源；合法来源上的 baseline 可独立失败，
-  有效候选仍可修复并 Apply；stale preview digest 阻止写入。
+  有效候选仍可修复并 Apply；Draft revision 冲突阻止覆盖已保存工作。
 
 禁止 source residue 重排与允许 explicit inserted residue 移动是不同规则。公共
 `residue_order`、`action=replace` 和普通删除不额外报告 order change 是现行契约。
@@ -93,9 +93,9 @@ nested、相同区间不同 label、partial overlap，以及 Apply → Run 的�
 不一致，以及 FASTA 来源包含非法序列字符，均使 Preview 返回 HTTP 400 structured
 error。检查错误属于对应来源契约；不再接受 200 加 diagnostics 作为这两例的替代结果。
 
-Apply 不写入 Document，实际 Run 在对应 source / assemble Node 失败。验证 Apply
-拒绝时使用符合请求 schema 的请求，并核对 Draft 不变；不能仅用 malformed request
-证明写入被阻止。合法来源上的无效 baseline 继续使用 `baseline_diagnostics`，有效
+测试核对 Preview 拒绝且 Draft 不变，实际 Run 在对应 source / assemble Node 失败。
+Apply 信任已确认的预览，不重复检查来源；写入冲突由 Draft revision 测试覆盖。
+合法来源上的无效 baseline 继续使用 `baseline_diagnostics`，有效
 候选可以修复。上述分类不泛化为所有运行或 Provider 故障的 HTTP 规则。
 
 ## 6. 迁移与验证

@@ -1,58 +1,40 @@
-# WebUI 全部功能缺口集成计划
+# WebUI 集成交付范围与验收要求
 
-- 日期：2026-09-17
-- 状态：实施规划；已记录 15 项议题及第二轮 4 项补充决定，当前待确认的产品行为已收敛，技术规格工作见第 6.2 节；不代表功能已完成
-- 核对基线：`bfa47720`，规划前工作区干净
-- 目标：把八个已选原型的有效产品要求和此前发现的集成缺口接入当前 WebUI，覆盖三个科研场景。
-- 完成标准：用户可以从自己的输入开始，编辑、执行、检查、比较、导出并保存实验，不依赖默认示例的固定节点、数量、模型或手工填写内部身份。
+- 状态：P0–P7 完整验收已完成；[最终验收记录](2026-09-19-webui-integration-progress.md)保存快照与证据。
+- 本文维护已确认的产品范围和验收要求；科学与持久化细节由下列现行规格拥有。
+- Selector/Objective 来源字段的进一步减法仍未完成，单独记录在验收文档中。
 
 ## 1. 范围和依据
 
-本计划纳入旧轻量切片曾推迟的合并、随机编辑、刚体结构编辑和项目版本管理。阶段顺序用于控制依赖，不削减最终范围。
+交付范围包含来源输入、画布、运行、结果、Prompt 编辑和项目版本管理。
 
 依据按职责区分：
 
 1. [CONTEXT.md](../CONTEXT.md) 与当前科学规格拥有领域含义及科学合同。
 2. [2026-09-02 数据流规格](2026-09-02-clean-scientific-data-flow-refactor-spec.md)及后续 Commit、残基和 ESM3 规格优先于旧原型中的科学实现假设。
 3. [已确认功能基线](legacy/2026-08-29-webui-functional-spec.md)和[八个原型](../.scratch/webui-product-definition/)提供用户功能及交互方向。
-4. [轻量实现规格](legacy/2026-09-01-lightweight-webui-implementation-spec.md)用于识别原先承诺和推迟范围，不再作为本轮功能上限。
 
 继续遵守当前科学语义：Prompt Studio 编辑普通 `prompt_authoring.author` Node 的 `document`；FASTA/PDB 通过可见的 I/O Nodes 提供；不恢复 managed composition、平行 layout Ports 或旧前端。SS8、Function annotations 重复规则、absent 与 present all-null 按当前规格，不照抄旧原型。Availability 是启动诊断，不等于 Run-scoped Readiness，也不能单独阻止缓存复用或执行。
 
 不新增此前明确排除的功能：账号/多人协作、项目文件夹/标签/收藏、单节点取消、原子级坐标编辑、缩放、隐式结构优化、自然语言生成 Prompt、独立 ProteinMPNN 约束编辑器。按本轮用户决定，不提供自动残基对应或自动对齐草稿，只提供手动对应。仍只提供最近一次 Run 的常规入口；命名版本不等于 Run 历史列表。
 
-## 2. 核对后的实施依赖
+## 2. 当前规格
 
-| 能力 | 当前真实状态 | 规划处理 |
-|---|---|---|
-| 上传来源 | 后端已有 Project Input publication；前端 client 无调用 | 接入文件/粘贴输入、来源选择、可见 I/O graph；补最小输入枚举/展示合同 |
-| 空白 Prompt | 已有 chain declarations 和 preview/apply | 保留并补多来源入口、模式、交互细节 |
-| 多记录 FASTA | 当前 import 输出一个 sequence Candidate，parser 会连接 records | 批量候选导入必须另立明确科学操作，不能把 records 连接后冒充多个 Candidate |
-| 运行取消 | public `cancel_run` 已有 | 接入生命周期及部分结果浏览 |
-| 派生运行 | `retry_failed` / `force_selected` 复用源 Run 的同一个 Commit 和 retained Plan | 不能直接包装成“运行到节点”或“修改后继续”；需要运行范围规格及 runtime 扩展 |
-| 派生运行重启 | 源 Run 缺少 retained Plan 时当前拒绝 | 明确持久证据、Commit 重新 admission 与恢复条件；不重建中断过程中不存在的 outcomes |
-| 排序权重 | Workflow-owned `selection_objectives` 已有；前端只改 Node/Binding 参数 | 增加 Observation Selector / Selection Objective 编辑，统一科学身份和缺失策略 |
-| 组合条件筛选 | 当前 `selection.filter` 只消费一个精确 Observation Selector | 补齐 AND/OR 及明确分组的合同和流程表达，保存后完整保留条件语义，不降级为单条件或全部 AND |
-| 手动勾选保存为流程操作 | 当前勾选只用于前端导出；尚未接入持久化候选选择合同 | 与条件筛选、排序取前 N 一起交付；补齐明确候选引用的科学合同，不能以缺少现有 Node 为由退回仅 UI 勾选 |
-| Prompt 高级操作 | recipe 已有随机、刚体、source merge | 接入 UI；合同不足处先明确，再原子更新 owner/protocol/UI |
-| 合并细粒度决策 | 现有 `track_decisions` 为每条轨道 adopt/preserve | 不宣称已支持逐残基冲突选择；设计能明确表达选中区域及注释后果的合同 |
-| 项目管理 | 只有创建、查找及受保护示例复制 | 通用复制、命名版本、UI snapshots、最近删除需补后端持久化和 public operations |
-| 预置结果 | 新环境 `latest_run_id` 为 null，测试明确断言无结果 | 建立当前 Workflow 的真实结果生成、打包、安装和校验路径 |
-
-证据入口：
-
-- [当前客户端](../webui/src/protocol/client.ts)、[App](../webui/src/App.tsx)、[PromptStudio](../webui/src/PromptStudio.tsx)、[StructureViewer](../webui/src/StructureViewer.tsx)。
-- [Derived Run implementation](../core/execution/_run_runtime_derived.py)、[Run routes](../protein_workbench_public/http/run_routes.py)。
-- [Prompt recipe](../modules/prompt_authoring/recipe.py)、[FASTA parser](../modules/protein_io/fasta.py)、[I/O implementation](../modules/protein_io/implementation.py)。
-- [Project owner](../core/project/manager.py)、[Workflow authoring](../core/workflow/authoring.py)、[示例测试](../tests/test_webui_example_v2.py)。
+- [运行范围与复用](2026-09-17-run-scope-spec.md)
+- [Selection 与输入](2026-09-17-selection-input-integration-spec.md)
+- [结果浏览](2026-09-17-result-explorer-spec.md)
+- [Prompt 编辑](2026-09-17-prompt-editing-spec.md)
+- [项目工作区与版本](2026-09-17-project-workspace-spec.md)
+- [离线预置结果](2026-09-19-webui-example-results-spec.md)
+- [真实 FASTA 旅程](2026-09-19-webui-fasta-journey-spec.md)
 
 ## 3. 每项交付都必须贯通的路径
 
 每项功能以“用户动作 → 当前 public Interface → 现有科学/持久化 owner → 返回 projection/evidence → UI 展示 → 重开后行为”验收。纯视图动作不制造科学事实；有后台实现、类型声明或按钮，不代表完成集成。
 
-前端按实际职责逐步抽出少量有深度的 Modules，不先重写全站：
+前端按实际职责划分以下 Modules：
 
-| Module（规划名称） | 小型 Interface 承担的完整行为 | 主要代码归属 |
+| Module | 小型 Interface 承担的完整行为 | 主要代码归属 |
 |---|---|---|
 | Project workspace | 打开/保存当前工作、输入、命名版本、复制和恢复；协调 Draft 与 UI state | `webui/src/` 项目相关代码；`core/project/`、`core/workflow/authoring.py` |
 | Workflow authoring | graph 编辑、参数/模型/选择目标、undo 和复制；保持对象引用一致 | `webui/src/workflow-authoring.ts` 及画布相关代码 |
@@ -62,22 +44,14 @@
 
 public transport 集中在 `webui/src/protocol/`。类型和请求形状以当前 bundle 为准；新增合同同时更新 Python owner、bundle、TypeScript consumer、fixtures 和测试。合同 owner 验证后下游信任，不在每层复制校验。沿用当前 React/Vite/React Flow/3Dmol，不为本轮另建框架、BFF、通用插件层或双轨协议。
 
-## 4. 阶段计划
+## 4. 功能与验收要求
 
-### P0：冻结必要的产品/科学合同，建立需求追踪
+### P0：产品与科学合同
 
-**依赖：** 无。先消除会导致错误科学结果或返工的歧义。
-
-交付：
-
-- 从本计划第 5 节建立逐项验收条目，标记已有行为、待接入行为和 owner 缺口。
-- 形成三份可实施的增量规格：运行范围与复用；结果/Selection authoring；项目快照与恢复。
-- 形成 Prompt 扩展合同说明：逐区域合并、Function 端点/拆分、刚体坐标框架及可复现输入；同时核对随机 seed/scope 现有语义。
-- 明确 public operation 差异和数据所有权。新增只读 projection 从已发布事实投影；科学计算继续通过明确的 Node/Adapter owner。
-- 定义科学内容是否变化的比较方式：由后端已规范化的 Workflow/科学定义判断与 Run Commit 的关系，不能只比较 Project 来源或递增 revision。移动节点不使结果过期，改回原科学内容可重新匹配；未经 admission 的 Draft 如无法判断，应明确显示待确认状态。
-- 将本计划第 6.1 节已确认决定落实为实施合同，细化第 6.2 节剩余内容；凡涉及尚未冻结的科学语义，必须先在规格中明确，不能由 UI 实现自行决定。不得重新引入用户已拒绝的补跑上游和自动残基对应方案。
-
-**验收：** 每项缺口都有唯一阶段、owner、用户旅程；范围预览和执行有同一权威来源；没有把 Availability 当 Readiness 或把运行计划预览当成真实 Provider 已可用的保证。
+第 2 节现行规格定义运行范围、Selection、结果关联、Prompt 编辑和项目持久化。
+每项能力通过 public Interface 交给对应 owner，前端展示其 projection/evidence。
+科学内容与 Run Commit 的比较由后端负责；布局变化不影响结果，改回科学内容可解除过期提示。
+范围预览不保证 Provider 已就绪；Availability 与 Run-scoped Readiness 保持各自语义。
 
 ### P1：来源输入、可编辑画布与选择目标
 
@@ -185,12 +159,12 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 
 ### P7：真实示例、三条完整旅程与交付验收
 
-**依赖：** P1–P6；真实示例的生成/打包设计从 P0 开始，在相关合同稳定后生成最终结果。
+**依赖：** P1–P6；真实示例按冻结的科学合同生成和打包。
 
 交付：
 
 - 用当前默认 Workflow、明确 Bindings/Methods/seed 生成真实完成的 3GB1 结果，保留 Ledger、Commit 科学定义、Typed Outputs、候选谱系、Score、Selection 和结构对齐证据。
-- 通过 backend owner 安装可读取的例子资源；包中声明所需完整数据，不复制前端模拟 JSON，也不提交 `.local/` 原始运行目录、环境或凭据。优先满足首次打开即可查看；先核算完整证据体积，再决定安装包内附带或独立资源包分发，具体形式及资源使用条件在实施规格中确认。
+- 通过 backend owner 安装可读取的例子资源；包中声明所需完整数据，不复制前端模拟 JSON，也不提交 `.local/` 原始运行目录、环境或凭据。完整结果随安装包离线分发，首次打开即可查看；资源身份和体积见预置结果规格。
 - 科学定义或示例 Workflow 改变时，按当前 Commit admission 更新示例和证据，不能重标旧结果；不修改 canonical verification Workflow 来迎合 UI。
 - 完成三条旅程：批量 FASTA→评分/前后筛选→折叠→导出；Prompt→ESM3→重折叠→结构比较→筛选；Prompt→ESM3→ProteinMPNN→重折叠→谱系比较→筛选。
 - 清理无行为按钮、固定 3GB1/Top 3/模型文案、README 与测试的过时断言。首次启动真实显示 bundled Results，首次修改继续保留正确来源标记。
@@ -198,7 +172,7 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 
 **验收：** 干净安装的后端和构建后 WebUI 完成三条真实用户旅程；全部阶段的已承诺行为达到第 7 节完成标准。
 
-## 5. 缺口追踪表
+## 5. 需求追踪表
 
 | ID | 最终要求 | 交付阶段 |
 |---|---|---|
@@ -228,41 +202,27 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 | G24 | 真实预置结果及首次编辑后的来源链接 | P7 |
 | G25 | 删除无行为按钮、固定科学文案和结构 fallback | P1–P7 随所属能力交付 |
 
-阶段依赖主线：`P0 → P1 → P2 → P3 → P7`；Prompt 路线为 `P1 → P4 → P5 → P7`；项目路线为 `P0/P1 → P6 → P7`。顺序不意味着前端先做全部外壳、后端最后补接线；每个阶段都是实际可验收的交付。
+## 6. 已确认产品决定
 
-## 6. 用户决定与剩余规格工作
+以下决定与第 2 节的实施合同共同定义当前产品行为。
 
-### 6.1 已确认决定
-
-本节记录用户针对决策清单的逐项批注，取代原先建议；不从“同意方向”推导出尚未给出的算法、默认值或清理政策。编号对应原 15 项议题；未另标轮次的批注指第一轮，其中批注 11 同时确认 D11–D15 的方向。第二轮批注 1–4 分别确认强制重算、AND/OR 分组、手动选择缺失报错和默认旋转中心，已合入 D01、D04、D07。
-
-| ID | 议题 | 已确认决定 | 决定来源 |
-|---|---|---|---|
-| D01 | 从节点继续的范围及缓存政策 | 仅执行选中节点及其后代，强制重算，即使已有完全匹配缓存也不重放；范围外所需上游只复用，提前展示计算范围 | 第一轮批注 1；第二轮批注 1 |
-| D02 | 没有可复用上游 | 拒绝继续；不在此动作中补跑上游或扩大范围 | 批注 2 |
-| D03 | 范围外节点/Selection | 界面明确标记范围外，不混同失败、阻塞或取消；后端记录方式由实施合同明确 | 批注 3 |
-| D04 | 保存为流程操作 | 支持条件筛选、排序并取前 N 个、手动勾选候选三类。筛选支持 AND/OR 和明确分组，保存后含义不变；手动选择保存精确候选引用，在当前输入集合匹配，缺失报错，不替换或跳过，用户可重新勾选 | 第一轮批注 4；第二轮批注 2、3 |
-| D05 | 逐区域合并 | 明确选择采用范围，可细到残基×轨道；Mask 覆盖、新增残基和注释后果在预览中单独说明，不自动决定 | 批注 5 |
-| D06 | 自动对应 | 不需要自动对应；只提供手动残基对应，不实施自动对齐草稿或算法选择 | 批注 6 |
-| D07 | 刚体变换 | 默认世界坐标、位移 Å、角度 °；默认旋转中心为选区全部现有原子坐标的几何中心，允许选明确残基位置或输入自定义中心并显示标记；镜头旋转不改变结构坐标 | 第一轮批注 7；第二轮批注 4 |
-| D08 | 命名版本 | 允许保存未完成 Draft；先查看旧版，首次修改建立新的当前工作，保留旧版本及打开前工作 | 批注 8 |
-| D09 | 删除运行中的项目 | 不自动取消；提供等待完成或明确取消后删除，Run 结束后才移动项目 | 批注 9 |
-| D10 | 纯序列/混合导出 | 允许导出；ZIP 包含 FASTA、分数和 manifest，只为确有结构的候选写 PDB，并列明无结构项 | 批注 10 |
-| D11 | 批量 FASTA | 不按名称或序列自动去重，保留输入顺序和记录来源；非法记录明确定位，默认阻止本次导入，不静默跳过 | 批注 11 |
-| D12 | 后端重启后继续 | 支持依据旧结果发起新 Run；重新验证 Commit，旧中断 Run 保持 interrupted，不伪装为原 Run 断点恢复 | 批注 11 |
-| D13 | 旧结果判定 | 科学内容恢复一致即可解除过期提示，仅布局变化不影响结果；无法判断时显示待确认，比较由后端负责 | 批注 11 |
-| D14 | 导入/合并保存边界 | Workflow 修改整体提交或整体取消；已上传未使用 Input 的保留/清理细节仍待规格明确 | 批注 11 |
-| D15 | 预置结果分发 | 优先满足首次打开即可查看；先核算证据体积，再决定随安装包附带或独立分发，尚未选定分发形式 | 批注 11 |
-
-### 6.2 剩余技术规格工作
-
-当前四项待确认产品行为均已得到用户决定。以下不重开已确认决定，只列为后续技术规格工作的输入，不构成新的逐项用户确认清单；它们不阻止独立的上传、画布操作、取消等工作。若细化中出现新的科学含义或用户数据丢失取舍，再单独提出。
-
-- **运行范围的证据合同：** 范围外节点/Selection 是否进入 Run Ledger、如何表达、如何闭合；后端重启后依据哪些已保存事实完成 Commit admission 和上游复用。
-- **Selection 细节：** AND/OR 及分组的正式表达和与精确 Observation Selector/missing policy 的关系；遵守当前合同的排序并列和顺序规则；精确勾选引用的持久化及缺失诊断。D04 已确定缺失报错，不再讨论自动跳过、替换或默认读旧结果；不得因现有合同不足删除三类能力中的任何一类。
-- **合并及刚体细节：** 采用范围、Mask 覆盖、新增残基、Function 区间后果的确切 document 表达；明确残基定位点的坐标解析、连续变换组合次序与边界提示规则。默认旋转中心已确定，不再包含该选择或自动对应算法的决策。
-- **输入和项目持久化细节：** FASTA 缺失名称的显示和记录寻址；未引用 Input 的保留/清理；命名版本与原工作的返回入口、永久删除时的引用处理。已确认的不自动去重、不静默跳过、整体提交/取消原则不变。
-- **结果一致性与分发细节：** 当前 Draft 与 Run Commit 科学内容的权威比较方法；预置证据体积及最终分发形式。D15 同意的是决策过程和首开体验目标，不是已选定在线下载。
+| ID | 议题 | 已确认决定 |
+|---|---|---|
+| D01 | 从节点继续的范围及缓存政策 | 仅执行选中节点及其后代，强制重算，即使已有完全匹配缓存也不重放；范围外所需上游只复用，提前展示计算范围 |
+| D02 | 没有可复用上游 | 拒绝继续；不在此动作中补跑上游或扩大范围 |
+| D03 | 范围外节点/Selection | 界面明确标记范围外，不混同失败、阻塞或取消；后端记录方式由实施合同明确 |
+| D04 | 保存为流程操作 | 支持条件筛选、排序并取前 N 个、手动勾选候选三类。筛选支持 AND/OR 和明确分组，保存后含义不变；手动选择保存精确候选引用，在当前输入集合匹配，缺失报错，不替换或跳过，用户可重新勾选 |
+| D05 | 逐区域合并 | 明确选择采用范围，可细到残基×轨道；Mask 覆盖、新增残基和注释后果在预览中单独说明，不自动决定 |
+| D06 | 自动对应 | 不需要自动对应；只提供手动残基对应，不实施自动对齐草稿或算法选择 |
+| D07 | 刚体变换 | 默认世界坐标、位移 Å、角度 °；默认旋转中心为选区全部现有原子坐标的几何中心，允许选明确残基位置或输入自定义中心并显示标记；镜头旋转不改变结构坐标 |
+| D08 | 命名版本 | 允许保存未完成 Draft；先查看旧版，首次修改建立新的当前工作，保留旧版本及打开前工作 |
+| D09 | 删除运行中的项目 | 不自动取消；提供等待完成或明确取消后删除，Run 结束后才移动项目 |
+| D10 | 纯序列/混合导出 | 允许导出；ZIP 包含 FASTA、分数和 manifest，只为确有结构的候选写 PDB，并列明无结构项 |
+| D11 | 批量 FASTA | 不按名称或序列自动去重，保留输入顺序和记录来源；非法记录明确定位，默认阻止本次导入，不静默跳过 |
+| D12 | 后端重启后继续 | 支持依据旧结果发起新 Run；重新验证 Commit，旧中断 Run 保持 interrupted，不伪装为原 Run 断点恢复 |
+| D13 | 旧结果判定 | 科学内容恢复一致即可解除过期提示，仅布局变化不影响结果；无法判断时显示待确认，比较由后端负责 |
+| D14 | 导入/合并保存边界 | Workflow 修改整体提交或整体取消；已上传 Input 保留在项目输入列表，项目永久删除时清理 |
+| D15 | 预置结果分发 | 完整真实结果随安装包离线分发，首次打开即可查看；体积与原始身份见预置结果规格 |
 
 ## 7. 验证与完成标准
 
@@ -291,9 +251,3 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 4. Candidate、Metric、Method、单位、layout、randomness、lineage 和 evidence 不由 UI 猜测。
 5. 代表性旅程和失败路径通过，真实结果可从来源逐项核对。
 6. 需求追踪表记录完成证据；接口只存在、按钮只显示、mock-only 演示均不能关闭条目。
-
-## 8. 开工顺序与本次产物
-
-下一实施批次从 P0 的运行范围/结果/项目合同和 P1 的输入、参数及 Selection authoring 开始；按阶段拆成可独立评审的小变更。运行取消、参数控件等已有明确合同的工作不必等待所有高级功能的规格全部写完。真实示例资源生成在最终科学合同稳定后执行，避免过早生成随后失效的昂贵结果。
-
-本次只新增并更新规划文件，已同步用户决定及对应阶段验收；尚未改动实现、执行运行代码测试、发起 Provider 运行或生成新的 Acceptance Result。

@@ -20,7 +20,7 @@ Fail fast on local invariant violations. Avoid broad catches, silent coercion, g
 
 ## Verification
 
-Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. No frontend implementation is part of the current verification gate.
+Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. The backend verification gate is independent of the WebUI. For WebUI changes, use the verification entry points in [webui/README.md](webui/README.md).
 
 Run focused tests plus:
 

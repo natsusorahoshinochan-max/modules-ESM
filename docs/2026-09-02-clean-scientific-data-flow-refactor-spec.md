@@ -370,7 +370,7 @@ Interface 规则：
 - `project_input_ref`；
 - `composition_id`；
 - embedded merge source；
-- `confirmed`、conflict、diagnostics 或 preview digest；
+- `confirmed`、conflict 或 diagnostics；
 - UI-only residue handles；
 - materialized Node IDs、role endpoints 或 internal edges。
 
@@ -397,13 +397,14 @@ Open、Preview 和 execution 的 provider-free 来源解析复用同一值合同
 
 Preview 对以下来源科学错误返回 HTTP 400 structured error：上游 assembly 的轨道 Layout
 不一致，以及 FASTA 来源包含非法序列字符。下游 edits 不得覆盖来源错误并使其通过 admission。
-错误须定位对应来源契约；Apply 不写入 Document，实际 Run 在对应 source / assemble Node 失败。
+错误须定位对应来源契约；Preview 不写入 Draft，UI 不允许确认无效预览；实际 Run 在对应 source / assemble Node 失败。
 该分类不扩展到 Provider 操作故障，也不改变合法来源上不可求值 baseline 的处理。
 
 Open/Preview 的 `baseline_diagnostics` 单独说明已保存 document 对当前合法来源无法求值的原因。
 此时 Open 保留可编辑 document，Preview 可独立计算候选；候选有效即可 Apply，且 `changes` 为空，
-UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误仍
-阻止 Apply。Apply 必须针对当前来源重算并验证 preview digest，失败后 editor 保留编辑并允许重新预览。
+UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误
+阻止 UI 确认。Apply 信任已确认的 normalized preview，一次保存 document 和对应 Workflow，
+不重新解析来源、求值或计算预览摘要。持久化 owner 比较一次 Draft revision，冲突时保留编辑。
 
 Preview 显示轴以候选 layout 顺序为准，共同 residue ID 只出现一次。删除 residue 的 tombstone 按旧
 顺序放在同链下一个存活 residue 前；无后继放在该链末尾，整链删除放在显示轴末尾。过滤 tombstones

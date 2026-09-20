@@ -1,0 +1,47 @@
+# Project workspace persistence
+
+This is the P0/P6 implementation contract for the [full WebUI integration plan](2026-09-17-webui-full-integration-plan.md). Workflow Drafts remain immutable, may be incomplete, and do not become runnable until normal Workflow Commit admission.
+
+## Project lifecycle and Inputs
+
+Project identity survives rename, trash, restore, and server restart. `deleted_at` is the authoritative recently-deleted state. Trash changes this metadata atomically; payloads stay in their existing storage scopes until explicit permanent deletion. This avoids a partially moved Project when projects, outputs, cache, and runs use separate filesystem roots. Normal listings and authoring exclude trashed Projects; the trash list is a separate endpoint. Restore clears `deleted_at`.
+
+Trash and permanent deletion hold the Run Runtime's Project idle lease. A reserved or nonterminal Run rejects the action with `project_has_active_runs`; it never cancels a Run. The UI can wait for closure or invoke the existing explicit cancellation endpoint and retry after closure. Permanent deletion only accepts a trashed, unprotected Project and removes its Project, output, cache, and Run scopes. All scientific references are Project-local. General copies own their Inputs; their `copied_from_project_id` is attribution only, so deleting a source does not delete or invalidate copied content. Protected examples cannot be renamed, trashed, or permanently deleted and remain available for first-edit result attribution.
+
+Already-published immutable Inputs survive cancelling an import or merge, whether referenced or not. They remain listed for later reuse; no implicit garbage collection occurs. They are removed by Project permanent deletion. Workflow changes from import/merge are still one Draft publication, independently of Input publication.
+
+## UI snapshots and current work
+
+UI state is an opaque JSON object interpreted only by the WebUI. The backend writes immutable UI revisions and acknowledges its exact revision separately from Draft saves. An initial UI revision `0` denotes the empty object. An append-only workspace record binds a Draft revision, UI revision, optional source named version, and optional return workspace revision. The latest workspace record is the current work; records and their content are never overwritten. Publishing the workspace record is the point at which a Draft/UI save becomes current. Unreferenced content left by an interrupted publication does not become current.
+
+Normal Draft and UI saves each append a workspace record preserving the other component. `GET /workspace` returns the current draft, exact UI state, and workspace revision; saving a UI state does not create a scientific Draft. A named version captures the current exact Draft and UI revisions without compiling. Names need not be unique; the version ID is its identity.
+
+Reading a named version has no write effect. Its response includes the current workspace revision as the return point at the time it is opened. On first edit, the client submits the edited Workflow, displayed UI state, source version ID, and that return workspace revision in one `:fork` request. The backend publishes fresh Draft/UI revisions and one workspace record retaining the return point. Both the immutable version and the pre-open work remain available. `workspace:return` appends a new current workspace record referencing the chosen saved workspace, so returning does not destroy the work being left behind. No general branching system is introduced.
+
+## Copy behavior
+
+The existing protected-example first-edit operation remains distinct (`:copy`): it records the protected source for reference-result presentation. General `:duplicate` works for any active Project, carries the current Workflow including parameters and Prompt documents, exact current UI state, and only Inputs referenced by the Catalog-declared Project Input parameters. Input references are relative to the new Project and keep their immutable content and filenames; the Workflow ID becomes the new Project ID. It does not copy Run evidence, output objects, cache, named versions, or source history. Copy publication is staged before the new Project appears in the active list.
+
+## Public operations
+
+Existing Draft/Commit operations remain current. Added operations are Project rename, duplicate, list trash, trash, restore, permanent delete, Input list, current workspace read, UI state save, named-version list/create/read/fork, and workspace return. Public schemas are declared in the protocol bundle; validation remains at the existing protocol/Workflow boundary rather than repeated in storage helpers.
+
+## Original Commit science and result currency
+
+Every newly published Workflow Commit stores canonical compiled scientific identity together with its existing minimal scientific definition snapshots. Identity records admitted parameter values including defaults, compiler-owned result identity facts (exact Node Types, Bindings, Methods, selectors/objectives and their scientific definitions), and each Node's ordered input Port sources. Node presentation order and opaque UI state are excluded; input order is retained because many-valued Ports can be scientifically ordered. Project identity is the enclosing scope. This is captured at original publication, never reconstructed later from a changed Catalog.
+
+`GET /workflow/commits/{workflow_commit_id}` reads those saved Workflow and scientific snapshots without current-Catalog admission. Results and exports use these snapshots to interpret their original Metrics and Methods. `POST /workflow/commits/{workflow_commit_id}:compare` accepts the current Workflow Draft document without saving it. A compile failure returns `unknown` plus the current issues; successful admission compares canonical scientific identity to the persisted original and returns `current` or `stale`. Reverting scientific edits clears staleness; layout changes cannot cause it. Comparison does not admit an old Commit for execution or rewrite any evidence. Execution continues to use normal Commit admission.
+
+Comparison resolves Catalog-declared Project Input parameters to immutable input content digest and size using the same facts as Result Identity. Different upload identities with identical content do not make science stale; filenames and upload references remain provenance. This resolution is a read for comparison, not an added Commit admission requirement. An unavailable referenced Input makes the comparison `unknown`. Permanent deletion evicts both Runtime registry records and retained Commit caches after removing storage, so evidence cannot still appear available until process restart.
+
+The comparison request explicitly names `workflow_project_id`, which may differ from the path's original Commit Project. This supports personal work that displays reference results from a protected example. Current Draft Inputs resolve in `workflow_project_id`; the original immutable Commit's references resolve in its original Project. The Workflow identity must equal `workflow_project_id`; the comparison never guesses or rebases input locations.
+
+Compiler-declared parameter indirections (Observation Selector and Selection Objective locator IDs) are excluded from the normalized Node parameters. Their resolved scientific facts remain in Result Identity plan facts, so renaming a locator while preserving its content does not make results stale.
+
+The current WebUI's opaque payload uses `canvas` for node positions, collapsed cards and viewport, and `binding_parameter_memory` for inactive model settings. Opening or inspecting a named version does not save either payload. The first graph, parameter, Prompt, or layout modification publishes a new current workspace retaining the pre-open return point. Prompt preview/apply includes its exact version context; final apply and the fork are one backend publication. Draft and UI writes remain independently acknowledged and visibly report their own failures. Project navigation waits for pending saves; explicit retry resubmits unsaved state after a persistence failure.
+
+Parameter resource choices read the current Project Input list. Chain and residue choices belong to each parameter Node's exact incoming source edge: direct PDB chain selection uses backend Input inspection; current authorable Prompt/residue-axis sources use a read-only prospective Prompt owner projection. Temporary preview Nodes are never saved. Other resolved axes use only the matching source Node/Port's published value after the backend confirms scientific consistency with the current Workflow. The UI neither parses PDB residue identities nor combines unrelated layouts. Missing evidence is visible and existing unavailable parameter values remain editable/removable. First-edit example copies transfer inactive Binding parameter memory to the new Project scope before UI persistence.
+
+## Verification
+
+Focused remote tests cover restart persistence, incomplete Draft versions, first-edit/return round trips, independent copy Inputs/UI and excluded history, exact trash restoration, all configured storage roots on purge, protected examples, and active Run rejection. Tests and the repository backend gates run on the remote server only, per the user instruction.

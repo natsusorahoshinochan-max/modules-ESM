@@ -1,5 +1,12 @@
 # Protein Workbench v2 examples
 
+`canonical-3gb1.workflow.json` is the canonical scientific acceptance Workflow.
+`webui-3gb1.example.json` is the separate protected WebUI example;
+`webui-3gb1.results.zip` carries its completed real Run and is included in the
+backend wheel. Its results are available offline on first open; new Runs require
+the configured real Providers. See the [WebUI guide](../../webui/README.md) and
+[result resource contract](../../docs/2026-09-19-webui-example-results-spec.md).
+
 `repository-capabilities.workflow.json` is a provider-free Catalog compilation
 fixture. It fixes its Execution Bindings by stable ID and separates Node and
 Binding parameters. Its materialized Prompt Nodes demonstrate current scientific

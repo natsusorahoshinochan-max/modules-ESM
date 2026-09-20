@@ -70,3 +70,7 @@ confidence、Result Identity 与运行证据的现有科学断言。
 实施验证包括 focused tests、`verification.backend routine`、
 `verification.backend deterministic-acceptance`、`installed-biohub-esm3` 和
 `installed-local-esm3`。真实 Provider 环境不可用时明确记录未完成的验收，不以模拟结果代替。
+
+## 2026-09-17：WebUI 的只读 effective-conditioning 描述
+
+增加 `describe_conditioning(prompt)` informational interface，由同一私有 projection 输出精确 SDK 有效值、float32 atom37 位模式及未进入 atom37 的 named atoms。公共 authoring projection 调用它展示模型可表示性；不暴露 `_ConditioningProjection` 对象，不创建 Port Type，不生成 SDK 可变对象或调用 Provider。生成调用、functional digest、seed 和科学输出不变。明确的 SDK 不可表示异常以 `ValueError` 子类区分，可展示为兼容性原因；其他内部不变量不被伪装成兼容性提示。
