@@ -99,21 +99,28 @@ Run serially after the shared implementation is frozen:
   --evidence-directory /root/work/webui-integration-20260917/evidence/fasta-journey
 ```
 
-For browser acceptance, start the normal server with
-`PROTEIN_WORKBENCH_DATA_ROOT` set to that same data directory and open the
-reported personal Project. Inspect the two import Candidates, prefilter,
+For browser acceptance, start the normal server using the same execution
+profile’s complete environment and set `PROTEIN_WORKBENCH_DATA_ROOT` to that
+same data directory. The `prepare --profile` command configures only its own
+process; it does not configure a subsequently started server. Use the
+[normal backend startup command](../webui/README.md) in that environment,
+then open the reported personal Project. Inspect the two import Candidates, prefilter,
 fold lineage, real Scores, ranked and postfiltered results. Exercise ZIP
 export on sequence-only import results, folded structures, and a mixed
 selection; compare the export manifest's exact references against the stage
 pages. Use the returned Project ID as
 `PROTEIN_WORKBENCH_REAL_FASTA_PROJECT_ID` and the built WebUI's URL as
 `PROTEIN_WORKBENCH_REAL_UI_URL` for the real browser acceptance. After it has
-finished, read the actual Run against the live backend:
+finished, take the original full Run ID from the Playwright
+`actual-run-receipt` attachment or `Actual UI Run:` log and read it against
+the live backend. The journey subsequently starts a `from_node` Run; do not
+use the final page’s Run or the Project’s latest Run, because this report
+requires the original full Run:
 
 ```bash
 .venv/bin/python -m verification.webui_journey_evidence report \
   --base-url http://127.0.0.1:8000 \
-  --run-id RUN_ID_FROM_BROWSER \
+  --run-id FULL_RUN_ID_FROM_RECEIPT \
   --evidence-directory /root/work/webui-integration-20260917/evidence/fasta-journey
 ```
 

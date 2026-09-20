@@ -46,41 +46,30 @@ WebSocket 收集并验证消息。它只依赖公共协议和网络客户端，�
 implementation、不访问 app.state。保留现有显式超时与 loopback 网络配置。
 
 两条路径复用公共请求、响应与输出读取 implementation，等待差异留在各自 adapter。
-删除全仓无调用的 `wait_for_network_run_terminal`。既有事件测试继续拥有连接、重放、
-游标、断线与终态的场景断言；迁移必须保留消息 envelope、事件顺序及收集终点的含义。
+事件测试拥有连接、重放、游标、断线与终态的场景断言，以及消息 envelope、
+事件顺序和收集终点的含义。
 
 ## 4. 共享 runtime 场景归属
 
-从 `tests/test_run_runtime.py` 抽出被多个测试使用的 contract、direct、pipeline、
-artifact Catalog fixtures，以及与它们配套的单 Node、独立 Nodes、artifact 和
-pipeline Workflow 场景，迁入独立 fixtures。普通 public commit 编排归共享 module。
-
-原文件与以下四个消费者同步迁移，删除原定义和对应跨测试文件导入：
+`tests/fixtures/run_scenarios.py` 拥有共享的 contract、direct、pipeline、artifact
+Catalog fixtures，以及配套的单 Node、独立 Nodes、artifact 和 pipeline Workflow 场景。
+`tests/test_run_runtime.py` 与以下消费者使用这些 fixtures：
 
 - `tests/test_run_cancel_derive_v2.py`
 - `tests/test_result_cache_v2.py`
 - `tests/test_managed_local_process_v2.py`
 - `tests/test_typed_value_publication_v2.py`
 
-这些 fixtures 的 execution action、factory action、Readiness、randomness、Invocation
-count、逐 Node gate、失败与终结控制承载实际测试 seam，迁移保留其含义。仅服务单个
-owner 的持久化失败、丢失确认等 doubles 继续靠近所属测试。已存在的 ledger helpers
-优先复用，迁移时区分完整 envelope 与内层 event 的返回形状。
+execution action、factory action、Readiness、randomness、Invocation count、逐 Node
+gate、失败与终结控制属于测试 seam。仅服务单个 owner 的持久化失败、丢失确认等
+doubles 靠近所属测试；ledger helpers 区分完整 envelope 与内层 event 的返回形状。
 
-## 5. 原子迁移与删除
+## 5. 边界
 
-迁移 `tests/fixtures/public_v2.py`、`tests/public_protocol_acceptance_client.py` 中
-被替代的公共辅助代码及全部当前消费者，包括 selection、collection、Prompt、stress、
-public protocol 和 installed backend 的相关编排。保留 stress 场景、科学断言和报告
-职责；installed 客户端保持无 backend implementation imports 的性质。
-
-直接 runtime 等待与 codec helpers 放在其实际 seam 所属 module。删除旧入口、
-重复 implementation、无调用函数和只为兼容迁移保留的转发层；同步更新相关测试与
-显式 selectors。替代共享客户端时同步迁移其真实网络与 MockTransport 合同测试。
-
-本轮消除上述 Workflow / Run 相关的跨测试文件依赖。alignment、folding、Prompt
-Operation doubles、pairwise scoring、source-bound 科学断言等其他领域共享内容的
-归属整理不并入本 module。
+公共编排由第 7 节的 support modules 提供。stress 测试拥有科学场景、断言与报告；
+installed 客户端只依赖公共协议，不导入 backend implementation。
+直接 runtime 等待与 codec helpers 属于其实际 seam，不增加兼容转发或重复实现。
+其他领域的科学场景与 doubles 保留在各自 owner。
 
 ## 6. 验收
 
@@ -89,8 +78,8 @@ Operation doubles、pairwise scoring、source-bound 科学断言等其他领域�
 - 取消测试仍能在 start 与 wait 之间操作 gate；Cache、进程管理、重启和持久化
   故障测试保留原有被测 seam 与有效断言。
 - 真实安装验收继续经过 HTTP / WebSocket；进程内同步不代替网络验收。
-- 迁移前后的科学断言、结果身份、事件 envelope 与顺序逐项对应；保留原有负例。
-- 上述四个消费者不再导入 `tests.test_run_runtime`，公共重复编排的旧入口已删除。
+- 科学断言、结果身份、事件 envelope 与顺序由所属测试覆盖，包含契约负例。
+- 上述四个消费者直接使用共享 fixtures，不跨测试文件导入场景。
 
 优先运行受影响的现有测试；新增测试仅覆盖共享行为中具有实际风险且尚无有效覆盖的
 契约，不为搬移或简单转发机械增加测试。随后执行：
@@ -113,7 +102,3 @@ Acceptance Campaign 完成。
 - `tests/support/runtime_results.py`：直接 runtime seam 的等待与 canonical codec
   读取；明确使用既有 runtime 和 Catalog 类型。
 - `tests/fixtures/run_scenarios.py`：共享 Catalog、Workflow 场景与原有故障注入参数。
-
-旧 `tests/fixtures/public_v2.py` 与 `tests/public_protocol_acceptance_client.py`
-已删除，全部当前导入迁移到上述 owner。四组指定消费者和原 runtime 测试共同使用
-场景 fixtures；科学与事件断言继续留在所属测试。

@@ -16,9 +16,8 @@ runtime 与 Run Evidence Ledger 继续拥有通用因果闭合规则及其 owner
 现有 typed evidence，不复制 reducer、不建立第二套证据模型、不从实际事件推断本例
 应发生的科学行为。
 
-Operation Attempt 可以包含零、一个或多个 Engine Invocations。Kit 删除无条件要求
-Engine Invocation 存在的规则，以及用整个 Run 的事件类型集合代替目标 Node 证据的
-检查。上游 Node 的调用不能满足所属测试对被测 Node 的调用预期。
+Operation Attempt 可以包含零、一个或多个 Engine Invocations。Kit 按目标 Node
+关联实际证据。上游 Node 的调用不能满足所属测试对被测 Node 的调用预期。
 
 ## 2. 两个聚焦的 interface
 
@@ -50,26 +49,19 @@ Port 的多个 Artifact 不得相互覆盖。
 
 ## 3. pytest 拥有用例组织与科学断言
 
-删除 case 中的 `expected_scalar_outputs`、`expected_candidate_counts`、
-`expected_observation_counts` 和 `expected_artifacts`。所属测试对实际结果使用普通
-pytest 断言，数量只是其中一种预期，不代替身份、单位、数值和关联检查。
+case 只描述执行输入；所属测试对实际结果使用普通 pytest 断言，数量只是其中
+一种预期，不代替身份、单位、数值和关联检查。
 
-case-specific credential hygiene 检查同样留在所属测试中，保留对实际公开输出与
-证据的检查；不能用新 Kit 结果摘要代替真实公开内容。凭据卫生不因删除预期字段而丢失。
+case-specific credential hygiene 检查留在所属测试中，检查实际公开输出与证据，
+不能用 Kit 结果摘要代替真实公开内容。
 
-多个 case 由 pytest 参数化组织。删除 Kit 的批量执行、批量汇总报告和仅服务这些
-报告的序列化；不引入通用断言 DSL、callback registry 或兼容入口。普通 pytest 默认
-行为使各 case 独立报告，用户显式选择的 fail-fast 等运行选项仍由 pytest 决定。
+多个 case 由 pytest 参数化组织，各 case 独立报告；fail-fast 等运行选项由 pytest
+决定。Kit 不提供批量汇总报告、通用断言 DSL、callback registry 或兼容入口。
 
-## 4. 原子迁移
+## 4. 生产与测试边界
 
-同步迁移所有现有 Kit 调用者、fixture case 声明、Kit 自身测试和相关文档，再删除
-被替代的 interface 与无调用辅助代码。现有科学断言须逐项保留到所属测试，不能把
-批量成功报告机械替换为多次仅检查 succeeded 的测试。
-
-生产 Module Package Registration 继续只描述生产契约，测试 case 与 fixtures 保持
-独立。本次不扩展为全仓库 Run helper 重构，不合并其他历史回归文件，不改变科学
-生产行为、public protocol 或 real-Provider Acceptance Campaign。
+生产 Module Package Registration 只描述生产契约，测试 case 与 fixtures 保持独立。
+Kit 不拥有其他 Run helper、科学生产行为、公共协议或 real-Provider Acceptance Campaign。
 
 ## 5. 验证
 
@@ -78,8 +70,8 @@ case-specific credential hygiene 检查同样留在所属测试中，保留对�
   要求该调用的所属测试失败，上游证据不能替代。
 - 返回的目标输出与 Artifact 内容可在 Kit 完成清理后断言，并保持 exact identity。
 - Port conformance 无需执行 case；非法 codec、非法输出与失败执行不能通过检查。
-- 现有 fixture 的 credential hygiene 与各 package 的科学预期在迁移后保留。
-- pytest 独立收集迁移后的每个 case；同步更新受影响的显式 selectors 和 markers。
+- 现有 fixture 的 credential hygiene 与各 package 的科学预期由所属测试覆盖。
+- pytest 独立收集每个 case；显式 selectors 和 markers 指向当前用例。
 
 运行受影响 Kit 与 package 的 focused tests，然后运行：
 
@@ -89,4 +81,4 @@ case-specific credential hygiene 检查同样留在所属测试中，保留对�
 ```
 
 mock 不能替代必需的 real-Provider acceptance。默认门禁通过也不宣称完成全部
-Provider 验收；迁移中若触及真实 Provider 验收用例，仍须按其现行契约验证。
+Provider 验收；涉及真实 Provider 验收用例的变更须按其现行契约验证。

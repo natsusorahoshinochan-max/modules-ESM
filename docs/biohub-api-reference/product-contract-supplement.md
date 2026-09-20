@@ -75,8 +75,8 @@ Provider/Adapter 集成缺陷；不能通过同时接受多种猜测表示来掩
 distogram/embedding 选择，也不在 fold failure 时切换 model、endpoint 或配置。
 
 pLDDT、pTM、PAE 与 prediction residue axis 的 canonical scientific semantics 服从
-[ADR-0020](../adr/0020-canonical-plddt-contract.md) 和
-[`structure_prediction` 两阶段 seam](../protein_workbench_architecture.md#101-结构预测置信度的两阶段-seam)。
+[ADR-0020](../legacy/adr/0020-canonical-plddt-contract.md)；当前置信度物化入口见
+[`structure_prediction` implementation](../../modules/structure_prediction/implementation.py)。
 
 ## 5. 当前 ESM-3 generation 合同
 
@@ -108,5 +108,8 @@ Candidate、扩大当前 output contract，或替代独立 Folding Method。
 文档；不从一次成功或失败运行中生成 compatibility parser、expected-failure 产品分支或
 fallback route。
 
-当前真实 Provider gate、source-bound Workflow 与 Acceptance Campaign 定义见
-[`backend-verification.md`](../backend-verification.md)。
+当前后端门禁入口见 [verification.backend](../../verification/backend.py)，
+真实 Provider Acceptance Campaign 定义与命令见
+[acceptance_campaign.py](../../verification/acceptance_campaign.py) 和
+[acceptance_cli.py](../../verification/acceptance_cli.py)。
+已完成验收的范围与证据见[集成交付与验收记录](../2026-09-19-webui-integration-progress.md)。

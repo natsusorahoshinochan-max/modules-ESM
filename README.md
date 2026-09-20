@@ -18,7 +18,7 @@ workspace.
 
 - `core/` owns runtime, Workflow, Project, and evidence behavior.
 - `datatypes/` owns provider-independent scientific values.
-- `modules/<package>/` contains the twelve repository-owned Module Packages.
+- `modules/<package>/` contains the repository-owned Module Packages.
 - `protein_workbench_public/` owns the current public protocol and server.
 - `examples/v2/` contains maintained Workflows, structure inputs, and bundled WebUI results.
 - [`webui/`](webui/README.md) contains the React WebUI; its production build is deployed separately from the backend wheel.

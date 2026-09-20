@@ -62,10 +62,9 @@ protein-workbench-esm3-call-seed/v2:{base_seed}:{functional_digest}:{sample_inde
 返回的科学结果与 Invocation provenance 连接起来。受控 Provider client 只用于 focused
 行为测试，不能替代真实 Provider 验收。
 
-固定数值测试覆盖重构前的随机流，包括 atom37 过滤、float32 rounding/signed zero、SASA
+固定数值测试覆盖已确认的随机流，包括 atom37 过滤、float32 rounding/signed zero、SASA
 float64 精度、absent/all-null、annotation label/位置、样本序号和 paired 子调用。
-删除被这些 interface 测试替代的 helper mechanics 测试，保留 Node 前置条件、lineage、
-confidence、Result Identity 与运行证据的现有科学断言。
+Node 前置条件、lineage、confidence、Result Identity 与运行证据由所属科学测试覆盖。
 
 实施验证包括 focused tests、`verification.backend routine`、
 `verification.backend deterministic-acceptance`、`installed-biohub-esm3` 和

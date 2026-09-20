@@ -33,7 +33,7 @@
 
 ## 手动候选选择
 
-`selection.manual` 仅消费 Candidate Collection。参数 `selected_candidates` 保存完整 `{candidate_id, data_type_id, content_digest}` 数组，不保存行号、显示名称或序列字符串。不读取旧 Run；全部引用必须在当前输入集合中完全匹配，否则明确列出缺失的引用并使操作失败。相同 Candidate ID 但数据类型或内容摘要改变视为缺失。空选择得到空集合。结果保留当前输入顺序和原 Candidate 对象，不由勾选先后顺序排序。
+`selection.manual` 仅消费 Candidate Collection。参数 `selected_candidates` 保存完整 `{candidate_id, data_type_id, content_digest}` 数组，不保存行号、显示名称或序列字符串。不读取旧 Run；全部引用必须在当前输入集合中完全匹配，否则报告缺失数量及首个精确引用并使操作失败。相同 Candidate ID 但数据类型或内容摘要改变视为缺失。空选择得到空集合。结果保留当前输入顺序和原 Candidate 对象，不由勾选先后顺序排序。
 
 ## 验证
 

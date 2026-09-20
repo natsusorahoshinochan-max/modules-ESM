@@ -21,6 +21,6 @@ SoluProt-next is project-owned Provider source under
 target machine and is not bundled into the Protein Workbench wheel.
 
 Module Packages own Methods, Execution Bindings, canonical scientific operations,
-and concrete Provider Adapters. Installation commands and Environment
-Configuration are maintained in
-`docs/provider-install-contract.md` rather than duplicated in this decision.
+and concrete Provider Adapters. Process environment translation is owned by
+[provider_environment.py](../../../protein_workbench_public/provider_environment.py);
+this decision does not duplicate its configuration mapping.

@@ -40,8 +40,7 @@ present all-null 的区别，其 Function Annotations 继续独立 admission。
 
 SASA wire 整数转浮点由各 nominal codec 保留。Prompt 来源的 SS8 normalization、
 DSSP token translation 和 ESM3 atom37 projection 继续由原 owner 负责。
-删除被替代的重复循环、旧 kind 分派及其无调用的包装函数，不保留兼容路径。
-本次不调整运行时 admission 次数，不扩展为 validation framework。
+元素规则集中在上述 owner，不保留重复实现或兼容路径，不扩展为 validation framework。
 
 ## 验证
 

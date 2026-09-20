@@ -376,7 +376,8 @@ Interface 规则：
 
 ### 9.2 唯一 Prompt authoring implementation
 
-Preview 与 execution 必须调用同一个 pure implementation：
+Preview 与 execution 共享同一个 recipe 求值实现。Preview 同时取得 trace 与 merge targets；
+execution 通过以下公开入口取得 ProteinPrompt：
 
 ```python
 apply_prompt_recipe(
@@ -506,13 +507,9 @@ length 重建 `A:1...N`。
 
 ### 10.2 裸 `residue.layout` Port
 
-执行分两步：
-
-1. Phase 1 立即删除 Prompt 与 track 旁边的平行 `residue.layout` outputs；
-2. ProteinMPNN constraints 改为消费 resolved structure/design intent 后，重新检查生产 consumers；若已无
-   consumer，则删除裸 `residue.layout` Port Type。
-
-`ResidueLayout` 数据类型不删除。
+生产 Port 不包含裸 `residue.layout`。ProteinMPNN constraints 消费
+`structure_transform.resolved_residue_axis`，Prompt 与 residue tracks 各自携带 authoritative layout。
+`ResidueLayout` 仍是共享数据类型。
 
 ### 10.3 ResidueMap
 
@@ -576,62 +573,15 @@ modified-residue normalization 或 backbone masks。
 Prompt Studio 不输出 ProteinMPNN design mask。ProteinMPNN 无 constraints 时按其 own interface 执行；
 有 constraints 时由 ProteinMPNN-owned design intent 提供。
 
-## 12. 删除要求
+## 12. 当前 authoring 边界
 
-### 12.1 数据与 Port
+Prompt Studio 编辑普通 `prompt_authoring.author` Node 的 `document` parameter。
+布局、轨道、随机操作与合并由私有 recipe 实现，外部连线使用真实 typed Ports。
+不建立 managed composition、隐藏 Node/Edge 重写或兼容路径。
 
-删除：
-
-- `ResidueTrack.sentinel`；
-- `AlignedResidueTrack`；
-- `StructureAnnotationTrack`；
-- `TrackKind`；
-- `modules/prompt_authoring/track_types.py`；
-- generic built-in `residue.track*` Port Types；
-- four `prompt_authoring.track.*` Port Types；
-- public `residue.map` Port；
-- duplicate layout/track codecs；
-- `FunctionAnnotation.start`、`end`、`chain_id`；
-- Prompt Authoring 的 `overlap_policy` parameter、公开 schema/type 字段及重叠拒绝分支；同步更新 tests、fixtures 和 examples，不保留兼容解析；
-- three families of track copy/rebuild helpers。
-
-### 12.2 Prompt micro Nodes
-
-由 `prompt_authoring.author` 的 private implementation 吸收并删除：
-
-- `prompt_authoring.assemble_protein_prompt`；
-- `prompt_authoring.build_residue_layout`；
-- `prompt_authoring.edit_protein_prompt_layout`；
-- `prompt_authoring.merge_protein_prompt_source`；
-- `prompt_authoring.override_protein_prompt_track`；
-- `prompt_authoring.prompt_from_structure`；
-- `prompt_authoring.random_insert_masked`；
-- `prompt_authoring.random_mask`；
-- `prompt_authoring.replace_protein_prompt_annotations`；
-- `prompt_authoring.update_prompt_sequence`。
-
-新 `prompt_authoring.assemble` 是五个 public conditioning Ports→ProteinPrompt 的明确 Adapter Node，
-不是旧逐轨 managed assembly Node 的兼容版本。
-
-### 12.3 Specialized Composition machinery
-
-删除：
-
-- `ManagedCompositionRecord`；
-- `ManagedRoleEndpoint`；
-- `WorkflowDraft.authoring_compositions`；
-- Specialized Authoring Capability Projection；
-- managed ownership admission；
-- managed/materialized Node Type lists；
-- `_materialize_base_source()`；
-- `_materialize_merge_source()`；
-- `_materialize()`；
-- managed Node ID generation；
-- replace 时的 external Edge rewiring；
-- WebUI composition folding、fake Node 和 hidden Edge rewriting；
-- 依赖 managed UUID、Node order 或 internal membership 的 mechanics tests。
-
-Prompt Studio 保留为专用 editor，但只编辑普通 `prompt_authoring.author` Node 的 document parameter。
+`prompt_authoring.assemble` 是五个 public conditioning Ports 到 ProteinPrompt 的明确 Node。
+ResidueTrack 和 ProteinPrompt 自带 authoritative layout，nominal Ports 区分科学语义；
+不额外发布平行 layout 或通用 residue-map 输出。
 
 ## 13. 最小 admission 与检查
 
@@ -656,9 +606,9 @@ Prompt Studio 保留为专用 editor，但只编辑普通 `prompt_authoring.auth
 ESM3 atom37 projection 对非 atom37 atoms 的忽略是已确认 Provider translation，不属于 silent schema
 repair 或错误数据丢弃。
 
-## 14. 实施阶段
+## 14. 当前实现归属
 
-### Phase 1：Residue data ownership
+### Phase 1：Residue data ownership（已实现）
 
 主要文件：
 
@@ -667,14 +617,13 @@ repair 或错误数据丢弃。
 - `modules/prompt_authoring/domain.py`；
 - `modules/prompt_authoring/prompts.py`；
 - `modules/prompt_authoring/prompt_types.py`；
-- `modules/structure_annotation/domain.py`；
 - `modules/structure_annotation/port_types.py`；
 - `modules/esm3/adapter.py`；
 - `core/catalog/builtins.py`；
 - `core/catalog/_port_value_codec.py`；
 - corresponding tests、fixtures、examples 与 `CONTEXT.md`。
 
-Phase 完成条件：
+实现约束：
 
 - 生产代码不再出现 `AlignedResidueTrack`、`StructureAnnotationTrack`、`TrackKind` 或 track sentinel；
 - generic `residue.track*` Port 不再存在；
@@ -683,32 +632,31 @@ Phase 完成条件：
 - SS8 与 missing semantics 符合第 6 节；
 - ESM3 atom37 projection 符合第 7 节。
 
-### Phase 2：显式跨 Module Nodes
+### Phase 2：显式跨 Module Nodes（已实现）
 
 实现：
 
 - `prompt_authoring.decompose`；
-- new `prompt_authoring.assemble`；
+- `prompt_authoring.assemble`；
 - `residue_data.materialize_sequence`；
 - DSSP direct observed outputs；
 - observed→conditioning Node。
 
-同步更新 ESM3、ProteinMPNN、ESMFold2 examples 和 workflow fixtures，并删除旧 extraction、apply-to-
-Prompt 和 public residue-map paths。
+ESM3、ProteinMPNN、ESMFold2 examples 和 workflow fixtures 使用上述 Nodes。
 
-Phase 完成条件：
+实现约束：
 
 - 三个第 11 节 Workflow 可由 exact nominal Ports 直接表达；
 - 没有 Prompt→ProteinMPNN 或 Prompt→ESMFold2 pairwise converter；
 - ProteinMPNN structure input 仍来自 authoritative resolved structure；
 - ESMFold2 路径显式 materialize complete sequence Candidate。
 
-### Phase 3：Prompt Studio 单深 Node
+### Phase 3：Prompt Studio 单深 Node（已实现）
 
-实现 `prompt_authoring.author`，让 preview 和 execution 调用同一个 `apply_prompt_recipe()`。同步迁移
-public protocol 与 WebUI，随后删除第 12.2、12.3 节全部 superseded implementation。
+`prompt_authoring.author` 的 Preview 与 execution 共享 recipe 求值实现；
+public protocol 与 WebUI 使用普通 author Node。
 
-Phase 完成条件：
+实现约束：
 
 - Workflow 与 protocol 不再出现 `authoring_compositions`；
 - Prompt Studio 只编辑一个普通 Node Instance；
@@ -718,7 +666,7 @@ Phase 完成条件：
 
 ### Phase 4：暂挂
 
-Closed resolved-structure transport 暂时挂起，等待 Phase 1–3 完成后再设计。
+Closed resolved-structure transport 暂挂，需独立设计。
 
 届时才决定：
 
@@ -747,9 +695,10 @@ Closed resolved-structure transport 暂时挂起，等待 Phase 1–3 完成后�
 - ProteinSequence 全局 ownership 重构；
 - performance、cache compatibility 或 legacy artifact replay。
 
-## 16. 规格关闭条件
+## 16. 当前实现约束
 
-Phase 1–3 全部完成且满足以下条件后，本规格关闭：
+Phase 1–3 的实现遵循以下约束。测试覆盖见[科学回归测试覆盖位置](2026-09-07-scientific-regression-test-migration.md)，
+验收范围与证据见[集成交付与验收记录](2026-09-19-webui-integration-progress.md)：
 
 1. 所有逐 residue Port value 都自带 authoritative layout；
 2. aggregate 不再与平行 layout outputs 分叉；
