@@ -153,7 +153,7 @@ def _result_identity_plan_facts(
             )
         ]
         node_parameter_indirections.append(
-            selector_consumption.selector_id_parameter
+            selector_consumption.selector_ids_parameter
         )
     return ResultIdentityPlanFacts(
         identity_facts=facts,

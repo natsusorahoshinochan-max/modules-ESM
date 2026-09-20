@@ -210,6 +210,8 @@ def websocket_internal_error_boundary(
     ) -> None:
         try:
             await handler(websocket, *args, **kwargs)
+        except WebSocketDisconnect:
+            return
         except Exception as error:
             incident_id = report_public_internal_error(
                 error,
@@ -222,9 +224,9 @@ def websocket_internal_error_boundary(
             )
             try:
                 await emit_run_event_stream_message(websocket, payload)
-            except (RuntimeError, WebSocketDisconnect):
-                pass
-            await websocket.close(code=1011)
+                await websocket.close(code=1011)
+            except WebSocketDisconnect:
+                return
 
     return guarded
 

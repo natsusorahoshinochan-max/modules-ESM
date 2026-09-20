@@ -78,15 +78,16 @@ def test_startup_admits_only_the_examples_selected_scientific_definitions(
     # Catalog compilation, installation, admission, and persistence stay real.
     with monkeypatch.context() as changed:
         changed.setattr(bootstrap, "module_registrations", lambda: changed_registrations)
+        changed_app = create_application(v2_environment_configuration={})
         if affects_example:
             with pytest.raises(WorkflowAuthoringError) as raised:
-                create_application(v2_environment_configuration={})
+                changed_app.state.workflow_authoring.require_verified_commit(
+                    WEBUI_3GB1_PROJECT_ID, workflow_commit_id=example.workflow_commit_id,
+                )
             assert raised.value.code == "workflow_commit_identity_mismatch"
             assert raised.value.details == {
                 "workflow_commit_id": example.workflow_commit_id,
             }
-        else:
-            create_application(v2_environment_configuration={})
 
     create_application(v2_environment_configuration={})
     restored = WorkflowAuthoringService(
@@ -103,7 +104,7 @@ def test_webui_example_public_journey_and_prompt_contract(
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
-    with TestClient(create_application()) as http:
+    with TestClient(create_application(v2_environment_configuration={})) as http:
         projects_response = http.get("/api/v2/projects")
         assert projects_response.status_code == 200
         example = next(
@@ -113,7 +114,19 @@ def test_webui_example_public_journey_and_prompt_contract(
         )
         assert example["project_kind"] == "default_example"
         assert example["seed"] is True
-        assert example["latest_run_id"] is None
+        assert example["latest_run_id"].startswith("run-")
+        run_response = http.get(
+            f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}/runs/{example['latest_run_id']}"
+        )
+        assert run_response.status_code == 200
+        bundled_run = run_response.json()
+        validate_response("run_projection", 200, bundled_run)
+        assert bundled_run["status"] == "succeeded"
+        assert bundled_run["scope"]["mode"] == "full"
+        assert {
+            "candidate.collection", "score.collection",
+            "structure_comparison.alignment_evidence",
+        } <= {output["port_type"]["contract_id"] for output in bundled_run["outputs"]}
 
         draft_response = http.get(
             f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}/workflow/draft"
@@ -141,6 +154,7 @@ def test_webui_example_public_journey_and_prompt_contract(
         assert copied["project_kind"] == "personal"
         assert copied["copied_from_project_id"] == WEBUI_3GB1_PROJECT_ID
         assert copied["latest_run_id"] is None
+        assert copied["reference_results_project_id"] == WEBUI_3GB1_PROJECT_ID
 
         author_node_id = next(
             node["node_id"]
@@ -188,6 +202,7 @@ def test_webui_example_public_journey_and_prompt_contract(
             "project_input_ref": "3GB1.pdb",
             "content_digest": opened["source"]["content_digest"],
             "chain_ids": ["A"],
+            "merge_sources": [],
         }
         assert opened["function_annotations"] == []
 
@@ -257,7 +272,7 @@ def test_webui_example_public_journey_and_prompt_contract(
             json={
                 "node_id": author_node_id,
                 "document": preview["normalized_document"],
-                "preview_digest": "sha256:" + "0" * 64,
+                "expected_draft_revision": 0,
             },
         )
         assert rejected.status_code == 400
@@ -267,7 +282,7 @@ def test_webui_example_public_journey_and_prompt_contract(
             rejected.json(),
         )
         assert rejected.json()["error"]["details"]["field_path"] == [
-            "preview_digest"
+            "expected_draft_revision"
         ]
 
         apply_response = http.post(
@@ -275,7 +290,7 @@ def test_webui_example_public_journey_and_prompt_contract(
             json={
                 "node_id": author_node_id,
                 "document": preview["normalized_document"],
-                "preview_digest": preview["preview_digest"],
+                "expected_draft_revision": draft["draft_revision"],
             },
         )
         assert apply_response.status_code == 200

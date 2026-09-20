@@ -77,7 +77,7 @@ def apply_prompt_document(
         json={
             "node_id": node_id,
             "document": preview["normalized_document"],
-            "preview_digest": preview["preview_digest"],
+            "expected_draft_revision": client.get(f"/api/v2/projects/{project_id}/workflow/draft").json()["draft_revision"],
         },
     )
     response.raise_for_status()

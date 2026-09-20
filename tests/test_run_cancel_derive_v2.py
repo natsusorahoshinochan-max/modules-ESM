@@ -671,18 +671,11 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
         for item in forced_projection["node_dispositions"]
     } == {
         "direct-0": "executed",
-        "direct-1": "cache_replayed",
     }
     forced_events = _public_events(app, project_id, forced["run_id"])
-    replayed_attempt = next(
-        event["node_attempt_id"]
-        for event in forced_events
-        if event["type"] == "node_attempt_started"
-        and event["node_id"] == "direct-1"
-    )
+    assert forced_projection["scope"]["out_of_scope_node_ids"] == ["direct-1"]
     assert not any(
-        event["type"] == "operation_attempt_started"
-        and event["node_attempt_id"] == replayed_attempt
+        event["type"] == "node_attempt_started" and event["node_id"] == "direct-1"
         for event in forced_events
     )
     for identity_kind, source_ids in _terminal_ids(source_events).items():
@@ -1316,7 +1309,7 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
     )
 
 
-def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
+def test_derived_run_verifies_immutable_source_commit_not_current_draft(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1372,11 +1365,6 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
             "load_active_commit",
             forbid_workflow_resolution,
         )
-        monkeypatch.setattr(
-            app.state.workflow_authoring,
-            "require_verified_commit",
-            forbid_workflow_resolution,
-        )
         derived_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
@@ -1395,7 +1383,7 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
     assert projection["derived_from_run_id"] == source["run_id"]
 
 
-def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
+def test_terminal_source_is_available_for_new_run_after_restart(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1435,16 +1423,6 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
             },
         )
 
-    assert derived_response.status_code == 422
-    assert derived_response.json()["error"]["code"] == "compile_rejected"
-    assert derived_response.json()["error"]["details"]["issues"] == [
-        {
-            "code": "source_execution_plan_unavailable",
-            "severity": "error",
-            "message": (
-                "Derived Run requires the exact in-memory Execution Plan "
-                "retained by its source Run"
-            ),
-            "field_path": ["source_run_id"],
-        }
-    ]
+    assert derived_response.status_code == 202
+    assert derived_response.json()["run_id"] != source["run_id"]
+

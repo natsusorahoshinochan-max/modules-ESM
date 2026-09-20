@@ -11,6 +11,10 @@ from datatypes.observation import (
     PairwiseObservationContext,
 )
 
+from ._port_value_codec import (
+    CandidateCollectionSlice as CandidateCollectionSlice,
+    restore_candidate_collection_slice as restore_candidate_collection_slice,
+)
 from .model import FrozenCatalog
 from core.catalog.errors import PortValueError
 from .port_contract import (

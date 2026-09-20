@@ -2,40 +2,48 @@ import { useEffect, useRef } from 'react'
 import * as $3Dmol from '3dmol'
 
 const noSelectedResidues: Array<{ chain: string; resi: number }> = []
+type ViewerProps = {
+  pdb?: string
+  selectedResidues?: Array<{ chain: string; resi: number }>
+  onSelectResidue?: (residue: { chain: string; resi: number; toggle: boolean; range: boolean }) => void
+  pivot?: [number, number, number]
+}
 
-export function StructureViewer({ pdb = '', selectedResidues = noSelectedResidues, onSelectResidue }: { pdb?: string; selectedResidues?: Array<{ chain: string; resi: number }>; onSelectResidue?: (residue: { chain: string; resi: number }) => void }) {
+export function StructureViewer({ pdb = '', selectedResidues = noSelectedResidues, onSelectResidue, pivot }: ViewerProps) {
   const ref = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<ReturnType<typeof $3Dmol.createViewer> | undefined>(undefined)
   const selectHandler = useRef(onSelectResidue)
-  const selectedRef = useRef(selectedResidues)
-
   useEffect(() => { selectHandler.current = onSelectResidue }, [onSelectResidue])
-  useEffect(() => { selectedRef.current = selectedResidues }, [selectedResidues])
 
   useEffect(() => {
     if (!ref.current) return
-    const viewer = $3Dmol.createViewer(ref.current, { backgroundColor: '#111512', antialias: true })
+    if (!pdb) { viewerRef.current?.clear(); return }
+    const viewer = viewerRef.current ?? $3Dmol.createViewer(ref.current, { backgroundColor: '#111512', antialias: true })
     viewerRef.current = viewer
-    const load = pdb ? Promise.resolve(pdb) : fetch('/3GB1.pdb').then((response) => response.text())
-    void load.then((value) => {
-      viewer.addModel(value, 'pdb')
-      viewer.setStyle({}, { cartoon: { color: 'spectrum', opacity: 0.94 } })
-      for (const residue of selectedRef.current) viewer.addStyle({ chain: residue.chain, resi: residue.resi }, { stick: { color: '#f1c760' }, cartoon: { color: '#f1c760' } })
-      const interactiveViewer = viewer as typeof viewer & { setClickable: (selection: object, clickable: boolean, callback: (atom: { chain: string; resi: number }) => void) => void }
-      interactiveViewer.setClickable({}, true, (atom) => selectHandler.current?.({ chain: atom.chain, resi: atom.resi }))
-      viewer.zoomTo()
-      viewer.render()
-    })
-    return () => { viewer.clear(); viewerRef.current = undefined }
+    viewer.clear()
+    viewer.addModel(pdb, 'pdb')
+    viewer.setStyle({}, { cartoon: { color: 'spectrum', opacity: 0.94 }, line: { color: 'spectrum' } })
+    viewer.setClickable({}, true, (atom, _viewer, event) => selectHandler.current?.({ chain: atom.chain, resi: atom.resi, toggle: event.ctrlKey || event.metaKey, range: event.shiftKey }))
+    viewer.zoomTo()
+    viewer.render()
   }, [pdb])
+
+  useEffect(() => () => { viewerRef.current?.clear() }, [])
 
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer) return
-    viewer.setStyle({}, { cartoon: { color: 'spectrum', opacity: 0.94 } })
+    viewer.setStyle({}, { cartoon: { color: 'spectrum', opacity: 0.94 }, line: { color: 'spectrum' } })
     for (const residue of selectedResidues) viewer.addStyle({ chain: residue.chain, resi: residue.resi }, { stick: { color: '#f1c760' }, cartoon: { color: '#f1c760' } })
+    viewer.removeAllShapes()
+    viewer.removeAllLabels()
+    if (pivot) {
+      const position = { x: pivot[0], y: pivot[1], z: pivot[2] }
+      viewer.addSphere({ center: position, radius: 0.45, color: '#ff6688', opacity: 0.9 })
+      viewer.addLabel('Rotation center', { position, fontSize: 11, backgroundOpacity: 0.5 })
+    }
     viewer.render()
-  }, [selectedResidues])
+  }, [pdb, pivot, selectedResidues])
 
-  return <div className="structure-viewer" ref={ref} />
+  return <div className={`structure-viewer${pdb ? '' : ' is-empty'}`} ref={ref}>{!pdb && <p className="structure-empty" role="status">没有可显示的结构坐标</p>}</div>
 }

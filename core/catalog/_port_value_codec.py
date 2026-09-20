@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import fields
+from dataclasses import dataclass, fields
 import json
 import math
-from typing import Any
+from typing import Any, cast
 
 from core.catalog import canonical as _canonical
 from core.catalog import errors as _errors
@@ -384,6 +384,35 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
                 f"{path} is not a valid {tag} value: {error}"
             ) from error
     raise _errors.PortValueError(f"{path} contains a malformed canonical value object")
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateCollectionSlice:
+    """A window of an existing collection, not a new scientific collection."""
+
+    collection_id: str
+    item_type: str
+    total: int
+    items: tuple[Candidate, ...]
+
+
+def restore_candidate_collection_slice(
+    encoded: bytes, *, offset: int, limit: int,
+) -> CandidateCollectionSlice:
+    """Restore only the requested Candidates from an already-published value.
+
+    The caller owns the nominal type and request-range checks. JSON parsing
+    still covers the whole value; Candidate restoration covers only the slice.
+    """
+    collection = json.loads(encoded)["value"]["fields"]
+    items = collection["items"]
+    return CandidateCollectionSlice(
+        collection["collection_id"], collection["item_type"], len(items),
+        tuple(
+            cast(Candidate, _wire_to_value(item))
+            for item in items[offset:offset + limit]
+        ),
+    )
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

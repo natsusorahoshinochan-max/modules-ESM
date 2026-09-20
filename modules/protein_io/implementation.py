@@ -17,7 +17,8 @@ from datatypes.candidate import (
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
-from .fasta import parse_fasta_sequence
+from .fasta import admit_fasta_record, parse_fasta_entries, parse_fasta_sequence
+from .inspection import read_structure_input
 
 
 def _native_pdb_bytes(structure: ProteinStructure) -> bytes:
@@ -59,6 +60,46 @@ class SequenceImportImplementation:
         }
 
 
+class SequenceBatchImportImplementation:
+    """Import every FASTA record as an independent, source-addressed Candidate."""
+
+    def __init__(self, run_resources: OperationResources) -> None:
+        self._run_resources = run_resources
+
+    def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
+        descriptor, payload = self._run_resources.read_project_input(
+            call.node_parameters["project_input_ref"]
+        )
+        with self._run_resources.engine_invocation(
+            invocation_provenance=EngineInvocationProvenance(
+                project_input_filename=descriptor.filename
+            )
+        ):
+            candidates = [
+                Candidate(
+                    candidate_id=f"imported-record-{index}",
+                    data=admit_fasta_record(record, index),
+                    metadata={
+                        "fasta_header": record.header,
+                        "display_name": record.header or f"Record {index}",
+                        "record_index": index,
+                        "source_line": record.line_number,
+                        "source_filename": descriptor.filename,
+                    },
+                )
+                for index, record in enumerate(
+                    parse_fasta_entries(payload), start=1
+                )
+            ]
+        return {
+            "sequence_candidates": CandidateCollection(
+                collection_id="imported-sequence-records",
+                item_type="protein.sequence",
+                items=candidates,
+            )
+        }
+
+
 class StructureImportImplementation:
     """Parse one immutable Project-scoped PDB value."""
 
@@ -74,13 +115,7 @@ class StructureImportImplementation:
                 project_input_filename=descriptor.filename
             )
         ):
-            try:
-                text = payload.decode("utf-8")
-            except UnicodeDecodeError as error:
-                raise ValueError("Structure input must be UTF-8 text") from error
-            canonical = text.replace("\r\n", "\n").replace("\r", "\n")
-            canonical = canonical.rstrip("\n") + "\n"
-            structure = ProteinStructure(pdb_string=canonical)
+            structure = read_structure_input(payload)
         return {
             "structure": structure,
             "structure_candidates": CandidateCollection(

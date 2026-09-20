@@ -206,8 +206,8 @@ contract-owning interfaces:
 ## Module Package maintainer contract
 
 A repository-owned extension has one production entry point:
-`modules/<package>/package.py:MODULE_PACKAGE`. The production Catalog discovers
-exactly these 12 packages:
+`modules/<package>/package.py:MODULE_PACKAGE`. The composition root explicitly
+registers these production packages:
 
 - `collection_ops`
 - `esm3`
@@ -215,6 +215,7 @@ exactly these 12 packages:
 - `prompt_authoring`
 - `protein_io`
 - `proteinmpnn`
+- `residue_data`
 - `selection`
 - `solubility`
 - `structure_annotation`
@@ -316,8 +317,9 @@ Keep every Provider path in one private Execution Profile outside the repository
 and `.local/verification-results/`. The profile contains paths and transport policy,
 never token contents, and is injected explicitly into each child process.
 
-After the provider-free/backend matrix passes, commit the clean
-candidate and run one canonical Campaign:
+Run verification on the remote verification host, reusing its existing virtual
+environment. After the provider-free/backend matrix passes, freeze one source
+snapshot and run one canonical Campaign against its artifacts:
 
 ```bash
 CAMPAIGN=.local/verification-results/acceptance-campaign

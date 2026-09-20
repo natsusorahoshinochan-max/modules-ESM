@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 import threading
 from typing import Any, Literal, cast
 import uuid
+from datatypes.candidate import CandidateDataReference
 
 from core.catalog.model import FrozenCatalog
 from core.execution._run_runtime_derived import _DerivedRunStarter
@@ -13,6 +15,8 @@ from core.execution._run_runtime_evidence import plan_evidence
 from core.execution._run_runtime_models import _RunRecord
 from core.execution._run_runtime_queries import _RunQueries
 from core.execution._run_runtime_registry import _RunRegistry
+from core.execution._run_runtime_scope import _RunScopeAdmission
+from core.execution.scope import RunScopeRequest
 from core.execution._run_runtime_selection import (
     _selection_error,
     selection_consumer_result,
@@ -40,11 +44,10 @@ from core.execution.ledger import (
 from core.execution.node_attempt import AttemptSpec, NodeAttemptFactory
 from core.execution.results.store import ResultStore
 from core.operation import AdmittedPort
-from core.project.manager import ProjectManager
+from core.project.manager import ProjectManager, ProjectMeta
 from core.project.storage import StoragePathError
 from core.scoring.selection import SelectionError
 from core.workflow.authoring import (
-    VerifiedWorkflowCommit,
     WorkflowAuthoringService,
 )
 from core.workflow.plan import ExecutionPlanNode
@@ -80,8 +83,10 @@ class V2RunService:
         self._reserved_projects: set[str] = set()
         self._execution_lock = threading.Lock()
         self._closed = False
+        self._scopes = _RunScopeAdmission(projects, authoring, self._registry, result_store)
         self._derived = _DerivedRunStarter(
             registry=self._registry,
+            authoring=self._authoring,
             start_background=self.start_background,
         )
 
@@ -148,6 +153,7 @@ class V2RunService:
         *,
         workflow_commit_id: str,
         client_request_id: str,
+        scope: RunScopeRequest = RunScopeRequest(),
     ) -> dict[str, Any]:
         """Execute one Run while holding the Project admission lease."""
         self._reserve_project(project_id)
@@ -157,6 +163,7 @@ class V2RunService:
                     project_id,
                     workflow_commit_id=workflow_commit_id,
                     client_request_id=client_request_id,
+                    scope=scope,
                 )
         finally:
             self._release_project(project_id)
@@ -167,6 +174,7 @@ class V2RunService:
         *,
         workflow_commit_id: str,
         client_request_id: str,
+        scope: RunScopeRequest = RunScopeRequest(),
         _on_admitted: Callable[
             [dict[str, Any], _RunRecord],
             None,
@@ -175,19 +183,18 @@ class V2RunService:
         _before_execute: Callable[[], None] | None = None,
         _derived_from: DerivedRunReference | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
-        _retained_compiled: VerifiedWorkflowCommit | None = None,
     ) -> dict[str, Any]:
         del client_request_id
-        if _retained_compiled is None:
-            compiled = self._authoring.require_verified_commit(
-                project_id,
-                workflow_commit_id=workflow_commit_id,
-            )
-        else:
-            compiled = _retained_compiled
-        plan = compiled.execution_plan
         run_id = f"run-{uuid.uuid4().hex}"
-        admitted_plan_evidence = plan_evidence(plan)
+        admission = self._scopes.resolve(project_id, workflow_commit_id, scope, run_id)
+        admission.require_ready()
+        compiled = admission.compiled
+        plan = compiled.execution_plan
+        admitted_scope = admission.scope
+        active_ids = set(admitted_scope.execution_node_ids) | set(admitted_scope.reused_node_ids)
+        admitted_plan_evidence = plan_evidence(plan, admitted_scope)
+        if scope.mode == "from_node":
+            _cache_bypass_nodes = frozenset(admitted_scope.execution_node_ids)
         try:
             ledger = Ledger(
                 self._projects,
@@ -212,10 +219,13 @@ class V2RunService:
             RunScopeBinding(
                 workflow_commit_id=workflow_commit_id,
                 derived_from=_derived_from,
+                execution_scope=admitted_scope,
             )
         )
         distinct: dict[str, ExecutionPlanNode] = {}
         for node in plan.nodes:
+            if node.node_id not in active_ids:
+                continue
             distinct.setdefault(node.binding.contract_id, node)
         for node in distinct.values():
             availability = self._catalog.require_availability(
@@ -257,6 +267,8 @@ class V2RunService:
             _before_execute()
         committed_values: dict[tuple[str, str], AdmittedPort] = {}
         for node in plan.nodes:
+            if node.node_id not in active_ids:
+                continue
             blocked_by = self._required_input_blockers(
                 node,
                 committed_values,
@@ -306,6 +318,7 @@ class V2RunService:
                     committed_values=committed_values,
                     cancellation=record.cancellation,
                     cache_bypassed=node.node_id in _cache_bypass_nodes,
+                    reused_result=admission.reused.get(node.node_id),
                 )
             )
             if committed.disposition == "succeeded":
@@ -343,9 +356,9 @@ class V2RunService:
         *,
         workflow_commit_id: str,
         client_request_id: str,
+        scope: RunScopeRequest = RunScopeRequest(),
         _derived_from: DerivedRunReference | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
-        _retained_compiled: VerifiedWorkflowCommit | None = None,
     ) -> dict[str, Any]:
         """Admit synchronously, then execute without blocking event delivery."""
         admitted = threading.Event()
@@ -375,11 +388,11 @@ class V2RunService:
                     project_id,
                     workflow_commit_id=workflow_commit_id,
                     client_request_id=client_request_id,
+                    scope=scope,
                     _on_admitted=on_admitted,
                     _before_execute=acquire_execution_slot,
                     _derived_from=_derived_from,
                     _cache_bypass_nodes=_cache_bypass_nodes,
-                    _retained_compiled=_retained_compiled,
                 )
             except BaseException as caught:
                 error = caught
@@ -404,6 +417,44 @@ class V2RunService:
         if receipt is None:
             raise cast(BaseException, error)
         return receipt
+
+    def preview_scope(
+        self,
+        project_id: str,
+        *,
+        workflow_commit_id: str,
+        scope: RunScopeRequest = RunScopeRequest(),
+    ) -> dict[str, Any]:
+        return self._scopes.resolve(
+            project_id, workflow_commit_id, scope, "scope-preview", include_summaries=True
+        ).projection(workflow_commit_id)
+
+    def active_run_ids(self, project_id: str) -> tuple[str, ...]:
+        return self._registry.active_run_ids(project_id)
+
+    def trash_project(self, project_id: str) -> ProjectMeta:
+        """Trash an idle Project without removing its retained content."""
+        with self._project_idle(project_id):
+            return self._projects.trash(project_id)
+
+    def permanently_delete_project(self, project_id: str) -> None:
+        """Delete idle Project storage before forgetting its cached evidence."""
+        with self._project_idle(project_id):
+            self._projects.permanently_delete(project_id)
+            self._registry.forget_project(project_id)
+            self._authoring.forget_project(project_id)
+
+    @contextmanager
+    def _project_idle(self, project_id: str) -> Iterator[None]:
+        """Hold Project admission throughout an idle-only lifecycle operation."""
+        with self._worker_condition:
+            active_run_ids = self.active_run_ids(project_id)
+            if project_id in self._reserved_projects or active_run_ids:
+                raise V2RunError(
+                    "project_has_active_runs", "Project has an active Run",
+                    details={"project_id": project_id, "run_ids": list(active_run_ids)},
+                )
+            yield
 
     def start_derived_background(
         self,
@@ -463,13 +514,15 @@ class V2RunService:
         output_port: str,
         value_index: int,
     ) -> tuple[dict[str, Any], bytes]:
-        return self._queries.typed_value(
-            project_id,
-            run_id,
-            node_id,
-            output_port,
-            value_index,
+        metadata, body, _references = self.published_value(
+            project_id, run_id, node_id, output_port, value_index,
         )
+        return metadata, body
+
+    def published_value(
+        self, project_id: str, run_id: str, node_id: str, output_port: str, value_index: int,
+    ) -> tuple[dict[str, Any], bytes, tuple[CandidateDataReference, ...]]:
+        return self._queries.typed_value(project_id, run_id, node_id, output_port, value_index)
 
     def artifact(
         self,

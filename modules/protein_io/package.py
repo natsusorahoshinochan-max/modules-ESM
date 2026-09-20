@@ -18,6 +18,7 @@ from core.catalog.port_contract import BehaviorReference
 from core.operation import OperationContext, ScientificOperation
 
 from .implementation import (
+    SequenceBatchImportImplementation,
     SequenceExportImplementation,
     SequenceImportImplementation,
     StructureExportImplementation,
@@ -30,6 +31,8 @@ def _build(operation: str):
     def factory(context: OperationContext) -> ScientificOperation:
         if operation == "import_sequence":
             return SequenceImportImplementation(context.resources)
+        if operation == "import_sequences":
+            return SequenceBatchImportImplementation(context.resources)
         if operation == "import_structure":
             return StructureImportImplementation(context.resources)
         if operation == "export_sequence":
@@ -74,6 +77,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 _OPERATIONS = (
     "import_sequence",
+    "import_sequences",
     "import_structure",
     "export_sequence",
     "export_structure",
@@ -85,6 +89,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/sequence_import.yaml"),
+        DefinitionResource("definitions/sequences_import.yaml"),
         DefinitionResource("definitions/structure_import.yaml"),
         DefinitionResource("definitions/sequence_export.yaml"),
         DefinitionResource("definitions/structure_export.yaml"),

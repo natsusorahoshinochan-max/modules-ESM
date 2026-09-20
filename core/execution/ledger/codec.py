@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.execution.scope import RunExecutionScope
+
 import base64
 import binascii
 from collections.abc import Mapping
@@ -54,6 +56,7 @@ from core.operation import (
     ProviderResidueProjectionEntry,
 )
 from core.scoring.selection import SelectionInput
+from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, thaw_i_json
 
@@ -512,6 +515,15 @@ def _selection_to_canonical(value: SelectionResult) -> dict[str, Any]:
             _selector_to_canonical(item)
             for item in value.observation_selectors
         ]
+    if value.selected_candidate_references is not None:
+        result["selected_candidate_references"] = [
+            {
+                "candidate_id": item.candidate_id,
+                "data_type_id": item.data_type_id,
+                "content_digest": item.content_digest,
+            }
+            for item in value.selected_candidate_references
+        ]
     return result
 
 
@@ -528,7 +540,7 @@ def _selection_from_canonical(value: object) -> SelectionResult:
     }
     nested_fields = {
         name
-        for name in ("objectives", "observation_selectors")
+        for name in ("objectives", "observation_selectors", "selected_candidate_references")
         if name in value
     }
     if (
@@ -537,10 +549,10 @@ def _selection_from_canonical(value: object) -> SelectionResult:
         or not isinstance(value["selected_candidate_ids"], list)
     ):
         raise ValueError("Selection result is invalid")
-    nested_key = (
-        "objectives" if "objectives" in value else "observation_selectors"
-    )
-    if not isinstance(value[nested_key], list) or not value[nested_key]:
+    nested_key = next(iter(nested_fields))
+    if not isinstance(value[nested_key], list) or (
+        nested_key != "selected_candidate_references" and not value[nested_key]
+    ):
         raise ValueError("Selection result is invalid")
     return SelectionResult(
         selection_node_id=cast(str, value["selection_node_id"]),
@@ -559,6 +571,11 @@ def _selection_from_canonical(value: object) -> SelectionResult:
         observation_selectors=tuple(
             _selector_from_canonical(item)
             for item in value.get("observation_selectors", [])
+        ),
+        selected_candidate_references=(
+            tuple(CandidateDataReference(**item) for item in value["selected_candidate_references"])
+            if "selected_candidate_references" in value
+            else None
         ),
     )
 
@@ -669,6 +686,8 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
             ],
             "selection_terminal_keys": list(payload.selection_terminal_keys),
         }
+        if payload.execution_scope is not None:
+            result["execution_scope"] = payload.execution_scope.projection()
         if payload.derived_from is not None:
             result["derived_from"] = {
                 "source_run_id": payload.derived_from.source_run_id,
@@ -798,6 +817,8 @@ def _payload_from_canonical(kind: str, value: object) -> FactPayload:
             workflow_commit_id=v["workflow_commit_id"],
             plan_nodes=_plan_evidence_from_canonical(v["plan_nodes"]),
             selection_terminal_keys=tuple(v["selection_terminal_keys"]),
+            execution_scope=(RunExecutionScope.from_projection(v["execution_scope"])
+                             if "execution_scope" in v else None),
             derived_from=(
                 DerivedRunReference(
                     source_run_id=derived["source_run_id"],

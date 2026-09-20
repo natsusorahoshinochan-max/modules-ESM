@@ -158,11 +158,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "tm-reference-normalized",
-        "operator": ">=",
-        "threshold": 0.8,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "tm-reference-normalized"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 0.8
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -171,11 +177,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "ca-rmsd",
-        "operator": "<=",
-        "threshold": 2.5,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "ca-rmsd"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": "<=",
+            "threshold": 2.5
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -184,11 +196,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "mean-plddt",
-        "operator": ">=",
-        "threshold": 70,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "mean-plddt"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 70
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -197,11 +215,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "protein-sol-scaled",
-        "operator": ">=",
-        "threshold": 0.446,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "protein-sol-scaled"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 0.446
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },

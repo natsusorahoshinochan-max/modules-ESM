@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from core.execution.resources import CancellationControl, RunResources
 from core.operation import AdmittedPort, ExecutionTermination
 from core.project.manager import ProjectInputDescriptor
 from core.workflow.plan import ExecutionPlanNode
+
+
+if TYPE_CHECKING:
+    from core.execution.results.store import StoredNodeResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +44,7 @@ class AttemptSpec:
     committed_values: Mapping[tuple[str, str], AdmittedPort]
     cancellation: CancellationControl
     cache_bypassed: bool
+    reused_result: StoredNodeResult | None = None
 
 
 @dataclass(frozen=True, slots=True)

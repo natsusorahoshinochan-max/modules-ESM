@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 
 from core.workflow.authoring import WorkflowAuthoringError
+from core.workflow.document import WorkflowDocumentError
 from modules.prompt_authoring.authoring import PromptAuthoringService
 from protein_workbench_public.authoring_codec import (
     encode_prompt_apply_result,
@@ -18,6 +19,7 @@ from protein_workbench_public.http.emission import emit_rest_json_success
 from protein_workbench_public.http.errors import (
     authoring_error_response,
     protocol_error_response,
+    workflow_document_error_response,
     public_rest_wire_sources,
 )
 from protein_workbench_public.protocol import (
@@ -52,6 +54,8 @@ def register_prompt_authoring_routes(
             snapshot = prompt_authoring.open(admitted["project_id"], admitted)
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, body.get("workflow"))
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         return emit_rest_json_success(
@@ -82,6 +86,8 @@ def register_prompt_authoring_routes(
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, body.get("workflow"))
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         return emit_rest_json_success(
@@ -112,6 +118,8 @@ def register_prompt_authoring_routes(
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, body.get("workflow"))
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         return emit_rest_json_success(

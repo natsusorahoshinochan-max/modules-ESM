@@ -15,12 +15,14 @@ separately to the Contract Test Kit and are not part of the production
 registration object. Adding a conforming package must not require a change to
 `core/`.
 
-Each immediate child directory under `modules/` is one discovery unit and
-exports exactly one explicit registration object at
-`modules/<package_name>/package.py:MODULE_PACKAGE`. Discovery scans only those
-package roots and consumes that object; it does not recursively search for
-arbitrary `definition.yaml` files, invoke per-Node `register()` functions, or
-depend on import side effects, globs, or helper-driven resource discovery.
+Each production Module Package exports one explicit registration object at
+`modules/<package_name>/package.py:MODULE_PACKAGE`. The application composition
+root explicitly selects these registrations in
+[`protein_workbench_public/bootstrap.py`](../../../protein_workbench_public/bootstrap.py).
+Adding a package updates that list, without changing `core/`. Startup does not
+scan directories for packages or arbitrary `definition.yaml` files, invoke
+per-Node `register()` functions, or depend on import side effects, globs, or
+helper-driven resource discovery.
 Helpers may construct an explicitly named resource reference but may not decide
 which production resources are registered. Internal implementation and test
 layout do not change this entry contract.
@@ -32,7 +34,7 @@ Candidate and Observation subjects, Metric schemas, residue-axis relationships,
 dependency closure, and the other relationships that directly protect scientific
 module inputs and outputs. Build and focused tests exercise this same builder.
 
-Discovery occurs only at startup; one admitted `FrozenCatalog` is published and
+Registration occurs only at startup; one admitted `FrozenCatalog` is published and
 remains immutable. Catalog construction does not compute repository-owned
 descriptor digests, Contract Locks, semantic versions, or installation identity.
 A package entry point must not eagerly import optional provider dependencies;

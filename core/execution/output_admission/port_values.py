@@ -147,23 +147,24 @@ def restore_admitted_port(
     *,
     port_type: Any,
     multiplicity: PortMultiplicity,
-    canonical_values: tuple[bytes, ...],
-    candidate_data_port_types: Mapping[str, Any],
+    values: tuple[tuple[bytes, str, tuple[CandidateDataReference, ...]], ...],
+    content_digest: str,
 ) -> AdmittedPort:
-    """Restore one persisted Port through its nominal decoder exactly once."""
-    admitted = tuple(
-        _admitted_value(
-            port_type=port_type,
-            runtime_value=port_type.decode(canonical_value),
-            canonical_bytes=canonical_value,
-            candidate_data_port_types=candidate_data_port_types,
-        )
-        for canonical_value in canonical_values
-    )
-    return _snapshot(
-        port_type=_exact_port_type(port_type),
-        multiplicity=multiplicity,
-        values=admitted,
+    """Decode published values and reuse their recorded scientific identities."""
+    admitted = []
+    for body, digest, references in values:
+        value = port_type.restore(body)
+        admitted.append(AdmittedValue(
+            value=value, canonical_bytes=body, content_digest=digest,
+            candidate_data=references,
+            scientific_axes=(port_type.scientific_axis_references(value)
+                             if port_type.runtime_scientific_axis_projection is not None else ()),
+            observation_methods=(port_type.observation_method_references(value)
+                                 if port_type.runtime_observation_method_projection is not None else ()),
+        ))
+    return AdmittedPort(
+        port_type=_exact_port_type(port_type), multiplicity=multiplicity,
+        values=tuple(admitted), content_digest=content_digest,
     )
 
 

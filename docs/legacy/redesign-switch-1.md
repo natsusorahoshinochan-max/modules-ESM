@@ -3,7 +3,7 @@
 Date: 2026-08-17
 
 Status: historical switch record; current verification is owned by
-[`backend-verification.md`](./backend-verification.md)
+[`backend-verification.md`](../backend-verification.md)
 
 This switch replaces the earlier defensive Acceptance prototype with the
 trusted scientific design in [codebase-redesign.md](./codebase-redesign.md).

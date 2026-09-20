@@ -12,7 +12,6 @@ from dataclasses import dataclass, replace
 import hashlib
 from typing import Any, NoReturn, cast
 
-from core.catalog.canonical import canonical_json_bytes
 from core.catalog.model import FrozenCatalog
 from core.catalog.declarations import NodeTypeDefinition
 from core.parameters.contract import admit_values, ParameterValueAdmissionError
@@ -24,6 +23,7 @@ from core.workflow.authoring import (
 )
 from core.workflow.document import (
     WorkflowEdge,
+    workflow_document_from_canonical,
     WorkflowNodeInstance,
     _thaw_json,
 )
@@ -86,12 +86,15 @@ class PromptAuthoringSnapshot:
     """One complete open projection for Prompt Studio."""
 
     document: Mapping[str, Any]
+    draft_revision: int
     residues: tuple[Mapping[str, Any], ...]
     tracks: Mapping[str, Mapping[str, Any]]
     function_annotations: tuple[Mapping[str, Any], ...]
     source: Mapping[str, Any]
     baseline_diagnostics: tuple[PromptAuthoringDiagnostic, ...]
     random_selections: tuple[Mapping[str, Any], ...]
+    merge_targets: tuple[Mapping[str, Any], ...] = ()
+    protein_prompt: ProteinPrompt | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +102,6 @@ class PromptAuthoringPreview:
     """One non-executable complete authoring preview."""
 
     normalized_document: Mapping[str, Any]
-    preview_digest: str
     residues: tuple[Mapping[str, Any], ...]
     tracks: Mapping[str, Mapping[str, Any]]
     function_annotations: tuple[Mapping[str, Any], ...]
@@ -109,6 +111,8 @@ class PromptAuthoringPreview:
     diagnostics: tuple[PromptAuthoringDiagnostic, ...]
     baseline_diagnostics: tuple[PromptAuthoringDiagnostic, ...]
     summary: Mapping[str, Any]
+    merge_targets: tuple[Mapping[str, Any], ...] = ()
+    protein_prompt: ProteinPrompt | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,8 +213,17 @@ class PromptAuthoringService:
         self,
         project_id: str,
         node_id: str,
+        prospective_workflow: Mapping[str, Any] | None = None,
     ) -> tuple[WorkflowNodeInstance, WorkflowDraft]:
-        draft = self._workflow_authoring.load_draft(project_id)
+        if prospective_workflow is None:
+            draft = self._workflow_authoring.load_draft(project_id)
+        else:
+            current = self._workflow_authoring.load_workspace(project_id).draft
+            draft = WorkflowDraft(
+                project_id,
+                current.draft_revision if current is not None else 0,
+                workflow_document_from_canonical(prospective_workflow),
+            )
         for node in draft.workflow.nodes:
             if node.node_id != node_id:
                 continue
@@ -474,7 +487,7 @@ class PromptAuthoringService:
             sources = self._resolve_sources(
                 project_id, draft, node, document, next_visited
             )
-            prompt, _trace = _evaluate_prompt_recipe(
+            prompt, _trace, _merge_targets = _evaluate_prompt_recipe(
                 sequence_source=sources.sequence_source,
                 structure_source=sources.structure_source,
                 prompt_source=sources.prompt_source,
@@ -723,7 +736,11 @@ class PromptAuthoringService:
                 project_id, draft, edge, visited
             )
             merge_sources.append(source)
-            merge_source_facts.append(_prompt_facts(source))
+            merge_source_facts.append({
+                **_prompt_facts(source),
+                "node_id": edge.source_node_id,
+                "port": edge.source_port,
+            })
 
         return _ResolvedSources(
             sequence_source,
@@ -1066,23 +1083,6 @@ class PromptAuthoringService:
         )
 
     @staticmethod
-    def _preview_digest(
-        node_id: str,
-        document: Mapping[str, Any],
-        sources: _ResolvedSources,
-    ) -> str:
-        return "sha256:" + hashlib.sha256(
-            canonical_json_bytes(
-                {
-                    "node_id": node_id,
-                    "normalized_document": document,
-                    "source_facts": sources.source_facts,
-                    "merge_source_facts": sources.merge_source_facts,
-                }
-            )
-        ).hexdigest()
-
-    @staticmethod
     def _project_random_trace(
         trace: Sequence[Mapping[str, Any]],
     ) -> tuple[Mapping[str, Any], ...]:
@@ -1112,7 +1112,9 @@ class PromptAuthoringService:
                         sources.merge_source_facts[source_index]
                     ),
                     "correspondence": _thaw_json(merge["correspondence"]),
-                    "track_decisions": _thaw_json(merge["track_decisions"]),
+                    "track_adoptions": _thaw_json(merge["track_adoptions"]),
+                    "adopt_annotations": _thaw_json(merge["adopt_annotations"]),
+                    "remove_annotations": _thaw_json(merge["remove_annotations"]),
                     "confirmed": True,
                 }
             )
@@ -1134,9 +1136,9 @@ class PromptAuthoringService:
         self,
         sources: _ResolvedSources,
         document: Mapping[str, Any],
-    ) -> tuple[ProteinPrompt | None, tuple[Mapping[str, Any], ...]]:
+    ) -> tuple[ProteinPrompt | None, tuple[Mapping[str, Any], ...], tuple[ProteinPrompt, ...]]:
         if not self._can_evaluate(sources, document):
-            return None, ()
+            return None, (), ()
         return _evaluate_prompt_recipe(
             sequence_source=sources.sequence_source,
             structure_source=sources.structure_source,
@@ -1147,31 +1149,55 @@ class PromptAuthoringService:
 
     def _saved_result(
         self, sources: _ResolvedSources, document: Mapping[str, Any],
-    ) -> tuple[ProteinPrompt | None, tuple[Mapping[str, Any], ...], tuple[PromptAuthoringDiagnostic, ...]]:
+    ) -> tuple[ProteinPrompt | None, tuple[Mapping[str, Any], ...], tuple[ProteinPrompt, ...], tuple[PromptAuthoringDiagnostic, ...]]:
         try:
-            prompt, trace = self._evaluate_if_possible(sources, document)
+            prompt, trace, merge_targets = self._evaluate_if_possible(sources, document)
         except ValueError as error:
-            return None, (), (PromptAuthoringDiagnostic("recipe_error", str(error), ("document",)),)
-        return prompt, trace, ()
+            return None, (), (), (PromptAuthoringDiagnostic("recipe_error", str(error), ("document",)),)
+        return prompt, trace, merge_targets, ()
+
+    def _project_merge_targets(self, prompts: Sequence[ProteinPrompt]) -> tuple[Mapping[str, Any], ...]:
+        projections: list[Mapping[str, Any]] = []
+        for index, prompt in enumerate(prompts):
+            residues, tracks, annotations, _changes, _summary = self._project_prompt(prompt, prompt)
+            projections.append({
+                "merge_index": index, "residues": residues, "tracks": tracks,
+                "function_annotations": annotations,
+            })
+        return tuple(projections)
+
+    def _source_projection(self, sources: _ResolvedSources) -> Mapping[str, Any]:
+        merge_sources: list[Mapping[str, Any]] = []
+        for index, source in enumerate(sources.merge_sources):
+            residues, tracks, annotations, _changes, _summary = self._project_prompt(source, source)
+            merge_sources.append({
+                "source_index": index,
+                "source": sources.merge_source_facts[index],
+                "residues": residues,
+                "tracks": tracks,
+                "function_annotations": annotations,
+            })
+        return {**sources.source_facts, "merge_sources": merge_sources}
 
     def open(
         self,
         project_id: str,
         request: Mapping[str, Any],
     ) -> PromptAuthoringSnapshot:
-        node, draft = self._require_author_node(project_id, request["node_id"])
+        node, draft = self._require_author_node(project_id, request["node_id"], request.get("workflow"))
         document = _normalize_document(node.node_parameters["document"])
         sources = self._resolve_sources(
             project_id, draft, node, document, frozenset({node.node_id})
         )
-        prompt, trace, baseline_diagnostics = self._saved_result(sources, document)
+        prompt, trace, merge_targets, baseline_diagnostics = self._saved_result(sources, document)
         if prompt is None:
             return PromptAuthoringSnapshot(
                 document=document,
+                draft_revision=draft.draft_revision,
                 residues=(),
                 tracks=_empty_tracks(),
                 function_annotations=(),
-                source=sources.source_facts,
+                source=self._source_projection(sources),
                 baseline_diagnostics=baseline_diagnostics,
                 random_selections=(),
             )
@@ -1180,12 +1206,15 @@ class PromptAuthoringService:
         )
         return PromptAuthoringSnapshot(
             document=document,
+            draft_revision=draft.draft_revision,
             residues=residues,
             tracks=tracks,
             function_annotations=annotations,
-            source=sources.source_facts,
+            source=self._source_projection(sources),
             baseline_diagnostics=baseline_diagnostics,
             random_selections=self._project_random_trace(trace),
+            merge_targets=self._project_merge_targets(merge_targets),
+            protein_prompt=prompt,
         )
 
     def _preview_loaded(
@@ -1194,18 +1223,38 @@ class PromptAuthoringService:
         node: WorkflowNodeInstance,
         draft: WorkflowDraft,
         document: Mapping[str, Any],
+        version_context: Mapping[str, Any] | None = None,
     ) -> PromptAuthoringPreview:
-        stored_document = _normalize_document(node.node_parameters["document"])
-        stored_sources = self._resolve_sources(
-            project_id,
-            draft,
-            node,
-            stored_document,
-            frozenset({node.node_id}),
-        )
-        baseline, _baseline_trace, baseline_diagnostics = self._saved_result(
-            stored_sources, stored_document
-        )
+        if version_context is None:
+            current = self._workflow_authoring.load_workspace(project_id).draft
+        else:
+            version = self._workflow_authoring.load_version(project_id, version_context["version_id"])
+            current = self._workflow_authoring.load_workspace(project_id, revision=version.workspace_revision).draft
+        stored_node = next((item for item in current.workflow.nodes if item.node_id == node.node_id and item.node_type_id == _AUTHOR_NODE_TYPE), None) if current is not None else None
+        if stored_node is None:
+            baseline, baseline_diagnostics = None, ()
+        else:
+            try:
+                stored_node = self._admit_node(stored_node)
+                stored_document = _normalize_document(stored_node.node_parameters["document"])
+                stored_sources = self._resolve_sources(
+                    project_id, current, stored_node, stored_document, frozenset({node.node_id}),
+                )
+            except WorkflowAuthoringError as error:
+                if error.code not in {"malformed_request", "workflow_draft_not_found", "project_input_not_found"}:
+                    raise
+                baseline = None
+                baseline_diagnostics = (
+                    PromptAuthoringDiagnostic(
+                        error.code, str(error),
+                        tuple(error.details.get("field_path", ("source",))),
+                    ),
+                )
+            except ValueError as error:
+                baseline = None
+                baseline_diagnostics = (PromptAuthoringDiagnostic("recipe_error", str(error), ("source",)),)
+            else:
+                baseline, _baseline_trace, _merge_targets, baseline_diagnostics = self._saved_result(stored_sources, stored_document)
         sources = self._resolve_sources(
             project_id,
             draft,
@@ -1213,9 +1262,8 @@ class PromptAuthoringService:
             document,
             frozenset({node.node_id}),
         )
-        digest = self._preview_digest(node.node_id, document, sources)
         try:
-            final, trace = _evaluate_prompt_recipe(
+            final, trace, merge_targets = _evaluate_prompt_recipe(
                 sequence_source=sources.sequence_source,
                 structure_source=sources.structure_source,
                 prompt_source=sources.prompt_source,
@@ -1234,7 +1282,6 @@ class PromptAuthoringService:
                 )
             return PromptAuthoringPreview(
                 normalized_document=document,
-                preview_digest=digest,
                 residues=residues,
                 tracks=tracks,
                 function_annotations=annotations,
@@ -1255,7 +1302,6 @@ class PromptAuthoringService:
         )
         return PromptAuthoringPreview(
             normalized_document=document,
-            preview_digest=digest,
             residues=residues,
             tracks=tracks,
             function_annotations=annotations,
@@ -1265,6 +1311,8 @@ class PromptAuthoringService:
             diagnostics=(),
             baseline_diagnostics=baseline_diagnostics,
             summary=summary,
+            merge_targets=self._project_merge_targets(merge_targets),
+            protein_prompt=final,
         )
 
     def preview(
@@ -1272,37 +1320,43 @@ class PromptAuthoringService:
         project_id: str,
         request: Mapping[str, Any],
     ) -> PromptAuthoringPreview:
-        node, draft = self._require_author_node(project_id, request["node_id"])
+        node, draft = self._require_author_node(project_id, request["node_id"], request.get("workflow"))
         document = _normalize_document(request["document"])
-        return self._preview_loaded(project_id, node, draft, document)
+        return self._preview_loaded(project_id, node, draft, document, request.get("version_context"))
 
     def apply(
         self,
         project_id: str,
         request: Mapping[str, Any],
     ) -> PromptApplyResult:
-        node, draft = self._require_author_node(project_id, request["node_id"])
-        document = _normalize_document(request["document"])
-        preview = self._preview_loaded(project_id, node, draft, document)
-        if preview.diagnostics:
-            raise WorkflowAuthoringError(
-                "malformed_request",
-                preview.diagnostics[0].message,
-                details={
-                    "field_path": list(preview.diagnostics[0].field_path)
-                },
-            )
-        if request["preview_digest"] != preview.preview_digest:
-            raise WorkflowAuthoringError(
-                "malformed_request",
-                "Preview digest does not match the current document and sources",
-                details={"field_path": ["preview_digest"]},
-            )
-        parameters = dict(_thaw_json(node.node_parameters))
-        parameters["document"] = _copy_document(preview.normalized_document)
-        updated = self._workflow_authoring.update_node_parameters(
-            project_id,
-            node_id=node.node_id,
-            node_parameters=parameters,
+        workflow = (
+            workflow_document_from_canonical(request["workflow"])
+            if "workflow" in request
+            else self._workflow_authoring.load_draft(project_id).workflow
         )
+        node = next(item for item in workflow.nodes if item.node_id == request["node_id"])
+        parameters = dict(_thaw_json(node.node_parameters))
+        parameters["document"] = _copy_document(request["document"])
+        workflow = replace(
+            workflow,
+            nodes=tuple(
+                replace(item, node_parameters=parameters) if item.node_id == node.node_id else item
+                for item in workflow.nodes
+            ),
+        )
+        version_context = request.get("version_context")
+        if version_context is None:
+            updated = self._workflow_authoring.save_draft(
+                project_id, workflow=workflow,
+                expected_draft_revision=request["expected_draft_revision"],
+            )
+        else:
+            workspace = self._workflow_authoring.fork_version(
+                project_id,
+                version_id=version_context["version_id"],
+                return_workspace_revision=version_context["return_workspace_revision"],
+                workflow=workflow,
+                ui_state=version_context["ui_state"],
+            )
+            updated = cast(WorkflowDraft, workspace.draft)
         return PromptApplyResult(draft=updated)

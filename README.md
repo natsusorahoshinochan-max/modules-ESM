@@ -4,9 +4,9 @@ Protein Workbench provides a local scientific workflow backend and WebUI for
 protein design, structure prediction, comparison, annotation, and scoring.
 
 The source repository owns the
-[scientific vocabulary and architectural boundaries](CONTEXT.md),
-[backend verification entry points](AGENTS.md#verification),
-and [WebUI startup and verification instructions](webui/README.md).
+[scientific vocabulary and architectural boundaries](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/CONTEXT.md),
+[backend verification entry points](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/backend-verification.md),
+and [WebUI startup and verification instructions](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/webui/README.md).
 Operational documentation, repository tests, verification tooling, and Provider
 source trees belong to the source checkout. Wheels contain the installable backend,
 maintained Workflow examples, and package metadata. Source distributions contain
@@ -21,7 +21,7 @@ workspace.
 - `modules/<package>/` contains the repository-owned Module Packages.
 - `protein_workbench_public/` owns the current public protocol and server.
 - `examples/v2/` contains maintained Workflows, structure inputs, and bundled WebUI results.
-- [`webui/`](webui/README.md) contains the React WebUI; its production build is deployed separately from the backend wheel.
+- [`webui/`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/webui/README.md) contains the React WebUI; its production build is deployed separately from the backend wheel.
 - `tests/` and `verification/` own repository tests and verification tooling.
 - `repositories/` contains pinned Provider sources, including the maintained
   SoluProt-next port.

@@ -6,17 +6,23 @@ from typing import Any, Literal
 import uuid
 
 from core.execution.ledger import StructuredError, V2RunError
-from core.operation import secondary_cleanup_exception_types
+from core.operation import OperationDiagnosticError, secondary_cleanup_exception_types
 
 
 def _execution_error(error: BaseException) -> StructuredError:
     details: dict[str, Any] = {"exception_type": type(error).__name__}
+    if isinstance(error, OperationDiagnosticError) and error.diagnostic is not None:
+        details["operation_diagnostic"] = dict(error.diagnostic)
     cleanup_exception_types = secondary_cleanup_exception_types(error)
     if cleanup_exception_types:
         details["cleanup_exception_types"] = list(cleanup_exception_types)
     return StructuredError(
         code="node_execution_failed",
-        message="Node execution failed safely",
+        message=(
+            str(error)
+            if isinstance(error, OperationDiagnosticError)
+            else "Node execution failed safely"
+        ),
         retryable=False,
         correlation_id=f"incident-{uuid.uuid4().hex}",
         details=details,

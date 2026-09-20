@@ -326,6 +326,8 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _merge_scores(inputs: Mapping[str, AdmittedPort]) -> ScoreCollection:
+        if not any(port in inputs for port in _SCORE_PORTS):
+            raise ValueError("Score merge requires at least one connected input")
         return ScoreCollection(
             collection_id="collection-ops-merged-scores",
             entries=[

@@ -80,8 +80,9 @@ pLDDT、pTM、PAE 与 prediction residue axis 的 canonical scientific semantics
 
 ## 5. 当前 ESM-3 generation 合同
 
-每个 medium/open generation Binding 固定 exact model、operation、sampling configuration
-和 randomness contract。公共 Node parameters 只表达 Node Type 声明的科学选择；SDK 的
+每个 medium/open generation Binding 固定 exact model、operation 和 randomness contract。
+`num_steps`、`temperature`、`top_p`、`schedule`、`strategy` 与 `temperature_annealing`
+由 Node Type 声明为科学参数，Adapter 按已准入的参数构造 sampling configuration。SDK 的
 `condition_on_coordinates_only`、`invalid_ids` 等 Method-fixed representation facts 不成为
 额外用户控制项。
 

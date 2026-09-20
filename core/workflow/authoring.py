@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
-from typing import Any
+import shutil
+import tempfile
+from typing import Any, cast
 import uuid
 
 from core.catalog.model import FrozenCatalog
+from core.catalog.declarations import NodeTypeDefinition
 from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
     WEBUI_3GB1_PROJECT_ID,
@@ -17,7 +22,7 @@ from core.project.manager import (
     ProjectMeta,
     ProtectedProjectError,
 )
-from core.project.storage import write_new_file
+from core.project.storage import write_new_file, write_new_file_durable
 from core.workflow.compiler import CompilationRequest, compile
 from core.workflow.document import (
     WorkflowDocument,
@@ -59,6 +64,41 @@ class WorkflowDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectWorkspace:
+    """One current or retained authoring position and its exact UI snapshot."""
+
+    project_id: str
+    workspace_revision: int
+    draft: WorkflowDraft | None
+    ui_state_revision: int
+    ui_state: Mapping[str, Any]
+    source_version_id: str | None
+    return_workspace_revision: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkspaceHead:
+    workspace_revision: int = 0
+    draft_revision: int = 0
+    ui_state_revision: int = 0
+    source_version_id: str | None = None
+    return_workspace_revision: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowVersion:
+    """A name for one immutable Draft and UI snapshot, without compilation."""
+
+    project_id: str
+    version_id: str
+    name: str
+    created_at: str
+    workspace_revision: int
+    draft_revision: int
+    ui_state_revision: int
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowCommit:
     """One immutable Workflow Commit rooted by one stable ID."""
 
@@ -67,6 +107,7 @@ class WorkflowCommit:
     source_draft_revision: int
     workflow: WorkflowDocument
     scientific_definitions: tuple[Mapping[str, Any], ...]
+    scientific_identity: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +124,33 @@ def _commit_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
         str(error),
         details={"issues": [error.issue()]},
     )
+
+
+def _scientific_identity(plan: ExecutionPlan) -> Mapping[str, Any]:
+    """Freeze admitted scientific content independent of canvas and list order."""
+    return _freeze_json({
+        "nodes": [
+            {
+                "node_id": node.node_id,
+                "node_parameters": {
+                    key: _thaw_json(value) for key, value in node.node_parameters.items()
+                    if key not in node.result_identity_plan_facts.node_parameter_indirections
+                },
+                "project_input_parameters": list(node._runtime.project_input_parameters),
+                "binding_parameters": _thaw_json(node.binding_parameters),
+                "result_identity_plan_facts": node.result_identity_plan_facts.canonical_projection(),
+                "inputs": {
+                    port: [
+                        {"node_id": source.node_id, "output_port": source.output_port}
+                        for source in sources
+                    ]
+                    for port, sources in sorted(node._runtime.input_sources.items())
+                },
+            }
+            for node in sorted(plan.nodes, key=lambda item: item.node_id)
+        ],
+        "scientific_definitions": [_thaw_json(item) for item in plan.scientific_definitions],
+    })
 
 
 class WorkflowAuthoringService:
@@ -186,9 +254,16 @@ class WorkflowAuthoringService:
         return WorkflowDraft(project_id, draft_revision, workflow)
 
     def load_draft(self, project_id: str) -> WorkflowDraft:
-        """Load the latest Draft without compiling it."""
+        """Load the current workspace's Draft without compiling it."""
         self._require_project(project_id)
-        revision = self._latest_record_revision(project_id, "drafts")
+        head = self._read_workspace_head(project_id)
+        return self._load_draft_revision(
+            project_id, self._require_draft_revision(project_id, head),
+        )
+
+    @staticmethod
+    def _require_draft_revision(project_id: str, head: _WorkspaceHead) -> int:
+        revision = head.draft_revision
         if revision == 0:
             raise WorkflowAuthoringError(
                 "workflow_draft_not_found",
@@ -198,11 +273,180 @@ class WorkflowAuthoringService:
                     "resource_id": project_id,
                 },
             )
+        return revision
+
+    def _load_draft_revision(self, project_id: str, revision: int) -> WorkflowDraft:
         payload = self._read_record(project_id, "drafts", revision)
         workflow = workflow_document_from_canonical(payload["workflow"])
         if workflow.workflow_id != project_id:
             raise ValueError("Workflow Draft belongs to another Project")
         return self._draft_value(project_id, revision, workflow)
+
+    def _read_workspace_head(
+        self, project_id: str, revision: int | None = None,
+    ) -> _WorkspaceHead:
+        selected = (
+            self._latest_record_revision(project_id, "workspaces")
+            if revision is None else revision
+        )
+        if selected == 0:
+            return _WorkspaceHead()
+        try:
+            record = self._read_record(project_id, "workspaces", selected)
+        except FileNotFoundError as error:
+            raise WorkflowAuthoringError(
+                "workspace_not_found", "Retained workspace was not found",
+                details={"resource_kind": "workspace", "resource_id": str(selected)},
+            ) from error
+        return _WorkspaceHead(
+            selected, record["draft_revision"], record["ui_state_revision"],
+            record["source_version_id"], record["return_workspace_revision"],
+        )
+
+    def _publish_workspace(
+        self, project_id: str, head: _WorkspaceHead,
+    ) -> _WorkspaceHead:
+        """Make prepared immutable content current without reading it back."""
+        revision = self._latest_record_revision(project_id, "workspaces") + 1
+        self._write_record(project_id, "workspaces", revision, {
+            "draft_revision": head.draft_revision,
+            "ui_state_revision": head.ui_state_revision,
+            "source_version_id": head.source_version_id,
+            "return_workspace_revision": head.return_workspace_revision,
+        })
+        return replace(head, workspace_revision=revision)
+
+    def _load_ui_state(self, project_id: str, revision: int) -> Mapping[str, Any]:
+        if revision == 0:
+            return _freeze_json({})
+        return _freeze_json(self._read_record(project_id, "ui-states", revision))
+
+    def _publish_ui_state(
+        self, project_id: str, ui_state: Mapping[str, Any],
+    ) -> int:
+        revision = self._latest_record_revision(project_id, "ui-states") + 1
+        self._write_record(project_id, "ui-states", revision, _thaw_json(ui_state))
+        return revision
+
+    def load_workspace(
+        self, project_id: str, *, revision: int | None = None,
+    ) -> ProjectWorkspace:
+        """Read one retained workspace; reads never switch the current work."""
+        self._require_project(project_id)
+        return self._workspace_value(
+            project_id, self._read_workspace_head(project_id, revision),
+        )
+
+    def _workspace_value(
+        self, project_id: str, head: _WorkspaceHead, *,
+        draft: WorkflowDraft | None = None,
+        ui_state: Mapping[str, Any] | None = None,
+    ) -> ProjectWorkspace:
+        if draft is None and head.draft_revision:
+            draft = self._load_draft_revision(project_id, head.draft_revision)
+        return ProjectWorkspace(
+            project_id, head.workspace_revision, draft, head.ui_state_revision,
+            self._load_ui_state(project_id, head.ui_state_revision)
+            if ui_state is None else _freeze_json(ui_state),
+            head.source_version_id, head.return_workspace_revision,
+        )
+
+    def save_ui_state(
+        self, project_id: str, *, ui_state: Mapping[str, Any],
+    ) -> ProjectWorkspace:
+        """Persist opaque UI state separately from scientific Draft content."""
+        self._require_project(project_id)
+        self._require_writable_project(project_id)
+        current = self._read_workspace_head(project_id)
+        ui_revision = self._publish_ui_state(project_id, ui_state)
+        head = self._publish_workspace(
+            project_id, replace(current, ui_state_revision=ui_revision),
+        )
+        self._projects.touch(project_id)
+        return self._workspace_value(project_id, head, ui_state=ui_state)
+
+    def list_versions(self, project_id: str) -> tuple[WorkflowVersion, ...]:
+        """List immutable named Draft/UI snapshots, newest first."""
+        self._require_project(project_id)
+        return self._read_versions(project_id)
+
+    def _read_versions(self, project_id: str) -> tuple[WorkflowVersion, ...]:
+        return tuple(
+            WorkflowVersion(**self._read_record(project_id, "versions", revision))
+            for revision in range(
+                self._latest_record_revision(project_id, "versions"), 0, -1,
+            )
+        )
+
+    def load_version(self, project_id: str, version_id: str) -> WorkflowVersion:
+        self._require_project(project_id)
+        return self._read_version(project_id, version_id)
+
+    def _read_version(self, project_id: str, version_id: str) -> WorkflowVersion:
+        for version in self._read_versions(project_id):
+            if version.version_id == version_id:
+                return version
+        raise WorkflowAuthoringError(
+            "workflow_version_not_found", "Named Workflow version was not found",
+            details={"resource_kind": "workflow_version", "resource_id": version_id},
+        )
+
+    def name_version(self, project_id: str, *, name: str) -> WorkflowVersion:
+        """Name the current exact Draft and UI snapshot without compiling."""
+        self._require_writable_project(project_id)
+        self._require_project(project_id)
+        head = self._read_workspace_head(project_id)
+        draft_revision = self._require_draft_revision(project_id, head)
+        version = WorkflowVersion(
+            project_id, f"version-{uuid.uuid4().hex}", name,
+            datetime.now(timezone.utc).isoformat(),
+            head.workspace_revision, draft_revision, head.ui_state_revision,
+        )
+        self._write_record(
+            project_id, "versions",
+            self._latest_record_revision(project_id, "versions") + 1,
+            {
+                "project_id": version.project_id, "version_id": version.version_id,
+                "name": version.name, "created_at": version.created_at,
+                "workspace_revision": version.workspace_revision,
+                "draft_revision": version.draft_revision,
+                "ui_state_revision": version.ui_state_revision,
+            },
+        )
+        self._projects.touch(project_id)
+        return version
+
+    def fork_version(
+        self, project_id: str, *, version_id: str,
+        return_workspace_revision: int, workflow: WorkflowDocument,
+        ui_state: Mapping[str, Any],
+    ) -> ProjectWorkspace:
+        """Publish the first old-version edit while preserving its return point."""
+        self._require_project(project_id)
+        self._require_writable_project(project_id)
+        self._read_version(project_id, version_id)
+        self._read_workspace_head(project_id, return_workspace_revision)
+        self._validate_draft_submission(project_id, workflow)
+        draft = self._append_draft(project_id, workflow)
+        ui_revision = self._publish_ui_state(project_id, ui_state)
+        head = self._publish_workspace(project_id, _WorkspaceHead(
+            draft_revision=draft.draft_revision, ui_state_revision=ui_revision,
+            source_version_id=version_id,
+            return_workspace_revision=return_workspace_revision,
+        ))
+        self._projects.touch(project_id)
+        return self._workspace_value(project_id, head, draft=draft, ui_state=ui_state)
+
+    def return_workspace(
+        self, project_id: str, *, workspace_revision: int,
+    ) -> ProjectWorkspace:
+        """Make retained work current without deleting the work being left."""
+        self._require_project(project_id)
+        self._require_writable_project(project_id)
+        target = self._read_workspace_head(project_id, workspace_revision)
+        head = self._publish_workspace(project_id, target)
+        self._projects.touch(project_id)
+        return self._workspace_value(project_id, head)
 
     def _require_writable_project(self, project_id: str) -> None:
         try:
@@ -226,18 +470,35 @@ class WorkflowAuthoringService:
                 details={"field_path": ["workflow", "workflow_id"]},
             )
 
+    def observation_options(self, project_id: str, workflow: WorkflowDocument, *, ranking: bool) -> list[dict[str, Any]]:
+        from core.workflow.compiler import observation_options
+
+        self._require_project(project_id)
+        try:
+            return observation_options(workflow, self._catalog, ranking=ranking)
+        except WorkflowCompileError as error:
+            raise _commit_error(error) from error
+
     def save_draft(
         self,
         project_id: str,
         *,
         workflow: WorkflowDocument,
+        expected_draft_revision: int | None = None,
     ) -> WorkflowDraft:
         """Persist a Draft without requiring it to compile."""
         self._require_project(project_id)
         self._require_writable_project(project_id)
         self._validate_draft_submission(project_id, workflow)
-        revision = self._latest_record_revision(project_id, "drafts") + 1
-        return self._publish_draft(project_id, revision, workflow)
+        current = self._read_workspace_head(project_id)
+        if expected_draft_revision is not None and expected_draft_revision != current.draft_revision:
+            raise WorkflowAuthoringError(
+                "malformed_request", "Workflow changed while Prompt Studio was open; reopen before saving",
+                details={"field_path": ["expected_draft_revision"]},
+            )
+        draft = self._publish_draft(project_id, current, workflow)
+        self._projects.touch(project_id)
+        return draft
 
     def copy_project(self, source_project_id: str, *, name: str) -> ProjectMeta:
         """Create the first personal copy of one protected example Project."""
@@ -248,42 +509,78 @@ class WorkflowAuthoringService:
                 "Only the immutable WebUI example Project can be copied",
                 details={"requested_project_id": source_project_id},
             )
-        source_draft = self.load_draft(source_project_id)
-        target = self._projects.create(
-            name,
-            copied_from_project_id=source_project_id,
+        return self._copy_workspace(
+            source_project_id, name, reference_results=True,
         )
-        for input_reference in self._projects.stored_input_references(
-            source_project_id
-        ):
-            descriptor, payload = self._projects.read_input(
-                source_project_id,
-                input_reference,
-            )
-            self._projects.publish_input(
-                target.id,
-                input_reference,
-                payload,
-                filename=descriptor.filename,
-            )
-        workflow_projection = source_draft.workflow.canonical_projection()
-        workflow_projection["workflow_id"] = target.id
-        workflow = workflow_document_from_canonical(workflow_projection)
-        self._publish_draft(target.id, 1, workflow)
+
+    def duplicate_project(self, source_project_id: str, *, name: str) -> ProjectMeta:
+        """Copy current authoring content and Inputs, without versions or results."""
+        self._require_project(source_project_id)
+        return self._copy_workspace(source_project_id, name)
+
+    def _copy_workspace(
+        self, source_project_id: str, name: str,
+        *, reference_results: bool = False,
+    ) -> ProjectMeta:
+        head = self._read_workspace_head(source_project_id)
+        source_draft = self._load_draft_revision(
+            source_project_id, self._require_draft_revision(source_project_id, head),
+        )
+        source_workspace = self._workspace_value(
+            source_project_id, head, draft=source_draft,
+        )
+        referenced_inputs = {
+            node.node_parameters[parameter.name]
+            for node in source_draft.workflow.nodes
+            for parameter in cast(
+                NodeTypeDefinition,
+                self._catalog.require_contract("node_type", node.node_type_id).definition,
+            ).parameter_contract.entries
+            if parameter.resource_kind == "project_input"
+            and parameter.name in node.node_parameters
+        }
+        with self._projects.copy_destination(
+            name, copied_from_project_id=source_project_id,
+            reference_results_project_id=(source_project_id if reference_results else None),
+        ) as target:
+            for input_reference in sorted(referenced_inputs):
+                descriptor, payload = self._projects.read_input(
+                    source_project_id, input_reference,
+                )
+                self._projects.publish_input(
+                    target.id, input_reference, payload, filename=descriptor.filename,
+                )
+            workflow_projection = source_draft.workflow.canonical_projection()
+            workflow_projection["workflow_id"] = target.id
+            workflow = workflow_document_from_canonical(workflow_projection)
+            ui_revision = self._publish_ui_state(target.id, source_workspace.ui_state)
+            draft = self._append_draft(target.id, workflow)
+            self._publish_workspace(target.id, _WorkspaceHead(
+                draft_revision=draft.draft_revision, ui_state_revision=ui_revision,
+            ))
         return target
 
-    def _publish_draft(
+    def _append_draft(
         self,
         project_id: str,
-        draft_revision: int,
         workflow: WorkflowDocument,
     ) -> WorkflowDraft:
+        draft_revision = self._latest_record_revision(project_id, "drafts") + 1
         draft = self._draft_value(project_id, draft_revision, workflow)
         self._write_record(
             project_id,
             "drafts",
             draft_revision,
             {"workflow": draft.workflow.canonical_projection()},
+        )
+        return draft
+
+    def _publish_draft(
+        self, project_id: str, head: _WorkspaceHead, workflow: WorkflowDocument,
+    ) -> WorkflowDraft:
+        draft = self._append_draft(project_id, workflow)
+        self._publish_workspace(
+            project_id, replace(head, draft_revision=draft.draft_revision),
         )
         return draft
 
@@ -302,7 +599,10 @@ class WorkflowAuthoringService:
         """
         self._require_project(project_id)
         self._require_writable_project(project_id)
-        draft = self.load_draft(project_id)
+        head = self._read_workspace_head(project_id)
+        draft = self._load_draft_revision(
+            project_id, self._require_draft_revision(project_id, head),
+        )
         found = False
         nodes: list[WorkflowNodeInstance] = []
         for node in draft.workflow.nodes:
@@ -336,9 +636,9 @@ class WorkflowAuthoringService:
             draft.workflow.observation_selectors,
             draft.workflow.selection_objectives,
         )
-        self._validate_draft_submission(project_id, workflow)
-        revision = self._latest_record_revision(project_id, "drafts") + 1
-        return self._publish_draft(project_id, revision, workflow)
+        updated = self._publish_draft(project_id, head, workflow)
+        self._projects.touch(project_id)
+        return updated
 
     @staticmethod
     def _commit_value(
@@ -359,6 +659,7 @@ class WorkflowAuthoringService:
             source_draft_revision=source_draft_revision,
             workflow=workflow,
             scientific_definitions=plan.scientific_definitions,
+            scientific_identity=_scientific_identity(plan),
         )
 
     def _load_commit_revision_record(
@@ -385,6 +686,7 @@ class WorkflowAuthoringService:
             source_draft_revision=source_draft_revision,
             workflow=workflow,
             scientific_definitions=tuple(definitions),
+            scientific_identity=_freeze_json(commit_projection["scientific_identity"]),
         )
 
     def _load_active_commit_record(self, project_id: str) -> WorkflowCommit:
@@ -412,6 +714,74 @@ class WorkflowAuthoringService:
         self._require_project(project_id)
         return self._active_commit(project_id)
 
+    def load_commit(
+        self, project_id: str, *, workflow_commit_id: str,
+    ) -> WorkflowCommit:
+        """Read immutable evidence snapshots without recompiling their science."""
+        self._require_project(project_id)
+        for revision in range(self._latest_record_revision(project_id, "commits"), 0, -1):
+            commit = self._load_commit_revision_record(project_id, revision)
+            if commit.workflow_commit_id == workflow_commit_id:
+                return commit
+        raise WorkflowAuthoringError(
+            "workflow_commit_not_found", "Workflow Commit was not found",
+            details={"resource_kind": "workflow_commit", "resource_id": workflow_commit_id},
+        )
+
+    def compare_commit_science(
+        self, project_id: str, *, workflow_commit_id: str,
+        workflow_project_id: str, workflow: WorkflowDocument,
+    ) -> dict[str, Any]:
+        """Compare current admitted Draft science to the original Commit facts."""
+        original = self.load_commit(project_id, workflow_commit_id=workflow_commit_id)
+        self._require_project(workflow_project_id)
+        self._validate_draft_submission(workflow_project_id, workflow)
+        result: dict[str, Any] = {
+            "project_id": project_id, "workflow_commit_id": workflow_commit_id,
+            "workflow_project_id": workflow_project_id,
+            "status": "unknown", "issues": [],
+        }
+        try:
+            plan = compile(CompilationRequest(workflow), self._catalog)
+            current_identity = self._science_with_input_contents(workflow_project_id, _scientific_identity(plan))
+            original_identity = self._science_with_input_contents(project_id, original.scientific_identity)
+        except WorkflowCompileError as error:
+            result["issues"] = [error.issue()]
+            return result
+        result["status"] = (
+            "current" if current_identity == original_identity else "stale"
+        )
+        return result
+
+    def _science_with_input_contents(
+        self, project_id: str, identity: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        resolved = _thaw_json(identity)
+        for node in resolved["nodes"]:
+            resources = []
+            for parameter in node.pop("project_input_parameters"):
+                reference = node["node_parameters"].pop(parameter)
+                try:
+                    descriptor = self._projects.read_input_descriptor(project_id, reference)
+                except FileNotFoundError as error:
+                    raise WorkflowCompileError(
+                        "project_input_not_found", "Referenced Project Input is unavailable",
+                        node_id=node["node_id"], field_path=("node_parameters", parameter),
+                    ) from error
+                resources.append({
+                    "resource_kind": "project_input", "parameter_name": parameter,
+                    "content_digest": descriptor.content_digest, "size": descriptor.size,
+                })
+            node["resolved_resource_inputs"] = resources
+        return resolved
+
+    def forget_project(self, project_id: str) -> None:
+        """Release cached Commit state after permanent Project deletion."""
+        self._active_commits.pop(project_id, None)
+        self._verified_commits = {
+            key: value for key, value in self._verified_commits.items() if key[0] != project_id
+        }
+
     def _hydrate_verified_commit(
         self,
         commit: WorkflowCommit,
@@ -436,7 +806,10 @@ class WorkflowAuthoringService:
         Callers compile the Commit's Workflow, or establish equality with
         the shipped Workflow before passing its Plan here.
         """
-        if plan.scientific_definitions != commit.scientific_definitions:
+        if (
+            plan.scientific_definitions != commit.scientific_definitions
+            or _scientific_identity(plan) != commit.scientific_identity
+        ):
             raise WorkflowAuthoringError(
                 "workflow_commit_identity_mismatch",
                 "Workflow Commit scientific definitions do not match the "
@@ -494,6 +867,7 @@ class WorkflowAuthoringService:
                         _thaw_json(definition)
                         for definition in commit.scientific_definitions
                     ],
+                    "scientific_identity": _thaw_json(commit.scientific_identity),
                 },
             },
         )
@@ -535,7 +909,9 @@ class WorkflowAuthoringService:
             )
         commit_revision = self._latest_record_revision(project_id, "commits")
         if commit_revision == 0:
-            draft = self._publish_draft(project_id, 1, workflow)
+            draft = self._publish_draft(
+                project_id, self._read_workspace_head(project_id), workflow,
+            )
             commit = self._commit_value(
                 project_id=project_id,
                 workflow=workflow,
@@ -572,14 +948,20 @@ class WorkflowAuthoringService:
             plan = compile(CompilationRequest(workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
-        project = self._projects.ensure_webui_example_project(
-            input_sources=input_sources,
-        )
+        inputs = {}
+        for reference, source in input_sources.items():
+            path = Path(source)
+            payload = path.read_bytes()
+            descriptor = self._projects._input_descriptor(reference, payload, filename=path.name)
+            inputs[reference] = (descriptor, payload)
+        project = self._projects.ensure_webui_example_project(inputs=inputs)
         if project is None:
             return None
         commit_revision = self._latest_record_revision(project_id, "commits")
         if commit_revision == 0:
-            draft = self._publish_draft(project_id, 1, workflow)
+            draft = self._publish_draft(
+                project_id, self._read_workspace_head(project_id), workflow,
+            )
             commit = self._commit_value(
                 project_id=project_id,
                 workflow=workflow,
@@ -598,6 +980,45 @@ class WorkflowAuthoringService:
         self._admit_existing_commit(persisted, plan)
         return persisted
 
+    def webui_example_records(self) -> tuple[tuple[tuple[str, str], bytes], ...]:
+        """Snapshot the protected example's original authoring record bytes."""
+        project = self._projects.require_meta(WEBUI_3GB1_PROJECT_ID)
+        if not project.seed:
+            raise ValueError("Example records require the protected WebUI Project")
+        root = self._projects.workflow_storage_root(WEBUI_3GB1_PROJECT_ID)
+        return tuple(
+            ((collection, path.name), path.read_bytes())
+            for collection in ("drafts", "commits", "workspaces", "ui-states")
+            for path in sorted((root / collection).glob("*.json"))
+        )
+
+    def install_webui_example_records(
+        self, records: tuple[tuple[tuple[str, str], bytes], ...],
+    ) -> None:
+        """Install original example records without regenerating a Commit ID."""
+        project = self._projects.require_meta(WEBUI_3GB1_PROJECT_ID)
+        if not project.seed:
+            raise ValueError("Example records require the protected WebUI Project")
+        destination = self._projects.workflow_storage_root(WEBUI_3GB1_PROJECT_ID)
+        if destination.exists():
+            if dict(self.webui_example_records()) != dict(records):
+                raise ValueError("Existing WebUI example authoring records differ from the resource")
+            return
+        staging = Path(tempfile.mkdtemp(prefix=".webui-records-", dir=destination.parent))
+        try:
+            for parts, payload in records:
+                write_new_file_durable(staging, parts, payload)
+            staging.rename(destination)
+            descriptor = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+        self.forget_project(WEBUI_3GB1_PROJECT_ID)
+
     def require_verified_commit(
         self,
         project_id: str,
@@ -609,19 +1030,6 @@ class WorkflowAuthoringService:
         cached = self._verified_commits.get((project_id, workflow_commit_id))
         if cached is not None:
             return cached
-        for revision in range(
-            self._latest_record_revision(project_id, "commits"),
-            0,
-            -1,
-        ):
-            commit = self._load_commit_revision_record(project_id, revision)
-            if commit.workflow_commit_id == workflow_commit_id:
-                return self._hydrate_verified_commit(commit)
-        raise WorkflowAuthoringError(
-            "workflow_commit_not_found",
-            "Workflow Commit was not found",
-            details={
-                "resource_kind": "workflow_commit",
-                "resource_id": workflow_commit_id,
-            },
-        )
+        return self._hydrate_verified_commit(self.load_commit(
+            project_id, workflow_commit_id=workflow_commit_id,
+        ))

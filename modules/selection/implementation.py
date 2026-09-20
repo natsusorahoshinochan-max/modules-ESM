@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import math
+import operator
 from typing import Any
 
 from core.operation import OperationCall
 from core.scoring.selection import (
+    PairwiseContextSelector,
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
+    SelectionError,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
     resolve_objective_observations,
@@ -47,10 +50,44 @@ class SelectionImplementation:
 
     def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
         candidates = call.inputs["candidates"].value
-        scores = call.inputs["scores"].value
         candidate_data_references = self._candidate_data_references(
             call,
         )
+        if self._operation == "manual":
+            requested = {
+                (item["candidate_id"], item["data_type_id"], item["content_digest"])
+                for item in call.node_parameters["selected_candidates"]
+            }
+            present = {
+                (item.candidate_id, item.data_type_id, item.content_digest)
+                for item in candidate_data_references.values()
+            }
+            missing = requested - present
+            if missing:
+                raise SelectionError(
+                    f"Manual selection references missing from current input: {len(missing)}; "
+                    f"first Candidate: {sorted(missing)[0][0]}",
+                    diagnostic={
+                        "missing_candidate_count": len(missing),
+                        "first_missing_candidate_reference": dict(zip(
+                            ("candidate_id", "data_type_id", "content_digest"),
+                            sorted(missing)[0], strict=True,
+                        )),
+                    },
+                )
+            selected_ids = {item[0] for item in requested}
+            return self._output(candidates, [
+                item for item in candidates.items
+                if item.candidate_id in selected_ids
+            ])
+        scores = call.inputs["scores"].value
+        if self._operation == "filter":
+            return self._output(candidates, self._filter(
+                candidates=candidates,
+                score_collections=scores,
+                node_parameters=call.node_parameters,
+                candidate_data_references=candidate_data_references,
+            ))
         if self._operation in {"weighted_rank", "pareto", "diversity"}:
             return self._execute_multi_objective(
                 candidates=candidates,
@@ -60,44 +97,18 @@ class SelectionImplementation:
             )
         out_of_scope_policy = call.node_parameters["out_of_scope_policy"]
 
-        if self._operation == "filter":
-            selector_facts = self._selectors[
-                call.node_parameters["selector_id"]
-            ]
-            matching = resolve_objective_observations(
-                candidates=candidates,
-                collection=scores,
-                objective=selector_facts,
-                out_of_scope_policy=out_of_scope_policy,
-            )
-            selected = self._filter(
-                candidates=candidates,
-                matching=matching,
-                operator=call.node_parameters["operator"],
-                threshold=call.node_parameters["threshold"],
-            )
-        else:
-            objective_id = call.node_parameters["objective_id"]
-            objective_facts = self._objectives[objective_id]
-            matching = resolve_objective_observations(
-                candidates=candidates,
-                collection=scores,
-                objective=objective_facts,
-                out_of_scope_policy=out_of_scope_policy,
-            )
-            scoped_scores = ScoreCollection(
-                collection_id=f"{scores.collection_id}.selected-scope",
-                entries=list(matching.values()),
-            )
-            profile = resolve_candidate_utilities_from_facts(
-                candidate_inputs={objective_facts.candidate_input: candidates},
-                score_collection_inputs={
-                    objective_facts.score_collection_input: scoped_scores
-                },
-                objectives=(objective_facts,),
-                candidate_data_references=candidate_data_references,
-            )
-            ranked = rank_candidates_by_weighted_utility(profile)
+        objective_id = call.node_parameters["objective_id"]
+        objective_facts = self._objectives[objective_id]
+        profile = resolve_candidate_utilities_from_facts(
+            candidate_inputs={objective_facts.candidate_input: candidates},
+            score_collection_inputs={
+                objective_facts.score_collection_input: scores
+            },
+            objectives=(objective_facts,),
+            out_of_scope_policy=out_of_scope_policy,
+            candidate_data_references=candidate_data_references,
+        )
+        ranked = rank_candidates_by_weighted_utility(profile)
 
         if self._operation == "sort":
             selected = list(ranked)
@@ -108,6 +119,11 @@ class SelectionImplementation:
                     "top-k k cannot exceed Candidate input cardinality"
                 )
             selected = list(ranked[:k])
+        return self._output(candidates, selected)
+
+    def _output(
+        self, candidates: CandidateCollection, selected: list[Any]
+    ) -> dict[str, CandidateCollection]:
         return {
             "candidates": CandidateCollection(
                 collection_id=f"selection-{self._operation}",
@@ -250,23 +266,92 @@ class SelectionImplementation:
         self,
         *,
         candidates: CandidateCollection,
-        matching: Mapping[str, ScoreObservation],
-        operator: object,
-        threshold: object,
+        score_collections: tuple[ScoreCollection, ...],
+        node_parameters: Mapping[str, Any],
+        candidate_data_references: Mapping[str, CandidateDataReference],
     ) -> list[Any]:
-        comparisons = {
-            ">": lambda value: value > threshold,
-            ">=": lambda value: value >= threshold,
-            "<": lambda value: value < threshold,
-            "<=": lambda value: value <= threshold,
-            "==": lambda value: value == threshold,
-            "!=": lambda value: value != threshold,
+        selectors = tuple(
+            self._selectors[selector_id]
+            for selector_id in node_parameters["selector_ids"]
+        )
+        sources = {
+            selector.score_collection_input: collection
+            for selector, collection in zip(selectors, score_collections, strict=True)
         }
-        comparison = comparisons[operator]
+        matches: list[Mapping[str, ScoreObservation]] = []
+        used_observations: set[int] = set()
+        for selector in selectors:
+            matching = resolve_objective_observations(
+                candidates=candidates,
+                collection=sources[selector.score_collection_input],
+                objective=selector,
+                out_of_scope_policy="ignore",
+            )
+            for candidate_id, observation in matching.items():
+                if observation.subject != candidate_data_references[candidate_id]:
+                    raise SelectionError(
+                        "Observation subject does not match the exact Candidate input"
+                    )
+                if (
+                    isinstance(selector.context_selector, PairwiseContextSelector)
+                    and observation.context.subject.candidate
+                    != candidate_data_references[candidate_id]
+                ):
+                    raise SelectionError(
+                        "Pairwise Context subject does not match the exact Candidate input"
+                    )
+                used_observations.add(id(observation))
+            matches.append(matching)
+        if node_parameters["out_of_scope_policy"] == "error" and any(
+            id(entry) not in used_observations
+            for collection in sources.values()
+            for entry in collection.entries
+        ):
+            raise SelectionError("selection received an out-of-scope observation")
+
+        comparisons = {
+            ">": operator.gt,
+            ">=": operator.ge,
+            "<": operator.lt,
+            "<=": operator.le,
+            "==": operator.eq,
+            "!=": operator.ne,
+        }
+        stack: list[set[str]] = []
+        used_selectors: set[int] = set()
+        for token_index, token in enumerate(node_parameters["expression"]):
+            operation = token["operator"]
+            if operation in {"and", "or"}:
+                count = token["operand_count"]
+                if len(stack) < count:
+                    raise SelectionError(
+                        f"Filter expression token {token_index} has too few operands"
+                    )
+                operands = stack[-count:]
+                del stack[-count:]
+                combine = set.intersection if operation == "and" else set.union
+                stack.append(combine(*operands))
+            else:
+                selector_index = token["selector_index"]
+                if selector_index >= len(selectors):
+                    raise SelectionError(
+                        f"Filter expression token {token_index} names an unknown selector index"
+                    )
+                used_selectors.add(selector_index)
+                comparison = comparisons[operation]
+                stack.append({
+                    candidate_id
+                    for candidate_id, observation in matches[selector_index].items()
+                    if comparison(observation.value, token["threshold"])
+                })
+        if len(stack) != 1 or used_selectors != set(range(len(selectors))):
+            raise SelectionError(
+                "Filter expression must produce one result and use every declared selector"
+            )
         return [
             candidate
             for candidate in candidates.items
-            if comparison(matching[candidate.candidate_id].value)
+            if candidate.candidate_id in stack[0]
         ]
 
     @staticmethod

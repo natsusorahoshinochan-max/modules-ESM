@@ -1,6 +1,7 @@
 # WebUI 集成交付范围与验收要求
 
-- 状态：P0–P7 完整验收已完成；[最终验收记录](2026-09-19-webui-integration-progress.md)保存快照与证据。
+- 最后更新：2026-09-21。
+- 状态：P0–P7 完整验收已完成；四项架构修改后的[最新完整验收记录](2026-09-21-four-changes-acceptance.md)保存最终快照与证据。[09-19 记录](2026-09-19-webui-integration-progress.md)对应此前集成快照。
 - 本文维护已确认的产品范围和验收要求；科学与持久化细节由下列现行规格拥有。
 - Selector/Objective 来源字段的进一步减法仍未完成，单独记录在验收文档中。
 
@@ -228,6 +229,8 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 
 每个阶段同时更新当前 producers、consumers、examples 和文档，删除被替代路径。不维护旧原型状态机和生产状态机两套科学实现。
 
+全部测试、构建、类型检查和 lint 在远端验证服务器执行，复用目录已有的 Python 3.12 虚拟环境及前端依赖；不在本地电脑运行。完整验收必须使用同一个固定源码快照与构建产物，不能拼接不同快照的通过结果。
+
 **后端改动：** Python 3.12，先运行受影响 owner/public Interface 的 focused pytest，再运行仓库要求：
 
 ```bash
@@ -237,7 +240,7 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 
 运行范围、Selection、合并、随机性、坐标变换、批量 Candidate identity 的测试验证科学和 evidence 合同；项目复制/恢复验证持久化及输入引用，不只验证 HTTP 状态码。
 
-**前端改动：** 在 `webui/` 运行 `npm run typecheck`、`npm run lint`、相关 Playwright journeys 及 `npm run build`。这是本轮新增功能自己的验收要求，不把 Python backend verification 改成依赖前端。
+**前端改动：** 按 [WebUI README](../webui/README.md) 在远端 `webui/` 运行应用 typecheck、真实旅程独立 typecheck、lint、相关 Playwright journeys 及 build。应用 typecheck 不覆盖 `real-tests/`，两者均须通过。这是前端自己的验收要求，不把 Python backend verification 改成依赖前端。
 
 **浏览器：** 主验收连接真实 public server，经过真实 Draft/Commit、Prompt preview/apply、Run projection 和 Typed Output retrieval。网络故障模拟只用于验证显示/恢复行为，不作为科学执行成功证据。记录关键界面尺寸、键盘/鼠标等价路径、空数据/失败/取消状态；不得凭已有测试名称宣称 export 或真实运行已经验收。
 

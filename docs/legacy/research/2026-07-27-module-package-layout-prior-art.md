@@ -429,6 +429,5 @@ KFP local execution 与 Galaxy Planemo 的共同方向。
 - Contract Test Kit 与 Provider acceptance 分别拥有契约 fixture 和真实 Provider gate；
 - Availability 与 Readiness 由 Execution Binding 拥有，不建立 package-level fallback。
 
-当前实现尚未达到 ADR-0018 的自动 immediate-child discovery，见
-[`known-implementation-gaps.md`](../known-implementation-gaps.md)。这属于实现缺口，不重新打开
-上述目录与注册合同。
+当前生产注册由 [`bootstrap.py`](../../../protein_workbench_public/bootstrap.py) 显式组合；
+当前 Module Package 边界以 [CONTEXT.md](../../../CONTEXT.md) 为准。

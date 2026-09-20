@@ -22,7 +22,7 @@ inputs:
     port_type_id: protein.prompt
     required: false
     multiplicity: many
-    scientific_meaning: Optional additional Prompt sources merged through per-track adopt or preserve intent.
+    scientific_meaning: Optional additional Prompt sources merged through explicit residue correspondence, residue-by-track adoption, source Mask policy, and complete annotation intents.
 outputs:
   - name: protein_prompt
     port_type_id: protein.prompt
@@ -310,102 +310,275 @@ node_parameters:
                     type: array
                     items: {type: string, pattern: "^[A-Za-z0-9]$"}
                     uniqueItems: true
-        source_merges:
-          field_scope: scientific
-          scientific_meaning: Per-source merge intents with correspondence and per-track decisions.
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [source_index, correspondence, track_decisions]
-            properties:
-              source_index:
-                field_scope: scientific
-                scientific_meaning: Index into merge_sources.
-                type: integer
-                minimum: 0
-              correspondence:
-                field_scope: scientific
-                scientific_meaning: Source-to-target residue correspondence.
-                type: array
-                items:
-                  oneOf:
-                    - type: object
-                      additionalProperties: false
-                      required: [disposition, source_residue_id, target_residue_id]
-                      properties:
-                        disposition:
-                          field_scope: scientific
-                          scientific_meaning: Match one source residue to one target residue.
-                          type: string
-                          const: match
-                        source_residue_id:
-                          field_scope: scientific
-                          scientific_meaning: Source residue identity.
-                          type: string
-                          minLength: 1
-                        target_residue_id:
-                          field_scope: scientific
-                          scientific_meaning: Target residue identity.
-                          type: string
-                          minLength: 1
-                    - type: object
-                      additionalProperties: false
-                      required: [disposition, source_residue_id]
-                      properties:
-                        disposition:
-                          field_scope: scientific
-                          scientific_meaning: Source residue without a target match.
-                          type: string
-                          const: source_gap
-                        source_residue_id:
-                          field_scope: scientific
-                          scientific_meaning: Source residue identity.
-                          type: string
-                          minLength: 1
-                    - type: object
-                      additionalProperties: false
-                      required: [disposition, target_residue_id]
-                      properties:
-                        disposition:
-                          field_scope: scientific
-                          scientific_meaning: Target residue without a source match.
-                          type: string
-                          const: target_gap
-                        target_residue_id:
-                          field_scope: scientific
-                          scientific_meaning: Target residue identity.
-                          type: string
-                          minLength: 1
-              track_decisions:
-                field_scope: scientific
-                scientific_meaning: Per-track adopt or preserve decision.
-                type: object
-                additionalProperties: false
-                required: [sequence, coordinates, secondary_structure, sasa, function_annotations]
-                properties:
-                  sequence:
-                    field_scope: scientific
-                    scientific_meaning: Sequence decision.
-                    type: string
-                    enum: [adopt, preserve]
-                  coordinates:
-                    field_scope: scientific
-                    scientific_meaning: Coordinates decision.
-                    type: string
-                    enum: [adopt, preserve]
-                  secondary_structure:
-                    field_scope: scientific
-                    scientific_meaning: Secondary structure decision.
-                    type: string
-                    enum: [adopt, preserve]
-                  sasa:
-                    field_scope: scientific
-                    scientific_meaning: SASA decision.
-                    type: string
-                    enum: [adopt, preserve]
-                  function_annotations:
-                    field_scope: scientific
-                    scientific_meaning: Annotation decision.
-                    type: string
-                    enum: [adopt, preserve]
+        source_merges: {
+          "field_scope": "scientific",
+          "scientific_meaning": "Ordered manually confirmed residue and track region merges.",
+          "type": "array",
+          "items": {
+            "field_scope": "scientific",
+            "scientific_meaning": "Explicit region merge intent.",
+            "additionalProperties": false,
+            "properties": {
+              "source_index": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Explicit region merge intent.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "correspondence": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Explicit region merge intent.",
+                "type": "array",
+                "items": {
+                  "field_scope": "scientific",
+                  "scientific_meaning": "Explicit region merge intent.",
+                  "oneOf": [
+                    {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "additionalProperties": false,
+                      "properties": {
+                        "disposition": {
+                          "const": "match",
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Explicit manual correspondence row action.",
+                          "type": "string"
+                        },
+                        "source_residue_id": {
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Exact identity in the chosen source.",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "target_residue_id": {
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Exact retained or newly inserted target identity.",
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "disposition",
+                        "source_residue_id",
+                        "target_residue_id"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "additionalProperties": false,
+                      "properties": {
+                        "disposition": {
+                          "const": "source_gap",
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Explicit manual correspondence row action.",
+                          "type": "string"
+                        },
+                        "source_residue_id": {
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Exact identity in the chosen source.",
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "disposition",
+                        "source_residue_id"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "additionalProperties": false,
+                      "properties": {
+                        "disposition": {
+                          "const": "target_gap",
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Explicit manual correspondence row action.",
+                          "type": "string"
+                        },
+                        "target_residue_id": {
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Exact retained or newly inserted target identity.",
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "disposition",
+                        "target_residue_id"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "additionalProperties": false,
+                      "properties": {
+                        "disposition": {
+                          "const": "insert",
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Explicit manual correspondence row action.",
+                          "type": "string"
+                        },
+                        "source_residue_id": {
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Exact identity in the chosen source.",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "target_residue_id": {
+                          "field_scope": "scientific",
+                          "scientific_meaning": "Exact retained or newly inserted target identity.",
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "disposition",
+                        "source_residue_id",
+                        "target_residue_id"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              },
+              "track_adoptions": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Explicit source residue by track adoption choices.",
+                "type": "array",
+                "items": {
+                  "field_scope": "scientific",
+                  "scientific_meaning": "Explicit region merge intent.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "track",
+                    "source_residue_ids",
+                    "mask_policy"
+                  ],
+                  "properties": {
+                    "track": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Scientific track to adopt.",
+                      "type": "string",
+                      "enum": [
+                        "sequence",
+                        "coordinates",
+                        "secondary_structure",
+                        "sasa"
+                      ]
+                    },
+                    "source_residue_ids": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Exact manually selected source region.",
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "field_scope": "scientific",
+                        "scientific_meaning": "Explicit region merge intent.",
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "mask_policy": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Whether an adopted source Mask clears the target value.",
+                      "type": "string",
+                      "enum": [
+                        "adopt",
+                        "preserve"
+                      ]
+                    }
+                  }
+                }
+              },
+              "adopt_annotations": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Exact complete source tuples to adopt.",
+                "type": "array",
+                "items": {
+                  "field_scope": "scientific",
+                  "scientific_meaning": "Explicit region merge intent.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "start_residue_id": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "end_residue_id": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "start_residue_id",
+                    "end_residue_id"
+                  ],
+                  "type": "object"
+                }
+              },
+              "remove_annotations": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Exact target tuples to remove before layout insertion.",
+                "type": "array",
+                "items": {
+                  "field_scope": "scientific",
+                  "scientific_meaning": "Explicit region merge intent.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "start_residue_id": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "end_residue_id": {
+                      "field_scope": "scientific",
+                      "scientific_meaning": "Explicit region merge intent.",
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "start_residue_id",
+                    "end_residue_id"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "source_index",
+              "correspondence",
+              "track_adoptions",
+              "adopt_annotations",
+              "remove_annotations"
+            ],
+            "type": "object"
+          }
+        }

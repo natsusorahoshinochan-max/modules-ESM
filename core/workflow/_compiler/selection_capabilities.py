@@ -76,6 +76,19 @@ def _validate_selection_inputs(
             )
 
 
+def selectable_observation(capability: _ObservationCapability, *, ranking: bool) -> bool:
+    """Selection eligibility shared by compilation and editor projection."""
+    return (
+        capability.subject_grain == "candidate"
+        and capability.source_role == "subject"
+        and capability.guaranteed_multiplicity == "one"
+        and (not ranking or capability.context_profile.get("kind") != "pairwise"
+             or capability.reference_source is not None)
+        and (not ranking or capability.context_profile.get("pairing_mode") != "explicit_relation"
+             or capability.pairing_source is not None)
+    )
+
+
 def _validate_selection_capabilities(
     workflow: WorkflowDocument,
     *,
@@ -143,26 +156,13 @@ def _validate_selection_objectives(
             and _same_contract(capability.metric, objective.metric)
             and _same_contract(capability.method, objective.method)
             and capability.context_profile == requested_context
-            and capability.subject_grain == "candidate"
-            and capability.source_role == "subject"
-            and capability.guaranteed_multiplicity == "one"
-            and capability.subject_source == objective.candidate_input
-            and (
-                requested_context.get("kind") != "pairwise"
-                or capability.reference_source is not None
-            )
-            and (
-                requested_context.get("pairing_mode")
-                != "explicit_relation"
-                or capability.pairing_source is not None
-            )
+            and selectable_observation(capability, ranking=True)
         ]
-        if len(produced) != 1:
+        if not produced:
             if any(
                 capability.source_partition == objective.source_partition
                 and _same_contract(capability.metric, objective.metric)
                 and capability.context_profile == requested_context
-                and capability.subject_source == objective.candidate_input
                 and not _same_contract(
                     capability.method,
                     objective.method,
@@ -228,12 +228,9 @@ def _validate_observation_selectors(
             and _same_contract(capability.metric, selector.metric)
             and _same_contract(capability.method, selector.method)
             and capability.context_profile == requested_context
-            and capability.subject_grain == "candidate"
-            and capability.source_role == "subject"
-            and capability.guaranteed_multiplicity == "one"
-            and capability.subject_source == selector.candidate_input
+            and selectable_observation(capability, ranking=False)
         ]
-        if len(produced) != 1:
+        if not produced:
             if any(
                 capability.source_partition == selector.source_partition
                 and _same_contract(capability.metric, selector.metric)
@@ -241,7 +238,6 @@ def _validate_observation_selectors(
                 and capability.subject_grain == "candidate"
                 and capability.source_role == "subject"
                 and capability.guaranteed_multiplicity == "one"
-                and capability.subject_source == selector.candidate_input
                 and not _same_contract(
                     capability.method,
                     selector.method,

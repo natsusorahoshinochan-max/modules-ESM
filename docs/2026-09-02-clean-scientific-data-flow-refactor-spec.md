@@ -405,7 +405,9 @@ Open/Preview 的 `baseline_diagnostics` 单独说明已保存 document 对当前
 此时 Open 保留可编辑 document，Preview 可独立计算候选；候选有效即可 Apply，且 `changes` 为空，
 UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误
 阻止 UI 确认。Apply 信任已确认的 normalized preview，一次保存 document 和对应 Workflow，
-不重新解析来源、求值或计算预览摘要。持久化 owner 比较一次 Draft revision，冲突时保留编辑。
+不重新解析来源、求值或计算预览摘要。普通保存由持久化 owner 比较一次 Draft revision，冲突时保留编辑。
+旧版本首次修改通过 `fork_version` 一次发布工作区并保留返回点，替代普通保存；
+具体保存合同见 [Prompt 编辑规格](2026-09-17-prompt-editing-spec.md)。
 
 Preview 显示轴以候选 layout 顺序为准，共同 residue ID 只出现一次。删除 residue 的 tombstone 按旧
 顺序放在同链下一个存活 residue 前；无后继放在该链末尾，整链删除放在显示轴末尾。过滤 tombstones

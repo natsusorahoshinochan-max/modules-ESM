@@ -8,6 +8,7 @@ import math
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
+from core.operation import OperationDiagnosticError
 from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
@@ -23,7 +24,7 @@ from datatypes.observation import (
 )
 
 
-class SelectionError(ValueError):
+class SelectionError(OperationDiagnosticError):
     """A Selection Objective is scientifically unsatisfied."""
 
 
@@ -632,6 +633,7 @@ def resolve_candidate_utilities_from_facts(
     score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
     objectives: Sequence[ResolvedSelectionObjective],
     candidate_data_references: Mapping[str, CandidateDataReference],
+    out_of_scope_policy: str = "ignore",
 ) -> CandidateUtilityProfile:
     """Compute Utilities from compiler-resolved scientific facts only."""
     resolved = tuple(objectives)
@@ -645,7 +647,7 @@ def resolve_candidate_utilities_from_facts(
             candidates=candidates,
             collection=collection,
             objective=item,
-            out_of_scope_policy="ignore",
+            out_of_scope_policy=out_of_scope_policy,
         )
         for candidate_id in candidate_ids:
             observation = observations[candidate_id]

@@ -84,8 +84,26 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
     operations = bundle["rest_operations"]
 
     assert set(operations) == {
+        "workflow_commit_snapshot",
+        "compare_workflow_commit_science",
+        "list_deleted_projects",
+        "rename_project",
+        "duplicate_project",
+        "restore_project",
+        "trash_project",
+        "delete_project",
+        "list_project_inputs",
+        "inspect_project_input",
+        "project_workspace",
+        "save_project_ui_state",
+        "list_workflow_versions",
+        "name_workflow_version",
+        "workflow_version",
+        "fork_workflow_version",
+        "return_project_workspace",
         "artifact_retrieval",
         "apply_prompt_authoring",
+        "workflow_observation_options",
         "authoring_capability_projection",
         "cancel_run",
         "catalog_snapshot",
@@ -100,12 +118,33 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "project_input_metadata",
         "project_workflow_draft",
         "run_projection",
+        "result_collection",
+        "result_candidate",
+        "preview_run_scope",
         "save_project_workflow_draft",
         "start_derived_run",
         "start_run",
         "typed_value_retrieval",
     }
     expected_transports = {
+        "workflow_observation_options": ("POST", "/api/v2/projects/{project_id}/workflow:observation-options"),
+        "workflow_commit_snapshot": ("GET", "/api/v2/projects/{project_id}/workflow/commits/{workflow_commit_id}"),
+        "compare_workflow_commit_science": ("POST", "/api/v2/projects/{project_id}/workflow/commits/{workflow_commit_id}:compare"),
+        "list_deleted_projects": ("GET", "/api/v2/projects/deleted"),
+        "rename_project": ("PATCH", "/api/v2/projects/{project_id}"),
+        "duplicate_project": ("POST", "/api/v2/projects/{project_id}:duplicate"),
+        "restore_project": ("POST", "/api/v2/projects/{project_id}:restore"),
+        "trash_project": ("POST", "/api/v2/projects/{project_id}:trash"),
+        "delete_project": ("DELETE", "/api/v2/projects/{project_id}"),
+        "list_project_inputs": ("GET", "/api/v2/projects/{project_id}/inputs"),
+        "inspect_project_input": ("POST", "/api/v2/projects/{project_id}/inputs/{project_input_ref}:inspect"),
+        "project_workspace": ("GET", "/api/v2/projects/{project_id}/workspace"),
+        "save_project_ui_state": ("PUT", "/api/v2/projects/{project_id}/workspace/ui-state"),
+        "list_workflow_versions": ("GET", "/api/v2/projects/{project_id}/versions"),
+        "name_workflow_version": ("POST", "/api/v2/projects/{project_id}/versions"),
+        "workflow_version": ("GET", "/api/v2/projects/{project_id}/versions/{version_id}"),
+        "fork_workflow_version": ("POST", "/api/v2/projects/{project_id}/versions/{version_id}:fork"),
+        "return_project_workspace": ("POST", "/api/v2/projects/{project_id}/workspace:return"),
         "artifact_retrieval": (
             "GET",
             "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
@@ -158,6 +197,9 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "POST",
             "/api/v2/projects/{project_id}/inputs",
         ),
+        "preview_run_scope": ("POST", "/api/v2/projects/{project_id}/runs/preview"),
+        "result_collection": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:collection"),
+        "result_candidate": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:candidate"),
         "run_projection": (
             "GET",
             "/api/v2/projects/{project_id}/runs/{run_id}",
@@ -406,6 +448,10 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "values": "safe_bounded_public_values_only",
     }
     assert set(errors["vocabulary"]) == {
+        "workspace_not_found",
+        "workflow_version_not_found",
+        "project_state_conflict",
+        "project_has_active_runs",
         "artifact_integrity_mismatch",
         "artifact_limit_exceeded",
         "artifact_not_found",
@@ -420,6 +466,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "node_publication_failed",
         "project_not_found",
         "project_input_not_found",
+        "project_input_invalid",
         "protocol_mismatch",
         "readiness_rejected",
         "run_not_found",
@@ -1473,6 +1520,8 @@ def test_project_and_immutable_input_publication_use_only_bundle_operations(
         "seed",
         "project_kind",
         "copied_from_project_id",
+        "reference_results_project_id",
+        "deleted_at",
         "latest_run_id",
     }
     assert project["name"] == "public project"
@@ -1954,6 +2003,8 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
         "seed": False,
         "project_kind": "personal",
         "copied_from_project_id": None,
+        "reference_results_project_id": None,
+        "deleted_at": None,
         "latest_run_id": None,
     }
     publication = {

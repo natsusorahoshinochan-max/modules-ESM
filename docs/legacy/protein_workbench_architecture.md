@@ -898,7 +898,7 @@ Campaign 集中验证 tier identity、required run labels、lifecycle receipt �
 retained location，但不解释或重复科学断言。`passed` 当且仅当全部 19 个 tier 按顺序产生
 完整 Acceptance Result；失败或 interrupted diagnostic output 不计入完成度。详见 ADR-0043。
 
-完整命令和 tier 定义见 [`backend-verification.md`](backend-verification.md)。
+完整命令和 tier 定义见 [`backend-verification.md`](../backend-verification.md)。
 
 ## 18. 当前核心 Workflow
 

@@ -8,6 +8,20 @@
     kind: canonical-protein-io
   scale_contract:
     kind: identity
+- method_id: protein_io.import_sequences.method
+  algorithm_identity:
+    name: independent-fasta-record-import
+    record_order: source-order
+    duplicate_names: preserve
+    duplicate_sequences: preserve
+    invalid_record: reject-entire-import
+    missing_header: ordinal-display-name
+  model_identity:
+    kind: none
+  featurization_identity:
+    kind: canonical-protein-io
+  scale_contract:
+    kind: identity
 - method_id: protein_io.import_structure.method
   algorithm_identity:
     name: import_structure

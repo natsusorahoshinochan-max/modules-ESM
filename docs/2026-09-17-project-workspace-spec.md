@@ -10,11 +10,49 @@ Trash and permanent deletion hold the Run Runtime's Project idle lease. A reserv
 
 Already-published immutable Inputs survive cancelling an import or merge, whether referenced or not. They remain listed for later reuse; no implicit garbage collection occurs. They are removed by Project permanent deletion. Workflow changes from import/merge are still one Draft publication, independently of Input publication.
 
+Run Runtime owns the complete `trash_project(project_id)` and
+`permanently_delete_project(project_id)` operations. The HTTP adapter calls these
+operations without managing the idle lease or cache eviction. Runtime holds its
+private idle lease across the whole operation, checking reserved and nonterminal
+Runs from one active-Run snapshot. ProjectManager alone checks protected Project
+policy, Project existence, and the trashed-only condition before storage writes;
+Runtime and cache eviction do not repeat those checks.
+
+Trash returns the updated Project metadata without deleting content. Permanent
+deletion removes storage first, then evicts Run registry records and authoring
+Commit caches before releasing the lease. ProjectManager's storage methods do
+not constitute the complete lifecycle operation. Authoring retains its cache
+eviction operation because example-record installation also uses it.
+
+Permanent deletion is not a transaction across filesystem roots. A filesystem
+failure propagates immediately, stops subsequent deletion and cache eviction,
+and releases the idle lease. Already-deleted content is not rolled back; there
+is no automatic retry or recovery state, and failure never returns success.
+
 ## UI snapshots and current work
 
 UI state is an opaque JSON object interpreted only by the WebUI. The backend writes immutable UI revisions and acknowledges its exact revision separately from Draft saves. An initial UI revision `0` denotes the empty object. An append-only workspace record binds a Draft revision, UI revision, optional source named version, and optional return workspace revision. The latest workspace record is the current work; records and their content are never overwritten. Publishing the workspace record is the point at which a Draft/UI save becomes current. Unreferenced content left by an interrupted publication does not become current.
 
 Normal Draft and UI saves each append a workspace record preserving the other component. `GET /workspace` returns the current draft, exact UI state, and workspace revision; saving a UI state does not create a scientific Draft. A named version captures the current exact Draft and UI revisions without compiling. Names need not be unique; the version ID is its identity.
+
+Workflow Authoring reads one private workspace head containing these exact
+references for each operation. Public authoring operations own Project existence,
+protected-write policy, submitted Workflow scope, and requested-resource checks;
+internal publication trusts those admitted facts. Draft saves compare the expected
+revision with the current head without loading the old Draft or UI. Named versions
+also use the head's references without loading their content. Copy reads one source
+workspace for both its Draft and UI.
+
+Content is appended before the final workspace record. Publication returns the
+exact new head; responses reuse newly written in-memory Draft/UI values and load
+only missing content, without rediscovering the latest workspace or reading back
+new records. UI values retain their immutable representation. Each collection's
+next revision follows its highest occupied record, including content left by an
+interrupted publication; returning to older work does not reuse occupied numbers.
+Ordinary writes touch Project metadata once after workspace publication, reading
+the latest metadata to preserve other updates. Copy staging and seed installation
+retain their own metadata lifecycle. There is no automatic retry or rollback, and
+a failure after workspace publication does not undo that publication.
 
 Reading a named version has no write effect. Its response includes the current workspace revision as the return point at the time it is opened. On first edit, the client submits the edited Workflow, displayed UI state, source version ID, and that return workspace revision in one `:fork` request. The backend publishes fresh Draft/UI revisions and one workspace record retaining the return point. Both the immutable version and the pre-open work remain available. `workspace:return` appends a new current workspace record referencing the chosen saved workspace, so returning does not destroy the work being left behind. No general branching system is introduced.
 

@@ -146,9 +146,8 @@ def _selection_node(
     }
     if operation == "filter":
         defaults = {
-            "selector_id": "quality",
+            "selector_ids": ["quality"],
             "out_of_scope_policy": "error",
-            "tie_policy": "candidate_id_ascending",
         }
     if operation in {"weighted_rank", "pareto", "diversity"}:
         defaults = {
@@ -156,7 +155,7 @@ def _selection_node(
             "tie_policy": "candidate_id_ascending",
         }
     if operation == "filter":
-        defaults.update({"operator": ">=", "threshold": 0.25})
+        defaults["expression"] = [{"selector_index": 0, "operator": ">=", "threshold": 0.25}]
     if operation in {"top_k", "diversity"}:
         defaults["k"] = 2
     defaults.update(parameters or {})
@@ -265,7 +264,7 @@ def _workflow(
     )
 
 
-def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
+def test_public_catalog_has_all_selection_nodes_in_one_package() -> None:
     catalog = _catalog()
     app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
@@ -284,6 +283,7 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
         "weighted_rank",
         "pareto",
         "diversity",
+        "manual",
     )
     assert set(contracts) == {
         (kind, f"selection.{operation}{suffix}")
@@ -302,10 +302,11 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
                 port["port_type"]["contract_id"],
             )
             for port in node.descriptor["inputs"]
-        ] == [
-            ("candidates", "candidate.collection"),
-            ("scores", "score.collection"),
-        ]
+        ] == (
+            [("candidates", "candidate.collection")]
+            if operation == "manual"
+            else [("candidates", "candidate.collection"), ("scores", "score.collection")]
+        )
         binding = contracts[("binding", f"selection.{operation}.direct")]
         method = contracts[("method", f"selection.{operation}.method")]
         assert binding.descriptor["method"]["contract_id"] == method.contract_id
@@ -317,14 +318,17 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             if operation in {"weighted_rank", "pareto", "diversity"}
             else {"objective_id_parameter": "objective_id"}
         )
-        if operation == "filter":
+        if operation == "manual":
+            assert "selection_objective_consumption" not in binding.descriptor
+            assert "observation_selector_consumption" not in binding.descriptor
+        elif operation == "filter":
             assert binding.descriptor[
                 "observation_selector_consumption"
             ] == {
                 "candidate_input_port": "candidates",
                 "score_collection_input_port": "scores",
                 "candidate_output_port": "candidates",
-                "selector_id_parameter": "selector_id",
+                "selector_ids_parameter": "selector_ids",
             }
             assert "selection_objective_consumption" not in binding.descriptor
         else:
@@ -532,13 +536,11 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="selection.filter.direct",
-        inputs={"candidates": candidates, "scores": scores},
+        inputs={"candidates": candidates, "scores": (scores,)},
         node_parameters={
-            "selector_id": "quality",
-            "operator": ">",
-            "threshold": 0.5,
+            "selector_ids": ["quality"],
+            "expression": [{"selector_index": 0, "operator": ">", "threshold": 0.5}],
             "out_of_scope_policy": "error",
-            "tie_policy": "candidate_id_ascending",
         },
         binding_parameters={},
     )
@@ -552,13 +554,11 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.filter.direct",
-            inputs={"candidates": candidates, "scores": incomplete},
+            inputs={"candidates": candidates, "scores": (incomplete,)},
             node_parameters={
-                "selector_id": "quality",
-                "operator": ">",
-                "threshold": 0.5,
+                "selector_ids": ["quality"],
+                "expression": [{"selector_index": 0, "operator": ">", "threshold": 0.5}],
                 "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
             },
             binding_parameters={},
         ))
@@ -892,3 +892,253 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         if disposition["node_id"] == "select"
     )
     assert second_selection["resolution"] == "executed"
+
+
+def test_grouped_filter_keeps_parentheses_and_eager_missing_policy() -> None:
+    catalog, implementation = _direct_implementation("filter")
+    candidates, scores = _runtime_values(catalog)
+    parameters = {
+        "selector_ids": ["quality"],
+        # (value > .8 AND value < 1) OR value == .5
+        "expression": [
+            {"selector_index": 0, "operator": ">", "threshold": 0.8},
+            {"selector_index": 0, "operator": "<", "threshold": 1},
+            {"operator": "and", "operand_count": 2},
+            {"selector_index": 0, "operator": "==", "threshold": 0.5},
+            {"operator": "or", "operand_count": 2},
+        ],
+        "out_of_scope_policy": "error",
+    }
+    call = operation_call(
+        catalog=catalog, binding_id="selection.filter.direct",
+        inputs={"candidates": candidates, "scores": (scores,)},
+        node_parameters=parameters,
+    )
+    assert implementation.execute(call)["candidates"].items == call.inputs["candidates"].value.items
+    with pytest.raises(SelectionError, match="missing observation"):
+        implementation.execute(operation_call(
+            catalog=catalog, binding_id="selection.filter.direct",
+            inputs={"candidates": candidates, "scores": (ScoreCollection("missing", scores.entries[:-1]),)},
+            node_parameters=parameters,
+        ))
+
+
+def test_grouped_filter_scope_is_union_of_selectors_on_shared_score_source() -> None:
+    catalog = _catalog()
+    candidates, scores = _runtime_values(catalog)
+    other_method = _reference(
+        catalog, "method", "contract_test.collection_ops_legacy_scores.method",
+    )
+    selectors = (
+        _selector(catalog),
+        replace(
+            _selector(catalog, selector_id="other"),
+            source_partition="other-partition", method=other_method,
+        ),
+    )
+    implementation = build_operation(
+        catalog, "selection.filter.direct", None,
+        observation_selectors=selectors,
+    )
+    combined = ScoreCollection("combined", [
+        *scores.entries,
+        *(replace(entry, source_partition="other-partition", method=other_method, value=0.2) for entry in scores.entries),
+    ])
+    parameters = {
+        "selector_ids": ["quality", "other"],
+        "expression": [
+            {"selector_index": 0, "operator": ">", "threshold": 0.8},
+            {"selector_index": 1, "operator": "<", "threshold": 0.3},
+            {"operator": "and", "operand_count": 2},
+        ],
+        "out_of_scope_policy": "error",
+    }
+    call = operation_call(
+        catalog=catalog, binding_id="selection.filter.direct",
+        inputs={"candidates": candidates, "scores": (combined, combined)},
+        node_parameters=parameters,
+    )
+    assert [candidate.candidate_id for candidate in implementation.execute(call)["candidates"].items] == ["candidate-z"]
+
+
+def test_grouped_filter_rejects_stale_candidate_data_reference() -> None:
+    catalog, implementation = _direct_implementation("filter")
+    candidates, scores = _runtime_values(catalog)
+    stale = ScoreCollection("stale", [
+        replace(scores.entries[0], subject=replace(scores.entries[0].subject, content_digest="sha256:" + "0" * 64)),
+        *scores.entries[1:],
+    ])
+    with pytest.raises(SelectionError, match="exact Candidate input"):
+        implementation.execute(operation_call(
+            catalog=catalog, binding_id="selection.filter.direct",
+            inputs={"candidates": candidates, "scores": (stale,)},
+            node_parameters=_selection_node("filter").node_parameters,
+        ))
+
+
+@pytest.mark.parametrize("expression", [
+    [{"operator": "and", "operand_count": 2}],
+    [{"selector_index": 3, "operator": ">", "threshold": 0}],
+    [{"selector_index": 0, "operator": ">", "threshold": 0}] * 2,
+])
+def test_filter_expression_rejects_incomplete_grouping(expression: list[dict]) -> None:
+    catalog, implementation = _direct_implementation("filter")
+    candidates, scores = _runtime_values(catalog)
+    with pytest.raises(SelectionError, match="Filter expression"):
+        implementation.execute(operation_call(
+            catalog=catalog, binding_id="selection.filter.direct",
+            inputs={"candidates": candidates, "scores": (scores,)},
+            node_parameters={**_selection_node("filter").node_parameters, "expression": expression},
+        ))
+
+
+def test_filter_compiler_orders_score_inputs_by_selector_order() -> None:
+    catalog = _catalog()
+    original = _workflow(catalog, "filter")
+    second_scorer = replace(_scorer(), node_id="second-scorer")
+    selection = _selection_node("filter", parameters={
+        "selector_ids": ["second", "quality"],
+        "expression": [
+            {"selector_index": 0, "operator": ">", "threshold": 0},
+            {"selector_index": 1, "operator": "<", "threshold": 1},
+            {"operator": "and", "operand_count": 2},
+        ],
+    })
+    workflow = replace(
+        original,
+        nodes=(*original.nodes[:2], second_scorer, selection),
+        edges=(*original.edges, WorkflowEdge("source", "candidates", "second-scorer", "candidates"), WorkflowEdge("second-scorer", "scores", "select", "scores")),
+        observation_selectors=(_selector(catalog), _selector(catalog, selector_id="second", score_node="second-scorer")),
+    )
+    compiled = compile(CompilationRequest(workflow), catalog)
+    selected = next(node for node in compiled.nodes if node.node_id == "select")
+    assert [source.node_id for source in selected._runtime.input_sources["scores"]] == ["second-scorer", "scorer"]
+
+
+def test_manual_selection_uses_exact_current_references_and_input_order() -> None:
+    catalog = _catalog()
+    implementation = build_operation(catalog, "selection.manual.direct", None)
+    candidates, _ = _runtime_values(catalog)
+    sequence_port = catalog.require_port_type("protein.sequence")
+    references = [{
+        "candidate_id": item.candidate_id,
+        "data_type_id": "protein.sequence",
+        "content_digest": sequence_port.content_digest(item.data),
+    } for item in reversed(candidates.items)]
+    call = operation_call(
+        catalog=catalog, binding_id="selection.manual.direct",
+        inputs={"candidates": candidates},
+        node_parameters={"selected_candidates": references[:2]},
+    )
+    output = implementation.execute(call)["candidates"]
+    assert output.items == call.inputs["candidates"].value.items[1:]
+    assert all(item is original for item, original in zip(output.items, call.inputs["candidates"].value.items[1:], strict=True))
+    assert implementation.execute(replace(call, node_parameters={"selected_candidates": []}))["candidates"].items == ()
+    with pytest.raises(SelectionError, match="missing from current input"):
+        implementation.execute(replace(call, node_parameters={
+            "selected_candidates": [{**references[0], "content_digest": "sha256:" + "0" * 64}],
+        }))
+
+
+def test_empty_manual_selection_has_explicit_durable_selection_conclusion(tmp_path: Path) -> None:
+    case = ModulePackageContractCase(
+        case_id="empty-manual-selection",
+        node_type_id="selection.manual",
+        binding_id="selection.manual.direct",
+        node_parameters={"selected_candidates": []},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(_source(),),
+        workflow_edges=(WorkflowEdge("source", "candidates", "contract-test-node", "candidates"),),
+    )
+    result = execute_module_package_case(
+        MODULE_PACKAGE, case,
+        supporting_registrations=(_support_package(),),
+        work_root=tmp_path,
+    )
+    assert result.projection.status == "succeeded"
+    conclusion, = result.projection.selection_results
+    assert conclusion.selected_candidate_ids == ()
+    assert conclusion.selected_candidate_references == ()
+    assert conclusion.objectives == ()
+    assert conclusion.observation_selectors == ()
+
+
+@pytest.mark.parametrize("missing_count", [1, 1000])
+def test_missing_manual_reference_reaches_the_public_run_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_count: int,
+) -> None:
+    from tests.support.public_request import prepare_run_event_stream_request
+
+    catalog = _catalog()
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create("missing manual reference").id
+    missing_references = [{
+        "candidate_id": f"previous-run-candidate-{index:04d}",
+        "data_type_id": "protein.sequence",
+        "content_digest": "sha256:" + "0" * 64,
+    } for index in range(missing_count)]
+    workflow = WorkflowDocument(
+        schema_version=VERSION, workflow_id=project_id,
+        nodes=(
+            _source(),
+            WorkflowNodeInstance(
+                node_id="select", node_type_id="selection.manual",
+                binding_id="selection.manual.direct",
+                node_parameters={"selected_candidates": missing_references},
+                binding_parameters={},
+            ),
+        ),
+        edges=(WorkflowEdge("source", "candidates", "select", "candidates"),),
+    )
+    app = create_application(frozen_catalog_override=catalog)
+    with TestClient(app) as client:
+        public = PublicRunClient(client)
+        committed = public.commit_workflow(project_id, encode_workflow_document(workflow))
+        started = public.start_run(
+            project_id, committed["workflow_commit_id"], request_id="manual-missing",
+        )
+        projection = wait_for_testclient_run_terminal(client, project_id, started["run_id"])
+        stream = prepare_run_event_stream_request({"project_id": project_id, "run_id": started["run_id"]})
+        with client.websocket_connect(stream.route) as websocket:
+            events = []
+            while True:
+                event = websocket.receive_json()["event"]
+                events.append(event)
+                if event["type"] == "run_terminal":
+                    break
+    assert projection["status"] == "failed"
+    failed = next(item for item in events if item["type"] == "node_attempt_terminal" and item["status"] == "failed")
+    assert "missing from current input" in failed["error"]["message"]
+    assert "previous-run-candidate" in failed["error"]["message"]
+    assert len(failed["error"]["message"]) <= 2048
+    assert failed["error"]["details"]["operation_diagnostic"] == {
+        "missing_candidate_count": missing_count,
+        "first_missing_candidate_reference": missing_references[0],
+    }
+
+
+@pytest.mark.parametrize("ranking", [False, True])
+def test_editor_options_reuse_compiler_observation_facts_for_an_unfinished_graph(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ranking: bool,
+) -> None:
+    catalog = _catalog()
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create("selection editor").id
+    workflow = replace(_workflow(catalog, "top_k"), workflow_id=project_id)
+    # An unconnected consumer remains editable; producing declarations are enough
+    # to display choices, while Commit still owns full graph admission.
+    workflow = replace(workflow, edges=tuple(edge for edge in workflow.edges if edge.target_node_id != "select"))
+    graph = encode_workflow_document(workflow)
+    # Editor choices require only the graph, not unfinished Selector/Objective values.
+    with TestClient(create_application(frozen_catalog_override=catalog)) as client:
+        response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:observation-options",
+            json={"workflow": {"nodes": graph["nodes"], "edges": graph["edges"]}, "ranking": ranking},
+        )
+        assert response.status_code == 200, response.text
+        options = response.json()["options"]
+        assert any(item["source"] == {"node_id": "scorer", "output_port": "scores"}
+                   and item["metric_id"] == "contract_test.collection_ops_value"
+                   and item["partition"] == SOURCE_PARTITION for item in options)
+        assert client.get(f"/api/v2/projects/{project_id}/workflow/draft").status_code == 404

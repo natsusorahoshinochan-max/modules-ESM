@@ -562,14 +562,14 @@ def test_source_bound_2emo_is_compilable() -> None:
     }
     assert nodes["fold-esmfold2"].binding_id == "folding.fold.esmfold2_remote"
     filters = {
-        node.node_id: (node.node_parameters["operator"], node.node_parameters["threshold"])
+        node.node_id: node.node_parameters["expression"]
         for node in workflow.nodes if node.node_id.startswith("filter-")
     }
     assert filters == {
-        "filter-tm": (">=", 0.8),
-        "filter-rmsd": ("<=", 2.5),
-        "filter-plddt": (">=", 70),
-        "filter-protein-sol": (">=", 0.446),
+        "filter-tm": ({"selector_index": 0, "operator": ">=", "threshold": 0.8},),
+        "filter-rmsd": ({"selector_index": 0, "operator": "<=", "threshold": 2.5},),
+        "filter-plddt": ({"selector_index": 0, "operator": ">=", "threshold": 70},),
+        "filter-protein-sol": ({"selector_index": 0, "operator": ">=", "threshold": 0.446},),
     }
     broken = replace(
         workflow,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
+    CandidateSelectionConsumptionDefinition,
     ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
@@ -31,6 +32,7 @@ OPERATIONS = (
     "weighted_rank",
     "pareto",
     "diversity",
+    "manual",
 )
 MULTI_OBJECTIVE_OPERATIONS = frozenset(
     {"weighted_rank", "pareto", "diversity"}
@@ -84,7 +86,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         cacheable=True,
         selection_objective_consumption=(
             None
-            if operation == "filter"
+            if operation in {"filter", "manual"}
             else SelectionObjectiveConsumptionDefinition(
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
@@ -101,9 +103,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
                 candidate_output_port="candidates",
-                selector_id_parameter="selector_id",
+                selector_ids_parameter="selector_ids",
             )
             if operation == "filter"
+            else None
+        ),
+        candidate_selection_consumption=(
+            CandidateSelectionConsumptionDefinition(
+                candidate_input_port="candidates",
+                candidate_output_port="candidates",
+            )
+            if operation == "manual"
             else None
         ),
     )

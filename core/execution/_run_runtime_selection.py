@@ -18,6 +18,7 @@ from core.scoring.selection import (
     ContextSelector,
     PairwiseContextSelector,
     SelectionError,
+    SelectionInput,
     observation_selector_provenance_from_facts,
     selection_objective_provenance_from_facts,
 )
@@ -75,10 +76,7 @@ def selection_consumer_result(
     """Project one declared selection Node's actual typed output."""
     resolved_objectives = node._runtime.selection_objectives
     resolved_selectors = node._runtime.observation_selectors
-    if resolved_selectors:
-        candidate_reference = resolved_selectors[0].candidate_input
-    else:
-        candidate_reference = resolved_objectives[0].candidate_input
+    candidate_reference = cast(SelectionInput, node._runtime.selection_candidate_input)
     output_port = cast(str, node._runtime.selection_candidate_output_port)
     selected = cast(
         CandidateCollection,
@@ -139,4 +137,9 @@ def selection_consumer_result(
         ),
         objectives=objectives,
         observation_selectors=observation_selectors,
+        selected_candidate_references=(
+            tuple(values[(node.node_id, output_port)].candidate_data)
+            if not resolved_selectors and not resolved_objectives
+            else None
+        ),
     )

@@ -486,20 +486,34 @@ class SelectionObjectiveConsumptionDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateSelectionConsumptionDefinition:
+    """A Candidate-only selection with no Score dependency."""
+
+    candidate_input_port: str
+    candidate_output_port: str
+
+    def descriptor_template(self) -> dict[str, str]:
+        return {
+            "candidate_input_port": self.candidate_input_port,
+            "candidate_output_port": self.candidate_output_port,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ObservationSelectorConsumptionDefinition:
-    """Closed declaration binding a Node to one raw Observation selector."""
+    """Closed declaration binding a Node to ordered raw Observation selectors."""
 
     candidate_input_port: str
     score_collection_input_port: str
     candidate_output_port: str
-    selector_id_parameter: str
+    selector_ids_parameter: str
 
     def descriptor_template(self) -> dict[str, str]:
         return {
             "candidate_input_port": self.candidate_input_port,
             "score_collection_input_port": self.score_collection_input_port,
             "candidate_output_port": self.candidate_output_port,
-            "selector_id_parameter": self.selector_id_parameter,
+            "selector_ids_parameter": self.selector_ids_parameter,
         }
 
 
@@ -582,6 +596,9 @@ class ExecutionBindingDefinition:
     observation_selector_consumption: (
         ObservationSelectorConsumptionDefinition | None
     ) = None
+    candidate_selection_consumption: (
+        CandidateSelectionConsumptionDefinition | None
+    ) = None
     effective_randomness_parameters: tuple[str, ...] = ()
     effective_randomness_resolver: EffectiveRandomnessResolver | None = field(
         default=None,
@@ -660,6 +677,10 @@ class ExecutionBindingDefinition:
         if self.observation_selector_consumption is not None:
             descriptor["observation_selector_consumption"] = (
                 self.observation_selector_consumption.descriptor_template()
+            )
+        if self.candidate_selection_consumption is not None:
+            descriptor["candidate_selection_consumption"] = (
+                self.candidate_selection_consumption.descriptor_template()
             )
         if self.effective_randomness_parameters:
             descriptor["effective_randomness_parameters"] = list(

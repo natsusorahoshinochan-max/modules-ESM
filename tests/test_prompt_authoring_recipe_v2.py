@@ -51,18 +51,6 @@ def _apply(
     )
 
 
-def _decisions(**replacements: str) -> dict[str, str]:
-    decisions = {
-        "sequence": "preserve",
-        "coordinates": "preserve",
-        "secondary_structure": "preserve",
-        "sasa": "preserve",
-        "function_annotations": "preserve",
-    }
-    decisions.update(replacements)
-    return decisions
-
-
 def test_primary_source_is_optional_but_never_ambiguous() -> None:
     blank = _apply(document={"chains": [{"chain_id": "A", "length": 2}]})
     assert blank.layout.residue_ids == ("A:1", "A:2")
@@ -194,7 +182,9 @@ def test_merge_requires_complete_monotone_correspondence_and_keeps_target_gaps()
             {"disposition": "source_gap", "source_residue_id": "S:2"},
             {"disposition": "target_gap", "target_residue_id": "A:2"},
         ],
-        "track_decisions": _decisions(sequence="adopt"),
+        "track_adoptions": [{"track": "sequence", "source_residue_ids": ["S:1"], "mask_policy": "adopt"}],
+        "adopt_annotations": [],
+        "remove_annotations": [],
     }
     merged = _apply(
         prompt_source=target,
@@ -246,7 +236,9 @@ def test_merge_rejects_absent_adopt_and_partial_annotation_mapping() -> None:
                     {
                         "source_index": 0,
                         "correspondence": complete,
-                        "track_decisions": _decisions(sasa="adopt"),
+                        "track_adoptions": [{"track": "sasa", "source_residue_ids": ["S:1"], "mask_policy": "adopt"}],
+                        "adopt_annotations": [],
+                        "remove_annotations": [],
                     }
                 ]
             },
@@ -286,8 +278,150 @@ def test_merge_rejects_absent_adopt_and_partial_annotation_mapping() -> None:
                                 "target_residue_id": "A:3",
                             },
                         ],
-                        "track_decisions": _decisions(function_annotations="adopt"),
+                        "track_adoptions": [],
+                        "adopt_annotations": [{"label": "site", "start_residue_id": "S:1", "end_residue_id": "S:3"}],
+                        "remove_annotations": [],
                     }
                 ]
             },
         )
+
+
+def test_rigid_transforms_compose_after_coordinate_edits_and_keep_unselected() -> None:
+    from dataclasses import replace
+    from datatypes.structure import NamedAtomCoordinates
+
+    target = replace(
+        _prompt(("A:1", "A:2"), "AC"),
+        coordinates=(
+            NamedAtomCoordinates.from_mapping({"CA": (0., 0., 0.), "N": (0., 1., 0.)}),
+            NamedAtomCoordinates.from_mapping({"CA": (9., 9., 9.)}),
+        ),
+    )
+    result = _apply(prompt_source=target, document={
+        "track_edits": [{"track": "coordinates", "action": "replace", "residue_id": "A:1", "value": {"atom_coordinates": [{"atom_name": "CA", "coordinates": [1., 0., 0.]}, {"atom_name": "N", "coordinates": [1., 1., 0.]}]}}],
+        "rigid_transforms": [
+            {"rotation_matrix": [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], "origin": [0., 0., 0.], "translation": [2., 0., 0.], "residue_ids": ["A:1"]},
+            {"rotation_matrix": [[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]], "origin": [0., 0., 0.], "translation": [0., 0., 1.], "residue_ids": ["A:1"]},
+        ],
+    })
+    assert result.coordinates[0] == NamedAtomCoordinates.from_mapping({"CA": (0., 3., 1.), "N": (-1., 3., 1.)})
+    assert result.coordinates[1] == target.coordinates[1]
+
+
+@pytest.mark.parametrize("mask_policy,expected", [("preserve", ("G", "C", "T")), ("adopt", ("G", None, "T"))])
+def test_merge_adopts_explicit_regions_masks_and_new_residues(mask_policy: str, expected: tuple) -> None:
+    from dataclasses import replace
+
+    target = _prompt(("A:1", "A:2"), "AC")
+    source = replace(_prompt(("S:1", "S:2", "S:3"), "GAT"), sequence=("G", None, "T"))
+    result = _apply(prompt_source=target, merge_sources=(source,), document={
+        "source_merges": [{
+            "source_index": 0,
+            "correspondence": [
+                {"disposition": "match", "source_residue_id": "S:1", "target_residue_id": "A:1"},
+                {"disposition": "match", "source_residue_id": "S:2", "target_residue_id": "A:2"},
+                {"disposition": "insert", "source_residue_id": "S:3", "target_residue_id": "A:extension"},
+            ],
+            "track_adoptions": [{"track": "sequence", "source_residue_ids": ["S:1", "S:2", "S:3"], "mask_policy": mask_policy}],
+            "adopt_annotations": [], "remove_annotations": [],
+        }],
+    })
+    assert result.layout.residue_ids == ("A:1", "A:2", "A:extension")
+    assert result.sequence == expected
+    assert result.coordinates == (None, None, None)
+    assert result.sasa is None
+
+
+def test_merge_insertion_requires_explicit_annotation_removal_without_truncation() -> None:
+    target = _prompt(("A:1", "A:2"), "AC", annotations=(FunctionAnnotation("target", "A:1", "A:2"),))
+    source = _prompt(("S:1",), "G")
+    merge = {
+        "source_index": 0,
+        "correspondence": [
+            {"disposition": "target_gap", "target_residue_id": "A:1"},
+            {"disposition": "insert", "source_residue_id": "S:1", "target_residue_id": "A:new"},
+            {"disposition": "target_gap", "target_residue_id": "A:2"},
+        ],
+        "track_adoptions": [], "adopt_annotations": [], "remove_annotations": [],
+    }
+    with pytest.raises(ValueError, match="split an inherited function"):
+        _apply(prompt_source=target, merge_sources=(source,), document={"source_merges": [merge]})
+    merge["remove_annotations"] = [{"label": "target", "start_residue_id": "A:1", "end_residue_id": "A:2"}]
+    result = _apply(prompt_source=target, merge_sources=(source,), document={"source_merges": [merge]})
+    assert result.function_annotations == ()
+    assert result.layout.residue_ids == ("A:1", "A:new", "A:2")
+
+
+def test_explicit_edits_apply_to_merge_results() -> None:
+    target = _prompt(("A:1",), "A")
+    source = _prompt(("S:1",), "G")
+    result = _apply(prompt_source=target, merge_sources=(source,), document={
+        "source_merges": [{"source_index": 0, "correspondence": [{"disposition": "match", "source_residue_id": "S:1", "target_residue_id": "A:1"}], "track_adoptions": [{"track": "sequence", "source_residue_ids": ["S:1"], "mask_policy": "adopt"}], "adopt_annotations": [], "remove_annotations": []}],
+        "track_edits": [{"track": "sequence", "action": "replace", "residue_id": "A:1", "value": "T"}],
+    })
+    assert result.sequence == ("T",)
+
+
+def test_preserving_source_masks_keeps_optional_target_track_absent() -> None:
+    source = _prompt(("S:1",), "A", secondary_structure=(None,))
+    target = _prompt(("A:1",), "A")
+    result = _apply(prompt_source=target, merge_sources=(source,), document={"source_merges": [{
+        "source_index": 0,
+        "correspondence": [{"disposition": "match", "source_residue_id": "S:1", "target_residue_id": "A:1"}],
+        "track_adoptions": [{"track": "secondary_structure", "source_residue_ids": ["S:1"], "mask_policy": "preserve"}],
+        "adopt_annotations": [], "remove_annotations": [],
+    }]})
+    assert result.secondary_structure is None
+
+
+@pytest.mark.parametrize("extend_target", [False, True])
+def test_final_function_replacement_does_not_erase_premerge_annotation_facts(extend_target: bool) -> None:
+    target = _prompt(("A:1", "A:2"), "AC", annotations=(FunctionAnnotation("old", "A:1", "A:2"),))
+    source = _prompt(("S:1",), "G")
+    result = _apply(prompt_source=target, merge_sources=(source,), document={
+        "target_residues": [{"residue_id": "A:1", "origin": "source"}, {"residue_id": "A:2", "origin": "source"}] + ([{"residue_id": "A:end", "origin": "inserted"}] if extend_target else []),
+        "source_merges": [{
+            "source_index": 0,
+            "correspondence": [{"disposition": "target_gap", "target_residue_id": "A:1"}, {"disposition": "insert", "source_residue_id": "S:1", "target_residue_id": "A:new"}, {"disposition": "target_gap", "target_residue_id": "A:2"}] + ([{"disposition": "target_gap", "target_residue_id": "A:end"}] if extend_target else []),
+            "track_adoptions": [], "adopt_annotations": [],
+            "remove_annotations": [{"label": "old", "start_residue_id": "A:1", "end_residue_id": "A:2"}],
+        }],
+        "function_annotations": [{"label": "new", "start_residue_id": "A:new", "end_residue_id": "A:2"}],
+    })
+    assert result.function_annotations == (FunctionAnnotation("new", "A:new", "A:2"),)
+
+
+@pytest.mark.parametrize("initial_kind", ["prompt", "blank"])
+def test_merge_can_replace_every_residue_of_an_initially_declared_chain(initial_kind: str) -> None:
+    document = {
+        "target_residues": [],
+        "source_merges": [{"source_index": 0, "correspondence": [{"disposition": "source_gap", "source_residue_id": "S:1"}, {"disposition": "insert", "source_residue_id": "S:2", "target_residue_id": "A:new"}], "track_adoptions": [{"track": "sequence", "source_residue_ids": ["S:2"], "mask_policy": "preserve"}], "adopt_annotations": [], "remove_annotations": []}],
+    }
+    if initial_kind == "blank":
+        document["chains"] = [{"chain_id": "A", "length": 1}]
+    result = _apply(prompt_source=_prompt(("A:1",), "A") if initial_kind == "prompt" else None, merge_sources=(_prompt(("S:1", "S:2"), "GW"),), document=document)
+    assert result.layout.residue_ids == ("A:new",)
+    assert result.layout.chain_ids == ("A",)
+    assert result.sequence == ("W",)
+
+
+def test_declared_multichain_scope_survives_empty_layout_and_multiple_merges() -> None:
+    result = _apply(prompt_source=_prompt(("A:1", "B:1"), "AC"), merge_sources=(_prompt(("S:1",), "G"), _prompt(("T:1",), "W")), document={
+        "target_residues": [],
+        "source_merges": [
+            {"source_index": 0, "correspondence": [{"disposition": "insert", "source_residue_id": "S:1", "target_residue_id": "A:new"}], "track_adoptions": [{"track": "sequence", "source_residue_ids": ["S:1"], "mask_policy": "adopt"}], "adopt_annotations": [], "remove_annotations": []},
+            {"source_index": 1, "correspondence": [{"disposition": "target_gap", "target_residue_id": "A:new"}, {"disposition": "insert", "source_residue_id": "T:1", "target_residue_id": "B:new"}], "track_adoptions": [{"track": "sequence", "source_residue_ids": ["T:1"], "mask_policy": "adopt"}], "adopt_annotations": [], "remove_annotations": []},
+        ],
+    })
+    assert result.layout.residue_ids == ("A:new", "B:new")
+    assert result.layout.chain_ids == ("A", "B")
+    assert result.sequence == ("G", "W")
+
+
+def test_merge_source_does_not_expand_declared_target_chain_scope() -> None:
+    with pytest.raises(ValueError, match="outside declared chains"):
+        _apply(prompt_source=_prompt(("A:1",), "A"), merge_sources=(_prompt(("S:1",), "G"),), document={
+            "target_residues": [],
+            "source_merges": [{"source_index": 0, "correspondence": [{"disposition": "insert", "source_residue_id": "S:1", "target_residue_id": "S:new"}], "track_adoptions": [{"track": "sequence", "source_residue_ids": ["S:1"], "mask_policy": "preserve"}], "adopt_annotations": [], "remove_annotations": []}],
+        })

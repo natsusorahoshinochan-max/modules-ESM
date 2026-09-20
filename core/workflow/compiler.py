@@ -13,6 +13,8 @@ from core.catalog.declarations import (
     UtilityTransformDefinition,
 )
 
+from core.scoring.selection import SelectionInput
+
 from core.parameters.contract import (
     ParameterValueAdmissionError,
     admit_values,
@@ -339,6 +341,15 @@ def compile(
                 )
                 for objective in selected_objectives
             )
+        selector_consumption = binding_definition.observation_selector_consumption
+        if selected_selectors:
+            frozen_input_sources[selector_consumption.score_collection_input_port] = tuple(
+                _ExecutionPlanValueSource(
+                    selector.score_collection_input.node_id,
+                    selector.score_collection_input.output_port,
+                )
+                for selector in selected_selectors
+            )
         required_port_names = {
             name
             for name, port in input_ports.items()
@@ -381,7 +392,7 @@ def compile(
             if selector_consumption is not None
             else objective_consumption
             if objective_consumption is not None
-            else None
+            else binding_definition.candidate_selection_consumption
         )
         result_contracts = _result_contracts_for_node(
             node_contract=node_type_contract,
@@ -440,6 +451,14 @@ def compile(
                 if selection_consumption is not None
                 else None
             ),
+            selection_candidate_input=(
+                SelectionInput(
+                    frozen_input_sources[selection_consumption.candidate_input_port][0].node_id,
+                    frozen_input_sources[selection_consumption.candidate_input_port][0].output_port,
+                )
+                if selection_consumption is not None
+                else None
+            ),
             artifact_outputs=tuple(artifact_outputs),
         )
         nodes.append(
@@ -472,3 +491,32 @@ def compile(
         selection_objectives=workflow.selection_objectives,
     )
     return plan
+
+
+def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, ranking: bool) -> list[dict[str, Any]]:
+    """Project the compiler's observation facts for an unfinished editor graph."""
+    from core.workflow._compiler.selection_capabilities import _derive_observation_capabilities, selectable_observation
+
+    plan_nodes = {
+        node.node_id: (
+            cast(NodeTypeDefinition, catalog.require_contract("node_type", node.node_type_id).definition),
+            cast(ExecutionBindingDefinition, catalog.require_contract("binding", node.binding_id).definition),
+        )
+        for node in workflow.nodes
+    }
+    graph = _admit_workflow_graph(workflow, plan_nodes, require_complete=False)
+    capabilities = _derive_observation_capabilities(graph, catalog=catalog, plan_nodes=plan_nodes)
+    options = []
+    for (node_id, output_port), values in capabilities.items():
+        for value in values:
+            metric = catalog.require_contract("metric", value.metric.contract_id)
+            if metric.descriptor["value_shape"] != "scalar" or value.method is None or not selectable_observation(value, ranking=ranking):
+                continue
+            options.append({
+                "source": {"node_id": node_id, "output_port": output_port},
+                "partition": value.source_partition,
+                "metric_id": value.metric.contract_id,
+                "method_id": value.method.contract_id,
+                "context": _thaw_json(value.context_profile),
+            })
+    return options

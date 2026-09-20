@@ -178,7 +178,7 @@ def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
     assert first == second
 
 
-def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
+def test_protein_io_is_one_package_with_five_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in module_registrations()
@@ -190,6 +190,7 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
         resource.resource for resource in registration.node_definitions
     } == {
         "definitions/sequence_import.yaml",
+        "definitions/sequences_import.yaml",
         "definitions/structure_import.yaml",
         "definitions/sequence_export.yaml",
         "definitions/structure_export.yaml",
@@ -204,6 +205,7 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
     }
     assert owned_nodes == {
         "protein_io.import_sequence",
+        "protein_io.import_sequences",
         "protein_io.import_structure",
         "protein_io.export_sequence",
         "protein_io.export_structure",
@@ -803,3 +805,55 @@ def test_fasta_parser_leaves_empty_sequence_rejection_to_port_admission() -> Non
 
     assert parse_fasta_records(b">empty\n") == ("",)
     assert parse_fasta_sequence(b">empty\n") == ""
+
+
+def test_batch_fasta_import_preserves_duplicates_order_and_source(tmp_path: Path) -> None:
+    from tests.support.runtime_results import decode_service_typed_output_value
+
+    catalog, service, projection, _ = _run_single_node(
+        tmp_path,
+        operation="import_sequences",
+        node_parameters={"project_input_ref": "batch"},
+        project_inputs={"batch": b">duplicate description\nac d\n>duplicate description\nACD\n>\nEFG\n"},
+        project_input_filenames={"batch": "records.fasta"},
+    )
+    assert projection["status"] == "succeeded"
+    assert len(projection["outputs"]) == 1
+    candidates = decode_service_typed_output_value(
+        service, catalog, projection, projection["outputs"][0]
+    )
+    assert [item.data.sequence for item in candidates.items] == ["ACD", "ACD", "EFG"]
+    assert len({item.candidate_id for item in candidates.items}) == 3
+    assert [item.metadata["fasta_header"] for item in candidates.items] == [
+        "duplicate description", "duplicate description", "",
+    ]
+    assert [item.metadata["source_line"] for item in candidates.items] == [1, 3, 5]
+    assert [item.metadata["record_index"] for item in candidates.items] == [1, 2, 3]
+    assert candidates.items[2].metadata["display_name"] == "Record 3"
+    assert all(item.metadata["source_filename"] == "records.fasta" for item in candidates.items)
+    assert all(item.parent_ids == () for item in candidates.items)
+
+
+@pytest.mark.parametrize("bad_record", [b">bad\nAC*\n", b">empty\n"])
+def test_batch_fasta_rejects_the_whole_input_and_locates_record(
+    tmp_path: Path, bad_record: bytes,
+) -> None:
+    _, _, projection, events = _run_single_node(
+        tmp_path,
+        operation="import_sequences",
+        node_parameters={"project_input_ref": "batch"},
+        project_inputs={"batch": b">valid\nACD\n" + bad_record},
+    )
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    failed_node = next(
+        envelope["event"] for envelope in events
+        if envelope["event"]["type"] == "node_attempt_terminal" and envelope["event"]["status"] == "failed"
+    )
+    assert "FASTA record 2 at line 3" in failed_node["error"]["message"]
+
+
+def test_fasta_record_parser_retains_unnamed_plain_sequence_location() -> None:
+    from modules.protein_io.fasta import FastaRecord, parse_fasta_entries
+
+    assert parse_fasta_entries(b"\nac d\nEF\n") == (FastaRecord("", "ACDEF", 2),)

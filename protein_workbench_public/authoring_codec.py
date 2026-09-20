@@ -8,6 +8,9 @@ from typing import Any
 from core.catalog.authoring import AuthoringCapabilityProjection
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import thaw_i_json
+from datatypes.prompt import ProteinPrompt
+from modules.esm3.adapter import describe_conditioning
+from modules.esm3.implementation import describe_generation_compatibility
 from modules.prompt_authoring.authoring import (
     PromptApplyResult,
     PromptAuthoringPreview,
@@ -83,11 +86,23 @@ def encode_authoring_capability_projection(
     }
 
 
+def _esm3_conditioning(prompt: ProteinPrompt | None) -> dict[str, Any] | None:
+    if prompt is None:
+        return None
+    return {
+        **describe_conditioning(prompt),
+        "operations": describe_generation_compatibility(prompt),
+    }
+
+
 def encode_prompt_snapshot(
     snapshot: PromptAuthoringSnapshot,
 ) -> dict[str, Any]:
     return {
         "document": thaw_i_json(snapshot.document),
+        "draft_revision": snapshot.draft_revision,
+        "esm3_conditioning": _esm3_conditioning(snapshot.protein_prompt),
+        "merge_targets": [thaw_i_json(item) for item in snapshot.merge_targets],
         "residues": [thaw_i_json(item) for item in snapshot.residues],
         "tracks": {
             name: {
@@ -112,8 +127,9 @@ def encode_prompt_preview(
 ) -> dict[str, Any]:
     return {
         "normalized_document": thaw_i_json(preview.normalized_document),
+        "esm3_conditioning": _esm3_conditioning(preview.protein_prompt),
+        "merge_targets": [thaw_i_json(item) for item in preview.merge_targets],
         "baseline_diagnostics": [item.projection() for item in preview.baseline_diagnostics],
-        "preview_digest": preview.preview_digest,
         "residues": [thaw_i_json(item) for item in preview.residues],
         "tracks": {
             name: {

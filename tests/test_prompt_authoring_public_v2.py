@@ -18,7 +18,6 @@ from modules.prompt_authoring.recipe import apply_prompt_recipe
 from protein_workbench_public.bootstrap import create_application
 from tests.support import inprocess_runs
 from tests.support.protocol import validate_response
-from tests.support.public_request import prepare_rest_request
 from tests.support.public_runs import PublicRunClient
 
 
@@ -34,6 +33,13 @@ def client(
         )
         assert response.status_code == 201, response.text
         yield http, response.json()["id"]
+
+
+def draft_revision(client: tuple[TestClient, str]) -> int:
+    http, project = client
+    workspace = http.get(f"/api/v2/projects/{project}/workspace").json()
+    draft = workspace["draft"]
+    return draft["draft_revision"] if draft is not None else 0
 
 
 def node(
@@ -481,7 +487,7 @@ def test_random_insert_axis_change_variant(client: tuple[TestClient, str]) -> No
     assert response.json()["diagnostics"] == []
 
 
-def test_merge_order_and_digest_control(client: tuple[TestClient, str]) -> None:
+def test_merge_order_and_revision_conflict(client: tuple[TestClient, str]) -> None:
     def source(letter: str) -> dict[str, Any]:
         return {
             "chains": [{"chain_id": "A", "length": 1}],
@@ -507,16 +513,9 @@ def test_merge_order_and_digest_control(client: tuple[TestClient, str]) -> None:
                         "target_residue_id": "A:1",
                     }
                 ],
-                "track_decisions": {
-                    p: "adopt" if p == "sequence" else "preserve"
-                    for p in (
-                        "sequence",
-                        "coordinates",
-                        "secondary_structure",
-                        "sasa",
-                        "function_annotations",
-                    )
-                },
+                "track_adoptions": [{"track": "sequence", "source_residue_ids": ["A:1"], "mask_policy": "adopt"}],
+                "adopt_annotations": [],
+                "remove_annotations": [],
             }
         ],
     }
@@ -530,6 +529,7 @@ def test_merge_order_and_digest_control(client: tuple[TestClient, str]) -> None:
         edge("b", "protein_prompt", "edit", "merge_sources"),
     ]
     save(client, nodes, edges)
+    original_revision = draft_revision(client)
     first = preview(client, doc).json()
     assert first["diagnostics"] == []
     assert first["tracks"]["sequence"]["values"][0]["value"] == "A"
@@ -537,14 +537,13 @@ def test_merge_order_and_digest_control(client: tuple[TestClient, str]) -> None:
     second = preview(client, doc).json()
     assert second["diagnostics"] == []
     assert second["tracks"]["sequence"]["values"][0]["value"] == "G"
-    assert first["preview_digest"] != second["preview_digest"]
     http, project = client
     rejected = http.post(
         f"/api/v2/projects/{project}/prompt-authoring:apply",
         json={
             "node_id": "edit",
             "document": doc,
-            "preview_digest": first["preview_digest"],
+            "expected_draft_revision": original_revision,
         },
     )
     assert rejected.status_code == 400
@@ -599,7 +598,7 @@ def apply_preview(
         json={
             "node_id": "edit",
             "document": document,
-            "preview_digest": result["preview_digest"],
+            "expected_draft_revision": draft_revision((http, project)),
         },
     )
     assert applied.status_code == 200, applied.text
@@ -763,16 +762,9 @@ def test_annotation_contract_has_no_overlap_policy(
                             }
                             for i in range(1, length + 1)
                         ],
-                        "track_decisions": {
-                            p: "adopt" if p == "function_annotations" else "preserve"
-                            for p in (
-                                "sequence",
-                                "coordinates",
-                                "secondary_structure",
-                                "sasa",
-                                "function_annotations",
-                            )
-                        },
+                        "track_adoptions": [],
+                        "adopt_annotations": annotations,
+                        "remove_annotations": [],
                     }
                 ],
             }
@@ -817,19 +809,6 @@ def test_duplicate_annotation_is_rejected_without_deduplication(
         annotation,
         annotation,
     ]
-    http, project = client
-    applied = http.post(
-        f"/api/v2/projects/{project}/prompt-authoring:apply",
-        json={
-            "node_id": "edit",
-            "document": document,
-            "preview_digest": response.json()["preview_digest"],
-        },
-    )
-    assert applied.status_code == 400
-    saved = http.get(f"/api/v2/projects/{project}/workflow/draft").json()
-    assert saved["workflow"]["nodes"][0]["node_parameters"]["document"] == base
-
 
 def test_deleted_overlap_policy_is_not_admitted(client: tuple[TestClient, str]) -> None:
     base = {"chains": [{"chain_id": "A", "length": 1}]}
@@ -923,21 +902,186 @@ def assert_source_rejected_without_write(
     assert message_fragment in failure["error"]["message"]
     before = http.get(f"/api/v2/projects/{project}/workflow/draft")
     assert before.status_code == 200, before.text
-    # A valid-shaped digest ensures this checks source rejection, not request admission.
-    request = prepare_rest_request(
-        "apply_prompt_authoring",
-        {
-            "project_id": project,
-            "node_id": "edit",
-            "document": document,
-            "preview_digest": "sha256:" + "0" * 64,
-        },
-    )
-    applied = http.request(request.method, request.route, json=request.json_body)
-    assert applied.status_code == 400, applied.text
-    validate_response("apply_prompt_authoring", 400, applied.json())
-    for field in ("code", "message", "details", "retryable"):
-        assert applied.json()["error"][field] == failure["error"][field]
     after = http.get(f"/api/v2/projects/{project}/workflow/draft")
     assert after.status_code == 200, after.text
     assert after.json() == before.json()
+
+
+def test_prospective_prompt_graph_preview_is_read_only_and_apply_is_one_revision(client: tuple[TestClient, str]) -> None:
+    http, project = client
+    base = f"/api/v2/projects/{project}"
+    before = http.get(f"{base}/workflow/draft").json()
+    candidate = before["workflow"]
+    candidate["nodes"].extend([
+        node("prospective-source", "author", {"chains": [{"chain_id": "A", "length": 2}]}),
+        node("prospective-edit", "author", {}),
+    ])
+    candidate["edges"].append(edge("prospective-source", "protein_prompt", "prospective-edit", "prompt_source"))
+    opened = http.post(f"{base}/prompt-authoring:open", json={"node_id": "prospective-edit", "workflow": candidate})
+    assert opened.status_code == 200, opened.text
+    assert len(opened.json()["residues"]) == 2
+    document = {"track_edits": [{"track": "sequence", "action": "replace", "residue_id": "A:1", "value": "W"}]}
+    request = {"node_id": "prospective-edit", "workflow": candidate, "document": document}
+    previewed = http.post(f"{base}/prompt-authoring:preview", json=request)
+    assert previewed.status_code == 200, previewed.text
+    preview = previewed.json()
+    assert preview["diagnostics"] == []
+    untouched = http.get(f"{base}/workflow/draft").json()
+    assert untouched["draft_revision"] == before["draft_revision"]
+    assert all(item["node_id"] != "prospective-edit" for item in untouched["workflow"]["nodes"])
+    applied = http.post(f"{base}/prompt-authoring:apply", json={**request, "expected_draft_revision": draft_revision((http, project))})
+    assert applied.status_code == 200, applied.text
+    draft = applied.json()["draft"]
+    assert draft["draft_revision"] == before["draft_revision"] + 1
+    saved = next(item for item in draft["workflow"]["nodes"] if item["node_id"] == "prospective-edit")
+    assert saved["node_parameters"]["document"] == document
+    assert edge("prospective-source", "protein_prompt", "prospective-edit", "prompt_source") in draft["workflow"]["edges"]
+
+
+def test_prompt_save_rejects_newer_draft(client: tuple[TestClient, str]) -> None:
+    http, project = client
+    base = f"/api/v2/projects/{project}"
+    save(client, [node("edit", "author", {"chains": [{"chain_id": "A", "length": 2}]})], [])
+    before = http.get(f"{base}/workflow/draft").json()
+    candidate = before["workflow"]
+    request = {"node_id": "edit", "workflow": candidate, "document": {"chains": [{"chain_id": "A", "length": 3}]}}
+    previewed = http.post(f"{base}/prompt-authoring:preview", json=request)
+    assert previewed.status_code == 200, previewed.text
+    saved = http.put(f"{base}/workflow/draft", json={"workflow": candidate})
+    assert saved.status_code == 200, saved.text
+    checkpoint = http.get(f"{base}/workflow/draft").json()
+    applied = http.post(f"{base}/prompt-authoring:apply", json={**request, "expected_draft_revision": before["draft_revision"]})
+    assert applied.status_code == 400, applied.text
+    assert "Workflow changed while Prompt Studio was open" in applied.text
+    assert http.get(f"{base}/workflow/draft").json() == checkpoint
+
+
+def test_prospective_prompt_can_create_first_draft_atomically(client: tuple[TestClient, str]) -> None:
+    http, _ = client
+    created = http.post("/api/v2/projects", json={"name": "First prospective Prompt"})
+    assert created.status_code == 201, created.text
+    project = created.json()["id"]
+    base = f"/api/v2/projects/{project}"
+    document = {"chains": [{"chain_id": "A", "length": 2}]}
+    workflow = {"schema_version": "2.1.0", "workflow_id": project, "nodes": [node("edit", "author", document)], "edges": [], "observation_selectors": [], "selection_objectives": []}
+    request = {"node_id": "edit", "workflow": workflow, "document": document}
+    previewed = http.post(f"{base}/prompt-authoring:preview", json=request)
+    assert previewed.status_code == 200, previewed.text
+    assert http.get(f"{base}/workflow/draft").status_code == 404
+    applied = http.post(f"{base}/prompt-authoring:apply", json={**request, "expected_draft_revision": draft_revision((http, project))})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["draft"]["draft_revision"] == 1
+
+
+def test_prompt_version_first_edit_forks_once_and_keeps_return_workspace(client: tuple[TestClient, str]) -> None:
+    http, project = client
+    base = f"/api/v2/projects/{project}"
+    save(client, [node("edit", "author", {"chains": [{"chain_id": "A", "length": 2}]})], [])
+    named = http.post(f"{base}/versions", json={"name": "Old Prompt"})
+    assert named.status_code == 201, named.text
+    save(client, [node("edit", "author", {"chains": [{"chain_id": "A", "length": 3}]})], [])
+    http.put(f"{base}/workspace/ui-state", json={"ui_state": {"zoom": 1.25}})
+    before = http.get(f"{base}/workspace").json()
+    viewed = http.get(f"{base}/versions/{named.json()['version_id']}").json()
+    candidate = viewed["workspace"]["draft"]["workflow"]
+    context = {"version_id": named.json()["version_id"], "return_workspace_revision": before["workspace_revision"], "ui_state": {"zoom": 2}}
+    document = {"chains": [{"chain_id": "A", "length": 4}]}
+    request = {"node_id": "edit", "workflow": candidate, "document": document, "version_context": context}
+    previewed = http.post(f"{base}/prompt-authoring:preview", json=request)
+    assert previewed.status_code == 200, previewed.text
+    assert http.get(f"{base}/workspace").json() == before
+    assert next(item for item in previewed.json()["residues"] if item["residue_id"] == "A:3")["state"] == "inserted"
+    applied = http.post(f"{base}/prompt-authoring:apply", json={**request, "expected_draft_revision": draft_revision((http, project))})
+    assert applied.status_code == 200, applied.text
+    after = http.get(f"{base}/workspace").json()
+    assert after["workspace_revision"] == before["workspace_revision"] + 1
+    assert after["ui_state"] == {"zoom": 2}
+    assert after["source_version_id"] == context["version_id"]
+    assert after["return_workspace_revision"] == before["workspace_revision"]
+    assert after["draft"]["workflow"]["nodes"][0]["node_parameters"]["document"] == document
+    restored = http.post(f"{base}/workspace:return", json={"workspace_revision": before["workspace_revision"]})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["draft"] == before["draft"]
+    assert restored.json()["ui_state"] == before["ui_state"]
+
+
+def test_esm3_compatibility_projection_does_not_reject_valid_multichain_prompt(client: tuple[TestClient, str]) -> None:
+    http, project = client
+    document = {"chains": [{"chain_id": "A", "length": 1}, {"chain_id": "B", "length": 1}]}
+    save(client, [node("edit", "author", document)], [])
+    result = apply_preview(client, document)
+    assert result["diagnostics"] == []
+    assert result["esm3_conditioning"]["status"] == "unsupported"
+    opened = http.post(f"/api/v2/projects/{project}/prompt-authoring:open", json={"node_id": "edit"})
+    assert opened.status_code == 200, opened.text
+    validate_response("open_prompt_authoring", 200, opened.json())
+    assert opened.json()["esm3_conditioning"]["status"] == "unsupported"
+
+
+def test_merge_target_projection_preserves_each_scientific_stage(client: tuple[TestClient, str]) -> None:
+    base_document = {"chains": [{"chain_id": "A", "length": 1}], "track_edits": [{"track": "sequence", "action": "replace", "residue_id": "A:1", "value": "A"}]}
+    source_document = {"chains": [{"chain_id": "A", "length": 1}], "track_edits": [{"track": "sequence", "action": "replace", "residue_id": "A:1", "value": "G"}]}
+    save(client, [node("base", "author", base_document), node("incoming", "author", source_document), node("edit", "author", {})], [edge("base", "protein_prompt", "edit", "prompt_source"), edge("incoming", "protein_prompt", "edit", "merge_sources")])
+    document = {
+        "source_merges": [{"source_index": 0, "correspondence": [{"disposition": "match", "source_residue_id": "A:1", "target_residue_id": "A:1"}], "track_adoptions": [{"track": "sequence", "source_residue_ids": ["A:1"], "mask_policy": "preserve"}], "adopt_annotations": [], "remove_annotations": []}],
+        "track_edits": [{"track": "sequence", "action": "replace", "residue_id": "A:1", "value": "T"}],
+    }
+    response = preview(client, document)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    validate_response("preview_prompt_authoring", 200, result)
+    assert result["diagnostics"] == []
+    assert [stage["merge_index"] for stage in result["merge_targets"]] == [0, 1]
+    assert [stage["tracks"]["sequence"]["values"][0]["value"] for stage in result["merge_targets"]] == ["A", "G"]
+    assert result["tracks"]["sequence"]["values"][0]["value"] == "T"
+
+
+def test_prospective_graph_can_repair_an_unfinished_upstream_prompt(client: tuple[TestClient, str]) -> None:
+    http, project = client
+    base = f"/api/v2/projects/{project}"
+    save(client, [node("upstream", "author", {}), node("edit", "author", {})], [edge("upstream", "protein_prompt", "edit", "prompt_source")])
+    before = http.get(f"{base}/workflow/draft").json()
+    candidate = before["workflow"]
+    candidate["nodes"][0]["node_parameters"]["document"] = {"chains": [{"chain_id": "A", "length": 2}]}
+    request = {"node_id": "edit", "workflow": candidate, "document": {}}
+    response = http.post(f"{base}/prompt-authoring:preview", json=request)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    validate_response("preview_prompt_authoring", 200, result)
+    assert result["diagnostics"] == []
+    assert len(result["baseline_diagnostics"]) == 1
+    assert len(result["residues"]) == 2
+    assert http.get(f"{base}/workflow/draft").json()["draft_revision"] == before["draft_revision"]
+    applied = http.post(f"{base}/prompt-authoring:apply", json={**request, "expected_draft_revision": draft_revision((http, project))})
+    assert applied.status_code == 200, applied.text
+
+
+@pytest.mark.parametrize("broken_kind,diagnostic", [("missing_node", "workflow_draft_not_found"), ("missing_input", "project_input_not_found"), ("missing_port", "malformed_request"), ("invalid_parameters", "malformed_request")])
+def test_prospective_graph_repairs_known_baseline_authoring_errors(client: tuple[TestClient, str], broken_kind: str, diagnostic: str) -> None:
+    http, project = client
+    base = f"/api/v2/projects/{project}"
+    edit = node("edit", "author", {})
+    upstream: list[dict[str, Any]] = []
+    incoming = [edge("absent", "protein_prompt", "edit", "prompt_source")]
+    if broken_kind == "missing_input":
+        upstream = [{"node_id": "import", "node_type_id": "protein_io.import_sequence", "binding_id": "protein_io.import_sequence.direct", "node_parameters": {"project_input_ref": "missing-input"}, "binding_parameters": {}}]
+        incoming = [edge("import", "sequence", "edit", "sequence_source")]
+    elif broken_kind == "missing_port":
+        upstream = [node("assemble", "assemble")]
+        incoming = [edge("assemble", "protein_prompt", "edit", "prompt_source")]
+    elif broken_kind == "invalid_parameters":
+        edit["node_parameters"] = {"document": {"chains": [{"chain_id": "A", "length": 0}]}}
+        incoming = []
+    save(client, [*upstream, edit], incoming)
+    before = http.get(f"{base}/workflow/draft").json()
+    candidate = {**before["workflow"], "nodes": [node("edit", "author", {"chains": [{"chain_id": "A", "length": 2}]})], "edges": []}
+    request = {"node_id": "edit", "workflow": candidate, "document": {"chains": [{"chain_id": "A", "length": 2}]}}
+    response = http.post(f"{base}/prompt-authoring:preview", json=request)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    validate_response("preview_prompt_authoring", 200, result)
+    assert result["diagnostics"] == []
+    assert result["baseline_diagnostics"][0]["code"] == diagnostic
+    applied = http.post(f"{base}/prompt-authoring:apply", json={**request, "expected_draft_revision": draft_revision((http, project))})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["draft"]["draft_revision"] == before["draft_revision"] + 1

@@ -73,6 +73,21 @@ class _RunRegistry:
     ) -> None:
         self._runs[(project_id, run_id)] = record
 
+    def active_run_ids(self, project_id: str) -> tuple[str, ...]:
+        return tuple(
+            run_id for (owner, run_id), record in tuple(self._runs.items())
+            if owner == project_id and not record.ledger.terminal
+        )
+
+    def forget_project(self, project_id: str) -> None:
+        """Discard deleted evidence after the caller completes an idle purge."""
+        for key in tuple(self._runs):
+            if key[0] == project_id:
+                del self._runs[key]
+        for key in tuple(self._damaged_runs):
+            if key[0] == project_id:
+                del self._damaged_runs[key]
+
     def require_record(self, project_id: str, run_id: str) -> _RunRecord:
         try:
             return self._runs[(project_id, run_id)]

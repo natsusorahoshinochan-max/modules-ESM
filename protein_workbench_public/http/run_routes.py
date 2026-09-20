@@ -12,6 +12,7 @@ from fastapi.responses import Response
 
 from core.execution.ledger import V2RunError
 from core.execution.runtime import V2RunService
+from core.execution.scope import RunScopeRequest
 from core.workflow.authoring import WorkflowAuthoringError
 from protein_workbench_public.ledger_codec import (
     decode_run_cursor,
@@ -40,6 +41,14 @@ from protein_workbench_public.protocol import (
     decode_rest_request,
     decode_run_event_stream_request,
 )
+
+
+def _scope_request(value: Mapping[str, Any]) -> RunScopeRequest:
+    return RunScopeRequest(
+        mode=value.get("mode", "full"),
+        node_ids=tuple(value.get("node_ids", ())),
+        source_run_id=value.get("source_run_id"),
+    )
 
 
 def _run_receipt_payload(
@@ -139,6 +148,7 @@ def register_run_routes(
                 admitted["project_id"],
                 workflow_commit_id=admitted["workflow_commit_id"],
                 client_request_id=admitted["client_request_id"],
+                scope=_scope_request(admitted.get("scope", {})),
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
@@ -154,6 +164,27 @@ def register_run_routes(
             "start_run",
             _run_receipt_payload(**receipt),
         )
+
+    @app.post(rest_operations["preview_run_scope"]["route"], include_in_schema=False)
+    async def public_preview_run_scope(request: Request, project_id: str) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(request)
+            admitted = decode_rest_request(
+                "preview_run_scope", path_parameters={"project_id": project_id},
+                query_parameters=query_parameters, json_body=json_body,
+            )
+            preview = await asyncio.to_thread(
+                runtime.preview_scope, admitted["project_id"],
+                workflow_commit_id=admitted["workflow_commit_id"],
+                scope=_scope_request(admitted["scope"]),
+            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        except V2RunError as error:
+            return public_error_response(error.code, str(error), error.details)
+        return emit_rest_json_success("preview_run_scope", preview)
 
     @app.post(
         rest_operations["cancel_run"]["route"],

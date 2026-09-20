@@ -18,6 +18,7 @@ export type BindingOption = {
   id: string
   label: string
   available: boolean
+  availabilityReason?: { code: string; message: string; retryable: boolean }
 }
 
 export type NodeTypePresentation = {
@@ -28,6 +29,31 @@ export type NodeTypePresentation = {
   inputPortTypes: Record<string, string>
   inputMultiplicities: Record<string, string>
   outputPortTypes: Record<string, string>
+  inputMeanings: Record<string, string>
+  outputMeanings: Record<string, string>
+}
+
+export type ParameterValueContract = {
+  type?: string
+  title?: string
+  scientific_meaning?: string
+  enum?: unknown[]
+  const?: unknown
+  minimum?: number
+  maximum?: number
+  exclusiveMinimum?: number
+  exclusiveMaximum?: number
+  multipleOf?: number
+  minLength?: number
+  maxLength?: number
+  minItems?: number
+  maxItems?: number
+  uniqueItems?: boolean
+  pattern?: string
+  items?: ParameterValueContract
+  properties?: Record<string, ParameterValueContract>
+  required?: string[]
+  default?: unknown
 }
 
 export type ParameterPresentation = {
@@ -37,6 +63,12 @@ export type ParameterPresentation = {
   scope: 'node' | 'binding'
   valueType: string
   required: boolean
+  groupId: string
+  groupTitle: string
+  description: string
+  unit?: string
+  resourceKind?: string
+  contract: ParameterValueContract
 }
 
 type Contract = CatalogSnapshot['contracts'][number]
@@ -68,15 +100,13 @@ function methodLabel(descriptor: JsonObject, methodId: string): string {
 
 export function bindingOptions(catalog: CatalogSnapshot, nodeTypeId: string): BindingOption[] {
   const methods = new Map(catalog.contracts.filter((contract) => contract.reference.contract_kind === 'method').map((contract) => [contract.reference.contract_id, contract.descriptor]))
-  const availability = new Map(catalog.availability.flatMap((item): Array<[string, boolean]> => {
-    const binding = item.binding as JsonObject | undefined
-    return typeof binding?.contract_id === 'string' && typeof item.available === 'boolean' ? [[binding.contract_id, item.available]] : []
-  }))
+  const availability = new Map(catalog.availability.map((item) => [(item.binding as JsonObject).contract_id, item]))
   return catalog.contracts.flatMap((contract): BindingOption[] => {
     if (contract.reference.contract_kind !== 'binding' || descriptorReference(contract.descriptor, 'node_type') !== nodeTypeId) return []
     const methodId = descriptorReference(contract.descriptor, 'method')
     if (!methodId) return []
-    return [{ id: contract.reference.contract_id, label: methodLabel(methods.get(methodId) ?? {}, methodId), available: availability.get(contract.reference.contract_id) ?? false }]
+    const observation = availability.get(contract.reference.contract_id)!
+    return [{ id: contract.reference.contract_id, label: methodLabel(methods.get(methodId) ?? {}, methodId), available: observation.available as boolean, availabilityReason: observation.reason as BindingOption['availabilityReason'] }]
   })
 }
 
@@ -92,18 +122,25 @@ function displayParameterValue(value: unknown): string {
   return value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
-function parameterPresentationsForScope(parameters: JsonObject | undefined, values: Record<string, unknown>, scope: 'node' | 'binding'): ParameterPresentation[] {
+function parameterPresentationsForScope(parameters: JsonObject | undefined, values: Record<string, unknown>, scope: 'node' | 'binding', groups: Array<{ id: string; title: string; parameters: string[] }> = []): ParameterPresentation[] {
   const nodeLabels: Record<string, string> = { effective_seed: '有效种子', num_samples: '生成数量', k: '保留数量', num_sequences: '每个父结构', temperature: '温度', backbone_noise: '骨架噪声' }
   return Object.entries(parameters ?? {}).map(([key, value]) => {
     const descriptor = value as JsonObject
-    const valueContract = descriptor.value_contract as JsonObject | undefined
+    const valueContract = descriptor.value_contract as ParameterValueContract
+    const group = groups.find((item) => item.parameters.includes(key))
     return {
       key,
       label: scope === 'binding' ? `模型参数 · ${key}` : nodeLabels[key] ?? key,
       value: displayParameterValue(values[key]),
       scope,
-      valueType: typeof valueContract?.type === 'string' ? valueContract.type : 'string',
+      valueType: valueContract.type ?? 'string',
       required: descriptor.required === true,
+      groupId: `${scope}:${group?.id ?? 'parameters'}`,
+      groupTitle: group?.title ?? (scope === 'binding' ? '模型专属参数' : '科学参数'),
+      description: descriptor.scientific_meaning as string,
+      unit: descriptor.unit as string | undefined,
+      resourceKind: descriptor.resource_kind as string | undefined,
+      contract: valueContract,
     }
   })
 }
@@ -114,7 +151,7 @@ export function parameterPresentations(catalog: CatalogSnapshot, node: WorkflowN
   if (!nodeType) throw new Error(`Node Type ${node.node_type_id} is absent from the active Catalog`)
   if (!binding) throw new Error(`Binding ${node.binding_id} is absent from the active Catalog`)
   return [
-    ...parameterPresentationsForScope(nodeType.descriptor.node_parameters as JsonObject | undefined, node.node_parameters, 'node'),
+    ...parameterPresentationsForScope(nodeType.descriptor.node_parameters as JsonObject | undefined, node.node_parameters, 'node', nodeType.descriptor.parameter_groups as Array<{ id: string; title: string; parameters: string[] }>),
     ...parameterPresentationsForScope(binding.descriptor.binding_parameters as JsonObject | undefined, node.binding_parameters, 'binding'),
   ]
 }
@@ -126,6 +163,7 @@ export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: strin
     name: String(port.name),
     portTypeId: String((port.port_type as JsonObject).contract_id),
     multiplicity: String(port.multiplicity),
+    meaning: String(port.scientific_meaning),
   }))
   const inputs = ports('inputs')
   const outputs = ports('outputs')
@@ -137,6 +175,8 @@ export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: strin
     inputPortTypes: Object.fromEntries(inputs.map((port) => [port.name, port.portTypeId])),
     inputMultiplicities: Object.fromEntries(inputs.map((port) => [port.name, port.multiplicity])),
     outputPortTypes: Object.fromEntries(outputs.map((port) => [port.name, port.portTypeId])),
+    inputMeanings: Object.fromEntries(inputs.map((port) => [port.name, port.meaning])),
+    outputMeanings: Object.fromEntries(outputs.map((port) => [port.name, port.meaning])),
   }
 }
 
@@ -195,8 +235,8 @@ function paletteEntries(catalog: CatalogSnapshot, capabilities: AuthoringCapabil
 }
 
 export function projectPalette(catalog: CatalogSnapshot, capabilities: AuthoringCapabilities, taxonomy: PaletteTaxonomy, query: string): PaletteGroup[] {
-  const normalizedQuery = query.toLowerCase()
-  const entries = paletteEntries(catalog, capabilities).filter((entry) => `${entry.title}${entry.id}`.toLowerCase().includes(normalizedQuery))
+  const terms = query.trim().toLowerCase().split(/\s+/)
+  const entries = paletteEntries(catalog, capabilities).filter((entry) => terms.every((term) => `${entry.title} ${entry.id} ${entry.purpose} ${entry.providerGroups.join(' ')}`.toLowerCase().includes(term)))
   const groups = new Map<string, PaletteEntry[]>()
   for (const entry of entries) {
     const labels = taxonomy === 'purpose' ? [entry.purpose] : entry.providerGroups

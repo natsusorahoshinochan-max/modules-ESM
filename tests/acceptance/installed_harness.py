@@ -95,6 +95,7 @@ def installed_artifact(
             "install",
             "--disable-pip-version-check",
             "--no-deps",
+            "--ignore-installed",
             str(wheel),
         ],
         cwd=root,
@@ -131,14 +132,14 @@ def _copy_external_acceptance_tree(destination: Path) -> Path:
 
 _EXTERNAL_ACCEPTANCE_BOOTSTRAP = """
 from pathlib import Path
-import os
 import sys
+import sysconfig
 import core
 import datatypes
 import examples
 import modules
 import protein_workbench_public
-source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
+installed_site = Path(sysconfig.get_path("purelib")).resolve()
 for package in (
     core,
     datatypes,
@@ -146,7 +147,7 @@ for package in (
     modules,
     protein_workbench_public,
 ):
-    assert not Path(package.__file__).resolve().is_relative_to(source)
+    assert Path(package.__file__).resolve().is_relative_to(installed_site), package.__file__
 import pytest
 raise SystemExit(pytest.main(sys.argv[1:]))
 """

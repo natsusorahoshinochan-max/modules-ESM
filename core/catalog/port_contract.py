@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import hashlib
+import json
 import re
 from types import MappingProxyType
 from typing import Any, Callable, cast
@@ -538,6 +539,12 @@ class PortTypeDefinition:
             value = _value_codec._wire_to_value(wire_value)
         self.validate(value)
         return value
+
+    def restore(self, encoded: bytes) -> Any:
+        """Restore a value already admitted before canonical publication."""
+        wire_value = json.loads(encoded)["value"]
+        return (self.runtime_from_wire(wire_value) if self.runtime_from_wire is not None
+                else _value_codec._wire_to_value(wire_value))
 
     def decode(self, encoded: bytes) -> Any:
         """Decode canonical bytes, rejecting malformed or non-canonical input."""

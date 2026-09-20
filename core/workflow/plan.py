@@ -13,6 +13,7 @@ from core.scoring.selection import (
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
     SelectionObjective,
+    SelectionInput,
 )
 from core.workflow.document import (
     WorkflowEdge,
@@ -161,6 +162,7 @@ class _ExecutionPlanNodeRuntime:
         compare=False,
     )
     selection_candidate_output_port: str | None
+    selection_candidate_input: SelectionInput | None
     artifact_outputs: tuple[ArtifactOutputPlan, ...]
 
 @dataclass(frozen=True, slots=True)

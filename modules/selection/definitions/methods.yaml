@@ -6,8 +6,10 @@
     match_cardinality: exactly_one
     missing_policy: error
     out_of_scope_default: error
-    tie_policy: candidate_id_ascending
     ranking_scale: canonical-metric-value
+    expression: grouped-and-or-postfix
+    selector_resolution: eager-exact-all-declared
+    output_order: input-relative-order
   model_identity:
     kind: none
   featurization_identity:
@@ -86,3 +88,15 @@
     kind: identity
   scale_contract:
     kind: dimensionless-utility-vector
+- method_id: selection.manual.method
+  algorithm_identity:
+    name: exact-current-input-candidate-selection
+    candidate_score_join: exact-candidate-data-reference
+    missing_reference: error
+    output_order: input-relative-order
+  model_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  scale_contract:
+    kind: exact-candidate-data-reference

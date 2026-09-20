@@ -62,7 +62,7 @@ not re-derive its meaning or re-run the public Bundle validator.
 - Real-Provider acceptance cannot be replaced by mocks.
 
 The current acceptance contract is recorded in
-[backend-verification.md](./backend-verification.md). The dated follow-up audit
+[backend-verification.md](../backend-verification.md). The dated follow-up audit
 remains evidence for its recorded revision rather than a current command source.
 
 ## Rejected designs

@@ -1032,3 +1032,22 @@ def test_structured_error_is_frozen_before_it_reaches_a_fact() -> None:
     assert error.details["node_ids"] == ("node-1",)
     with pytest.raises((FrozenInstanceError, TypeError)):
         error.code = "changed"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_manual_selection_conclusion_roundtrips_exact_candidate_references(empty: bool) -> None:
+    from datatypes.candidate import CandidateDataReference
+    from core.execution.ledger.facts import validate_fact_payload
+
+    reference = CandidateDataReference("candidate-1", "protein.sequence", "sha256:" + "1" * 64)
+    result = replace(
+        _selection_result(),
+        objectives=(), observation_selectors=(),
+        selected_candidate_ids=() if empty else (reference.candidate_id,),
+        selected_candidate_references=() if empty else (reference,),
+    )
+    payload = SelectionTerminal(status="succeeded", result=result)
+    validate_fact_payload(payload)
+    encoded = payload_to_canonical(payload)
+    decoded = payload_from_canonical("selection_terminal", encoded)
+    assert decoded == payload

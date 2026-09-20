@@ -353,11 +353,16 @@ _STRUCTURED_ERROR_DETAILS_FIELDS = {
     "malformed_request": (("field_path",), ()),
     "node_execution_failed": (
         ("exception_type",),
-        ("cleanup_exception_types",),
+        ("cleanup_exception_types", "operation_diagnostic"),
     ),
     "node_publication_failed": (("node_id", "publication_stage"), ()),
     "project_not_found": (("resource_kind", "resource_id"), ()),
     "project_input_not_found": (("resource_kind", "resource_id"), ()),
+    "project_input_invalid": (("project_input_ref", "format"), ()),
+    "project_has_active_runs": (("project_id", "run_ids"), ()),
+    "project_state_conflict": (("project_id",), ()),
+    "workflow_version_not_found": (("resource_kind", "resource_id"), ()),
+    "workspace_not_found": (("resource_kind", "resource_id"), ()),
     "protocol_mismatch": (
         ("expected_schema_namespace", "expected_protocol_digest"),
         ("received_schema_namespace",),

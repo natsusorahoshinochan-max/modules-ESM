@@ -57,6 +57,18 @@ def secondary_cleanup_exception_types(
     return getattr(error, _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE, ())
 
 
+class OperationDiagnosticError(ValueError):
+    """An operation-owned scientific diagnostic intended for the Run UI.
+
+    Only deliberate user-input/Selection diagnostics use this type. Provider
+    exceptions and invariant violations keep their generic execution message.
+    """
+
+    def __init__(self, message: str, *, diagnostic: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
+
+
 class ExecutionTermination(RuntimeError):
     """A bounded terminal conclusion reported by a started engine seam."""
 

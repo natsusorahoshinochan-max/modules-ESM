@@ -1769,11 +1769,9 @@ def _dynamic_observation_method_payload(
             "node_type_id": "selection.filter",
             "binding_id": "selection.filter.direct",
             "node_parameters": {
-                "selector_id": "quality-selector",
-                "operator": ">=",
-                "threshold": 0.5,
+                "selector_ids": ["quality-selector"],
+                "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
                 "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
             },
             "binding_parameters": {},
         }

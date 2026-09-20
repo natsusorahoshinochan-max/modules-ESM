@@ -246,6 +246,7 @@ class Ledger:
             return RunScopeBinding(
                 workflow_commit_id=payload.workflow_commit_id,
                 derived_from=payload.derived_from,
+                execution_scope=payload.execution_scope,
             )
 
     @property
@@ -363,6 +364,7 @@ class Ledger:
                     plan_nodes=self._reducer.plan_evidence,
                     selection_terminal_keys=self._reducer.selection_consumer_ids,
                     derived_from=scope.derived_from,
+                    execution_scope=scope.execution_scope,
                 ),
             )
         )

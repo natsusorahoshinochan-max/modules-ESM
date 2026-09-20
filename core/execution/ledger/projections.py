@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from core.execution.scope import RunExecutionScope
 from core.execution.ledger.facts import (
     EngineInvocationStarted,
     EngineInvocationTerminal,
@@ -85,6 +86,7 @@ class RunProjection:
     selection_error: StructuredError | None = None
     terminal_sequence: int | None = None
     derived_from_run_id: str | None = None
+    execution_scope: RunExecutionScope | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,9 +198,11 @@ def project_run(
         ),
         selection_error=selection_error,
         terminal_sequence=terminal_sequence,
+        execution_scope=scope.execution_scope,
         derived_from_run_id=(
             scope.derived_from.source_run_id
             if scope.derived_from is not None
-            else None
+            else scope.execution_scope.source_run_id
+            if scope.execution_scope is not None else None
         ),
     )

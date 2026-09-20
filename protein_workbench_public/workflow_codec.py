@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.workflow.authoring import WorkflowCommit, WorkflowDraft
+from core.workflow.authoring import (
+    ProjectWorkspace, WorkflowCommit, WorkflowDraft, WorkflowVersion,
+)
 from core.workflow.document import (
     WORKFLOW_SCHEMA_VERSION,
     WorkflowDocument,
     WorkflowDocumentError,
     workflow_document_from_canonical,
+    _thaw_json,
 )
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
@@ -48,6 +51,29 @@ def encode_workflow_draft(draft: WorkflowDraft) -> dict[str, Any]:
     }
 
 
+def encode_project_workspace(workspace: ProjectWorkspace) -> dict[str, Any]:
+    """Expose independently persisted Draft and opaque UI revision identities."""
+    return {
+        "project_id": workspace.project_id,
+        "workspace_revision": workspace.workspace_revision,
+        "draft": encode_workflow_draft(workspace.draft) if workspace.draft else None,
+        "ui_state_revision": workspace.ui_state_revision,
+        "ui_state": _thaw_json(workspace.ui_state),
+        "source_version_id": workspace.source_version_id,
+        "return_workspace_revision": workspace.return_workspace_revision,
+    }
+
+
+def encode_workflow_version(version: WorkflowVersion) -> dict[str, Any]:
+    return {
+        "project_id": version.project_id, "version_id": version.version_id,
+        "name": version.name, "created_at": version.created_at,
+        "workspace_revision": version.workspace_revision,
+        "draft_revision": version.draft_revision,
+        "ui_state_revision": version.ui_state_revision,
+    }
+
+
 def encode_workflow_commit_receipt(
     commit: WorkflowCommit,
 ) -> dict[str, Any]:
@@ -61,4 +87,16 @@ def encode_workflow_commit_receipt(
             dict(definition) for definition in commit.scientific_definitions
         ],
         "issues": [],
+    }
+
+
+def encode_workflow_commit_snapshot(commit: WorkflowCommit) -> dict[str, Any]:
+    """Expose original persisted interpretation facts without new admission."""
+    return {
+        "project_id": commit.project_id,
+        "workflow_commit_id": commit.workflow_commit_id,
+        "source_draft_revision": commit.source_draft_revision,
+        "workflow": commit.workflow.canonical_projection(),
+        "scientific_definitions": [_thaw_json(item) for item in commit.scientific_definitions],
+        "scientific_identity": _thaw_json(commit.scientific_identity),
     }

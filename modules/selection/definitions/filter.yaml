@@ -1,57 +1,82 @@
 node_type_id: selection.filter
-title: Filter Candidates by one exact Observation selector
-summary: Retains original Candidates whose one exact scoped canonical Metric value satisfies a declared comparison.
+title: Filter Candidates with grouped conditions
+summary: Retains original Candidates whose exact canonical Metric values satisfy an explicit grouped AND/OR expression.
 category: selection
 inputs:
   - name: candidates
     port_type_id: candidate.collection
     required: true
     multiplicity: one
-    scientific_meaning: Exact Candidate subjects named by the selected Workflow objective.
+    scientific_meaning: Exact Candidate subjects shared by all declared Workflow Observation Selectors.
   - name: scores
     port_type_id: score.collection
     required: true
-    multiplicity: one
-    scientific_meaning: Exact partitioned Observation source named by the selected Workflow objective.
+    multiplicity: many
+    scientific_meaning: Exact partitioned Observation sources resolved in the declared Selector order.
 outputs:
   - name: candidates
     port_type_id: candidate.collection
     required: true
     multiplicity: one
-    scientific_meaning: Original Candidate identities that satisfy the declared exact scalar condition in original relative order.
+    scientific_meaning: Original Candidate identities satisfying the complete grouped condition, in original relative order.
 parameter_groups: []
 node_parameters:
-  selector_id:
+  selector_ids:
     parameter_scope: scientific
-    scientific_meaning: Exact Workflow-owned Observation Selector whose Candidate, raw Metric, Method, Context, cardinality, and missing policy contracts are consumed.
+    scientific_meaning: Ordered exact Workflow Observation Selectors; expression indices refer to this array.
     required: true
     value_contract:
-      type: string
-      pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
-  operator:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+        pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+  expression:
     parameter_scope: scientific
-    scientific_meaning: Exact comparison applied to the canonical scalar Metric value and declared threshold.
+    scientific_meaning: Postfix grouped conditions over canonical Metric values; comparisons push one predicate and AND/OR combine the preceding operand_count predicates into one result.
     required: true
     value_contract:
-      type: string
-      enum: [">", ">=", "<", "<=", "==", "!="]
-  threshold:
-    parameter_scope: scientific
-    scientific_meaning: Finite canonical scalar Metric threshold interpreted only under the selected exact Metric Definition.
-    required: true
-    value_contract:
-      type: number
+      type: array
+      minItems: 1
+      items:
+        oneOf:
+          - type: object
+            additionalProperties: false
+            required: [selector_index, operator, threshold]
+            properties:
+              selector_index:
+                field_scope: scientific
+                scientific_meaning: Zero-based position in the ordered exact Workflow Observation Selector list.
+                type: integer
+                minimum: 0
+              operator:
+                field_scope: scientific
+                scientific_meaning: Exact scalar comparison on canonical Metric values.
+                type: string
+                enum: [">", ">=", "<", "<=", "==", "!="]
+              threshold:
+                field_scope: scientific
+                scientific_meaning: Scalar comparison threshold in the exact Metric canonical unit.
+                type: number
+          - type: object
+            additionalProperties: false
+            required: [operator, operand_count]
+            properties:
+              operator:
+                field_scope: scientific
+                scientific_meaning: Boolean conjunction or disjunction of the explicitly grouped preceding predicates.
+                type: string
+                enum: [and, or]
+              operand_count:
+                field_scope: scientific
+                scientific_meaning: Number of preceding predicate results combined by this explicit group.
+                type: integer
+                minimum: 2
   out_of_scope_policy:
     parameter_scope: scientific
-    scientific_meaning: Declared treatment of Observations outside the exact Candidate, partition, Metric, Method, and Context selector.
+    scientific_meaning: Treatment of Observations outside the union of declared exact Selectors for their Score source.
     value_contract:
       type: string
-      enum: ["error", "ignore"]
-    default: "error"
-  tie_policy:
-    parameter_scope: scientific
-    scientific_meaning: Stable resolution contract shared by deterministic selection operations.
-    value_contract:
-      type: string
-      const: "candidate_id_ascending"
-    default: "candidate_id_ascending"
+      enum: [error, ignore]
+    default: error

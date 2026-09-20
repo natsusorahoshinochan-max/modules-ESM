@@ -573,11 +573,9 @@ def test_compiler_rejects_observation_selector_with_multiple_consumers(
             node_type_id="selection.filter",
             binding_id="selection.filter.direct",
             node_parameters={
-                "selector_id": "fixed-3gb1-raw",
-                "operator": ">=",
-                "threshold": threshold,
+                "selector_ids": ["fixed-3gb1-raw"],
+                "expression": [{"selector_index": 0, "operator": ">=", "threshold": threshold}],
                 "out_of_scope_policy": "ignore",
-                "tie_policy": "candidate_id_ascending",
             },
             binding_parameters={},
         )
@@ -651,7 +649,7 @@ def test_compiler_rejects_each_unconsumed_objective_in_mixed_workflow(
             "objective_ids",
             ["fixed-3gb1", "paired-esm3"],
         ),
-        ("filter", "selector_id", "fixed-3gb1-raw"),
+        ("filter", "selector_ids", ["fixed-3gb1-raw"]),
     ),
 )
 def test_compiler_resolves_selection_consumers_from_normalized_defaults(
@@ -667,8 +665,7 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
     node_parameters: dict[str, object]
     if operation == "filter":
         node_parameters = {
-            "operator": ">=",
-            "threshold": 0.5,
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
         }
     else:
         node_parameters = {}
@@ -864,7 +861,7 @@ def test_multi_objective_nodes_reject_implicit_or_incomplete_selection() -> None
 
 @pytest.mark.parametrize(
     ("operation", "parameter_name"),
-    (("sort", "objective_id"), ("filter", "selector_id")),
+    (("sort", "objective_id"), ("filter", "selector_ids")),
 )
 def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
     operation: str,
@@ -879,11 +876,9 @@ def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
         }
         if operation == "sort"
         else {
-            "selector_id": "absent-selector",
-            "operator": ">=",
-            "threshold": 0.5,
+            "selector_ids": ["absent-selector"],
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
             "out_of_scope_policy": "error",
-            "tie_policy": "candidate_id_ascending",
         }
     )
     selection = WorkflowNodeInstance(
@@ -957,11 +952,9 @@ def test_selection_source_mismatch_points_to_the_implicated_edge(
             node_type_id="selection.filter",
             binding_id="selection.filter.direct",
             node_parameters={
-                "selector_id": "fixed-3gb1-raw",
-                "operator": ">=",
-                "threshold": 0.5,
+                "selector_ids": ["fixed-3gb1-raw"],
+                "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
                 "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
             },
             binding_parameters={},
         )
@@ -1123,11 +1116,9 @@ def test_all_three_nodes_pass_contract_test_kit(
     catalog = _catalog()
     single_objective_parameters = {
         "filter": {
-            "selector_id": "fixed-3gb1-raw",
-            "operator": ">=",
-            "threshold": 0.5,
+            "selector_ids": ["fixed-3gb1-raw"],
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
             "out_of_scope_policy": "ignore",
-            "tie_policy": "candidate_id_ascending",
         },
         "sort": {
             "objective_id": "fixed-3gb1",
@@ -1550,11 +1541,9 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
         node_type_id="selection.filter",
         binding_id="selection.filter.direct",
         node_parameters={
-            "selector_id": "fixed-3gb1-raw",
-            "operator": ">=",
-            "threshold": 0.5,
+            "selector_ids": ["fixed-3gb1-raw"],
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
             "out_of_scope_policy": "ignore",
-            "tie_policy": "candidate_id_ascending",
         },
         binding_parameters={},
     )

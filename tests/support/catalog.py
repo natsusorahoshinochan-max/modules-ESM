@@ -117,6 +117,7 @@ def _propagation(
             }
         ),
         absent_input_policy=value.get("absent_input_policy", "reject"),
+
     )
 
 
@@ -209,6 +210,9 @@ def catalog_contract(
             ),
             observation_selector_consumption=_namespace(
                 descriptor.get("observation_selector_consumption")
+            ),
+            candidate_selection_consumption=_namespace(
+                descriptor.get("candidate_selection_consumption")
             ),
             environment_fields=environment_fields,
         )
