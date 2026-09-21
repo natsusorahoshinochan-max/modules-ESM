@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 import math
 from typing import Any, cast
 
+from datatypes.i_json import admit_i_json
 from core.catalog.declarations import ExecutionBindingDefinition
 from core.catalog.model import (
     FrozenCatalog,
@@ -68,7 +69,7 @@ def _resolved_objective(
             parameters=UtilityParameterFacts(
                 admit_values(
                     utility_contract.definition.parameter_contract,
-                    objective.utility_parameters,
+                    admit_i_json(objective.utility_parameters),
                 )
             ),
             apply=utility_contract.definition.transform,
@@ -290,11 +291,11 @@ def operation_call(
             )
     return OperationCall(
         inputs=admitted_inputs,
-        node_parameters={} if node_parameters is None else node_parameters,
-        binding_parameters=(
+        node_parameters=admit_i_json({} if node_parameters is None else node_parameters),
+        binding_parameters=admit_i_json(
             {} if binding_parameters is None else binding_parameters
         ),
-        effective_randomness=(
+        effective_randomness=admit_i_json(
             {} if effective_randomness is None else effective_randomness
         ),
     )

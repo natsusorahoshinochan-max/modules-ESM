@@ -9,7 +9,7 @@ from typing import Any
 from core.catalog.builder import build_frozen_catalog
 from core.project.manager import WEBUI_3GB1_PROJECT_ID
 from core.workflow.compiler import CompilationRequest, compile
-from core.workflow.document import workflow_document_from_canonical
+from protein_workbench_public.workflow_codec import decode_workflow_document
 from protein_workbench_public.bootstrap import module_registrations
 
 
@@ -289,7 +289,7 @@ def main() -> None:
             _objective("final-parent-tm", candidates="fold-final", scores="scores-final", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
         ],
     }
-    admitted = workflow_document_from_canonical(workflow)
+    admitted = decode_workflow_document(workflow)
     compile(CompilationRequest(admitted), catalog)
     OUTPUT.write_text(
         json.dumps(

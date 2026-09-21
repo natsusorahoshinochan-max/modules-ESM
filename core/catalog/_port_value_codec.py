@@ -8,7 +8,7 @@ import json
 import math
 from typing import Any, cast
 
-from core.catalog import canonical as _canonical
+from datatypes import i_json as _canonical
 from core.catalog import errors as _errors
 from datatypes.candidate import (
     Candidate,
@@ -16,14 +16,17 @@ from datatypes.candidate import (
     CandidateDataReference,
     validate_candidate_lineage_graph,
     validate_candidate_parent_ids,
+    validate_candidate_data_reference,
 )
 from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
     ResidueAxisReference,
+    validate_exact_contract_reference,
+    validate_residue_axis_reference,
 )
 from datatypes.identifier import validate_canonical_identifier
-from datatypes.i_json import FrozenList
+from datatypes.i_json import FrozenList, validate_i_json, i_json_values_equal
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
@@ -33,6 +36,7 @@ from datatypes.observation import (
     PairwiseParticipant,
     ScoreCollection,
     ScoreObservation,
+    validate_pairwise_evidence,
 )
 from datatypes.prompt import (
     FunctionAnnotation,
@@ -103,7 +107,7 @@ _VALUE_TYPE_BY_KIND = {
 
 def _validate_domain_value(value: Any, *, path: str) -> None:
     if type(value) is ResidueAxisReference:
-        _validate_domain_value(value.layout, path=f"{path}.layout")
+        validate_residue_axis_reference(value)
         return
 
     if type(value) is ProteinSequence:
@@ -136,6 +140,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise _errors.PortValueError(
                 f"{path}.data must be a registered Candidate value"
             )
+        validate_i_json(value.metadata, path=f"{path}.metadata")
         try:
             validate_candidate_parent_ids(value, subject=path)
         except ValueError as error:
@@ -157,6 +162,8 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 f"{path}.item_type must name a supported Candidate data type"
             )
         for index, candidate in enumerate(value.items):
+            if type(candidate) is not Candidate:
+                raise _errors.PortValueError(f"{path}.items must contain Candidates")
             _validate_domain_value(candidate, path=f"{path}.items[{index}]")
             if type(candidate.data) is not expected_candidate_type:
                 raise _errors.PortValueError(
@@ -211,7 +218,10 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         subjects: set[CandidateDataReference] = set()
         candidate_references: dict[str, CandidateDataReference] = {}
         for entry in value.entries:
+            if type(entry) is not CandidateRelationEntry:
+                raise _errors.PortValueError(f"{path}.entries must contain CandidateRelationEntry")
             for participant in (entry.subject, entry.reference):
+                validate_candidate_data_reference(participant)
                 known_reference = candidate_references.get(
                     participant.candidate_id
                 )
@@ -232,6 +242,13 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is PairwiseObservationContext:
+        validate_pairwise_evidence(value)
+        if value.evidence_method is not None:
+            validate_exact_contract_reference(value.evidence_method)
+        for participant in (value.subject, value.reference):
+            if type(participant) is not PairwiseParticipant:
+                raise _errors.PortValueError(f"{path} requires exact PairwiseParticipants")
+            validate_candidate_data_reference(participant.candidate)
         if value.kind != "pairwise":
             raise _errors.PortValueError(
                 f"{path} must use the pairwise Observation Context"
@@ -260,6 +277,12 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is ScoreObservation:
+        validate_candidate_data_reference(value.subject)
+        validate_exact_contract_reference(value.metric)
+        validate_exact_contract_reference(value.method)
+        validate_i_json(value.value, path=f"{path}.value")
+        if type(value.context) not in (IntrinsicObservationContext, CalibrationObservationContext, PairwiseObservationContext):
+            raise _errors.PortValueError(f"{path}.context must be an Observation Context")
         if value.metric.contract_kind != "metric":
             raise _errors.PortValueError(
                 f"{path}.metric must be an exact metric reference"
@@ -270,10 +293,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             )
         _validate_domain_value(value.context, path=f"{path}.context")
         if value.residue_axis is not None:
-            _validate_domain_value(
-                value.residue_axis,
-                path=f"{path}.residue_axis",
-            )
+            validate_residue_axis_reference(value.residue_axis)
         _validate_runtime_identifier(
             value.source_partition,
             path=f"{path}.source_partition",
@@ -292,8 +312,18 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             value.collection_id,
             path=f"{path}.collection_id",
         )
+        by_identity: dict[tuple[object, ...], ScoreObservation] = {}
         for index, score in enumerate(value.entries):
+            if type(score) is not ScoreObservation:
+                raise _errors.PortValueError(f"{path}.entries must contain exact Score Observations")
             _validate_domain_value(score, path=f"{path}.entries[{index}]")
+            existing = by_identity.get(score.identity)
+            if existing is not None:
+                if not i_json_values_equal(existing.value, score.value):
+                    raise _errors.PortValueError("Score Collection contains one Observation identity with conflicting values")
+                if existing.source_partition != score.source_partition:
+                    raise _errors.PortValueError("Score Collection contains an Observation identity partition collision")
+            by_identity[score.identity] = score
         return
 
 
@@ -436,7 +466,7 @@ def _parse_canonical_json(encoded: bytes) -> Any:
         ) from error
     try:
         canonical = _canonical.canonical_json_bytes(payload)
-    except _errors.CatalogBuildError as error:
+    except ValueError as error:
         raise _errors.PortValueError(str(error)) from error
     if encoded != canonical:
         raise _errors.PortValueError(

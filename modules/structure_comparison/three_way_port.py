@@ -10,7 +10,7 @@ from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
 )
-from datatypes.candidate import CandidateDataReference
+from datatypes.candidate import CandidateDataReference, validate_candidate_data_reference
 from datatypes.exact_reference import ExactContractReference
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
@@ -62,6 +62,7 @@ def _validate_reference(
     data_type_id: str,
     name: str,
 ) -> None:
+    validate_candidate_data_reference(value)
     if (
         type(value) is not CandidateDataReference
         or value.data_type_id != data_type_id

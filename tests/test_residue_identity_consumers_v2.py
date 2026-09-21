@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datatypes.i_json import admit_i_json
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -137,7 +138,7 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             "node_type",
             workflow.nodes[0].node_type_id,
         ).definition.parameter_contract,
-        workflow.nodes[0].node_parameters,
+        admit_i_json(workflow.nodes[0].node_parameters),
     )
 
     annotations_type = catalog.require_port_type(
@@ -179,5 +180,5 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
                 "node_type",
                 invalid.nodes[0].node_type_id,
             ).definition.parameter_contract,
-            invalid.nodes[0].node_parameters,
+            admit_i_json(invalid.nodes[0].node_parameters),
         )

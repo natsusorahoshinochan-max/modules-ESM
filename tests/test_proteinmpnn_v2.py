@@ -62,7 +62,7 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
@@ -4413,3 +4413,18 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     second_warm_design = warm_provider.design(Request())
 
     assert cold_design == first_warm_design == second_warm_design
+
+
+@pytest.mark.parametrize("bias", [-0.0, 2**53, float("inf"), True])
+def test_constraints_nominal_owner_rejects_noncanonical_bias(bias: object) -> None:
+    from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN_PACKAGE
+
+    constraints = ProteinMPNNConstraints(
+        layout=TARGET_LAYOUT,
+        bias_by_residue={"B:3": {"A": bias}},
+    )
+    port_type = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    ).require_port_type("proteinmpnn.constraints")
+    with pytest.raises(ValueError):
+        port_type.validate(constraints)

@@ -9,12 +9,12 @@ from types import MappingProxyType
 from typing import Any
 
 from datatypes.exact_reference import ExactContractReference
+from datatypes.i_json import freeze_i_json
 
 from .declarations import (
     AvailabilityResult,
     CatalogDefinition,
     ContractKind,
-    _freeze_declaration,
 )
 from core.catalog.errors import (
     CatalogBuildError,
@@ -90,13 +90,13 @@ class CatalogContract:
         object.__setattr__(
             self,
             "descriptor",
-            _freeze_declaration(self.descriptor),
+            freeze_i_json(self.descriptor),
         )
         object.__setattr__(self, "dependencies", tuple(self.dependencies))
         object.__setattr__(
             self,
             "result_identity_descriptor",
-            _freeze_declaration(
+            freeze_i_json(
                 {
                     "contract_kind": self.contract_kind,
                     "contract_id": self.contract_id,
@@ -128,7 +128,7 @@ def result_identity_contract(
     """Return Catalog-owned identity facts without presentation or digests."""
     if isinstance(contract, CatalogContract):
         return contract.result_identity_descriptor
-    return _freeze_declaration(
+    return freeze_i_json(
         {
             "contract_kind": "port_type",
             "contract_id": contract.type_id,

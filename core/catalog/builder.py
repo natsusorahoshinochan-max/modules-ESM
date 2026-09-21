@@ -24,7 +24,7 @@ from .definition_resource import (
 )
 from .model import CatalogAvailabilityProjection, CatalogContract, FrozenCatalog
 from core.catalog.errors import CatalogBuildError
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from .port_contract import (
     PortTypeDefinition,
 )

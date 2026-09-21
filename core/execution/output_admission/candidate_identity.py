@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from core.catalog.errors import PortValueError
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.catalog.port_contract import (
     _candidate_data_reference_to_canonical,
     _residue_axis_reference_to_canonical,
@@ -72,20 +72,6 @@ def _candidate_data_type_id(value: object) -> str | None:
         ProteinSequence: "protein.sequence",
         ProteinStructure: "protein.structure",
     }.get(type(value))
-
-
-def _require_score_observation(score: ScoreObservation) -> ScoreObservation:
-    """Return one fresh Score entry unchanged after its local type check.
-
-    Everything else about a fresh Observation is owned by produced-observation
-    admission against the declared subject, reference, axis, pairing, Metric,
-    Method, Context, and partition sources, and by nominal Score admission.
-    """
-    if type(score) is not ScoreObservation:
-        raise PortValueError(
-            "Score Collection contains an unsupported entry"
-        )
-    return score
 
 
 def _normalized_score(
@@ -568,10 +554,7 @@ def _normalize_candidate_outputs(
                 # declared subject Port, to the declared Metric, Method,
                 # Context, and partition, and to the declared axis source;
                 # nominal Score admission owns the pairwise context subject.
-                entries = tuple(
-                    _require_score_observation(score)
-                    for score in value.entries
-                )
+                entries = tuple(value.entries)
             return ScoreCollection(
                 collection_id=_score_collection_id(
                     result_identity=result_identity,

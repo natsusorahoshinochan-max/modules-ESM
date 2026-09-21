@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any, Callable, cast
 
 from core.catalog import _port_value_codec as _value_codec
-from core.catalog import canonical as _canonical
+from datatypes import i_json as _canonical
 from core.catalog import errors as _errors
 from core.operation import EncodedOutputIdentities, ResolvedOutputIdentity
 from datatypes.candidate import CandidateDataReference
@@ -193,8 +193,11 @@ class BehaviorReference:
     def __post_init__(self) -> None:
         _validate_identifier(self.behavior_id, "behavior_id")
         parameters = dict(self.parameters)
-        _canonical.canonical_json_bytes(parameters)
-        object.__setattr__(self, "parameters", _canonical._freeze(parameters))
+        try:
+            parameters = _canonical.admit_i_json(parameters)
+        except ValueError as error:
+            raise _errors.CatalogBuildError(str(error)) from error
+        object.__setattr__(self, "parameters", parameters)
 
     def descriptor(self) -> dict[str, Any]:
         """Return the closed public declaration without a Python callable."""
@@ -349,11 +352,10 @@ class PortTypeDefinition:
                 "be provided together"
             )
         descriptor = self._build_descriptor()
-        _canonical.canonical_json_bytes(descriptor)
         object.__setattr__(
             self,
             "_canonical_descriptor",
-            _canonical._freeze(descriptor),
+            _canonical.freeze_i_json(descriptor),
         )
 
     def _build_descriptor(self) -> dict[str, Any]:
@@ -478,29 +480,25 @@ class PortTypeDefinition:
                 )
 
     def validate(self, value: Any) -> None:
-        """Validate one complete runtime value through this nominal contract."""
-        if self.runtime_validator is not None:
-            try:
+        """Admit this nominal owner's scientific conditions explicitly."""
+        try:
+            if self.runtime_validator is not None:
                 self.runtime_validator(value)
-            except _errors.PortValueError:
-                raise
-            except (TypeError, ValueError) as error:
+                return
+            value_kind = cast(str, self.validator.parameters["accepted_value_kind"])
+            expected_type = _value_codec._VALUE_TYPE_BY_KIND[value_kind]
+            if type(value) is not expected_type:
                 raise _errors.PortValueError(
-                    f"{self.type_id} rejected its runtime value: "
-                    f"{error}"
-                ) from error
-            return
-        value_kind = cast(
-            str,
-            self.validator.parameters["accepted_value_kind"],
-        )
-        expected_type = _value_codec._VALUE_TYPE_BY_KIND[value_kind]
-        if type(value) is not expected_type:
+                    f"{self.type_id} requires {expected_type.__name__}, "
+                    f"got {type(value).__name__}"
+                )
+            _value_codec._validate_builtin_semantics(value_kind, value)
+        except _errors.PortValueError:
+            raise
+        except (TypeError, ValueError) as error:
             raise _errors.PortValueError(
-                f"{self.type_id} requires {expected_type.__name__}, "
-                f"got {type(value).__name__}"
-            )
-        _value_codec._validate_builtin_semantics(value_kind, value)
+                f"{self.type_id} rejected its runtime value: {error}"
+            ) from error
 
     def to_wire(self, value: Any) -> Any:
         """Project one already-admitted value into its nested wire form."""
@@ -509,22 +507,17 @@ class PortTypeDefinition:
         return _value_codec._value_to_wire(value)
 
     def encode(self, value: Any) -> bytes:
-        """Validate and encode one value as canonical RFC 8785 UTF-8 bytes."""
-        self.validate(value)
-        wire_value = self.to_wire(value)
-        try:
-            return _canonical.canonical_json_bytes(
-                {
-                    "schema_namespace": PORT_VALUE_NAMESPACE,
-                    "port_type_id": self.type_id,
-                    "value": wire_value,
-                }
-            )
-        except _errors.CatalogBuildError as error:
-            raise _errors.PortValueError(str(error)) from error
+        """Encode an admitted value as canonical RFC 8785 UTF-8 bytes."""
+        return _canonical.canonical_json_bytes(
+            {
+                "schema_namespace": PORT_VALUE_NAMESPACE,
+                "port_type_id": self.type_id,
+                "value": self.to_wire(value),
+            }
+        )
 
     def from_wire(self, wire_value: Any) -> Any:
-        """Admit one nested wire value through its nominal decoder."""
+        """Reconstruct a runtime representation without scientific admission."""
         if self.runtime_from_wire is not None:
             try:
                 value = self.runtime_from_wire(wire_value)
@@ -537,14 +530,12 @@ class PortTypeDefinition:
                 ) from error
         else:
             value = _value_codec._wire_to_value(wire_value)
-        self.validate(value)
         return value
 
     def restore(self, encoded: bytes) -> Any:
         """Restore a value already admitted before canonical publication."""
         wire_value = json.loads(encoded)["value"]
-        return (self.runtime_from_wire(wire_value) if self.runtime_from_wire is not None
-                else _value_codec._wire_to_value(wire_value))
+        return self.from_wire(wire_value)
 
     def decode(self, encoded: bytes) -> Any:
         """Decode canonical bytes, rejecting malformed or non-canonical input."""
@@ -563,7 +554,10 @@ class PortTypeDefinition:
             raise _errors.PortValueError(
                 "canonical Port value nominal identity does not match"
             )
-        return self.from_wire(payload["value"])
+        value = self.from_wire(payload["value"])
+        if self.encode(value) != encoded:
+            raise _errors.PortValueError("Port value representation is not canonical")
+        return value
 
     def content_digest(self, value: Any) -> str:
         """Identify validated content by SHA-256 of canonical codec bytes."""

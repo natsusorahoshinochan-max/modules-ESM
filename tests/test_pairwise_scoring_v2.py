@@ -347,7 +347,7 @@ def test_pairwise_context_fails_closed_on_invalid_roles_or_identity(
     )
 
     with pytest.raises(PortValueError, match=message):
-        score_type.encode(ScoreCollection("pairwise-scores", [observation]))
+        score_type.validate(ScoreCollection("pairwise-scores", [observation]))
 
 
 def _pairwise_observation(
@@ -429,7 +429,7 @@ def test_candidate_relation_is_canonical_and_unique_by_subject() -> None:
     assert pairing_type.decode(pairing_type.encode(mapping)) == mapping
 
     with pytest.raises(PortValueError, match="multiple references"):
-        pairing_type.encode(
+        pairing_type.validate(
             CandidateRelation(
                 entries=[mapping.entries[0], mapping.entries[0]]
             )
@@ -438,7 +438,7 @@ def test_candidate_relation_is_canonical_and_unique_by_subject() -> None:
     subject_b = Candidate("subject-b", ProteinSequence("GG"))
     conflicting_reference = Candidate("reference-a", ProteinSequence("AG"))
     with pytest.raises(PortValueError, match="conflicting exact data reference"):
-        pairing_type.encode(
+        pairing_type.validate(
             _pairing_map(
                 catalog,
                 [
@@ -1472,3 +1472,30 @@ def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
     assert shared.candidate_id == "raw-shared"
     assert outputs["candidates"].collection_id == "raw-subjects"
     assert outputs["references"].collection_id == "raw-references"
+
+
+@pytest.mark.parametrize("field", ["subject_axis_content_digest", "reference_axis_content_digest"])
+@pytest.mark.parametrize("has_evidence", [False, True])
+def test_score_owner_rejects_partial_axis_evidence(field: str, has_evidence: bool) -> None:
+    context = _pairwise_context()
+    if has_evidence:
+        context = replace(
+            context,
+            evidence_content_digest="sha256:" + "b" * 64,
+            evidence_method=_reference("method", "alignment"),
+            normalization_length=2,
+            aligned_atom_count=2,
+        )
+    context = replace(context, **{field: "sha256:" + "a" * 64})
+    score = ScoreObservation(
+        subject=context.subject.candidate,
+        metric=_reference("metric", "structure.tm_score"),
+        method=_reference("method", "tm-align"),
+        context=context,
+        value=0.8,
+        source_partition="fixed-reference",
+    )
+    with pytest.raises(PortValueError, match="complete exact axis provenance"):
+        builtin_frozen_catalog().require_port_type("score.collection").validate(
+            ScoreCollection("scores", (score,))
+        )

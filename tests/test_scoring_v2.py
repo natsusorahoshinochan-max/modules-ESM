@@ -833,22 +833,22 @@ def test_score_collection_canonicalizes_equal_observations_and_fails_closed() ->
     assert decoded.entries == (observation,)
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "scores",
             [observation, replace(observation, value=10)],
-        )
+        ))
 
     with pytest.raises(ValueError, match="partition collision"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "scores",
             [
                 observation,
                 replace(observation, source_partition="other"),
             ],
-        )
+        ))
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "scores",
             [
                 observation,
@@ -858,7 +858,7 @@ def test_score_collection_canonicalizes_equal_observations_and_fails_closed() ->
                     value=10,
                 ),
             ],
-        )
+        ))
 
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
@@ -870,7 +870,7 @@ def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> 
     )
 
     with pytest.raises(PortValueError, match="metric reference"):
-        score_type.encode(ScoreCollection("scores", [malformed]))
+        score_type.validate(ScoreCollection("scores", [malformed]))
 
 
 def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> None:

@@ -18,7 +18,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.errors import PortValueError
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.operation import (
     OperationCall,
 )
@@ -330,9 +330,10 @@ def test_standard_parent_component_is_polymer_independent_of_pdb_record_type(
     assert axis.component_dispositions[0].record_type == "HETATM"
     axis_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.resolved_residue_axis")
+    axis_type.validate(axis)
     assert axis_type.decode(axis_type.encode(axis)) == axis
     with pytest.raises(PortValueError, match="contradicts its sequence letter"):
-        axis_type.encode(
+        axis_type.validate(
             replace(axis, sequence="X", residue_names=("UNK",))
         )
 
@@ -491,6 +492,7 @@ def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> Non
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.backbone_structure")
 
+    port_type.validate(_BACKBONE)
     encoded = port_type.encode(_BACKBONE)
     assert b'"source"' not in encoded
     legacy_wire = canonical_json_bytes({
@@ -509,6 +511,7 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.resolved_residue_axis")
 
+    port_type.validate(_RESOLVED_AXIS)
     encoded = port_type.encode(_RESOLVED_AXIS)
     decoded = port_type.decode(encoded)
     assert decoded == _RESOLVED_AXIS
@@ -523,7 +526,7 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
     with pytest.raises(PortValueError, match="could not decode"):
         port_type.decode(canonical_json_bytes(source_bearing))
     with pytest.raises(PortValueError, match="coordinate masks"):
-        port_type.encode(
+        port_type.validate(
             replace(
                 _RESOLVED_AXIS,
                 complete_backbone_mask=(False,),
@@ -544,6 +547,7 @@ def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
         ),
     ))
 
+    port_type.validate(valid)
     assert port_type.decode(port_type.encode(valid)) == valid
     duplicate_target = ModifiedResidueNormalizationCollection(entries=(
         replace(
@@ -561,9 +565,9 @@ def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
         ),
     ))
     with pytest.raises(PortValueError, match="atom mapping"):
-        port_type.encode(duplicate_target)
+        port_type.validate(duplicate_target)
     with pytest.raises(PortValueError, match="normalization entry"):
-        port_type.encode(non_string)
+        port_type.validate(non_string)
 
 
 def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None:
@@ -1198,6 +1202,8 @@ def test_all_nodes_pass_the_shared_contract_test_kit_ports(port_index: int) -> N
             ),
         ),
     )[port_index]
+    if port_case.type_id == "structure_transform.candidate_normalization_facts":
+        MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.validate(_CSH_NORMALIZATIONS)
     verify_module_package_port(
         MODULE_PACKAGE, port_case, supporting_registrations=(SOURCE_PACKAGE,)
     )

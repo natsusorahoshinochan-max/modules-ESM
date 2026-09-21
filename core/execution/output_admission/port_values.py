@@ -5,12 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from core.catalog.errors import PortValueError
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.catalog.port_contract import _exact_contract_reference_to_canonical
-from core.execution.output_admission.identity import _exact_port_type
+from core.execution.output_admission.identity import (
+    _FreshOutputIdentityEncoder,
+    _exact_port_type,
+)
+from core.execution.output_admission.candidate_identity import (
+    _candidate_data_type_id,
+    _candidate_values,
+)
 from core.operation import AdmittedPort, AdmittedValue, PortMultiplicity
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference, ResidueAxisReference
@@ -126,20 +133,39 @@ def _admit_fresh_port(
         if projections is not None
         else tuple(None for _value in values)
     )
-    admitted = tuple(
-        _admitted_value(
+    admitted = []
+    source_encoder = _FreshOutputIdentityEncoder()
+    for value, projection in zip(values, value_projections, strict=True):
+        port_type.validate(value)
+        candidates = _candidate_values(value)
+        if candidates and (projection is None or projection.candidate_data is None):
+            references = tuple(
+                CandidateDataReference(
+                    candidate.candidate_id,
+                    data_type,
+                    source_encoder.encode_value(
+                        port_type=candidate_data_port_types[data_type],
+                        value=candidate.data,
+                    ).content_digest,
+                )
+                for candidate in candidates
+                for data_type in (cast(str, _candidate_data_type_id(candidate.data)),)
+            )
+            projection = _FreshValueProjections(
+                candidate_data=references,
+                scientific_axes=(projection.scientific_axes if projection else None),
+            )
+        admitted.append(_admitted_value(
             port_type=port_type,
             runtime_value=value,
             canonical_bytes=port_type.encode(value),
             candidate_data_port_types=candidate_data_port_types,
             projections=projection,
-        )
-        for value, projection in zip(values, value_projections, strict=True)
-    )
+        ))
     return _snapshot(
         port_type=_exact_port_type(port_type),
         multiplicity=multiplicity,
-        values=admitted,
+        values=tuple(admitted),
     )
 
 

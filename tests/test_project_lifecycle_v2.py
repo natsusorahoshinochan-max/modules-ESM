@@ -10,6 +10,7 @@ import threading
 import pytest
 
 import core.project.manager as manager_module
+from datatypes.i_json import thaw_i_json
 from core.catalog.builder import build_frozen_catalog
 from core.execution._run_runtime_evidence import plan_evidence
 from core.execution._run_runtime_models import _RunRecord
@@ -116,7 +117,7 @@ def test_busy_project_rejects_lifecycle_without_storage_changes(
         with pytest.raises(V2RunError) as error:
             getattr(lifecycle.runtime, operation)(project_id)
         assert error.value.code == "project_has_active_runs"
-        assert error.value.details["run_ids"] == ([] if busy == "reserved" else ["active-run"])
+        assert thaw_i_json(error.value.details)["run_ids"] == ([] if busy == "reserved" else ["active-run"])
         assert _snapshot(lifecycle.root) == before
     finally:
         if busy == "reserved":

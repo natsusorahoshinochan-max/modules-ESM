@@ -50,7 +50,7 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import (
     Candidate,
@@ -328,10 +328,10 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
         "14.5"
     )
     with pytest.raises(PortValueError, match="non-negative"):
-        sasa_type.decode(canonical_json_bytes(invalid_sasa_wire))
+        sasa_type.validate(sasa_type.decode(canonical_json_bytes(invalid_sasa_wire)))
 
     with pytest.raises(PortValueError, match="canonical SS8"):
-        secondary_type.encode(
+        secondary_type.validate(
             CandidateResidueTrack(
                 subject=subject,
                 track=ResidueTrack(layout, ("H", "-", "E", "C")),
@@ -2218,4 +2218,4 @@ def test_observed_annotation_subject_must_reference_structure() -> None:
         "structure_annotation.secondary_structure.observed"
     )
     with pytest.raises(PortValueError, match="protein.structure"):
-        port.encode(observed)
+        port.validate(observed)

@@ -32,7 +32,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.catalog.declarations import ExecutionBindingDefinition
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.execution._node_attempt_identity import (
     _resolve_effective_randomness,
     _result_identity_descriptor,

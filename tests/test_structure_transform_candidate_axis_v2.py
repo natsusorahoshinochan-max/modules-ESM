@@ -9,7 +9,7 @@ import json
 import pytest
 
 from core.catalog.errors import PortValueError
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.execution.output_admission.admission import (
     NodeOutputPlan,
     OutputPortPlan,
@@ -188,6 +188,7 @@ def test_candidate_axis_port_binds_each_axis_to_exact_structure_content() -> Non
         beta,
         alpha,
     )
+    CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.validate(associations)
     assert CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.decode(
         CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.encode(associations)
     ) == associations
@@ -195,7 +196,7 @@ def test_candidate_axis_port_binds_each_axis_to_exact_structure_content() -> Non
     assert associations.entries[1].residue_axis.structure == alpha_structure
 
     with pytest.raises(PortValueError, match="structure content digest"):
-        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.encode(
+        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.validate(
             CandidateResolvedResidueAxisAssociations(
                 entries=(
                     replace(
@@ -209,7 +210,7 @@ def test_candidate_axis_port_binds_each_axis_to_exact_structure_content() -> Non
             )
         )
     with pytest.raises(PortValueError, match="duplicate Candidate"):
-        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.encode(
+        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.validate(
             CandidateResolvedResidueAxisAssociations(
                 entries=(associations.entries[0], associations.entries[0])
             )
@@ -327,6 +328,7 @@ def test_candidate_normalization_port_is_exact_and_not_position_addressed() -> N
         alpha,
         beta,
     )
+    CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE.validate(associations)
     assert CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE.decode(
         CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE.encode(associations)
     ) == associations
@@ -335,7 +337,7 @@ def test_candidate_normalization_port_is_exact_and_not_position_addressed() -> N
     )
 
     with pytest.raises(PortValueError, match="duplicate Candidate"):
-        CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE.encode(
+        CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE.validate(
             CandidateModifiedResidueNormalizationAssociations(
                 entries=(associations.entries[0], associations.entries[0])
             )
@@ -447,7 +449,7 @@ def test_candidate_normalization_facts_reject_noncanonical_wire_order() -> None:
     )
     wire["value"]["entries"].reverse()
 
-    with pytest.raises(PortValueError, match="canonically ordered"):
+    with pytest.raises(PortValueError, match="canonical"):
         CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE.decode(
             canonical_json_bytes(wire)
         )

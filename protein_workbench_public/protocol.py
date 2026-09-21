@@ -13,7 +13,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-import rfc8785
+from datatypes.i_json import canonical_json_bytes, thaw_i_json, validate_i_json
 
 
 PUBLIC_PROTOCOL_NAMESPACE = "protein-workbench-public/v2"
@@ -54,10 +54,8 @@ def _source_bundle() -> dict[str, Any]:
     parsed = json.loads(
         resource.read_bytes().decode("utf-8"),
         object_pairs_hook=_reject_duplicate_keys,
-        parse_constant=lambda value: (_ for _ in ()).throw(
-            ValueError(f"Non-I-JSON numeric value: {value}")
-        ),
     )
+    validate_i_json(parsed)
     if not isinstance(parsed, dict):
         raise ValueError("Public protocol bundle must be a JSON object")
     if parsed.get("schema_namespace") != PUBLIC_PROTOCOL_NAMESPACE:
@@ -73,7 +71,7 @@ def load_bundle() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def bundle_bytes() -> bytes:
     """Return the RFC 8785 canonical UTF-8 representation of the bundle."""
-    return rfc8785.dumps(_source_bundle())
+    return canonical_json_bytes(_source_bundle())
 
 
 @lru_cache(maxsize=1)
@@ -153,9 +151,9 @@ def _matches_type(value: Any, expected: str) -> bool:
     if expected == "string":
         return isinstance(value, str)
     if expected == "array":
-        return isinstance(value, list)
+        return isinstance(value, (list, tuple))
     if expected == "object":
-        return isinstance(value, dict)
+        return isinstance(value, Mapping)
     raise ValueError(f"Unsupported schema type: {expected}")
 
 
@@ -256,7 +254,7 @@ def _validate(
             for index, item in enumerate(value):
                 _validate(item, item_schema, path=f"{path}[{index}]")
         if schema.get("uniqueItems") is True:
-            canonical_items = [rfc8785.dumps(item) for item in value]
+            canonical_items = [canonical_json_bytes(item) for item in value]
             if len(canonical_items) != len(set(canonical_items)):
                 raise ProtocolValidationError(path, "must contain unique items")
 
@@ -308,14 +306,7 @@ def _validate(
 
 
 def validate_schema(reference: str, payload: Any) -> None:
-    """Validate one I-JSON payload against a named bundle schema."""
-    try:
-        rfc8785.dumps(payload)
-    except (rfc8785.CanonicalizationError, UnicodeError) as error:
-        raise ProtocolValidationError(
-            "$",
-            f"must contain only I-JSON values ({error})",
-        ) from error
+    """Check the named schema of an admitted or constructed payload."""
     _validate(payload, _resolve_schema(reference), path="$")
 
 
@@ -408,7 +399,7 @@ def _project_structured_error_details(
     projected.update(
         {name: details[name] for name in optional if name in details}
     )
-    return projected
+    return thaw_i_json(projected)
 
 
 def project_structured_error(
@@ -426,7 +417,7 @@ def project_structured_error(
             "$.message",
             "must contain between 1 and 2048 characters",
         )
-    details_size = len(rfc8785.dumps(projected_details))
+    details_size = len(canonical_json_bytes(projected_details))
     if details_size > errors["details_max_bytes"]:
         raise ProtocolValidationError(
             "$.details",
@@ -564,12 +555,20 @@ def decode_run_event_stream_request(
         **copy.deepcopy(path_payload),
         **copy.deepcopy(query_payload),
     }
+    try:
+        validate_i_json(combined)
+    except ValueError as error:
+        raise ProtocolValidationError("$", str(error)) from error
     validate_schema(stream["request_schema"], combined)
     return combined
 
 
 def validate_request(operation_id: str, payload: Any) -> None:
-    """Validate a path/query/body request model for one REST operation."""
+    """Admit JSON once, then check the operation request schema."""
+    try:
+        validate_i_json(payload)
+    except ValueError as error:
+        raise ProtocolValidationError("$", str(error)) from error
     validate_schema(_rest_operation(operation_id)["request_schema"], payload)
 
 

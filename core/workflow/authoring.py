@@ -13,6 +13,7 @@ import tempfile
 from typing import Any, cast
 import uuid
 
+from datatypes.i_json import freeze_i_json, thaw_i_json
 from core.catalog.model import FrozenCatalog
 from core.catalog.declarations import NodeTypeDefinition
 from core.project.manager import (
@@ -28,8 +29,6 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowEdge,
     WorkflowNodeInstance,
-    _freeze_json,
-    _thaw_json,
     workflow_document_from_canonical,
 )
 from core.workflow.errors import WorkflowCompileError
@@ -128,16 +127,16 @@ def _commit_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
 
 def _scientific_identity(plan: ExecutionPlan) -> Mapping[str, Any]:
     """Freeze admitted scientific content independent of canvas and list order."""
-    return _freeze_json({
+    return freeze_i_json({
         "nodes": [
             {
                 "node_id": node.node_id,
                 "node_parameters": {
-                    key: _thaw_json(value) for key, value in node.node_parameters.items()
+                    key: thaw_i_json(value) for key, value in node.node_parameters.items()
                     if key not in node.result_identity_plan_facts.node_parameter_indirections
                 },
                 "project_input_parameters": list(node._runtime.project_input_parameters),
-                "binding_parameters": _thaw_json(node.binding_parameters),
+                "binding_parameters": thaw_i_json(node.binding_parameters),
                 "result_identity_plan_facts": node.result_identity_plan_facts.canonical_projection(),
                 "inputs": {
                     port: [
@@ -149,7 +148,7 @@ def _scientific_identity(plan: ExecutionPlan) -> Mapping[str, Any]:
             }
             for node in sorted(plan.nodes, key=lambda item: item.node_id)
         ],
-        "scientific_definitions": [_thaw_json(item) for item in plan.scientific_definitions],
+        "scientific_definitions": [thaw_i_json(item) for item in plan.scientific_definitions],
     })
 
 
@@ -318,14 +317,14 @@ class WorkflowAuthoringService:
 
     def _load_ui_state(self, project_id: str, revision: int) -> Mapping[str, Any]:
         if revision == 0:
-            return _freeze_json({})
-        return _freeze_json(self._read_record(project_id, "ui-states", revision))
+            return freeze_i_json({})
+        return freeze_i_json(self._read_record(project_id, "ui-states", revision))
 
     def _publish_ui_state(
         self, project_id: str, ui_state: Mapping[str, Any],
     ) -> int:
         revision = self._latest_record_revision(project_id, "ui-states") + 1
-        self._write_record(project_id, "ui-states", revision, _thaw_json(ui_state))
+        self._write_record(project_id, "ui-states", revision, thaw_i_json(ui_state))
         return revision
 
     def load_workspace(
@@ -347,7 +346,7 @@ class WorkflowAuthoringService:
         return ProjectWorkspace(
             project_id, head.workspace_revision, draft, head.ui_state_revision,
             self._load_ui_state(project_id, head.ui_state_revision)
-            if ui_state is None else _freeze_json(ui_state),
+            if ui_state is None else freeze_i_json(ui_state),
             head.source_version_id, head.return_workspace_revision,
         )
 
@@ -686,7 +685,7 @@ class WorkflowAuthoringService:
             source_draft_revision=source_draft_revision,
             workflow=workflow,
             scientific_definitions=tuple(definitions),
-            scientific_identity=_freeze_json(commit_projection["scientific_identity"]),
+            scientific_identity=freeze_i_json(commit_projection["scientific_identity"]),
         )
 
     def _load_active_commit_record(self, project_id: str) -> WorkflowCommit:
@@ -756,7 +755,7 @@ class WorkflowAuthoringService:
     def _science_with_input_contents(
         self, project_id: str, identity: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        resolved = _thaw_json(identity)
+        resolved = thaw_i_json(identity)
         for node in resolved["nodes"]:
             resources = []
             for parameter in node.pop("project_input_parameters"):
@@ -864,10 +863,10 @@ class WorkflowAuthoringService:
                     "workflow_commit_id": commit.workflow_commit_id,
                     "source_draft_revision": commit.source_draft_revision,
                     "scientific_definitions": [
-                        _thaw_json(definition)
+                        thaw_i_json(definition)
                         for definition in commit.scientific_definitions
                     ],
-                    "scientific_identity": _thaw_json(commit.scientific_identity),
+                    "scientific_identity": thaw_i_json(commit.scientific_identity),
                 },
             },
         )

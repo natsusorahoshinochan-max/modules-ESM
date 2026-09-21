@@ -1426,6 +1426,19 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
                 content=b'{"after_sequence":1e400}',
                 headers={"content-type": "application/json"},
             ),
+            *(
+                client.put(
+                    "/api/v2/projects/project-1/workspace/ui-state",
+                    content=body,
+                    headers={"content-type": "application/json"},
+                )
+                for body in (
+                    b'{"ui_state":{"value":-0.0}}',
+                    b'{"ui_state":{"\\ud800":1}}',
+                    b'{"ui_state":{"value":NaN}}',
+                    b'{"ui_state":{"value":1,"value":2}}',
+                )
+            ),
         )
 
     for response in responses:
@@ -1857,6 +1870,19 @@ def test_inbound_rest_request_is_derived_from_the_bundle_operation() -> None:
             json_body={**body, "project_id": "project-2"},
         )
     assert collision.value.path == "$.project_id"
+
+
+@pytest.mark.parametrize(
+    "ui_state",
+    [{"value": -0.0}, {"\ud800": "value"}, {"value": float("inf")}, {"value": 2**53}],
+)
+def test_request_admission_rejects_non_i_json_in_opaque_fields(ui_state: dict) -> None:
+    with pytest.raises(ProtocolValidationError):
+        decode_rest_request(
+            "save_project_ui_state",
+            path_parameters={"project_id": "project-1"},
+            json_body={"ui_state": ui_state},
+        )
 
 
 def test_event_stream_request_is_derived_from_the_bundle_contract() -> None:

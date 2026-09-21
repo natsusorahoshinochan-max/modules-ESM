@@ -812,6 +812,9 @@ test('the example selection chain keeps complete Candidate sources and axes-base
   expect(scoreOptions.some((text) => text.includes('当前不可用'))).toBe(false)
 
   // The shipped objective still resolves to declared scalar observations.
-  const observations = await dialog.getByLabel('科学观察').first().locator('option').allTextContents()
+  const observationOptions = dialog.getByLabel('科学观察').first().locator('option')
+  await expect(observationOptions).toHaveCount(3)
+  await expect(observationOptions).not.toContainText([/已保存观察与当前来源不匹配/])
+  const observations = await observationOptions.allTextContents()
   expect(observations.filter((text) => text.length > 0 && !text.startsWith('选择来源声明的观察'))).toHaveLength(2)
 })

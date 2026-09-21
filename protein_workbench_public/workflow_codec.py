@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from datatypes.i_json import admit_i_json, thaw_i_json
 from core.workflow.authoring import (
     ProjectWorkspace, WorkflowCommit, WorkflowDraft, WorkflowVersion,
 )
@@ -13,10 +14,8 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowDocumentError,
     workflow_document_from_canonical,
-    _thaw_json,
 )
 from protein_workbench_public.protocol import (
-    ProtocolValidationError,
     validate_schema,
 )
 
@@ -24,15 +23,16 @@ from protein_workbench_public.protocol import (
 def decode_workflow_document(payload: Mapping[str, Any]) -> WorkflowDocument:
     """Validate and decode one closed current public Workflow document."""
     try:
+        payload = admit_i_json(payload)
         validate_schema("#/$defs/WorkflowDocument", payload)
-    except ProtocolValidationError as error:
+    except ValueError as error:
         if payload.get("schema_version") != WORKFLOW_SCHEMA_VERSION:
             code = "unsupported_schema_version"
         else:
             code = "malformed_request"
         raise WorkflowDocumentError(
             code,
-            f"Workflow document is invalid: {error.reason}",
+            f"Workflow document is invalid: {error}",
         ) from error
     return workflow_document_from_canonical(payload)
 
@@ -58,7 +58,7 @@ def encode_project_workspace(workspace: ProjectWorkspace) -> dict[str, Any]:
         "workspace_revision": workspace.workspace_revision,
         "draft": encode_workflow_draft(workspace.draft) if workspace.draft else None,
         "ui_state_revision": workspace.ui_state_revision,
-        "ui_state": _thaw_json(workspace.ui_state),
+        "ui_state": thaw_i_json(workspace.ui_state),
         "source_version_id": workspace.source_version_id,
         "return_workspace_revision": workspace.return_workspace_revision,
     }
@@ -84,7 +84,7 @@ def encode_workflow_commit_receipt(
         "source_draft_revision": commit.source_draft_revision,
         "workflow": commit.workflow.canonical_projection(),
         "scientific_definitions": [
-            dict(definition) for definition in commit.scientific_definitions
+            thaw_i_json(definition) for definition in commit.scientific_definitions
         ],
         "issues": [],
     }
@@ -97,6 +97,6 @@ def encode_workflow_commit_snapshot(commit: WorkflowCommit) -> dict[str, Any]:
         "workflow_commit_id": commit.workflow_commit_id,
         "source_draft_revision": commit.source_draft_revision,
         "workflow": commit.workflow.canonical_projection(),
-        "scientific_definitions": [_thaw_json(item) for item in commit.scientific_definitions],
-        "scientific_identity": _thaw_json(commit.scientific_identity),
+        "scientific_definitions": [thaw_i_json(item) for item in commit.scientific_definitions],
+        "scientific_identity": thaw_i_json(commit.scientific_identity),
     }

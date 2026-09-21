@@ -19,7 +19,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from datatypes.residue import (
     residue_identity_chain,
-    validate_residue_layout,
 )
 from datatypes.prediction import (
     PendingConfidenceFact,
@@ -86,10 +85,7 @@ def _prediction_axis(
     )
     if len(chains) != 1:
         raise ValueError("folding requires a single-chain protein sequence")
-    layout = validate_residue_layout(
-        ResidueLayout(residue_ids=residue_ids),
-        subject="folding prediction residue axis",
-    )
+    layout = ResidueLayout(residue_ids=residue_ids)
     return PredictionResidueAxis(
         source=source,
         layout=layout,

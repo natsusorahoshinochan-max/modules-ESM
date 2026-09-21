@@ -14,6 +14,11 @@ inputs:
     multiplicity: one
     scientific_meaning: One exact prediction structure Candidate.
 outputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Synthetic prediction carrying the admission-owned prediction key.
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
     required: true

@@ -68,7 +68,7 @@ class AdmittedParameterValues(Mapping[str, Any]):
             "_values",
             MappingProxyType(
                 {
-                    name: freeze_i_json(value)
+                    name: value
                     for name, value in sorted(self._values.items())
                 }
             ),

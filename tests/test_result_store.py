@@ -189,6 +189,7 @@ def test_replay_index_retains_only_the_manifest_locator(
 
 def test_restore_and_reads_use_the_result_store_interface(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     projects, project_id, _replay_index, store = _result_store(tmp_path)
     plan = _output_plan()
@@ -244,6 +245,16 @@ def test_restore_and_reads_use_the_result_store_interface(
         json.dumps(node_manifest, indent=2).encode("utf-8"),
     )
 
+    from core.catalog import _port_value_codec
+    from core.catalog.port_contract import PortTypeDefinition
+    from datatypes import i_json
+
+    def unexpected_admission(*args, **kwargs):
+        raise AssertionError("published restore must not repeat admission")
+
+    monkeypatch.setattr(PortTypeDefinition, "validate", unexpected_admission)
+    monkeypatch.setattr(i_json, "validate_i_json", unexpected_admission)
+    monkeypatch.setattr(_port_value_codec, "validate_i_json", unexpected_admission)
     restored = store.restore(
         project_id=project_id,
         materialization_run_id="run-replay",

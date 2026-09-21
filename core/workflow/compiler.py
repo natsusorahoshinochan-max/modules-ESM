@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
+from datatypes.i_json import thaw_i_json
 from core.catalog.declarations import (
     ExecutionBindingDefinition,
     NodePortDefinition,
@@ -43,7 +44,7 @@ from core.workflow._compiler.selection_consumers import (
     _compile_selection_consumers,
 )
 from core.workflow import errors as _errors
-from core.workflow.document import WorkflowDocument, _thaw_json
+from core.workflow.document import WorkflowDocument
 from core.workflow.plan import (
     ArtifactOutputPlan,
     ExecutionPlan,
@@ -404,7 +405,7 @@ def compile(
         for contract in result_contracts:
             scientific_definitions[
                 (contract.contract_kind, contract.contract_id)
-            ] = _thaw_json(result_identity_contract(contract))
+            ] = thaw_i_json(result_identity_contract(contract))
         result_identity_plan_facts = _result_identity_plan_facts(
             node_contract=node_type_contract,
             binding_contract=binding,
@@ -517,6 +518,6 @@ def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, r
                 "partition": value.source_partition,
                 "metric_id": value.metric.contract_id,
                 "method_id": value.method.contract_id,
-                "context": _thaw_json(value.context_profile),
+                "context": thaw_i_json(value.context_profile),
             })
     return options

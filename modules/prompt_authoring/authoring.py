@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 import hashlib
 from typing import Any, NoReturn, cast
 
+from datatypes.i_json import thaw_i_json
 from core.catalog.model import FrozenCatalog
 from core.catalog.declarations import NodeTypeDefinition
 from core.parameters.contract import admit_values, ParameterValueAdmissionError
@@ -25,7 +26,6 @@ from core.workflow.document import (
     WorkflowEdge,
     workflow_document_from_canonical,
     WorkflowNodeInstance,
-    _thaw_json,
 )
 from datatypes.prompt import FunctionAnnotation, FunctionAnnotationTrack, ProteinPrompt
 from datatypes.residue import (
@@ -147,7 +147,7 @@ class _ResolvedSources:
 
 
 def _copy_document(value: Mapping[str, Any]) -> dict[str, Any]:
-    return dict(_thaw_json(value))
+    return dict(thaw_i_json(value))
 
 
 def _normalize_document(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -1111,10 +1111,10 @@ class PromptAuthoringService:
                     "source": _copy_document(
                         sources.merge_source_facts[source_index]
                     ),
-                    "correspondence": _thaw_json(merge["correspondence"]),
-                    "track_adoptions": _thaw_json(merge["track_adoptions"]),
-                    "adopt_annotations": _thaw_json(merge["adopt_annotations"]),
-                    "remove_annotations": _thaw_json(merge["remove_annotations"]),
+                    "correspondence": thaw_i_json(merge["correspondence"]),
+                    "track_adoptions": thaw_i_json(merge["track_adoptions"]),
+                    "adopt_annotations": thaw_i_json(merge["adopt_annotations"]),
+                    "remove_annotations": thaw_i_json(merge["remove_annotations"]),
                     "confirmed": True,
                 }
             )
@@ -1152,6 +1152,8 @@ class PromptAuthoringService:
     ) -> tuple[ProteinPrompt | None, tuple[Mapping[str, Any], ...], tuple[ProteinPrompt, ...], tuple[PromptAuthoringDiagnostic, ...]]:
         try:
             prompt, trace, merge_targets = self._evaluate_if_possible(sources, document)
+            if prompt is not None:
+                PROTEIN_PROMPT_PORT_TYPE.validate(prompt)
         except ValueError as error:
             return None, (), (), (PromptAuthoringDiagnostic("recipe_error", str(error), ("document",)),)
         return prompt, trace, merge_targets, ()
@@ -1270,6 +1272,7 @@ class PromptAuthoringService:
                 merge_sources=sources.merge_sources,
                 document=document,
             )
+            PROTEIN_PROMPT_PORT_TYPE.validate(final)
         except ValueError as error:
             if baseline is None:
                 residues: tuple[Mapping[str, Any], ...] = ()
@@ -1335,7 +1338,7 @@ class PromptAuthoringService:
             else self._workflow_authoring.load_draft(project_id).workflow
         )
         node = next(item for item in workflow.nodes if item.node_id == request["node_id"])
-        parameters = dict(_thaw_json(node.node_parameters))
+        parameters = dict(thaw_i_json(node.node_parameters))
         parameters["document"] = _copy_document(request["document"])
         workflow = replace(
             workflow,

@@ -56,7 +56,7 @@ def _error(value: StructuredError) -> dict[str, Any]:
     _, projected = project_structured_error(
         value.code,
         value.message,
-        thaw_i_json(value.details),
+        value.details,
         value.correlation_id,
     )
     return projected

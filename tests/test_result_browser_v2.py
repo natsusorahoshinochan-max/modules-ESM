@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from datatypes.i_json import thaw_i_json
 from core.catalog.builder import build_frozen_catalog
 from core.catalog.port_contract import PortTypeDefinition
 from core.execution.ledger import V2RunError
@@ -140,7 +141,7 @@ def test_non_collection_output_keeps_request_error(operation: str) -> None:
         else:
             browser.candidate("project", "run", "source", "output", 0, 0)
     assert error.value.code == "malformed_request"
-    assert error.value.details == {"field_path": ["output_port"]}
+    assert thaw_i_json(error.value.details) == {"field_path": ["output_port"]}
 
 
 @pytest.mark.parametrize(("size", "item_index"), [(0, 0), (1, 1), (1, 8)])
@@ -166,4 +167,4 @@ def test_candidate_detail_keeps_out_of_bounds_error(size: int, item_index: int) 
     with pytest.raises(V2RunError, match="Candidate index is outside the collection") as error:
         ResultBrowser(published).candidate("project", "run", "source", "candidates", 0, item_index)
     assert error.value.code == "typed_output_not_found"
-    assert error.value.details == {"node_id": "source", "output_port": "candidates", "value_index": 0}
+    assert thaw_i_json(error.value.details) == {"node_id": "source", "output_port": "candidates", "value_index": 0}

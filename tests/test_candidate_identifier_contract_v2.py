@@ -16,9 +16,11 @@ from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    validate_candidate_data_reference,
 )
 from datatypes.exact_reference import (
     ExactContractReference,
+    validate_exact_contract_reference,
 )
 from datatypes.identifier import validate_canonical_identifier
 from datatypes.observation import (
@@ -30,6 +32,7 @@ from datatypes.observation import (
     PairwiseParticipant,
     ScoreCollection,
     ScoreObservation,
+    validate_pairwise_evidence,
 )
 from datatypes.sequence import ProteinSequence
 
@@ -101,7 +104,7 @@ def test_exact_contract_reference_owns_its_intrinsic_identity(
     values[field_name] = invalid_value
 
     with pytest.raises(ValueError, match=field_name):
-        ExactContractReference(**values)
+        validate_exact_contract_reference(ExactContractReference(**values))
 
 
 def test_candidate_ports_resolve_by_stable_identifier() -> None:
@@ -145,7 +148,7 @@ def test_candidate_collection_v3_closes_all_candidate_identifiers() -> None:
     )
     for invalid in invalid_values:
         with pytest.raises(PortValueError, match="identifier"):
-            port_type.encode(invalid)
+            port_type.validate(invalid)
 
     # Candidate values may exist provisionally before a Candidate Collection
     # contract owns admission.
@@ -183,11 +186,11 @@ def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
         "a" * 129,
     ):
         with pytest.raises(ValueError, match="candidate_id"):
-            CandidateDataReference(
+            validate_candidate_data_reference(CandidateDataReference(
                 candidate_id=invalid_candidate_id,
                 data_type_id="protein.sequence",
                 content_digest=_DIGEST_1,
-            )
+            ))
 
     association_contract = port_type.descriptor()["validator"][
         "parameters"
@@ -297,21 +300,24 @@ def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
     )
     for invalid in invalid_values:
         with pytest.raises(PortValueError, match="identifier"):
-            port_type.encode(invalid)
+            port_type.validate(invalid)
 
-    with pytest.raises(ValueError, match="candidate_id"):
-        _score(candidate_id="候选")
+    with pytest.raises(PortValueError, match="candidate_id"):
+        port_type.validate(ScoreCollection("scores", (_score(candidate_id="候选"),)))
 
 
-def test_score_observation_rejects_non_reference_subject_at_construction() -> None:
-    with pytest.raises(TypeError, match="CandidateDataReference"):
-        ScoreObservation(
-            subject="candidate-1",  # type: ignore[arg-type]
-            metric=_reference("metric", "quality"),
-            method=_reference("method", "fixture"),
-            context=IntrinsicObservationContext(),
-            source_partition="default",
-            value=0.5,
+def test_score_owner_rejects_non_reference_subject() -> None:
+    invalid = ScoreObservation(
+        subject="candidate-1",  # type: ignore[arg-type]
+        metric=_reference("metric", "quality"),
+        method=_reference("method", "fixture"),
+        context=IntrinsicObservationContext(),
+        source_partition="default",
+        value=0.5,
+    )
+    with pytest.raises(PortValueError, match="CandidateDataReference"):
+        builtin_frozen_catalog().require_port_type("score.collection").validate(
+            ScoreCollection("scores", (invalid,))
         )
 
 
@@ -344,4 +350,4 @@ def test_pairwise_evidence_provenance_is_atomic() -> None:
         "aligned_atom_count",
     ):
         with pytest.raises(ValueError, match="complete exact evidence"):
-            replace(context, **{field_name: None})
+            validate_pairwise_evidence(replace(context, **{field_name: None}))

@@ -10,7 +10,7 @@ from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
 )
-from datatypes.candidate import CandidateDataReference
+from datatypes.candidate import CandidateDataReference, validate_candidate_data_reference
 from datatypes.exact_reference import ExactContractReference
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
@@ -57,6 +57,7 @@ def _finite_vector(value: object, *, name: str) -> tuple[float, float, float]:
 
 
 def _validate_candidate_reference(value: object, *, role: str) -> None:
+    validate_candidate_data_reference(value)
     if (
         type(value) is not CandidateDataReference
         or value.data_type_id != "protein.structure"

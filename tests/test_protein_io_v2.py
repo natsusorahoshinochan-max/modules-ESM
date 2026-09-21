@@ -119,7 +119,7 @@ def test_artifact_payload_preserves_an_admitted_candidate_identifier(
 
     assert artifact_port.decode(artifact_port.encode(payload)) == payload
     with pytest.raises(PortValueError, match="artifact metadata is invalid"):
-        artifact_port.encode(
+        artifact_port.validate(
             replace(payload, filename=f"{candidate_id}.pdb")
         )
 

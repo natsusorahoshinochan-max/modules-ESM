@@ -20,6 +20,7 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
 )
 from datatypes.residue import residue_identity_chain
+from datatypes.i_json import admit_i_json
 
 if TYPE_CHECKING:
     from core.scoring.observation_plan import ResolvedProducedObservation
@@ -66,7 +67,10 @@ class OperationDiagnosticError(ValueError):
 
     def __init__(self, message: str, *, diagnostic: Mapping[str, Any] | None = None) -> None:
         super().__init__(message)
-        self.diagnostic = diagnostic
+        self.diagnostic = (
+            admit_i_json(diagnostic, path="operation_diagnostic")
+            if diagnostic is not None else None
+        )
 
 
 class ExecutionTermination(RuntimeError):

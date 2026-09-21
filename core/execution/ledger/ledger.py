@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datatypes.i_json import admit_i_json
+
 from collections.abc import Mapping
 from datetime import datetime, timezone
 import threading
@@ -88,7 +90,7 @@ class V2RunError(RuntimeError):
 
     def __init__(self, code: str, message: str, *, details: Mapping[str, Any]) -> None:
         self.code = code
-        self.details = dict(details)
+        self.details = admit_i_json(details, path="run_error.details")
         super().__init__(message)
 
 

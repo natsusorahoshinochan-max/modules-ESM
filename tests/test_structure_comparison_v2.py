@@ -678,7 +678,7 @@ def test_v5_alignment_evidence_codec_carries_axis_provenance_and_counts() -> Non
         ),
     )
     with pytest.raises(ValueError, match="sequence-paired residue count"):
-        ALIGNMENT_EVIDENCE_PORT_TYPE.encode(impossible)
+        ALIGNMENT_EVIDENCE_PORT_TYPE.validate(impossible)
 
 
 def test_alignment_evidence_accepts_zero_pair_segment_with_global_ca_fit() -> None:

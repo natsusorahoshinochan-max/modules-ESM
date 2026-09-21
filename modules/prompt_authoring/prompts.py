@@ -67,6 +67,11 @@ def validate_protein_prompt(value: object) -> ProteinPrompt:
     if type(value) is not ProteinPrompt:
         raise ValueError("protein_prompt must be a ProteinPrompt")
     layout = validate_layout(value.layout, subject="protein_prompt layout")
+    for name in ("sequence", "coordinates", "secondary_structure", "sasa"):
+        track = getattr(value, name)
+        if track is not None and len(track) != layout.length:
+            raise ValueError(f"protein_prompt {name} length must equal layout length")
+
     validate_sequence_elements(
         value.sequence,
         subject="protein_prompt sequence",

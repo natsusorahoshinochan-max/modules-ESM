@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 import uuid
 
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.execution.ledger import (
     OutputsPublished,
     PublishedArtifact,

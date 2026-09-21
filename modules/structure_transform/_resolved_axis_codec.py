@@ -35,9 +35,7 @@ def _layout_to_wire(layout: object) -> object:
 
 
 def _layout_from_wire(wire: object) -> object:
-    layout = _value_codec._wire_to_value(wire)
-    validate_residue_layout(layout, subject="resolved residue axis layout")
-    return layout
+    return _value_codec._wire_to_value(wire)
 _SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYX")
 _BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O"})
 _RESIDUE_LETTERS = {

@@ -22,7 +22,7 @@ from core.catalog.builder import (
 from core.catalog.model import (
     FrozenCatalog,
 )
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.compiler import (
     CompilationRequest,
@@ -1070,13 +1070,13 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         ))
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "conflicting-fixed-observation",
             [
                 *values["scores"].entries,
                 replace(values["scores"].entries[0], value=0.99),
             ],
-        )
+        ))
 
     cross_scope = ScoreCollection(
         "cross-scope-observation",

@@ -451,10 +451,7 @@ def _objective_from_canonical(value: object) -> SelectionObjectiveEvidence:
         utility_transform=_reference_from_canonical(raw["utility_transform"]),
         utility_parameters=cast(
             Mapping[str, object],
-            freeze_i_json(
-                utility_parameters,
-                path="selection_objective.utility_parameters",
-            ),
+            freeze_i_json(utility_parameters),
         ),
         declared_weight=cast(float, raw["declared_weight"]),
         effective_weight=cast(float, raw["effective_weight"]),

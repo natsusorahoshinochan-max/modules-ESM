@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
-from math import isfinite
 from typing import Any, Optional, cast
 
-from datatypes.i_json import FrozenList, freeze_i_json
+from datatypes.i_json import FrozenList, freeze_i_json, validate_i_json
 from datatypes.residue import (
     ResidueLayout,
     residue_identity_chain,
@@ -152,6 +151,7 @@ def _biases(value: Any) -> Mapping[str, Mapping[str, float]]:
         raise ValueError(
             "bias_by_residue must map residue identities to amino-acid biases"
         )
+    validate_i_json(value, path="bias_by_residue")
     for residue_id, amino_acid_biases in value.items():
         residue_identity_chain(
             residue_id,
@@ -171,11 +171,6 @@ def _biases(value: Any) -> Mapping[str, Mapping[str, float]]:
                 raise ValueError(
                     f"bias_by_residue bias for {residue_id}/{amino_acid} "
                     "must be numeric"
-                )
-            if not isfinite(float(bias)):
-                raise ValueError(
-                    f"bias_by_residue bias for {residue_id}/{amino_acid} "
-                    "must be finite"
                 )
     return value
 

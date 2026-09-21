@@ -269,8 +269,9 @@ def test_score_merge_preserves_exact_i_json_value_types() -> None:
         },
     )
 
+    merged = CollectionOpsImplementation("merge_scores").execute(call)["scores"]
     with pytest.raises(ValueError, match="conflicting values"):
-        CollectionOpsImplementation("merge_scores").execute(call)
+        catalog.require_port_type("score.collection").validate(merged)
 
 
 def _two_hop_lineage_collections() -> tuple[

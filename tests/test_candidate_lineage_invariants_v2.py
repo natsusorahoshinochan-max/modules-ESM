@@ -8,7 +8,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.errors import PortValueError
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.execution.output_admission.admission import (
     NodeOutputPlan,
     OutputPortPlan,
@@ -98,7 +98,7 @@ def test_candidate_collection_rejects_noncanonical_or_duplicate_parent_ids(
     )
 
     with pytest.raises(PortValueError, match="parent_ids|parent identit"):
-        port_type.encode(value)
+        port_type.validate(value)
 
 
 @pytest.mark.parametrize(
@@ -132,7 +132,7 @@ def test_candidate_collection_codec_rejects_invalid_parent_ids(
         malformed = malformed.replace(old, new)
 
     with pytest.raises(PortValueError, match="parent_ids|parent identit"):
-        port_type.decode(malformed)
+        port_type.validate(port_type.decode(malformed))
 
 
 @pytest.mark.parametrize(
@@ -159,7 +159,7 @@ def test_candidate_collection_codec_rejects_invalid_parent_ids(
         ),
     ),
 )
-def test_candidate_collection_rejects_internal_lineage_cycles_on_encode(
+def test_candidate_collection_rejects_internal_lineage_cycles_on_admission(
     items: tuple[Candidate, ...],
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
@@ -167,7 +167,7 @@ def test_candidate_collection_rejects_internal_lineage_cycles_on_encode(
     )
 
     with pytest.raises(PortValueError, match="self-parent|contains a cycle"):
-        port_type.encode(
+        port_type.validate(
             CandidateCollection("collection", "protein.sequence", items)
         )
 
@@ -211,7 +211,7 @@ def test_candidate_collection_codec_rejects_internal_lineage_cycles(
         malformed = malformed.replace(old, new)
 
     with pytest.raises(PortValueError, match="self-parent|contains a cycle"):
-        port_type.decode(malformed)
+        port_type.validate(port_type.decode(malformed))
 
 
 def test_output_admission_rejects_parent_ids_that_converge() -> None:

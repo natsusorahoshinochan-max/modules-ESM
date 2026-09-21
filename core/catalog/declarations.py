@@ -28,7 +28,7 @@ from datatypes.exact_reference import (
 from datatypes.identifier import validate_canonical_identifier
 
 from core.catalog.errors import CatalogBuildError
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import validate_i_json
 from .port_contract import (
     CONTRACT_NAMESPACE,
     BehaviorReference,
@@ -53,7 +53,7 @@ def _require_identifier(value: str, field_name: str) -> None:
         ) from error
 
 
-def _freeze_declaration(value: Any, *, path: str = "$") -> Any:
+def _admit_declaration(value: Any, *, path: str = "$") -> Any:
     if isinstance(value, ContractIdentity):
         return value
     if isinstance(value, Mapping):
@@ -61,22 +61,21 @@ def _freeze_declaration(value: Any, *, path: str = "$") -> Any:
         for key, item in value.items():
             if not isinstance(key, str):
                 raise CatalogBuildError(f"{path} has a non-string object key")
-            frozen[key] = _freeze_declaration(item, path=f"{path}.{key}")
+            try:
+                validate_i_json(key, path=f"{path}.<key>")
+            except ValueError as error:
+                raise CatalogBuildError(str(error)) from error
+            frozen[key] = _admit_declaration(item, path=f"{path}.{key}")
         return MappingProxyType(frozen)
     if isinstance(value, (list, tuple)):
         return tuple(
-            _freeze_declaration(item, path=f"{path}[{index}]")
+            _admit_declaration(item, path=f"{path}[{index}]")
             for index, item in enumerate(value)
         )
-    canonical_json_bytes(value)
-    return value
-
-
-def _thaw_declaration(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {key: _thaw_declaration(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw_declaration(item) for item in value]
+    try:
+        validate_i_json(value, path=path)
+    except ValueError as error:
+        raise CatalogBuildError(str(error)) from error
     return value
 
 
@@ -244,7 +243,7 @@ class MethodDefinition:
             object.__setattr__(
                 self,
                 field_name,
-                _freeze_declaration(value, path=f"$.{field_name}"),
+                _admit_declaration(value, path=f"$.{field_name}"),
             )
 
     @property
@@ -285,7 +284,7 @@ class UtilityTransformDefinition:
             object.__setattr__(
                 self,
                 field_name,
-                _freeze_declaration(value, path=f"$.{field_name}"),
+                _admit_declaration(value, path=f"$.{field_name}"),
             )
         object.__setattr__(
             self,
@@ -376,7 +375,7 @@ class AvailabilityDeclaration:
         object.__setattr__(
             self,
             "prerequisites",
-            _freeze_declaration(self.prerequisites),
+            _admit_declaration(self.prerequisites),
         )
 
     def descriptor(self) -> dict[str, Any]:
@@ -401,7 +400,7 @@ class ReadinessDeclaration:
         object.__setattr__(
             self,
             "prerequisites",
-            _freeze_declaration(self.prerequisites),
+            _admit_declaration(self.prerequisites),
         )
 
     def descriptor(self) -> dict[str, Any]:
@@ -447,7 +446,7 @@ class ObservationPropagationDefinition:
             object.__setattr__(
                 self,
                 "filter",
-                _freeze_declaration(self.filter),
+                _admit_declaration(self.filter),
             )
 
     def descriptor_template(self) -> dict[str, Any]:
@@ -547,7 +546,7 @@ class ProducedObservationDefinition:
         object.__setattr__(
             self,
             "context_profile",
-            _freeze_declaration(self.context_profile),
+            _admit_declaration(self.context_profile),
         )
 
     def descriptor_template(self) -> dict[str, Any]:
@@ -621,7 +620,7 @@ class ExecutionBindingDefinition:
         object.__setattr__(
             self,
             "binding_parameters",
-            _freeze_declaration(self.binding_parameters),
+            _admit_declaration(self.binding_parameters),
         )
         object.__setattr__(
             self,

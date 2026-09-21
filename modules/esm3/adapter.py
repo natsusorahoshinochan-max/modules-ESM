@@ -8,7 +8,7 @@ import hashlib
 import struct
 from typing import Any, Literal, Protocol
 
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.operation import (
     OperationResources,
     EngineInvocationProvenance,

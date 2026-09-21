@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from typing import Any, cast
 
 from core.catalog import _port_value_codec as _value_codec
@@ -19,11 +21,16 @@ from core.operation import (
     OutputIdentitySource,
     ResolvedOutputIdentity,
 )
-from datatypes.candidate import CandidateDataReference
+from datatypes.candidate import (
+    CandidateDataReference,
+    validate_candidate_data_reference,
+)
 from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
     ResidueAxisReference,
+    validate_exact_contract_reference,
+    validate_exact_port_value_reference,
 )
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
@@ -38,8 +45,10 @@ from datatypes.prediction import (
     PredictionResidueAxis,
     materialize_confidence_fact,
     prediction_axis_reference,
+    _require_content_digest,
 )
 from datatypes.residue import validate_residue_layout
+from datatypes.sequence import validate_protein_sequence
 
 
 _BUILTINS = builtin_frozen_catalog()
@@ -48,9 +57,7 @@ def _layout_to_wire(layout: object) -> object:
 
 
 def _layout_from_wire(wire: object) -> object:
-    layout = _value_codec._wire_to_value(wire)
-    validate_residue_layout(layout, subject="prediction residue axis layout")
-    return layout
+    return _value_codec._wire_to_value(wire)
 _SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence")
 _STRUCTURE_IDENTITY_PORT_TYPE = _BUILTINS.require_port_type(
     "protein.structure",
@@ -84,8 +91,6 @@ def _reference_to_wire(reference: ExactContractReference) -> dict[str, str]:
 
 def _reference_from_wire(
     value: object,
-    *,
-    expected_kind: str,
 ) -> ExactContractReference:
     decoded = _closed_dict(
         value,
@@ -95,12 +100,7 @@ def _reference_from_wire(
         },
         subject="exact contract reference",
     )
-    reference = ExactContractReference(**decoded)
-    if reference.contract_kind != expected_kind:
-        raise ValueError(
-            f"exact contract reference must identify one {expected_kind}"
-        )
-    return reference
+    return ExactContractReference(**decoded)
 
 
 def _source_to_wire(
@@ -138,7 +138,6 @@ def _source_from_wire(
     return ExactPortValueReference(
         port_type=_reference_from_wire(
             port_value["port_type"],
-            expected_kind="port_type",
         ),
         content_digest=port_value["content_digest"],
     )
@@ -149,6 +148,40 @@ def _validate_prediction_residue_axis(value: object) -> None:
         raise ValueError(
             "prediction residue axis must be a PredictionResidueAxis"
         )
+    if type(value.source) not in {
+        CandidateDataReference,
+        ExactPortValueReference,
+    }:
+        raise TypeError(
+            "source must be an exact Candidate or input Port value reference"
+        )
+    if (
+        type(value.source) is CandidateDataReference
+        and value.source.data_type_id != "protein.sequence"
+    ):
+        raise TypeError(
+            "prediction residue axis source must identify an exact "
+            "protein.sequence or protein.prompt Port value"
+        )
+    if type(value.source) is CandidateDataReference:
+        validate_candidate_data_reference(value.source)
+    else:
+        validate_exact_port_value_reference(value.source)
+    validate_residue_layout(value.layout, subject="prediction residue layout")
+    validate_protein_sequence(
+        value.sequence,
+        subject="prediction residue sequence",
+    )
+    if (
+        value.sequence.residue_ids is None
+        or tuple(value.sequence.residue_ids)
+        != tuple(cast(tuple[str, ...], value.layout.residue_ids))
+    ):
+        raise ValueError(
+            "prediction sequence residue identities must exactly equal "
+            "the prediction residue layout"
+        )
+
     if (
         type(value.source) is ExactPortValueReference
         and value.source.port_type not in _ALLOWED_SCALAR_SOURCES
@@ -231,11 +264,103 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
 )
 
 
+_PREDICTION_KEY = re.compile(r"^prediction-[0-9a-f]{64}$")
+
+
+def _validate_metric_value(
+    value: object,
+    *,
+    field_name: str,
+    minimum: float,
+    maximum: float,
+) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or not minimum <= float(value) <= maximum
+        or float(value) == 0.0
+        and math.copysign(1.0, float(value)) < 0
+    ):
+        raise ValueError(
+            f"{field_name} must be a finite value in [{minimum}, {maximum}]"
+        )
+
+
+def _validate_confidence_fact(value: ConfidenceFact) -> None:
+    if (
+        type(value.prediction_key) is not str
+        or _PREDICTION_KEY.fullmatch(value.prediction_key) is None
+    ):
+        raise ValueError(
+            "prediction_key must be prediction- followed by 64 lowercase "
+            "hexadecimal characters"
+        )
+    _require_content_digest(
+        value.structure_content_digest,
+        field_name="structure_content_digest",
+    )
+    if type(value.prediction_axis) is not PredictionResidueAxis:
+        raise TypeError("prediction_axis must be a PredictionResidueAxis")
+    plddt = value.plddt_per_residue
+    if len(plddt) != value.prediction_axis.layout.length:
+        raise ValueError(
+            "plddt_per_residue length must exactly equal prediction axis length"
+        )
+    if all(item is None for item in plddt):
+        raise ValueError(
+            "plddt_per_residue must contain at least one non-null value"
+        )
+    for item in plddt:
+        if item is not None:
+            _validate_metric_value(
+                item, field_name="plddt_per_residue", minimum=0.0, maximum=100.0
+            )
+    if value.ptm is not None:
+        _validate_metric_value(value.ptm, field_name="ptm", minimum=0.0, maximum=1.0)
+    if value.pae is not None:
+        length = value.prediction_axis.layout.length
+        if len(value.pae) != length or any(len(row) != length for row in value.pae):
+            raise ValueError("pae must be square on the exact prediction axis")
+        for row in value.pae:
+            for item in row:
+                _validate_metric_value(
+                    item, field_name="pae", minimum=0.0, maximum=31.75
+                )
+
+
 def _validate_confidence_facts(value: object) -> None:
     if type(value) is not ConfidenceFactCollection:
         raise ValueError(
             "confidence facts must be a ConfidenceFactCollection"
         )
+
+    method = value.observation_method
+    if (
+        type(method) is not ExactContractReference
+        or method.contract_kind != "method"
+    ):
+        raise TypeError(
+            "observation_method must be one exact Method reference"
+        )
+    validate_exact_contract_reference(method)
+    raw_entries = value.entries
+    if type(raw_entries) not in {list, tuple} or not raw_entries:
+        raise ValueError(
+            "ConfidenceFactCollection entries must be a nonempty ordered "
+            "collection"
+        )
+    if any(type(entry) is not ConfidenceFact for entry in raw_entries):
+        raise TypeError(
+            "ConfidenceFactCollection entries must be ConfidenceFact values"
+        )
+    keys = tuple(entry.prediction_key for entry in raw_entries)
+    if len(keys) != len(set(keys)):
+        raise ValueError(
+            "ConfidenceFactCollection contains a duplicate prediction_key"
+        )
+    for entry in value.entries:
+        _validate_confidence_fact(entry)
 
 
 def _confidence_fact_to_wire(value: ConfidenceFact) -> dict[str, object]:
@@ -283,17 +408,11 @@ def _confidence_facts_from_wire(value: object) -> object:
     entries = tuple(
         _confidence_fact_from_wire(item) for item in value["entries"]
     )
-    keys = tuple(entry.prediction_key for entry in entries)
-    if keys != tuple(sorted(keys)):
-        raise ValueError(
-            "confidence fact entries must use unique canonical key order"
-        )
     return ConfidenceFactCollection(
         **{
             **value,
             "observation_method": _reference_from_wire(
                 value["observation_method"],
-                expected_kind="method",
             ),
             "entries": entries,
         }

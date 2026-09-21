@@ -6,7 +6,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from functools import wraps
 import json
 import logging
-import math
 import re
 from typing import Any
 import uuid
@@ -128,13 +127,6 @@ def _reject_duplicate_request_keys(
     return result
 
 
-def _parse_finite_request_float(value: str) -> float:
-    parsed = float(value)
-    if not math.isfinite(parsed):
-        raise ValueError(f"non-I-JSON numeric value {value!r}")
-    return parsed
-
-
 async def public_rest_wire_sources(
     request: Request,
 ) -> tuple[dict[str, str], Any]:
@@ -154,10 +146,6 @@ async def public_rest_wire_sources(
         json_body = json.loads(
             raw_body.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_request_keys,
-            parse_float=_parse_finite_request_float,
-            parse_constant=lambda value: (_ for _ in ()).throw(
-                ValueError(f"non-I-JSON numeric value {value!r}")
-            ),
         )
     except (UnicodeError, ValueError) as error:
         raise ProtocolValidationError(

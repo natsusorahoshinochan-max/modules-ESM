@@ -43,14 +43,14 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
 from datatypes.prediction import (
-    ConfidenceFact,
+    PendingConfidenceFact,
     ConfidenceFactCollection,
     PredictionResidueAxis,
     prediction_axis_reference,
-    prediction_key,
 )
 from modules.structure_prediction.port_types import (
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+    confidence_output_identity_intent,
 )
 
 
@@ -488,25 +488,21 @@ class _ConfidenceFactSource:
         assert type(prediction_axis) is PredictionResidueAxis
         if len(structures.items) != 1:
             raise ValueError("confidence-fact source requires one structure")
-        structure_reference = call.inputs[
-            "structures"
-        ].candidate_data[0]
-        axis_digest = PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
-            prediction_axis
-        )
         missing_loop = call.node_parameters["missing_loop_plddt"]
         plddt = tuple(
             None if missing_loop and residue_id == "A:loop" else 90.0
             for residue_id in prediction_axis.layout.residue_ids or ()
         )
-        fact = ConfidenceFact(
-            prediction_key=prediction_key(
-                output_role="structure_candidates",
-                output_slot=0,
-                structure_content_digest=structure_reference.content_digest,
-                prediction_axis_content_digest=axis_digest,
-            ),
-            structure_content_digest=structure_reference.content_digest,
+        candidate = Candidate(
+            "fixture-prediction",
+            structures.items[0].data,
+            parent_ids=(prediction_axis.source.candidate_id,),
+        )
+        fact = PendingConfidenceFact(
+            candidate_id=candidate.candidate_id,
+            output_role="structure_candidates",
+            output_slot=0,
+            structure=candidate.data,
             prediction_axis=prediction_axis,
             plddt_per_residue=plddt,
             ptm=None,
@@ -514,10 +510,13 @@ class _ConfidenceFactSource:
         )
         with self._resources.engine_invocation():
             return {
-                "confidence_facts": ConfidenceFactCollection(
+                "structure_candidates": CandidateCollection(
+                    "fixture-predictions", "protein.structure", (candidate,)
+                ),
+                "confidence_facts": confidence_output_identity_intent(
                     observation_method=self._method,
-                    entries=(fact,),
-                )
+                    pending_facts=(fact,),
+                ),
             }
 
 

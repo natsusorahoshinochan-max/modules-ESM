@@ -12,7 +12,7 @@ import tempfile
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.execution.ledger import Ledger
 from core.execution.ledger.projections import RunProjection
 from core.execution.ledger.store import FilesystemLedgerStore

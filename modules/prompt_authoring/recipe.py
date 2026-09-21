@@ -8,7 +8,7 @@ so there is exactly one implementation of the authoring semantics.
 
 The recipe owns no UI, projection, or graph-materialization concerns: it
 takes resolved Python values (sources + an authoring document) and returns
-one validated :class:`~datatypes.prompt.ProteinPrompt`. Determinism is the
+one :class:`~datatypes.prompt.ProteinPrompt`. Determinism is the
 invariant — every random section is derived from an explicit seed carried
 in the document plus the layout/inputs, never from a process-global RNG.
 """
@@ -21,7 +21,7 @@ import hashlib
 import math
 from typing import Any
 
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from datatypes.prompt import (
     FunctionAnnotation,
     ProteinPrompt,
@@ -42,7 +42,6 @@ from .domain import (
     build_layout,
     override_values,
 )
-from .prompts import validate_protein_prompt
 
 
 _TRACK_FIELDS: dict[str, str] = {
@@ -973,7 +972,7 @@ def _evaluate_prompt_recipe(
                 "residue_ids": residue_ids,
             }
     prompt = _apply_function_annotations(prompt, document)
-    return validate_protein_prompt(prompt), tuple(
+    return prompt, tuple(
         traces[index] for index in sorted(traces)
     ), merge_targets
 

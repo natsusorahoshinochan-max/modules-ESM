@@ -1355,7 +1355,7 @@ def test_confidence_requires_the_axis_value_to_be_nonempty_before_provider() -> 
     # value owns its own non-emptiness, so no parallel Candidate Port has to
     # supply it any more.
     with pytest.raises(ValueError, match="must be nonempty"):
-        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.encode(
+        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.validate(
             CandidateResolvedResidueAxisAssociations(entries=())
         )
     assert adapter.calls == 0

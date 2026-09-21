@@ -6,6 +6,8 @@ from collections import Counter
 from contextlib import nullcontext
 import hashlib
 
+import pytest
+
 from core.catalog.builtins import builtin_frozen_catalog
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 from core.execution.output_admission.admission import (
@@ -199,9 +201,14 @@ def test_artifact_intent_consumes_admitted_value_and_typed_declaration() -> None
 
 def _count_port_codec_calls(monkeypatch) -> Counter[tuple[str, str]]:
     calls: Counter[tuple[str, str]] = Counter()
+    original_validate = PortTypeDefinition.validate
     original_encode = PortTypeDefinition.encode
     original_decode = PortTypeDefinition.decode
     original_content_digest = PortTypeDefinition.content_digest
+
+    def validate(self: PortTypeDefinition, value: object) -> None:
+        calls[("validate", self.type_id)] += 1
+        original_validate(self, value)
 
     def encode(self: PortTypeDefinition, value: object) -> bytes:
         calls[("encode", self.type_id)] += 1
@@ -215,6 +222,7 @@ def _count_port_codec_calls(monkeypatch) -> Counter[tuple[str, str]]:
         calls[("content_digest", self.type_id)] += 1
         return original_content_digest(self, value)
 
+    monkeypatch.setattr(PortTypeDefinition, "validate", validate)
     monkeypatch.setattr(PortTypeDefinition, "encode", encode)
     monkeypatch.setattr(PortTypeDefinition, "decode", decode)
     monkeypatch.setattr(
@@ -362,9 +370,15 @@ def test_confidence_identity_sources_encode_once_and_preserve_canonical_fact(
     assert calls[
         ("encode", "structure_prediction.confidence_facts")
     ] == 1
-    assert not {
-        call: count for call, count in calls.items() if call[0] != "encode"
+    assert {kind: count for (action, kind), count in calls.items()
+            if action == "validate"} == {
+        "protein.structure": 1,
+        "structure_prediction.prediction_residue_axis": 1,
+        "candidate.collection": 1,
+        "structure_prediction.confidence_facts": 1,
     }
+    assert not {call: count for call, count in calls.items()
+                if call[0] not in {"encode", "validate"}}
 
 
 class _RunResources:
@@ -410,6 +424,15 @@ def test_normalization_identity_sources_encode_once_and_preserve_canonical_fact(
     expected_fact_bytes = CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE.encode(
         CandidateNormalizationFactCollection((expected.fact,))
     )
+    from core.catalog.errors import PortValueError
+
+    with pytest.raises(PortValueError, match="requires an OutputIdentityIntent"):
+        admit_node_output(
+            node_plan=_plan(CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE),
+            admitted_inputs={},
+            raw_outputs={"value": CandidateNormalizationFactCollection((expected.fact,))},
+            result_identity="sha256:" + "b" * 64,
+        )
     parent_reference = CandidateDataReference(
         "raw-csh",
         "protein.structure",
@@ -469,6 +492,154 @@ def test_normalization_identity_sources_encode_once_and_preserve_canonical_fact(
             "structure_transform.candidate_normalization_facts",
         )
     ] == 1
-    assert not {
-        call: count for call, count in calls.items() if call[0] != "encode"
+    assert {kind: count for (action, kind), count in calls.items()
+            if action == "validate"} == {
+        "protein.structure": 1,
+        "structure_transform.modified_residue_normalizations": 1,
+        "candidate.collection": 1,
+        "structure_transform.candidate_normalization_facts": 1,
     }
+    assert not {call: count for call, count in calls.items()
+                if call[0] not in {"encode", "validate"}}
+
+
+def test_codec_and_restore_do_not_repeat_scientific_admission() -> None:
+    from core.execution.output_admission.port_values import restore_admitted_port
+
+    calls = []
+    port_type = _port_type(
+        validate=lambda value: calls.append(value),
+        to_wire=lambda value: value,
+        from_wire=lambda value: value,
+    )
+    admitted = admit_node_output(
+        node_plan=_plan(port_type), admitted_inputs={},
+        raw_outputs={"value": "admitted"}, result_identity="sha256:" + "a" * 64,
+    ).ports["value"]
+    record = admitted.values[0]
+    assert calls == ["admitted"]
+    assert port_type.decode(record.canonical_bytes) == "admitted"
+    assert port_type.content_digest(record.value) == record.content_digest
+    restored = restore_admitted_port(
+        port_type=port_type, multiplicity="one",
+        values=((record.canonical_bytes, record.content_digest, record.candidate_data),),
+        content_digest=admitted.content_digest,
+    )
+    assert restored == admitted
+    assert calls == ["admitted"]
+
+
+@pytest.mark.parametrize("payload", [b"NaN", b"Infinity", b"9007199254740992", b'"\\ud800"'])
+def test_decode_reports_noncanonical_json_as_port_error(payload: bytes) -> None:
+    from core.catalog.errors import PortValueError
+
+    with pytest.raises(PortValueError):
+        builtin_frozen_catalog().require_port_type("protein.sequence").decode(payload)
+
+
+def test_axis_publication_and_restore_admit_axis_and_structure_once(monkeypatch) -> None:
+    from core.execution.output_admission.port_values import restore_admitted_port
+    from modules.structure_transform import _candidate_association_codecs as associations
+    from modules.structure_transform.domain import (
+        CandidateResolvedResidueAxisAssociation,
+        CandidateResolvedResidueAxisAssociations,
+    )
+    from modules.structure_transform.residue_axis import resolve_residue_axis
+
+    structure = ProteinStructure(_FIXTURES["mse_ligand_water"]())
+    axis = resolve_residue_axis(structure)
+    subject = CandidateDataReference(
+        "source", "protein.structure",
+        builtin_frozen_catalog().require_port_type("protein.structure").content_digest(structure),
+    )
+    value = CandidateResolvedResidueAxisAssociations((
+        CandidateResolvedResidueAxisAssociation(subject, axis),
+    ))
+    axis_calls = []
+    original = associations.validate_resolved_axis
+
+    def validate_axis(value):
+        axis_calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(associations, "validate_resolved_axis", validate_axis)
+    calls = _count_port_codec_calls(monkeypatch)
+    port_type = associations.CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE
+    admitted = admit_node_output(
+        node_plan=_plan(port_type), admitted_inputs={}, raw_outputs={"value": value},
+        result_identity="sha256:" + "a" * 64,
+    ).ports["value"]
+    record = admitted.values[0]
+    assert restore_admitted_port(
+        port_type=port_type, multiplicity="one",
+        values=((record.canonical_bytes, record.content_digest, record.candidate_data),),
+        content_digest=admitted.content_digest,
+    ) == admitted
+    assert axis_calls == [axis]
+    assert {kind: count for (action, kind), count in calls.items()
+            if action == "validate"} == {port_type.type_id: 1, "protein.structure": 1}
+
+
+def test_direct_candidate_admission_checks_data_without_changing_identity(monkeypatch) -> None:
+    import pytest
+    from core.catalog import _port_value_codec
+    from core.catalog.errors import PortValueError
+    from core.execution.output_admission.port_values import restore_admitted_port
+    from tests.support.output_admission import admit_fixture_port
+
+    catalog = builtin_frozen_catalog()
+    data_types = {name: catalog.require_port_type(name) for name in (
+        "protein.sequence", "protein.structure",
+    )}
+    candidate = Candidate("original", ProteinSequence("AA"), metadata={"source": "input"})
+    port_type = catalog.require_port_type("candidate.collection")
+    json_calls = []
+    original_validate_json = _port_value_codec.validate_i_json
+
+    def validate_json(value, *, path):
+        json_calls.append(value)
+        return original_validate_json(value, path=path)
+
+    monkeypatch.setattr(_port_value_codec, "validate_i_json", validate_json)
+    record = admit_fixture_port(
+        port_type=port_type, multiplicity="one",
+        values=(CandidateCollection("original-collection", "protein.sequence", [candidate]),),
+        candidate_data_port_types=data_types,
+    )
+    assert record.value.items[0] == candidate
+    assert record.candidate_data[0].candidate_id == "original"
+    assert restore_admitted_port(
+        port_type=port_type, multiplicity="one",
+        values=tuple((item.canonical_bytes, item.content_digest, item.candidate_data)
+                     for item in record.values),
+        content_digest=record.content_digest,
+    ) == record
+    assert json_calls == [candidate.metadata]
+    with pytest.raises(PortValueError, match="uppercase"):
+        admit_fixture_port(
+            port_type=port_type, multiplicity="one",
+            values=(CandidateCollection("invalid", "protein.sequence", [
+                Candidate("invalid", ProteinSequence("aa")),
+            ]),), candidate_data_port_types=data_types,
+        )
+
+
+def test_materialized_fresh_output_requires_identity_intent() -> None:
+    import pytest
+    from core.catalog.errors import PortValueError
+    from datatypes.prediction import ConfidenceFact, PredictionResidueAxis
+    from datatypes.residue import ResidueLayout
+
+    axis = PredictionResidueAxis(
+        CandidateDataReference("sequence", "protein.sequence", "sha256:" + "1" * 64),
+        ResidueLayout(("A:1",)), ProteinSequence("A", ("A:1",)),
+    )
+    facts = ConfidenceFactCollection(_METHOD, (
+        ConfidenceFact("prediction-" + "2" * 64, "sha256:" + "3" * 64,
+                       axis, (75.0,), 0.7, None),
+    ))
+    with pytest.raises(PortValueError, match="requires an OutputIdentityIntent"):
+        admit_node_output(
+            node_plan=_plan(CONFIDENCE_FACTS_PORT_TYPE), admitted_inputs={},
+            raw_outputs={"value": facts}, result_identity="sha256:" + "4" * 64,
+        )

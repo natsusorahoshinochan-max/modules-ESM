@@ -28,16 +28,21 @@ class CandidateDataReference:
     data_type_id: str
     content_digest: str
 
-    def __post_init__(self) -> None:
-        for field_name in ("candidate_id", "data_type_id"):
-            validate_canonical_identifier(getattr(self, field_name), field_name)
-        if (
-            type(self.content_digest) is not str
-            or _CONTENT_DIGEST.fullmatch(self.content_digest) is None
-        ):
-            raise ValueError(
-                "content_digest must be a canonical sha256 digest"
-            )
+
+def validate_candidate_data_reference(value: object) -> None:
+    """Admit an exact Candidate data identity at its scientific owner."""
+    if type(value) is not CandidateDataReference:
+        raise TypeError("value must be an exact CandidateDataReference")
+    for field_name in ("candidate_id", "data_type_id"):
+        validate_canonical_identifier(getattr(value, field_name), field_name)
+    if (
+        type(value.content_digest) is not str
+        or _CONTENT_DIGEST.fullmatch(value.content_digest) is None
+    ):
+        raise ValueError(
+            "content_digest must be a canonical sha256 digest"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Candidate:

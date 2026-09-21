@@ -17,7 +17,7 @@ from core.catalog.errors import (
     UnknownPortTypeError,
     PortValueError,
 )
-from core.catalog.canonical import (
+from datatypes.i_json import (
     canonical_json_bytes,
     canonical_sha256,
 )
@@ -290,7 +290,7 @@ def test_protein_sequence_admission_requires_the_exact_uppercase_alphabet(
     )
 
     with pytest.raises(PortValueError, match="uppercase amino-acid alphabet"):
-        port_type.encode(ProteinSequence(sequence))
+        port_type.validate(ProteinSequence(sequence))
 
 
 @pytest.mark.parametrize(
@@ -308,7 +308,7 @@ def test_protein_sequence_admission_requires_canonical_unique_residue_identities
     )
 
     with pytest.raises(PortValueError, match="residue identit"):
-        port_type.encode(ProteinSequence("MA", residue_ids))
+        port_type.validate(ProteinSequence("MA", residue_ids))
 
 
 @pytest.mark.parametrize(
@@ -331,7 +331,7 @@ def test_protein_sequence_codec_rejects_noncanonical_residue_identities(
     )
 
     with pytest.raises(PortValueError, match=message):
-        port_type.decode(canonical.replace(old, new))
+        port_type.validate(port_type.decode(canonical.replace(old, new)))
 
 
 def test_protein_sequence_does_not_claim_residue_layout_chain_contiguity() -> None:
@@ -462,17 +462,21 @@ def test_canonical_scientific_values_reject_ambiguous_or_mutable_inputs() -> Non
             ProteinSequence("MA"),
             "parent-1",
         )
-    with pytest.raises(ValueError, match="I-JSON"):
-        Candidate(
-            "candidate-1",
-            ProteinSequence("MA"),
-            metadata={"payload": bytearray(b"mutable")},
-        )
-    with pytest.raises(ValueError, match="string object key"):
-        _typed_observation({("A:1", "A:2"): 0.5})
+    catalog = build_frozen_catalog(module_registrations())
+    with pytest.raises(PortValueError, match="I-JSON"):
+        catalog.require_port_type("candidate.collection").validate(CandidateCollection(
+            "candidates", "protein.sequence", (Candidate(
+                "candidate-1", ProteinSequence("MA"),
+                metadata={"payload": bytearray(b"mutable")},
+            ),),
+        ))
+    with pytest.raises(PortValueError, match="string object key"):
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
+            "scores", (_typed_observation({("A:1", "A:2"): 0.5}),),
+        ))
     layout = ResidueLayout(("A:1", "A:2"))
-    with pytest.raises(ValueError, match="length"):
-        ResidueTrack(layout, [None])
+    with pytest.raises(PortValueError, match="length"):
+        catalog.require_port_type("residue.condition.sequence").validate(ResidueTrack(layout, [None]))
 
 
 def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
@@ -594,7 +598,7 @@ def test_protein_structure_admission_rejects_noncanonical_pdb_text(
     )
 
     with pytest.raises(PortValueError, match="canonical PDB"):
-        port_type.encode(ProteinStructure(pdb_string))
+        port_type.validate(ProteinStructure(pdb_string))
 
 
 def test_protein_structure_admission_does_not_impose_single_model_or_ca() -> None:
@@ -680,7 +684,7 @@ def test_codec_rejects_malformed_and_noncanonical_values() -> None:
     canonical = sequence_type.encode(ProteinSequence("MA"))
 
     with pytest.raises(PortValueError, match="requires ProteinSequence"):
-        sequence_type.encode({"sequence": "MA"})
+        sequence_type.validate({"sequence": "MA"})
     with pytest.raises(PortValueError, match="not canonical RFC 8785"):
         sequence_type.decode(b" " + canonical)
     with pytest.raises(PortValueError, match="duplicate JSON object key"):
@@ -752,10 +756,10 @@ def test_runtime_validators_reject_malformed_complete_values(
         PortValueError,
         match="requires|must|mismatch|does not match",
     ):
-        definition.encode(malformed)
+        definition.validate(malformed)
 
 
-def test_canonical_constructors_close_domain_invariants_before_encoding() -> None:
+def test_nominal_owners_close_domain_invariants_after_construction() -> None:
 
     catalog = build_frozen_catalog(module_registrations())
     sequence = ProteinSequence("MA", ["A:1", "A:2"])
@@ -764,8 +768,8 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
         sequence.residue_ids = ("A:1",)
     with pytest.raises(FrozenInstanceError):
         layout.residue_ids = ()
-    with pytest.raises(ValueError, match="residue_ids length"):
-        ProteinSequence("MA", ["A:1"])
+    with pytest.raises(PortValueError, match="residue_ids length"):
+        catalog.require_port_type("protein.sequence").validate(ProteinSequence("MA", ["A:1"]))
     with pytest.raises(ValueError, match="residue identit"):
         validate_residue_layout(ResidueLayout(("A1",)))
     malformed_values = [
@@ -793,7 +797,7 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
         with pytest.raises(PortValueError):
             catalog.require_port_type(
                 type_id,
-            ).encode(malformed)
+            ).validate(malformed)
 
 
 @pytest.mark.parametrize(
@@ -827,7 +831,7 @@ def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
     )
 
     with pytest.raises(PortValueError):
-        definition.encode(constraints)
+        definition.validate(constraints)
 
 
 def test_proteinmpnn_constraints_cannot_drift_after_validation() -> None:
@@ -846,11 +850,32 @@ def test_proteinmpnn_constraints_cannot_drift_after_validation() -> None:
 
 
 @pytest.mark.parametrize("invalid_value", [-0.0, float("nan"), float("inf")])
-def test_score_constructor_rejects_non_i_json_numbers(
+def test_score_owner_rejects_non_i_json_numbers(
     invalid_value: float,
 ) -> None:
-    with pytest.raises(ValueError, match="I-JSON"):
-        _typed_observation(invalid_value)
+    with pytest.raises(PortValueError, match="I-JSON"):
+        builtin_frozen_catalog().require_port_type("score.collection").validate(
+            ScoreCollection("scores", (_typed_observation(invalid_value),))
+        )
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("negative_first", [False, True])
+def test_score_deduplication_preserves_negative_zero_for_nominal_rejection(
+    nested: bool,
+    negative_first: bool,
+) -> None:
+    values = [-0.0, 0.0] if negative_first else [0.0, -0.0]
+    scores = ScoreCollection(
+        "scores",
+        tuple(
+            _typed_observation({"samples": [value]} if nested else value)
+            for value in values
+        ),
+    )
+    assert len(scores.entries) == 2
+    with pytest.raises(PortValueError, match="negative zero"):
+        builtin_frozen_catalog().require_port_type("score.collection").validate(scores)
 
 
 def test_i_json_array_admission_normalizes_list_and_tuple_wire_identity() -> None:
@@ -881,7 +906,7 @@ def test_behavior_declarations_require_stable_ids_and_i_json() -> None:
         BehaviorReference("Example Validate", {})
     with pytest.raises(CatalogBuildError, match="negative zero"):
         BehaviorReference("example.validate", {"threshold": -0.0})
-    with pytest.raises(CatalogBuildError, match="NaN|Infinity"):
+    with pytest.raises(CatalogBuildError, match="finite I-JSON"):
         BehaviorReference(
             "example.validate",
             {"threshold": float("nan")},

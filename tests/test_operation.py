@@ -13,7 +13,7 @@ from core.catalog.errors import (
     CatalogBuildError,
     PortValueError,
 )
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,

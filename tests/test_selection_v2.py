@@ -623,10 +623,10 @@ def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
     }
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "conflict",
             [*scores.entries, replace(scores.entries[0], value=0.1)],
-        )
+        ))
     out_of_scope = ScoreCollection(
         "out-of-scope",
         [
