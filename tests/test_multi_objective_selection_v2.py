@@ -707,6 +707,7 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
     expected = tuple(default) if isinstance(default, list) else default
     assert plan_node.node_parameters[parameter_name] == expected
     if operation == "filter":
+        assert plan_node._runtime.observation_selectors[0] is workflow.observation_selectors[0]
         assert [
             item.selector_id
             for item in plan_node._runtime.observation_selectors
@@ -1310,7 +1311,9 @@ def test_result_identity_ignores_node_renames(
     }
 
 
-def test_selection_result_identity_ignores_objective_label_renames(
+@pytest.mark.parametrize("kind", ["objective", "selector"])
+def test_selection_result_identity_ignores_label_renames(
+    kind: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1348,6 +1351,40 @@ def test_selection_result_identity_ignores_objective_label_renames(
             )
         ),
     )
+
+    if kind == "selector":
+        selector = _selectors(catalog)[0]
+        original = replace(
+            original,
+            nodes=(
+                *original.nodes[:2],
+                WorkflowNodeInstance(
+                    node_id="select",
+                    node_type_id="selection.filter",
+                    binding_id="selection.filter.direct",
+                    node_parameters={
+                        "selector_ids": [selector.selector_id],
+                        "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
+                        "out_of_scope_policy": "ignore",
+                    },
+                    binding_parameters={},
+                ),
+            ),
+            selection_objectives=(),
+            observation_selectors=(selector,),
+        )
+        renamed_id = f"renamed-{selector.selector_id}"
+        renamed = replace(
+            original,
+            nodes=(
+                *original.nodes[:2],
+                replace(original.nodes[2], node_parameters={
+                    **dict(original.nodes[2].node_parameters),
+                    "selector_ids": [renamed_id],
+                }),
+            ),
+            observation_selectors=(replace(selector, selector_id=renamed_id),),
+        )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
         first_committed = PublicRunClient(client).commit_workflow(
@@ -1390,10 +1427,11 @@ def test_selection_result_identity_ignores_objective_label_renames(
         for disposition in second["node_dispositions"]
         if disposition["node_id"] == "select"
     )["resolution"] == "cache_replayed"
-    assert [
-        objective["objective_id"]
-        for objective in second["selection_results"][0]["objectives"]
-    ] == list(renamed_objective_ids)
+    evidence = second["selection_results"][0]
+    if kind == "selector":
+        assert [item["selector_id"] for item in evidence["observation_selectors"]] == [renamed_id]
+    else:
+        assert [item["objective_id"] for item in evidence["objectives"]] == list(renamed_objective_ids)
 
 
 def test_consumed_objective_weight_invalidates_only_the_selection_result(
@@ -1525,6 +1563,40 @@ def test_upstream_result_identity_ignores_unrelated_downstream_utility(
         if item["node_id"] == "canonical-source"
     )
     assert source_disposition["resolution"] == "cache_replayed"
+
+
+def test_catalog_observation_plans_are_shared_by_compiler_and_editor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.catalog._observation as observation_projection
+    from core.workflow.compiler import observation_options
+
+    catalog = _catalog()
+    workflow = _workflow(catalog, "weighted_rank")
+    workflow = replace(
+        workflow,
+        nodes=(*workflow.nodes, replace(_scorer(), node_id="other-scores")),
+        edges=(
+            *workflow.edges,
+            *(replace(edge, target_node_id="other-scores") for edge in _scorer_edges()),
+        ),
+    )
+    fixed = catalog.produced_observation_plan(_scorer().binding_id)
+    assert fixed.metric_facts
+    with pytest.raises(TypeError):
+        fixed.metric_facts[next(iter(fixed.metric_facts))] = None  # type: ignore[index]
+
+    def forbid_projection(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("fixed Observation facts must be resolved only at startup")
+
+    monkeypatch.setattr(observation_projection, "_resolved_context_profile", forbid_projection)
+    monkeypatch.setattr(observation_projection, "resolve_metric_facts", forbid_projection)
+    for _ in range(2):
+        plan = compile(CompilationRequest(workflow), catalog)
+        for node in plan.nodes:
+            if node.node_id in {"canonical-scores", "other-scores"}:
+                assert node._runtime.produced_observation_plan is fixed
+        assert observation_options(workflow, catalog, ranking=True)
 
 
 def test_resolved_plan_executes_observations_objectives_and_selectors_without_catalog_lookup(

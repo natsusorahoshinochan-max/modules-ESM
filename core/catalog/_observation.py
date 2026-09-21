@@ -1,16 +1,16 @@
-"""Private typed Observation Plan compilation."""
+"""Startup projection of admitted Catalog Observation facts."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, cast
 
 from core.catalog.declarations import (
     ExecutionBindingDefinition,
     MetricDefinition,
     ObservationPropagationDefinition,
 )
-from core.catalog.model import FrozenCatalog
 from core.scoring.observation_plan import (
     CalibrationContextProfile,
     IntrinsicContextProfile,
@@ -22,6 +22,10 @@ from core.scoring.observation_plan import (
     ResolvedProducedObservation,
     resolve_metric_facts,
 )
+if TYPE_CHECKING:
+    from core.catalog.model import CatalogContract, FrozenCatalog
+
+
 def _resolved_context_profile(
     profile: Mapping[str, Any],
 ) -> ObservationContextProfile:
@@ -109,8 +113,8 @@ def _resolved_observation_propagation(
         absent_input_policy=propagation.absent_input_policy,
     )
 
-def _resolved_produced_observation_plan(
-    binding_contract: Any,
+def produced_observation_plan(
+    binding_contract: CatalogContract,
     *,
     catalog: FrozenCatalog,
 ) -> ProducedObservationPlan:
@@ -129,7 +133,7 @@ def _resolved_produced_observation_plan(
     return ProducedObservationPlan(
         binding_method=catalog.require_reference(*binding.method.key),
         observations=observations,
-        metric_facts=metric_facts,
+        metric_facts=MappingProxyType(metric_facts),
         propagation=_resolved_observation_propagation(
             binding.observation_propagation,
             catalog,

@@ -11,7 +11,6 @@ from core.parameters.model import AdmittedParameterValues
 from core.scoring.observation_plan import ProducedObservationPlan
 from core.scoring.selection import (
     ObservationSelector,
-    ResolvedObservationSelector,
     ResolvedSelectionObjective,
     SelectionObjective,
     SelectionInput,
@@ -157,7 +156,7 @@ class _ExecutionPlanNodeRuntime:
         repr=False,
         compare=False,
     )
-    observation_selectors: tuple[ResolvedObservationSelector, ...] = field(
+    observation_selectors: tuple[ObservationSelector, ...] = field(
         repr=False,
         compare=False,
     )

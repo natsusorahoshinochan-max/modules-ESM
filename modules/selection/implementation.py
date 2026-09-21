@@ -10,7 +10,7 @@ from typing import Any
 from core.operation import OperationCall
 from core.scoring.selection import (
     PairwiseContextSelector,
-    ResolvedObservationSelector,
+    ObservationSelector,
     ResolvedSelectionObjective,
     SelectionError,
     rank_candidates_by_weighted_utility,
@@ -36,7 +36,7 @@ class SelectionImplementation:
         *,
         operation: str,
         objectives: tuple[ResolvedSelectionObjective, ...],
-        selectors: tuple[ResolvedObservationSelector, ...],
+        selectors: tuple[ObservationSelector, ...],
     ) -> None:
         self._operation = operation
         self._objectives = {

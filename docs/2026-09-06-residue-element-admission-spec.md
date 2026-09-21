@@ -24,14 +24,16 @@ Candidate Data Reference 或 nominal Port Type ID。
 每种元素都允许 `None`。非空元素分别要求：精确 `str` 类型的单字符既定氨基酸代码；
 精确 `NamedAtomCoordinates` 类型；精确 `str` 类型的 canonical SS8 状态；或精确
 `float` 类型的有限、非负 absolute SASA，单位为平方埃。SASA 不设额外上界。
-NamedAtomCoordinates 自身拥有原子名唯一性和有限 Cartesian 3-vector 约束；
-元素检查不限制 Provider 原子词汇。
+`validate_coordinate_elements` 负责原子名为非空唯一文本及有限 Cartesian 3-vector
+约束，拒绝 bool 与字符串坐标，不限制 Provider 原子词汇。
 
 ## 完整科学值的 admission
 
-现有 owning admission 入口和调用时机保留。各 owner 继续负责 carrier 类型、Layout
-合法性、Candidate subject 和 aggregate 缺失语义。ResidueTrack 与 ProteinPrompt
-构造器已经闭合轨道长度；元素规则不再接收或重复比较 Layout 长度。
+各 nominal owner 在科学准入时负责 carrier 类型、Layout 合法性、轨道长度、Candidate
+subject 和 aggregate 缺失语义。Conditioning owner 的 `_validate_track` 与 Prompt owner
+的 `validate_protein_prompt` 分别检查各自完整值的长度；共享元素规则不接收 Layout。
+`NamedAtomCoordinates`、`ResidueTrack` 与 `ProteinPrompt` 构造器只做不可变表示转换，
+不承担科学准入；编码和已发布值恢复也不重复准入。
 
 Conditioning 的 null 表示未指定条件，Observed 的 null 表示不可获得；Observed
 仍须关联 `protein.structure` Candidate。ProteinPrompt 保留 optional track 缺席与

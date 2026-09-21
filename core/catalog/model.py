@@ -22,6 +22,8 @@ from core.catalog.errors import (
     UnknownContractError,
 )
 from .port_contract import PortTypeDefinition
+from ._observation import produced_observation_plan
+from core.scoring.observation_plan import ProducedObservationPlan
 
 
 _NON_SCIENTIFIC_CONTRACT_FIELDS = {
@@ -162,6 +164,10 @@ class FrozenCatalog:
         repr=False,
     )
 
+    _observation_plans: Mapping[str, ProducedObservationPlan] = field(
+        init=False, repr=False,
+    )
+
     def __post_init__(self) -> None:
         ordered = tuple(
             sorted(
@@ -198,6 +204,21 @@ class FrozenCatalog:
             MappingProxyType(contracts_by_identity),
         )
         object.__setattr__(self, "availability", tuple(self.availability))
+        object.__setattr__(
+            self,
+            "_observation_plans",
+            MappingProxyType(
+                {
+                    contract.contract_id: produced_observation_plan(contract, catalog=self)
+                    for contract in ordered_contracts
+                    if contract.contract_kind == "binding"
+                }
+            ),
+        )
+
+    def produced_observation_plan(self, binding_id: str) -> ProducedObservationPlan:
+        """Return the immutable startup facts for an admitted Binding."""
+        return self._observation_plans[binding_id]
 
     def _contract_projections(self) -> tuple[CatalogContractProjection, ...]:
         projected = [

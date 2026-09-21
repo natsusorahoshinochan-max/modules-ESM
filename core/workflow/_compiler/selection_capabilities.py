@@ -6,6 +6,11 @@ from typing import Any
 
 from datatypes.i_json import canonical_json_bytes
 from core.catalog.model import FrozenCatalog
+from core.scoring.observation_plan import (
+    ObservationContextProfile,
+    ObservationPropagationFilter,
+    PairwiseContextProfile,
+)
 from core.scoring.selection import (
     SelectionInput,
     context_selector_canonical,
@@ -13,7 +18,6 @@ from core.scoring.selection import (
 )
 from core.workflow._compiler.graph import (
     _AdmittedWorkflowGraph,
-    _PlanNodes,
     _connected_source,
 )
 from core.workflow.document import WorkflowDocument
@@ -26,7 +30,7 @@ class _ObservationCapability:
     source_partition: str
     metric: ExactContractReference
     method: ExactContractReference | None
-    context_profile: Mapping[str, Any]
+    context_profile: ObservationContextProfile
     subject_grain: str
     source_role: str
     guaranteed_multiplicity: str
@@ -82,9 +86,10 @@ def selectable_observation(capability: _ObservationCapability, *, ranking: bool)
         capability.subject_grain == "candidate"
         and capability.source_role == "subject"
         and capability.guaranteed_multiplicity == "one"
-        and (not ranking or capability.context_profile.get("kind") != "pairwise"
+        and (not ranking or capability.context_profile.kind != "pairwise"
              or capability.reference_source is not None)
-        and (not ranking or capability.context_profile.get("pairing_mode") != "explicit_relation"
+        and (not ranking or not isinstance(capability.context_profile, PairwiseContextProfile)
+             or capability.context_profile.pairing_mode != "explicit_relation"
              or capability.pairing_source is not None)
     )
 
@@ -93,13 +98,11 @@ def _validate_selection_capabilities(
     workflow: WorkflowDocument,
     *,
     graph: _AdmittedWorkflowGraph,
-    plan_nodes: _PlanNodes,
     catalog: FrozenCatalog,
 ) -> None:
     capabilities = _derive_observation_capabilities(
         graph,
         catalog=catalog,
-        plan_nodes=plan_nodes,
     )
     _validate_selection_objectives(
         workflow,
@@ -155,14 +158,14 @@ def _validate_selection_objectives(
             if capability.source_partition == objective.source_partition
             and _same_contract(capability.metric, objective.metric)
             and _same_contract(capability.method, objective.method)
-            and capability.context_profile == requested_context
+            and context_selector_canonical(capability.context_profile) == requested_context
             and selectable_observation(capability, ranking=True)
         ]
         if not produced:
             if any(
                 capability.source_partition == objective.source_partition
                 and _same_contract(capability.metric, objective.metric)
-                and capability.context_profile == requested_context
+                and context_selector_canonical(capability.context_profile) == requested_context
                 and not _same_contract(
                     capability.method,
                     objective.method,
@@ -227,14 +230,14 @@ def _validate_observation_selectors(
             if capability.source_partition == selector.source_partition
             and _same_contract(capability.metric, selector.metric)
             and _same_contract(capability.method, selector.method)
-            and capability.context_profile == requested_context
+            and context_selector_canonical(capability.context_profile) == requested_context
             and selectable_observation(capability, ranking=False)
         ]
         if not produced:
             if any(
                 capability.source_partition == selector.source_partition
                 and _same_contract(capability.metric, selector.metric)
-                and capability.context_profile == requested_context
+                and context_selector_canonical(capability.context_profile) == requested_context
                 and capability.subject_grain == "candidate"
                 and capability.source_role == "subject"
                 and capability.guaranteed_multiplicity == "one"
@@ -279,27 +282,13 @@ def _capability_source(
 
 def _capability_matches_filter(
     capability: _ObservationCapability,
-    filter_descriptor: Mapping[str, Any],
-    catalog: FrozenCatalog,
+    filter: ObservationPropagationFilter,
 ) -> bool:
-    source_partition = filter_descriptor.get("source_partition")
-    metric = filter_descriptor.get("metric")
-    method = filter_descriptor.get("method")
-    context_profile = filter_descriptor.get("context_profile")
     return (
-        (source_partition is None or capability.source_partition == source_partition)
-        and (
-            metric is None
-            or capability.metric == catalog.require_reference(*metric.key)
-        )
-        and (
-            method is None
-            or capability.method == catalog.require_reference(*method.key)
-        )
-        and (
-            context_profile is None
-            or capability.context_profile == context_profile
-        )
+        (filter.source_partition is None or capability.source_partition == filter.source_partition)
+        and (filter.metric is None or capability.metric == filter.metric)
+        and (filter.method is None or capability.method == filter.method)
+        and (filter.context_profile is None or capability.context_profile == filter.context_profile)
     )
 
 
@@ -323,7 +312,7 @@ def _capability_canonical(
         "source_partition": capability.source_partition,
         "metric": reference(capability.metric),
         "method": reference(capability.method),
-        "context_profile": capability.context_profile,
+        "context_profile": context_selector_canonical(capability.context_profile),
         "subject_grain": capability.subject_grain,
         "source_role": capability.source_role,
         "guaranteed_multiplicity": capability.guaranteed_multiplicity,
@@ -337,7 +326,6 @@ def _derive_observation_capabilities(
     graph: _AdmittedWorkflowGraph,
     *,
     catalog: FrozenCatalog,
-    plan_nodes: _PlanNodes,
 ) -> dict[tuple[str, str], tuple[_ObservationCapability, ...]]:
     """Derive exact output capabilities from closed fixed/propagation contracts."""
     capabilities: dict[
@@ -345,8 +333,8 @@ def _derive_observation_capabilities(
         tuple[_ObservationCapability, ...],
     ] = {}
     for node_id in graph.node_order:
-        _, binding = plan_nodes[node_id]
-        for declaration in binding.produced_observations:
+        plan = catalog.produced_observation_plan(graph.nodes_by_id[node_id].binding_id)
+        for declaration in plan.observations:
             method_source = (
                 _connected_source(
                     graph,
@@ -357,20 +345,18 @@ def _derive_observation_capabilities(
                 else None
             )
             observation_method = (
-                plan_nodes[method_source.node_id][1].method
+                catalog.produced_observation_plan(
+                    graph.nodes_by_id[method_source.node_id].binding_id
+                ).binding_method
                 if method_source is not None
-                else binding.method
+                else plan.binding_method
                 if declaration.method_direction != "input"
                 else None
             )
             capability = _ObservationCapability(
                 source_partition=declaration.output_partition,
-                metric=catalog.require_reference(*declaration.metric.key),
-                method=(
-                    catalog.require_reference(*observation_method.key)
-                    if observation_method is not None
-                    else None
-                ),
+                metric=declaration.metric,
+                method=observation_method,
                 context_profile=declaration.context_profile,
                 subject_grain=declaration.subject_grain,
                 source_role=declaration.source_role,
@@ -397,7 +383,7 @@ def _derive_observation_capabilities(
             key = (node_id, declaration.output_port)
             capabilities[key] = (*capabilities.get(key, ()), capability)
 
-        propagation = binding.observation_propagation
+        propagation = plan.propagation
         if propagation is None:
             continue
         propagated: list[_ObservationCapability] = []
@@ -416,7 +402,6 @@ def _derive_observation_capabilities(
                 if _capability_matches_filter(
                     capability,
                     propagation.filter,
-                    catalog,
                 )
             ]
         unique: dict[bytes, _ObservationCapability] = {}

@@ -52,6 +52,8 @@ _Avoid_: Slot, pin, socket
 **Port Type Definition**:
 The nominal scientific contract for values crossing a Port, including their
 scientific admission, canonical scientific representation, and content identity.
+Its validator owns scientific admission; encoding, hashing and published-value
+restoration only convert representations and do not repeat admission.
 _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
 ## Authoring Language
@@ -130,7 +132,8 @@ _Avoid_: Import side effect, per-node registration call, recursive discovery
 **FrozenCatalog**:
 The immutable admitted startup result containing the current stable-ID
 registrations, scientific relationships, and diagnostic Binding Availability
-observations used by authoring and compilation.
+observations used by authoring and compilation. It owns immutable per-Binding
+Observation plans; compilation adds Workflow-specific sources and relationships.
 _Avoid_: Mutable Registry, discovery workspace, runtime plugin manager
 
 **Availability**:

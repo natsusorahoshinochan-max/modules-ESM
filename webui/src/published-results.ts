@@ -1,8 +1,11 @@
-import { type CandidateReference, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection } from './protocol/client'
+import { type CandidateReference, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
 import { candidateWithSequence, locationKey, publishedFields, referenceKey, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
 
 export type RunReference = Pick<RunProjection, 'project_id' | 'run_id'>
 export type ResultSnapshot = {
+  readonly connection?: 'connecting' | 'connected' | 'disconnected'
+  readonly currentNodeId?: string
+  readonly diagnostics: Record<string, RunDiagnostic>
   readonly run?: RunProjection
   readonly index: ResultIndex
   readonly phase: 'idle' | 'loading' | 'ready' | 'error'
@@ -12,6 +15,12 @@ export type CandidateRequest = { source: ResultLocation; count: number | 'all' }
 
 type Collection = { source: ResultLocation; output: PublishedOutput; total?: number; items: ResultCandidate[]; pending?: Promise<void> }
 type Session = {
+  socket?: WebSocket
+  cursor?: string
+  connection: ResultSnapshot['connection']
+  currentNodeId?: string
+  attempts: Record<string, string>
+  diagnostics: Record<string, RunDiagnostic>
   reference: RunReference
   run?: RunProjection
   revision: number
@@ -31,7 +40,7 @@ const emptyIndex = (): ResultIndex => ({ collections: [], scores: [], alignments
 /** Owns one actual result Run, including every consumer's candidate read progress. */
 export class PublishedResults {
   private session?: Session
-  private snapshot: ResultSnapshot = { index: emptyIndex(), phase: 'idle' }
+  private snapshot: ResultSnapshot = { index: emptyIndex(), phase: 'idle', diagnostics: {} }
   private listeners = new Set<() => void>()
 
   constructor(private readonly client: PublicV2Client) {}
@@ -42,17 +51,52 @@ export class PublishedResults {
     return () => { this.listeners.delete(listener) }
   }
 
-  openRun(reference: RunReference | undefined): void {
+  openRun(reference: RunReference | undefined, eventCursor?: string): void {
     if (reference && this.session?.reference.project_id === reference.project_id && this.session.reference.run_id === reference.run_id) {
       void this.refresh()
       return
     }
+    this.session?.socket?.close()
     this.session = reference ? {
-      reference, revision: 0, collections: new Map(), scores: new Map(), alignments: new Map(), axes: new Map(), loaded: new Set(), pending: new Map(),
+      reference, cursor: eventCursor, connection: 'connecting', attempts: {}, diagnostics: {}, revision: 0, collections: new Map(), scores: new Map(), alignments: new Map(), axes: new Map(), loaded: new Set(), pending: new Map(),
     } : undefined
-    this.snapshot = { index: emptyIndex(), phase: reference ? 'loading' : 'idle' }
+    this.snapshot = { index: emptyIndex(), phase: reference ? 'loading' : 'idle', diagnostics: {} }
     this.notify()
-    if (reference) void this.refresh()
+    if (reference) { this.reconnect(); void this.refresh() }
+  }
+
+  reconnect(): void {
+    const session = this.session
+    if (!session) return
+    session.socket?.close()
+    const { project_id, run_id } = session.reference
+    const socket = session.socket = this.client.runEvents(project_id, run_id, session.cursor)
+    session.connection = 'connecting'
+    let replaying = true
+    let terminalSeen = false
+    const current = () => this.session === session && session.socket === socket
+    socket.onopen = () => { if (current()) { session.connection = 'connected'; this.publish(session) } }
+    socket.onclose = socket.onerror = () => { if (current() && !terminalSeen) { session.connection = 'disconnected'; this.publish(session) } }
+    socket.onmessage = (message) => {
+      if (!current()) return
+      const { cursor, event } = JSON.parse(message.data as string) as RunEventEnvelope
+      session.cursor = cursor
+      if (event.type === 'node_attempt_started') {
+        session.attempts[event.node_attempt_id] = event.node_id
+        session.currentNodeId = event.node_id
+      }
+      if (event.type === 'node_attempt_terminal') {
+        const nodeId = session.attempts[event.node_attempt_id]
+        if (event.error) session.diagnostics = { ...session.diagnostics, [nodeId]: event.error }
+        if (session.currentNodeId === nodeId) session.currentNodeId = undefined
+      }
+      if (event.type === 'node_disposition' && session.currentNodeId === event.disposition.node_id) session.currentNodeId = undefined
+      if (event.type === 'run_terminal') { terminalSeen = true; session.currentNodeId = undefined }
+      if (event.type === 'replay_complete') replaying = false
+      this.publish(session)
+      if (!replaying && ['run_started', 'node_disposition', 'replay_complete', 'run_terminal'].includes(event.type)) void this.refresh()
+    }
+    this.publish(session)
   }
 
   refresh(): Promise<void> {
@@ -113,6 +157,8 @@ export class PublishedResults {
     const sources = session.run?.outputs.flatMap((output) => Array.from({ length: output.value_count }, (_, value_index) => locationKey({ node_id: output.node_id, output_port: output.output_port, value_index }))) ?? []
     const sequences: ResultIndex['sequences'] = Object.assign({}, ...sources.map((key) => session.axes.get(key)))
     this.snapshot = {
+      connection: session.connection, diagnostics: session.diagnostics,
+      currentNodeId: session.run && ['admitted', 'running'].includes(session.run.status) && !session.run.node_dispositions.some((item) => item.node_id === session.currentNodeId) ? session.currentNodeId : undefined,
       run: session.run, phase, error: phase === 'error' ? error : undefined,
       index: {
         sequences, definitions: session.definitions ?? [],

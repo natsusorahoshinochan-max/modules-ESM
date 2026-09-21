@@ -556,6 +556,42 @@ test('a disconnected real event stream reconnects from its received cursor witho
   }
 })
 
+test('terminal events wait for the REST projection without reporting a normal stream close as failure', async ({ page, request }) => {
+  const { project, base } = await createRunWorkspace(request)
+  let releaseProjection!: () => void
+  const projectionBarrier = new Promise<void>(resolve => { releaseProjection = resolve })
+  let terminalReceived!: () => void
+  const terminal = new Promise<void>(resolve => { terminalReceived = resolve })
+  await page.route(new RegExp(`${base}/runs/[^/?]+$`), async route => {
+    if (route.request().method() !== 'GET') return route.continue()
+    await projectionBarrier
+    await route.fulfill({ response: await route.fetch() })
+  })
+  await page.routeWebSocket(new RegExp(`/projects/${project.id}/runs/[^/]+/events`), socket => {
+    const upstream = socket.connectToServer()
+    upstream.onMessage(message => {
+      socket.send(message)
+      if ((JSON.parse(String(message)) as RunEventEnvelope).event.type === 'run_terminal') terminalReceived()
+    })
+  })
+  await page.goto('/')
+  await openRunWorkspace(page, project.name)
+  await prepareScope(page, 'prefix', '运行到所选节点')
+  try {
+    await page.getByRole('button', { name: '开始运行已确认范围', exact: true }).click()
+    await terminal
+    await expect(page.locator('.run-progress-bar')).toHaveCount(0)
+    await expect(page.locator('.run-button')).toBeDisabled()
+    await expect(page.locator('.run-connection-error')).toHaveCount(0)
+    releaseProjection()
+    await expect(page.locator('.run-progress-bar')).toContainText('运行完成')
+    await expect(page.getByTestId('rf__node-prefix').getByText('成功', { exact: true })).toBeVisible()
+    await expect(page.locator('.run-connection-error')).toHaveCount(0)
+  } finally {
+    releaseProjection()
+  }
+})
+
 test('a failed real FASTA Run exposes located diagnostics and can focus the failed node', async ({ page, request }, testInfo) => {
   const { project, base } = await createRunWorkspace(request, '>valid\nACD\n>bad\nA?D\n')
   await page.goto('/')

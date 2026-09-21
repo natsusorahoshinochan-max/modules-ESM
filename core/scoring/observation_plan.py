@@ -1,4 +1,4 @@
-"""Compiler-resolved plans for Produced Observation admission."""
+"""Catalog-resolved plans for Produced Observation admission."""
 
 from __future__ import annotations
 
@@ -17,14 +17,14 @@ AbsentInputPolicy = Literal["reject", "ignore"]
 
 @dataclass(frozen=True, slots=True)
 class IntrinsicContextProfile:
-    """Compiler-resolved intrinsic Observation Context contract."""
+    """Catalog-resolved intrinsic Observation Context contract."""
 
     kind: Literal["intrinsic"] = "intrinsic"
 
 
 @dataclass(frozen=True, slots=True)
 class CalibrationContextProfile:
-    """Compiler-resolved calibration Observation Context contract."""
+    """Catalog-resolved calibration Observation Context contract."""
 
     calibration_metric: str
     calibration_value: int | float
@@ -35,7 +35,7 @@ class CalibrationContextProfile:
 
 @dataclass(frozen=True, slots=True)
 class PairwiseContextProfile:
-    """Compiler-resolved pairwise Observation Context contract."""
+    """Catalog-resolved pairwise Observation Context contract."""
 
     subject_role: str
     reference_role: str
@@ -80,7 +80,7 @@ class ResolvedMetricFacts:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedProducedObservation:
-    """One compiler-resolved Produced Observation declaration."""
+    """One Catalog-resolved Produced Observation declaration."""
 
     output_port: str
     output_partition: str
@@ -111,7 +111,7 @@ class ObservationPropagationFilter:
 
 @dataclass(frozen=True, slots=True)
 class ObservationPropagationPlan:
-    """Compiler-resolved controlled Score Collection propagation."""
+    """Catalog-resolved controlled Score Collection propagation."""
 
     mode: PropagationMode
     output_port: str
@@ -122,7 +122,7 @@ class ObservationPropagationPlan:
 
 @dataclass(frozen=True, slots=True)
 class ProducedObservationPlan:
-    """Closed compiler output consumed by Observation Admission."""
+    """Closed Catalog startup facts consumed by Observation Admission."""
 
     binding_method: ExactContractReference
     observations: tuple[ResolvedProducedObservation, ...] = ()
@@ -147,7 +147,6 @@ class ProducedObservationPlan:
 class MetricDefinitionFacts(Protocol):
     value_shape: str
     canonical_range: Mapping[str, Any]
-    aggregation_semantics: Mapping[str, Any]
     validation_contract: Mapping[str, Any]
     requires_residue_axis: bool
 

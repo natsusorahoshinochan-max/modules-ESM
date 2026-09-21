@@ -151,5 +151,10 @@ export class PublicV2Client {
   resultCandidate(projectId: string, runId: string, source: ResultLocation, itemIndex: number) { return this.json<ResultCandidateDetail>(`/api/v2/projects/${projectId}/runs/${runId}/results:candidate`, { method: 'POST', body: JSON.stringify({ ...source, item_index: itemIndex }) }) }
   typedValue(projectId: string, runId: string, nodeId: string, outputPort: string, index = 0) { return this.json<{ port_type_id: string; value: unknown }>(`/api/v2/projects/${projectId}/runs/${runId}/outputs/${nodeId}/${outputPort}/values/${index}`) }
   artifactUrl(projectId: string, runId: string, artifactReference: string) { return `${this.baseUrl}/api/v2/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactReference)}` }
-  runEvents(projectId: string, runId: string, afterCursor?: string) { const scheme = location.protocol === 'https:' ? 'wss' : 'ws'; const query = afterCursor ? `?after_sequence=${encodeURIComponent(afterCursor)}` : ''; return new WebSocket(`${scheme}://${location.host}${this.baseUrl}/api/v2/projects/${projectId}/runs/${runId}/events${query}`) }
+  runEvents(projectId: string, runId: string, afterCursor?: string) {
+    const url = new URL(`${this.baseUrl}/api/v2/projects/${projectId}/runs/${runId}/events`, globalThis.location?.href)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    if (afterCursor) url.searchParams.set('after_sequence', afterCursor)
+    return new WebSocket(url)
+  }
 }

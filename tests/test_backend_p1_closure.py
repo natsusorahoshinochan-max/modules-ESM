@@ -10,13 +10,11 @@ from typing import Any
 
 import pytest
 
-from core.parameters.model import AdmittedParameterValues
 from core.project.manager import (
     ProjectInputDescriptor,
     ProjectManager,
     ProjectMeta,
 )
-from core.scoring.selection import UtilityParameterFacts
 from protein_workbench_public.http import emission
 from protein_workbench_public.http.errors import (
     public_error_response,
@@ -94,10 +92,12 @@ def test_closed_dependency_edges_have_no_forwarding_imports() -> None:
         imported.startswith("core.execution")
         for imported in _production_imports("core/project")
     )
-    assert not any(
-        imported.startswith("core.parameters")
+    # Scoring consumes admitted parameter values; admission stays with the compiler.
+    assert {
+        imported
         for imported in _production_imports("core/scoring")
-    )
+        if imported.startswith("core.parameters")
+    } == {"core.parameters.model"}
     assert not any(
         imported.startswith("core.operation")
         for imported in _production_imports("protein_workbench_public")
@@ -211,20 +211,6 @@ def test_each_json_success_operation_serializes_without_bundle_validation(
 
     assert response.status_code == success_status
     assert json.loads(response.body) == payload
-
-
-def test_utility_parameter_facts_are_one_shallow_immutable_snapshot() -> None:
-    admitted = AdmittedParameterValues(
-        {"nested": {"values": [1, 2]}, "scalar": 3}
-    )
-    nested = admitted["nested"]
-
-    facts = UtilityParameterFacts(admitted)
-
-    assert dict(facts) == dict(admitted)
-    assert facts["nested"] is nested
-    with pytest.raises(TypeError):
-        facts._values["additional"] = 4  # type: ignore[index]
 
 
 def test_rest_and_stream_emitters_do_not_revalidate_constructed_payloads(

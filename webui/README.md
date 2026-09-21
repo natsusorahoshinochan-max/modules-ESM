@@ -62,7 +62,7 @@ Vite on port 5179. Real Provider journeys have a separate
 `playwright.real.config.ts`; they require an explicitly supervised built WebUI
 service and the prepared FASTA Project. See the
 [real FASTA journey specification](../docs/2026-09-19-webui-fasta-journey-spec.md)
-and the [latest complete acceptance record](../docs/2026-09-21-four-changes-acceptance.md).
+and the [latest complete acceptance record](../docs/2026-09-21-catalog-selection-run-acceptance.md).
 The [September 19 record](../docs/2026-09-19-webui-integration-progress.md)
 documents the earlier integration snapshot and the separately tracked
 source-field simplification.

@@ -19,7 +19,6 @@ from core.scoring.selection import (
     PairwiseContextSelector,
     SelectionError,
     SelectionInput,
-    observation_selector_provenance_from_facts,
     selection_objective_provenance_from_facts,
 )
 from core.workflow.plan import ExecutionPlanNode
@@ -97,9 +96,7 @@ def selection_consumer_result(
                 match_cardinality=selector.match_cardinality,
                 missing_policy=selector.missing_policy,
             )
-            for selector in observation_selector_provenance_from_facts(
-                resolved_selectors
-            )
+            for selector in resolved_selectors
         )
         objectives: tuple[SelectionObjectiveEvidence, ...] = ()
     else:

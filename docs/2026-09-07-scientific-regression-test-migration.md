@@ -26,7 +26,7 @@
 | `test_prompt_authoring_recipe_v2.py` / `test_merge_rejects_absent_adopt_and_partial_annotation_mapping` | 保留科学输入与断言 |
 | `test_residue_track_closure_v2.py` / `test_protein_prompt_codec_normalizes_only_sasa_json_integers` | 保留科学输入与断言 |
 | `test_prompt_authoring_public_v2.py` / `test_open_random_trace_matches_preview` | same-seed-successive-insertions：链长 2，两次 seed 5；核对实际 trace |
-| `test_structure_annotation_v2.py` / `test_observed_annotation_subject_must_reference_structure` | 保留非法 protein.sequence subject；通过实际 owning Port codec admission 验证 |
+| `test_structure_annotation_v2.py` / `test_observed_annotation_subject_must_reference_structure` | 保留非法 protein.sequence subject；通过实际 owning Port 的 `validate` 验证科学准入 |
 
 ## Prompt 公共接口
 

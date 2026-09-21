@@ -14,7 +14,7 @@ from core.catalog.declarations import (
     UtilityTransformDefinition,
 )
 
-from core.scoring.selection import SelectionInput
+from core.scoring.selection import SelectionInput, context_selector_canonical
 
 from core.parameters.contract import (
     ParameterValueAdmissionError,
@@ -30,11 +30,7 @@ from core.workflow._compiler.identity import (
     _result_identity_plan_facts,
 )
 from core.workflow._compiler.graph import _admit_workflow_graph
-from core.workflow._compiler.observation import (
-    _resolved_produced_observation_plan,
-)
 from core.workflow._compiler.selection import (
-    _compile_observation_selector,
     _compile_selection_objectives,
 )
 from core.workflow._compiler.selection_capabilities import (
@@ -235,7 +231,6 @@ def compile(
     _validate_selection_capabilities(
         workflow,
         graph=graph,
-        plan_nodes=plan_nodes,
         catalog=catalog,
     )
     selection_consumers = _compile_selection_consumers(
@@ -255,17 +250,6 @@ def compile(
             "protein.sequence",
             "protein.structure",
         }
-    }
-    resolved_workflow_selectors = tuple(
-        _compile_observation_selector(
-            selector,
-            catalog=catalog,
-        )
-        for selector in workflow.observation_selectors
-    )
-    resolved_selectors_by_id = {
-        item.selector_id: item
-        for item in resolved_workflow_selectors
     }
     nodes: list[ExecutionPlanNode] = []
     scientific_definitions: dict[tuple[str, str], Mapping[str, Any]] = {}
@@ -287,10 +271,6 @@ def compile(
             selected_objectives,
             compilation_by_id=objective_compilation_by_id,
             catalog=catalog,
-        )
-        resolved_selected_selectors = tuple(
-            resolved_selectors_by_id[item.selector_id]
-            for item in selected_selectors
         )
 
         def resolved_ports(
@@ -367,10 +347,7 @@ def compile(
             for port_name in sorted(required_port_names)
             if port_name in frozen_input_sources
         }
-        produced_observation_plan = _resolved_produced_observation_plan(
-            binding,
-            catalog=catalog,
-        )
+        produced_observation_plan = catalog.produced_observation_plan(node.binding_id)
         artifact_outputs: list[ArtifactOutputPlan] = []
         for port_name, port in output_ports.items():
             artifact_kind = port.artifact_kind
@@ -412,7 +389,7 @@ def compile(
             method_contract=method_contract,
             result_contracts=result_contracts,
             selected_objectives=resolved_selected_objectives,
-            selected_selectors=resolved_selected_selectors,
+            selected_selectors=selected_selectors,
         )
         runtime = _ExecutionPlanNodeRuntime(
             factory=binding_definition.factory,
@@ -446,7 +423,7 @@ def compile(
             ),
             produced_observation_plan=produced_observation_plan,
             selection_objectives=resolved_selected_objectives,
-            observation_selectors=resolved_selected_selectors,
+            observation_selectors=selected_selectors,
             selection_candidate_output_port=(
                 selection_consumption.candidate_output_port
                 if selection_consumption is not None
@@ -506,7 +483,7 @@ def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, r
         for node in workflow.nodes
     }
     graph = _admit_workflow_graph(workflow, plan_nodes, require_complete=False)
-    capabilities = _derive_observation_capabilities(graph, catalog=catalog, plan_nodes=plan_nodes)
+    capabilities = _derive_observation_capabilities(graph, catalog=catalog)
     options = []
     for (node_id, output_port), values in capabilities.items():
         for value in values:
@@ -518,6 +495,6 @@ def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, r
                 "partition": value.source_partition,
                 "metric_id": value.metric.contract_id,
                 "method_id": value.method.contract_id,
-                "context": thaw_i_json(value.context_profile),
+                "context": context_selector_canonical(value.context_profile),
             })
     return options

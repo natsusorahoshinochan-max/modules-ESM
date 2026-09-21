@@ -1,7 +1,7 @@
 # WebUI 集成交付范围与验收要求
 
 - 最后更新：2026-09-21。
-- 状态：P0–P7 完整验收已完成；四项架构修改后的[最新完整验收记录](2026-09-21-four-changes-acceptance.md)保存最终快照与证据。[09-19 记录](2026-09-19-webui-integration-progress.md)对应此前集成快照。
+- 状态：P0–P7 完整验收已完成；[最新完整验收记录](2026-09-21-catalog-selection-run-acceptance.md)保存 Catalog、Selection 与 Run 阅读重构后的最终快照与证据。[09-19 记录](2026-09-19-webui-integration-progress.md)对应此前集成快照。
 - 本文维护已确认的产品范围和验收要求；科学与持久化细节由下列现行规格拥有。
 - Selector/Objective 来源字段的进一步减法仍未完成，单独记录在验收文档中。
 
@@ -40,7 +40,8 @@
 | Project workspace | 打开/保存当前工作、输入、命名版本、复制和恢复；协调 Draft 与 UI state | `webui/src/` 项目相关代码；`core/project/`、`core/workflow/authoring.py` |
 | Workflow authoring | graph 编辑、参数/模型/选择目标、undo 和复制；保持对象引用一致 | `webui/src/workflow-authoring.ts` 及画布相关代码 |
 | Prompt session | 一个编辑 document、一个局部 preview、最终保存 preview；支持取消和 undo | `webui/src/PromptStudio.tsx`，`modules/prompt_authoring/` |
-| Run session | 范围提案、确认启动、状态订阅、取消、恢复与错误定位 | WebUI Run 代码，`core/execution/`、public Run routes |
+| Run authoring | 范围提案、确认启动与取消 | App 与 WebUI Run 控件，`core/execution/`、public Run routes |
+| Run reading | 同一 Session 的 REST 状态、事件订阅、cursor、活动、诊断与结果分页；REST 唯一决定完成状态 | `webui/src/published-results.ts` |
 | Result explorer | 集合/候选焦点、精确关联、比较、筛选、导出及来源 | WebUI Results 代码；published values 的只读 public projection |
 
 public transport 集中在 `webui/src/protocol/`。类型和请求形状以当前 bundle 为准；新增合同同时更新 Python owner、bundle、TypeScript consumer、fixtures 和测试。合同 owner 验证后下游信任，不在每层复制校验。沿用当前 React/Vite/React Flow/3Dmol，不为本轮另建框架、BFF、通用插件层或双轨协议。

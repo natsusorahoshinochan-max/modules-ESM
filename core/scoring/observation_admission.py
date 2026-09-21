@@ -1,4 +1,4 @@
-"""Admit Produced Observations against compiler-resolved typed plans."""
+"""Admit Produced Observations against Catalog-resolved typed plans."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from datatypes.observation import (
 
 
 class ObservationAdmissionError(ValueError):
-    """Produced Observation output contradicts its compiler-resolved plan."""
+    """Produced Observation output contradicts its Catalog-resolved plan."""
 
 
 
@@ -293,7 +293,7 @@ def admit_produced_observations(
     inputs: Mapping[str, ObservationAdmissionPort],
     outputs: Mapping[str, ObservationAdmissionPort],
 ) -> None:
-    """Admit one Score Collection against compiler-resolved exact facts."""
+    """Admit one Score Collection against Catalog-resolved exact facts."""
     declarations = plan.observations_for_output(output_port)
     if not declarations:
         if plan.propagation is not None and plan.propagation.output_port == output_port:

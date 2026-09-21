@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import pytest
@@ -7,7 +6,8 @@ import pytest
 from core.catalog.declarations import (
     EnvironmentFieldDeclaration,
 )
-from core.catalog.model import CatalogContract, FrozenCatalog
+from core.catalog.model import FrozenCatalog
+from tests.support.catalog import catalog_contract
 from core.execution.environment import (
     EnvironmentConfigurationError,
     admit_environment_configuration,
@@ -18,23 +18,17 @@ def _catalog() -> FrozenCatalog:
     return FrozenCatalog(
         port_types=(),
         contracts=(
-            CatalogContract(
-                contract_kind="binding",
-                contract_id="test.binding",
-                descriptor={"contract_kind": "binding"},
-                dependencies=(),
-                definition=SimpleNamespace(
-                    environment_fields=(
-                        EnvironmentFieldDeclaration(
-                            "provider_root",
-                            "filesystem_path",
-                        ),
-                        EnvironmentFieldDeclaration(
-                            "credential_handle",
-                            "credential_handle",
-                            required=False,
-                        ),
-                    )
+            catalog_contract("method", "test.method", {}),
+            catalog_contract(
+                "binding",
+                "test.binding",
+                {
+                    "node_type": {"contract_kind": "node_type", "contract_id": "test.node"},
+                    "method": {"contract_kind": "method", "contract_id": "test.method"},
+                },
+                environment_fields=(
+                    EnvironmentFieldDeclaration("provider_root", "filesystem_path"),
+                    EnvironmentFieldDeclaration("credential_handle", "credential_handle", required=False),
                 ),
             ),
         ),

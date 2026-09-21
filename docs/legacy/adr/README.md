@@ -1,11 +1,10 @@
-# Architecture decision references
+# Historical architecture decisions
 
-Current scientific vocabulary and boundaries are defined in
-[CONTEXT.md](../../../CONTEXT.md) and the
-[scientific data-flow specification](../../2026-09-02-clean-scientific-data-flow-refactor-spec.md).
-The [WebUI delivery scope](../../2026-09-17-webui-full-integration-plan.md)
-links the current product specifications.
+These ADRs preserve historical rationale. They do not define current contracts or
+restrict architecture changes.
 
-Use an ADR here when current guidance explicitly references it, such as
-AGENTS.md's Provider source ownership rule. Current guidance and specifications
-take precedence; this directory is not a standalone current specification.
+Use [CONTEXT.md](../../../CONTEXT.md) for scientific vocabulary and the
+[scientific data-flow specification](../../2026-09-02-clean-scientific-data-flow-refactor-spec.md)
+for current scientific boundaries. The
+[WebUI delivery scope](../../2026-09-17-webui-full-integration-plan.md)
+links current product specifications.

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { strFromU8 } from 'fflate'
 import { PublishedResults } from '../src/published-results'
-import { PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection } from '../src/protocol/client'
+import { PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection, type RunEvent } from '../src/protocol/client'
 import { candidateExportFiles } from '../src/result-explorer'
 
 function deferred<T>() {
@@ -22,9 +22,26 @@ function item(index: number): ResultCandidate {
 function collectionPage(offset: number, total = 250): ResultCollectionPage {
   return { collection_id: 'collection', item_type: 'protein.sequence', total, offset, items: Array.from({ length: Math.min(100, total - offset) }, (_, index) => item(offset + index)) }
 }
+class EventSocket {
+  onopen: (() => void) | null = null
+  onclose: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onmessage: ((message: { data: string }) => void) | null = null
+  closed = false
+  close() { this.closed = true }
+  event(event: RunEvent, cursor = 'received') { this.onmessage?.({ data: JSON.stringify({ cursor, event }) }) }
+}
 // Concrete client substitutions return the existing protocol's conforming values.
 class ResultsClient extends PublicV2Client {
   offsets: number[] = []
+  sockets: EventSocket[] = []
+  cursors: Array<string | undefined> = []
+  override runEvents(_projectId: string, _runId: string, cursor?: string) {
+    const socket = new EventSocket()
+    this.sockets.push(socket)
+    this.cursors.push(cursor)
+    return socket as unknown as WebSocket
+  }
   projectionFor = async (runId: string) => projection(runId)
   pageFor = async (offset: number) => collectionPage(offset)
   override runProjection(_projectId: string, runId: string) { return this.projectionFor(runId) }
@@ -199,4 +216,98 @@ test('complete paging includes a collection published during the operation', asy
   const snapshot = (await completion)!
   expect(snapshot.index.collections.map(entry => [entry.source.node_id, entry.items.length])).toEqual([['batch', 150], ['later', 150]])
   expect(client.requests).toEqual([['batch', 0], ['batch', 100], ['later', 0], ['later', 100]])
+})
+
+
+test('events retain activity and diagnostics while REST alone publishes completion', async () => {
+  const client = new ResultsClient()
+  const reader = new PublishedResults(client)
+  client.projectionFor = async () => ({ ...projection(), status: 'running' })
+  reader.openRun({ project_id: 'project', run_id: 'A' }, 'receipt')
+  await ready(reader)
+  const socket = client.sockets[0]
+  socket.onopen?.()
+  socket.event({ type: 'replay_complete' })
+  await ready(reader)
+  const held = deferred<RunProjection>()
+  client.projectionFor = () => held.promise
+  socket.event({ type: 'node_attempt_started', node_id: 'batch', node_attempt_id: 'attempt' })
+  expect(reader.getSnapshot().currentNodeId).toBe('batch')
+  const error = { code: 'operation_failed', message: 'located failure', retryable: false, correlation_id: 'operation', details: {} }
+  socket.event({ type: 'node_attempt_terminal', node_attempt_id: 'attempt', status: 'failed', error })
+  socket.event({ type: 'node_disposition', disposition: { node_id: 'batch', outcome: 'failed', terminal_sequence: 7, blocked_by: [] } })
+  socket.event({ type: 'run_terminal', status: 'failed' })
+  socket.onclose?.()
+  expect(reader.getSnapshot()).toMatchObject({ run: { status: 'running', node_dispositions: [] }, connection: 'connected', diagnostics: { batch: error } })
+  expect(reader.getSnapshot().currentNodeId).toBeUndefined()
+  held.resolve({ ...projection(), status: 'failed', node_dispositions: [{ node_id: 'batch', outcome: 'failed', terminal_sequence: 7, blocked_by: [] }] })
+  await ready(reader)
+  expect(reader.getSnapshot().run?.status).toBe('failed')
+  expect(client.cursors).toEqual(['receipt'])
+})
+
+test('replay refreshes once and received cursor survives reconnect independently of the REST cursor', async () => {
+  const client = new ResultsClient()
+  let reads = 0
+  client.projectionFor = async () => { reads += 1; return { ...projection(), ledger_cursor: '99', node_dispositions: [{ node_id: 'batch', outcome: 'succeeded', terminal_sequence: 9, blocked_by: [], resolution: 'cache_replayed' }] } }
+  const reader = new PublishedResults(client)
+  await open(reader)
+  const socket = client.sockets[0]
+  socket.event({ type: 'node_attempt_started', node_id: 'batch', node_attempt_id: 'old-attempt' }, '2')
+  expect(reader.getSnapshot().currentNodeId).toBeUndefined()
+  socket.event({ type: 'node_disposition', disposition: { node_id: 'batch', outcome: 'succeeded', terminal_sequence: 9, blocked_by: [], resolution: 'cache_replayed' } }, '9')
+  socket.event({ type: 'run_terminal', status: 'succeeded' }, '10')
+  expect(reads).toBe(1)
+  socket.event({ type: 'replay_complete' }, '10')
+  await ready(reader)
+  expect(reads).toBe(2)
+  reader.reconnect()
+  expect(client.cursors).toEqual([undefined, '10'])
+  expect(socket.closed).toBe(true)
+  socket.onerror?.()
+  expect(reader.getSnapshot().connection).toBe('connecting')
+  client.sockets[1].onerror?.()
+  expect(reader.getSnapshot().connection).toBe('disconnected')
+})
+
+test('retired HTTP and socket responses cannot update A after A to B to A', async () => {
+  const client = new ResultsClient()
+  const held = deferred<RunProjection>()
+  client.projectionFor = () => held.promise
+  const reader = new PublishedResults(client)
+  reader.openRun({ project_id: 'project', run_id: 'A' })
+  const socket = client.sockets[0]
+  client.projectionFor = async runId => projection(runId)
+  await open(reader, 'B')
+  await open(reader, 'A')
+  expect(socket.closed).toBe(true)
+  socket.event({ type: 'node_attempt_started', node_id: 'retired', node_attempt_id: 'attempt' })
+  socket.event({ type: 'node_attempt_terminal', node_attempt_id: 'attempt', status: 'failed', error: { code: 'old', message: 'retired', retryable: false, correlation_id: 'old', details: {} } })
+  held.resolve({ ...projection(), status: 'failed' })
+  await held.promise
+  expect(reader.getSnapshot()).toMatchObject({ phase: 'ready', run: { status: 'succeeded' }, diagnostics: {} })
+  reader.openRun(undefined)
+  expect(client.sockets[2].closed).toBe(true)
+  expect(reader.getSnapshot()).toMatchObject({ phase: 'idle', diagnostics: {} })
+})
+
+test('failed final projection retains published results and can be retried without reopening the stream', async () => {
+  const client = new ResultsClient()
+  client.projectionFor = async () => ({ ...projection(), status: 'running' })
+  const reader = new PublishedResults(client)
+  await open(reader)
+  const socket = client.sockets[0]
+  socket.onopen?.()
+  socket.event({ type: 'replay_complete' })
+  await ready(reader)
+  client.projectionFor = async () => { throw new Error('final read failed') }
+  socket.event({ type: 'run_terminal', status: 'succeeded' })
+  socket.onclose?.()
+  await expect(ready(reader)).rejects.toThrow('final read failed')
+  expect(reader.getSnapshot()).toMatchObject({ phase: 'error', connection: 'connected', run: { status: 'running' } })
+  expect(reader.getSnapshot().index.collections[0].items).toHaveLength(100)
+  client.projectionFor = async () => projection()
+  await reader.refresh()
+  expect(reader.getSnapshot().run?.status).toBe('succeeded')
+  expect(client.sockets).toHaveLength(1)
 })

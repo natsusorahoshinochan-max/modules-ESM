@@ -13,7 +13,8 @@ const baseURL = process.env.PROTEIN_WORKBENCH_REAL_UI_URL!
 async function publishedResults(run: RunReference) {
   const results = new PublishedResults(new PublicV2Client(baseURL))
   results.openRun(run)
-  return (await results.ensureCandidates({ all: true }))!
+  try { return (await results.ensureCandidates({ all: true }))! }
+  finally { results.openRun(undefined) }
 }
 
 async function projects(request: APIRequestContext) {

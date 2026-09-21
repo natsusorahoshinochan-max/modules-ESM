@@ -6,10 +6,9 @@ import { InputSourceDialog } from './InputSourceDialog'
 import type { CandidateInputPlan, PromptSourcePlan } from './input-sources'
 import { ProjectWorkspaceDialog } from './ProjectWorkspaceDialog'
 import { workspaceErrorMessage, type ProjectWorkspace, type WorkflowVersionView } from './project-workspace'
-import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type PromptAuthoringDocument, type PromptSnapshot, type RunEventEnvelope, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type WorkflowNode, type JsonObject, type PromptVersionContext } from './protocol/client'
+import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type PromptAuthoringDocument, type PromptSnapshot, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type WorkflowNode, type JsonObject, type PromptVersionContext } from './protocol/client'
 import { RunDialog } from './RunDialog'
 import { RunDiagnostics } from './RunDiagnostics'
-import type { RunDiagnostic } from './protocol/client'
 import { ResultsWorkbench } from './ResultsWorkbench'
 import { PublishedResults } from './published-results'
 import { WorkflowParameters } from './WorkflowParameters'
@@ -26,7 +25,7 @@ type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' 
 type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
 type WorkflowNodeData = Record<string, unknown> & { kind: 'prompt' | 'ordinary'; eyebrow: string; title: string; subtitle: string; index: string; inputs: string[]; outputs: string[]; inputPortTypes: Record<string, string>; inputMultiplicities: Record<string, string>; outputPortTypes: Record<string, string>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; onEditSelection?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onBinding?: (nodeId: string, bindingId: string) => void }
 type FlowNode = Node<WorkflowNodeData>
-type RunProgress = { status: 'committing' | 'starting' | RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; lastNodeId?: string; projectId?: string; runId?: string; workflowCommitId?: string; eventCursor?: string; scope?: RunScope }
+type RunProgress = { status: RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; projectId?: string; runId?: string; }
 type PendingNodeDrop = { nodeTypeId: string; position: { x: number; y: number }; bindings: BindingOption[] }
 type HistoryEntry = { workflow: Workflow; nodes: FlowNode[]; edges: Edge[] }
 
@@ -89,7 +88,7 @@ function nodeRunStateFromDisposition(disposition: NodeDisposition): NodeRunState
 
 function nodeStatesFromProjection(projection: RunProjection, workflowNodeIds: string[] = []): Record<string, NodeRunState> {
   return Object.fromEntries([
-    ...workflowNodeIds.map((nodeId): [string, NodeRunState] => [nodeId, { status: projection.scope.execution_node_ids.includes(nodeId) ? 'waiting' : 'outside' }]),
+    ...workflowNodeIds.map((nodeId): [string, NodeRunState] => [nodeId, { status: projection.scope.execution_node_ids.includes(nodeId) ? 'waiting' : projection.scope.reused_node_ids.includes(nodeId) ? 'reused' : 'outside' }]),
     ...projection.node_dispositions.map((disposition): [string, NodeRunState] => [disposition.node_id, projection.scope.reused_node_ids.includes(disposition.node_id) ? { status: 'reused' } : nodeRunStateFromDisposition(disposition)]),
   ])
 }
@@ -109,8 +108,7 @@ function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
 }
 
 function runProgressTitle(status: RunProgress['status']) {
-  if (status === 'committing') return '正在准备运行'
-  if (status === 'starting' || status === 'admitted') return '正在启动'
+  if (status === 'admitted') return '正在启动'
   if (status === 'running') return '正在运行'
   if (status === 'succeeded') return '运行完成'
   if (status === 'failed') return '运行失败'
@@ -121,7 +119,7 @@ function runProgressTitle(status: RunProgress['status']) {
 function RunProgressBar({ progress, nodeTitle, resultsLoading, resultsAvailable, onResults, onCancel }: { progress: RunProgress; nodeTitle: string; resultsLoading: boolean; resultsAvailable: boolean; onResults: () => void; onCancel: () => void }) {
   const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(progress.status)
   const percent = progress.totalNodes === 0 ? 0 : Math.round(progress.completedNodeIds.length / progress.totalNodes * 100)
-  const stage = progress.status === 'committing' ? '提交 Workflow Commit' : progress.status === 'starting' ? '等待 Run 接纳' : progress.status === 'admitted' ? '已接纳，等待执行开始' : progress.currentNodeId ? nodeTitle : progress.status === 'running' ? '等待下一个 Node Instance' : progress.status === 'succeeded' && resultsLoading ? '加载 Run 结果' : 'Run Closure'
+  const stage = progress.status === 'admitted' ? '已接纳，等待执行开始' : progress.currentNodeId ? nodeTitle : progress.status === 'running' ? '等待下一个 Node Instance' : progress.status === 'succeeded' && resultsLoading ? '加载 Run 结果' : 'Run Closure'
   return <section className={`run-progress-bar ${terminal ? 'terminal' : 'active'} status-${progress.status}`} role="status" aria-live="polite">
     <span className="run-progress-icon">{terminal && progress.status === 'succeeded' ? <Check size={15} /> : terminal ? <Info size={15} /> : <LoaderCircle size={16} />}</span>
     <div className="run-progress-state"><span className="page-kicker">LIVE RUN</span><strong>{progress.status === 'succeeded' && resultsLoading ? '运行完成 · 正在加载结果' : runProgressTitle(progress.status)}</strong></div>
@@ -145,9 +143,14 @@ function App() {
   const resultsLoading = resultSnapshot.phase === 'loading'
   const resultLoadError = resultSnapshot.phase === 'error' ? workspaceErrorMessage(resultSnapshot.error) : ''
   const resultsAvailable = !!run && (run.outputs.length > 0 || run.artifact_index.length > 0)
-  const [runProgress, setRunProgress] = useState<RunProgress>()
-  const [runDiagnostics, setRunDiagnostics] = useState<Record<string, Record<string, RunDiagnostic>>>({})
-  const attemptNodeIds = useRef<Record<string, Record<string, string>>>({})
+  const runProgress = useMemo<RunProgress | undefined>(() => {
+    if (!run) return undefined
+    const nodeStates = nodeStatesFromProjection(run, draft?.workflow.nodes.map((node) => node.node_id))
+    if (resultSnapshot.currentNodeId) nodeStates[resultSnapshot.currentNodeId] = { status: 'running' }
+    return { status: run.status, totalNodes: run.scope.execution_node_ids.length,
+      completedNodeIds: run.node_dispositions.filter((item) => run.scope.execution_node_ids.includes(item.node_id)).map((item) => item.node_id),
+      nodeStates, currentNodeId: resultSnapshot.currentNodeId, projectId: run.project_id, runId: run.run_id }
+  }, [run, draft?.workflow.nodes, resultSnapshot.currentNodeId])
   const candidates = resultIndex.collections.flatMap((collection) => collection.items)
   const [nodes, setNodes] = useState<FlowNode[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
@@ -161,10 +164,7 @@ function App() {
   const [parameterChoicesError, setParameterChoicesError] = useState('')
   const [view, setView] = useState<'workflow' | 'results'>('workflow')
   const [scopePreview, setScopePreview] = useState<RunScope>()
-  const [connection, setConnection] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
-  const [reconnectVersion, setReconnectVersion] = useState(0)
   const [runError, setRunError] = useState('')
-  const eventCursors = useRef<Record<string, string>>({})
   const [runOpen, setRunOpen] = useState(false)
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [canvasPicker, setCanvasPicker] = useState<{ x: number; y: number }>()
@@ -223,74 +223,6 @@ function App() {
   }, [draft, project, run])
 
   useEffect(() => () => results.openRun(undefined), [results])
-
-  useEffect(() => {
-    if (!run) return
-    setProject((current) => current?.id === run.project_id && current.latest_run_id !== run.run_id ? { ...current, latest_run_id: run.run_id } : current)
-    setRunProgress((progress) => {
-      const previous = progress?.projectId === run.project_id && progress.runId === run.run_id ? progress : undefined
-      return {
-        ...previous,
-        status: run.status, scope: run.scope,
-        totalNodes: run.scope.execution_node_ids.length,
-        completedNodeIds: run.node_dispositions.filter((item) => run.scope.execution_node_ids.includes(item.node_id)).map((item) => item.node_id),
-        nodeStates: nodeStatesFromProjection(run, previous ? Object.keys(previous.nodeStates) : workflowRef.current!.nodes.map((node) => node.node_id)),
-        projectId: run.project_id, runId: run.run_id, workflowCommitId: run.workflow_commit_id,
-        eventCursor: previous?.eventCursor ?? (run.status === 'admitted' || run.status === 'running' ? '' : undefined),
-      }
-    })
-  }, [run])
-
-  const subscribedRun = runProgress?.projectId && runProgress.runId ? `${runProgress.projectId}/${runProgress.runId}` : undefined
-  useEffect(() => {
-    if (!subscribedRun) return
-    const [projectId, runId] = subscribedRun.split('/')
-    let disposed = false
-    let replaying = true
-    let terminalSeen = false
-    const socket = client.runEvents(projectId, runId, eventCursors.current[subscribedRun])
-    socket.onopen = () => { if (!disposed) setConnection('connected') }
-    socket.onclose = () => { if (!disposed && !terminalSeen) setConnection('disconnected') }
-    socket.onerror = () => { if (!disposed) setConnection('disconnected') }
-    socket.onmessage = (message) => {
-      if (disposed) return
-      const envelope = JSON.parse(message.data as string) as RunEventEnvelope
-      eventCursors.current[subscribedRun] = envelope.cursor
-      const event = envelope.event
-      setRunProgress((current) => current?.runId === runId ? { ...current, eventCursor: envelope.cursor } : current)
-      if (event.type === 'run_started' && !replaying) setRunProgress((current) => current?.runId === runId ? { ...current, status: 'running' } : current)
-      if (event.type === 'node_attempt_started') {
-        const attempts = attemptNodeIds.current[subscribedRun] ??= {}
-        attempts[event.node_attempt_id] = event.node_id
-        setRunProgress((current) => current?.runId === runId && ['admitted', 'running'].includes(current.status) ? { ...current, status: 'running', currentNodeId: event.node_id, nodeStates: { ...current.nodeStates, [event.node_id]: { status: 'running' } } } : current)
-      }
-      if (event.type === 'node_attempt_terminal' && event.error) {
-        const nodeId = attemptNodeIds.current[subscribedRun][event.node_attempt_id]
-        const diagnostic = event.error
-        setRunDiagnostics((current) => ({ ...current, [subscribedRun]: { ...current[subscribedRun], [nodeId]: diagnostic } }))
-      }
-      if (event.type === 'replay_complete') {
-        replaying = false
-        void results.refresh()
-      }
-      if (event.type === 'node_disposition') {
-        setRunProgress((current) => {
-          if (current?.runId !== runId) return current
-          const isExecution = current.scope?.execution_node_ids.includes(event.disposition.node_id) ?? true
-          const completedNodeIds = !isExecution || current.completedNodeIds.includes(event.disposition.node_id) ? current.completedNodeIds : [...current.completedNodeIds, event.disposition.node_id]
-          const nodeState: NodeRunState = current.scope?.reused_node_ids.includes(event.disposition.node_id) ? { status: 'reused' } : nodeRunStateFromDisposition(event.disposition)
-          return { ...current, completedNodeIds, nodeStates: { ...current.nodeStates, [event.disposition.node_id]: nodeState }, lastNodeId: event.disposition.node_id, currentNodeId: current.currentNodeId === event.disposition.node_id ? undefined : current.currentNodeId }
-        })
-        if (!replaying) void results.refresh()
-      }
-      if (event.type === 'run_terminal') {
-        terminalSeen = true
-        setRunProgress((current) => current?.runId === runId ? { ...current, status: event.status, currentNodeId: undefined } : current)
-        if (!replaying) void results.refresh()
-      }
-    }
-    return () => { disposed = true; socket.close() }
-  }, [results, reconnectVersion, subscribedRun])
 
   useEffect(() => {
     let current = true
@@ -479,7 +411,6 @@ function App() {
     setWorkspace(selectedWorkspace)
     uiStateRef.current = selectedWorkspace.ui_state
     bindingParameterMemory.current[selected.id] = selectedWorkspace.ui_state.binding_parameter_memory as Record<string, Record<string, Record<string, unknown>>> | undefined ?? {}
-    setRunProgress(undefined)
     setPrompt(undefined)
     setPromptOpenError(undefined)
     setRunError('')
@@ -652,7 +583,7 @@ function App() {
     const descriptor = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === node?.node_type_id)?.descriptor
     return String(descriptor?.title ?? node?.node_type_id ?? runProgress.currentNodeId)
   }, [catalog, draft, runProgress?.currentNodeId])
-  const runActive = runProgress ? ['committing', 'starting', 'admitted', 'running'].includes(runProgress.status) : false
+  const runActive = resultSnapshot.connection !== undefined && (!run || ['admitted', 'running'].includes(run.status))
   const pendingNodeTitle = pendingNodeDrop && catalog ? nodeTypePresentation(catalog, pendingNodeDrop.nodeTypeId).title : ''
   const inputSourceDialog = inputSource && catalog && <InputSourceDialog projectId={inputSource.projectId} workflow={inputSource.workflow} catalog={catalog} client={client} mergeTargetNodeId={inputSource.mergeTargetNodeId} onPreparePrompt={prepareSourcePrompt} onImportCandidates={importSourceCandidates} onClose={closeInputSource} />
 
@@ -695,11 +626,11 @@ function App() {
       void saveWorkflow(() => currentWorkflow).then(() => persistCanvas(currentNodes)).catch(reportSaveError)
     }}>重试保存</button></div>}
     {runProgress && <RunProgressBar progress={runProgress} nodeTitle={progressNodeTitle} resultsLoading={resultsLoading} resultsAvailable={resultsAvailable} onResults={() => setView('results')} onCancel={() => { void client.cancelRun(runProgress.projectId!, runProgress.runId!).catch((reason) => setRunError(JSON.stringify(reason))) }} />}
-    {runActive && connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => { setConnection('connecting'); setReconnectVersion((value) => value + 1) }}>从已接收位置重新连接</button></div>}
+    {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
     {runError && <pre role="alert">{runError}</pre>}
-    {resultLoadError && <pre role="alert">{resultLoadError}</pre>}
+    {resultLoadError && <div role="alert"><pre>{resultLoadError}</pre><button onClick={() => void results.refresh()}>重试读取 Run 结果</button></div>}
     {promptOpenError && <div className="workspace-error" role="alert">无法打开节点 {promptOpenError.nodeId} 的 Prompt：{promptOpenError.message}<button onClick={() => openPromptEditor(promptOpenError.nodeId)}>重新打开</button><button onClick={() => setPromptOpenError(undefined)}>关闭提示</button></div>}
-    {subscribedRun && <RunDiagnostics errors={runDiagnostics[subscribedRun] ?? {}} onFocus={(nodeId) => { setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId }))); void flowInstance.current?.fitView({ nodes: [{ id: nodeId }], duration: 250 }) }} />}
+    {run && <RunDiagnostics errors={resultSnapshot.diagnostics} onFocus={(nodeId) => { setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId }))); void flowInstance.current?.fitView({ nodes: [{ id: nodeId }], duration: 250 }) }} />}
     <div className="workspace-shell"><aside className={`palette ${sidebarOpen ? '' : 'closed'}`}><header><div><span className="page-kicker">OPERATION PALETTE</span><h2>研究操作</h2></div><button className="icon-button" onClick={() => setSidebarOpen(false)}><PanelLeftClose size={16} /></button></header><div className="palette-search"><Search size={15} /><input placeholder="搜索 active Catalog…" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="taxonomy-switch"><button className={paletteTaxonomy === 'purpose' ? 'active' : ''} onClick={() => setPaletteTaxonomy('purpose')}>按研究目的</button><button className={paletteTaxonomy === 'provider' ? 'active' : ''} onClick={() => setPaletteTaxonomy('provider')}>按包 / 模型</button></div><div className="palette-section"><span className="section-label">ACTIVE CATALOG</span>{palette.map((group) => <section className="palette-group" key={group.label}><span className="palette-group-title">{group.label}</span>{group.entries.map((item) => <button className="palette-item" key={`${group.label}-${item.id}`} onClick={() => addPaletteNode(item.id)} draggable onDragStart={(event) => { event.dataTransfer.setData('application/protein-workbench-node-type', item.id); event.dataTransfer.effectAllowed = 'move' }}><span className="palette-icon"><Atom size={16} /></span><span><strong>{item.title}</strong><small>{paletteTaxonomy === 'purpose' ? item.purpose : group.label}</small></span><Plus size={14} /></button>)}</section>)}</div><div className="catalog-status"><span className="status-light" /><div><strong>Active Catalog</strong><small>{catalog?.contracts.length} contracts</small></div><CircleHelp size={14} /></div></aside>
       <main className="flow-canvas">{!sidebarOpen && <button className="floating-open" onClick={() => setSidebarOpen(true)}><ChevronRight size={16} /></button>}<ReactFlow nodes={displayed} edges={edges} nodeTypes={{ workflow: WorkflowCard }} isValidConnection={validConnection} onInit={(instance) => { flowInstance.current = instance; const viewport = canvasFromUi(uiStateRef.current).viewport; if (viewport) requestAnimationFrame(() => void instance.setViewport(viewport)) }} onMoveEnd={(event, viewport) => { if (event) void persistCanvas(nodesRef.current, viewport).catch(reportSaveError) }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' }} onDrop={dropPaletteNode} onPaneContextMenu={(event) => { event.preventDefault(); setCanvasPicker({ x: event.clientX, y: event.clientY }) }} onNodeDragStart={remember} onBeforeDelete={async () => { remember(); return true }} onDelete={({ nodes: deletedNodes, edges: deletedEdges }) => { void deleteWorkflowElements(deletedNodes, deletedEdges).catch(reportSaveError) }} onNodesChange={(changes: NodeChange<FlowNode>[]) => { const next = applyNodeChanges(changes, nodesRef.current); nodesRef.current = next; setNodes(next); if (changes.some((change) => change.type === 'position' && change.dragging === false)) void persistCanvas(next).catch(reportSaveError) }} onEdgesChange={(changes: EdgeChange<Edge>[]) => { const next = applyEdgeChanges(changes, edgesRef.current); edgesRef.current = next; setEdges(next) }} onConnect={(connection: Connection) => { remember(); const target = nodesRef.current.find((node) => node.id === connection.target)!; const targetPort = connection.targetHandle!.slice(3); const available = target.data.inputMultiplicities[targetPort] === 'many' ? edgesRef.current : edgesRef.current.filter((edge) => edge.target !== connection.target || edge.targetHandle !== connection.targetHandle); const next = addEdge({ ...connection, type: 'default' }, available); edgesRef.current = next; setEdges(next); void saveFlowEdges(next).catch(reportSaveError) }} onReconnectStart={() => { reconnectSucceeded.current = false }} onReconnect={(edge, connection) => { reconnectSucceeded.current = true; remember(); const next = reconnectEdge(edge, connection, edgesRef.current); edgesRef.current = next; setEdges(next); void saveFlowEdges(next).catch(reportSaveError) }} onReconnectEnd={(_, edge) => { if (!reconnectSucceeded.current) { remember(); const next = edgesRef.current.filter((item) => item.id !== edge.id); edgesRef.current = next; setEdges(next); void saveFlowEdges(next).catch(reportSaveError) } reconnectSucceeded.current = false }} fitView fitViewOptions={{ padding: 0.16 }} minZoom={0.28} maxZoom={1.5} deleteKeyCode={['Backspace', 'Delete']} selectionOnDrag><Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#39413b" /><MiniMap nodeColor={(node) => String(node.data.accent)} maskColor="rgba(14,16,14,.72)" /><Controls showInteractive={false} /><Panel position="top-left" className="canvas-heading"><span className="page-kicker">WORKFLOW DRAFT · {nodes.length} GRAPH NODES</span><h1>{project.name}</h1><p>{draft.workflow.edges.length} persisted edges · exact Catalog Port compatibility</p></Panel><Panel position="top-right" className="canvas-tools"><button onClick={() => void openInputSource().catch(reportSaveError)}><Plus size={14} /> 添加来源</button><button onClick={() => setCanvasPicker({ x: 350, y: 160 })}><Search size={14} /> 添加节点</button><button onClick={() => void flowInstance.current?.fitView({ padding: 0.16 })}><Layers3 size={14} /> 适合视图</button></Panel><Panel position="bottom-center" className="canvas-hint"><Zap size={13} /> 拖动端口以重新连接 · Delete 删除 · ⌘Z 撤销</Panel></ReactFlow></main>
       <aside className="run-peek"><header><div><span className="page-kicker">LATEST RUN</span><h3>最近结果</h3></div>{run && <span className={run.status === 'succeeded' ? 'success-dot' : 'run-status-label'}>{run.status === 'succeeded' ? <Check size={11} /> : run.status}</span>}</header><div className="run-peek-visual"><div className="result-count-preview"><strong>{candidates.length}</strong><span>已发布候选 · 按需打开结构</span></div><span>{run?.run_id}</span></div><div className="run-funnel">{(run?.selection_results ?? []).map((selection, index, all) => <span key={selection.selection_node_id}>{selection.selection_node_id}<strong>{selection.selected_candidate_ids.length}</strong>{index < all.length - 1 && <ChevronRight size={13} />}</span>)}</div>{run && <div className="old-result-note"><Info size={14} /><span>{scienceStatus === 'current' ? '与当前科学流程一致' : scienceStatus === 'stale' ? '来自修改前的科学流程' : '结果一致性待确认'}</span><small>{run.workflow_commit_id}</small></div>}<button className="view-results-button" disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={() => setView('results')}><Activity size={14} /> 打开 Results Workbench <ChevronRight size={14} /></button></aside></div>
@@ -714,10 +645,9 @@ function App() {
       return { projectId: personal.project.id, request, preview }
     }} onStart={async ({ projectId, request, preview }) => {
       const receipt = await client.startRun(projectId, preview.workflow_commit_id, request)
-      eventCursors.current[`${receipt.project_id}/${receipt.run_id}`] = receipt.event_cursor
-      results.openRun({ project_id: receipt.project_id, run_id: receipt.run_id })
-      setRunError(''); setConnection('connecting'); setSelectionEdit(undefined)
-      setRunProgress({ status: 'admitted', scope: preview.scope, totalNodes: preview.scope.execution_node_ids.length, completedNodeIds: [], nodeStates: Object.fromEntries(draft.workflow.nodes.map((node) => [node.node_id, { status: preview.scope.execution_node_ids.includes(node.node_id) ? 'waiting' as const : preview.scope.reused_node_ids.includes(node.node_id) ? 'reused' as const : 'outside' as const }])), projectId: receipt.project_id, runId: receipt.run_id, workflowCommitId: receipt.workflow_commit_id, eventCursor: receipt.event_cursor })
+      results.openRun({ project_id: receipt.project_id, run_id: receipt.run_id }, receipt.event_cursor)
+      setProject((current) => current?.id === receipt.project_id ? { ...current, latest_run_id: receipt.run_id } : current)
+      setRunError(''); setSelectionEdit(undefined)
       setRunOpen(false); setScopePreview(undefined)
     }} />}
     {pendingNodeDrop && <div className="modal-backdrop"><section className="run-dialog binding-dialog" role="dialog" aria-modal="true" aria-labelledby="binding-dialog-title"><header><span className="dialog-icon"><Atom size={18} /></span><div><span className="page-kicker">EXECUTION BINDING</span><h2 id="binding-dialog-title">为 {pendingNodeTitle} 选择执行模型</h2></div><button className="icon-button" onClick={() => setPendingNodeDrop(undefined)}><X size={18} /></button></header><div className="binding-choice-list">{pendingNodeDrop.bindings.map((binding) => <button key={binding.id} title={binding.availabilityReason?.message} onClick={() => void addDroppedNode(pendingNodeDrop, binding.id).catch(reportSaveError)}><strong>{binding.label}{binding.available ? '' : '（不可用）'}</strong><small>{binding.id}</small>{binding.availabilityReason?.message && <p>{binding.availabilityReason.message}</p>}</button>)}</div><footer><button className="secondary-button" onClick={() => setPendingNodeDrop(undefined)}>取消</button></footer></section></div>}

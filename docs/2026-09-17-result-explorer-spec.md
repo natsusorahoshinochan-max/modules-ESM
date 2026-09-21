@@ -28,7 +28,9 @@ Candidate Collection 的局部恢复由内置 codec owner 提供。其 interface
 
 ## 统一结果读取状态
 
-WebUI 的 `PublishedResults` module 是当前结果 Run 的唯一读取 owner。App、Results Workbench、Selection 编辑器与导出共用其 snapshot，不分别保存候选集合或编排分页。结果归属取实际 `(project_id, run_id)`，个人 Project 引用示例结果时仍使用示例 Run 的归属。Run 事件订阅、cursor、执行进度和 Workflow 编辑继续由 App 负责；阶段、显示页码、焦点、勾选、筛选和排序继续由视图负责。
+WebUI 的 `PublishedResults` module 是当前 Run 阅读的唯一 owner：同一 Session 持有 REST projection、事件订阅及 cursor、当前执行节点、诊断、连接信息和结果分页。App、Results Workbench、Selection 编辑器与导出共用其 snapshot，不另存执行结论或候选集合。结果归属取实际 `(project_id, run_id)`，个人 Project 引用示例结果时仍使用示例 Run 的归属。App 负责 Workflow 编辑、提交、启动与取消；阶段、显示页码、焦点、勾选、筛选和排序由视图负责。
+
+节点完成与 Run 终态只取 REST projection。WebSocket 实时提供执行活动、诊断及连接信息，并触发 REST 刷新；回放完成时统一刷新，不逐条回放请求。收到完成事件后，正式完成状态在下一次 REST 返回时显示。事件 cursor 只表示已消费的事件位置，不由 REST snapshot 的 cursor 推进。启动回执与首次 REST 之间仍保留当前 Session，不能因此再次启动。
 
 切换结果 Run 同步替换读取会话，旧会话的迟到成功或失败不能修改当前 snapshot，包括 A→B→A。相同 Run 的刷新保留已加载页面，并只读取新增或此前未成功读取的不可变输出；旧 projection 响应不能覆盖更新的请求。同 Run 刷新不作废候选分页请求。Commit 科学定义在会话内复用，读取不重新验证服务器响应或科学身份。
 

@@ -20,7 +20,7 @@ from core.catalog.port_contract import (
     PortTypeDefinition,
 )
 from datatypes.i_json import thaw_i_json
-from tests.support.catalog import binding_availability, resolved_dependencies
+from tests.support.catalog import binding_availability, catalog_contract, resolved_dependencies
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 
@@ -47,25 +47,26 @@ def _catalog() -> FrozenCatalog:
         runtime_to_wire=lambda value: value,
         runtime_from_wire=lambda value: value,
     )
+    method = catalog_contract(
+        "method", "fixture.catalog.method",
+        {"contract_kind": "method", "contract_id": "fixture.catalog.method"},
+    )
     binding_descriptor = {
         "schema_namespace": "protein-workbench-contract/v2",
         "contract_kind": "binding",
         "contract_id": "fixture.catalog.direct",
+        "method": method.reference(),
         "node_type": {
             "contract_kind": "node_type",
             "contract_id": "fixture.catalog",
         },
     }
-    binding = CatalogContract(
-        contract_kind="binding",
-        contract_id="fixture.catalog.direct",
-        descriptor=binding_descriptor,
-        dependencies=resolved_dependencies(binding_descriptor),
-        definition=object(),  # type: ignore[arg-type]
+    binding = catalog_contract(
+        "binding", "fixture.catalog.direct", binding_descriptor,
     )
     return FrozenCatalog(
         (port_type,),
-        contracts=(binding,),
+        contracts=(binding, method),
         availability=(binding_availability(binding, OBSERVED_AT),),
         availability_observed_at=OBSERVED_AT,
     )
@@ -88,6 +89,7 @@ def test_catalog_projection_exposes_typed_canonical_facts_only() -> None:
         for contract in projection.contracts
     ] == [
         ("binding", "fixture.catalog.direct"),
+        ("method", "fixture.catalog.method"),
         ("port_type", "fixture.catalog.text"),
     ]
     assert not hasattr(catalog, "catalog_descriptor")
@@ -186,10 +188,24 @@ def test_public_codec_assembles_the_exact_catalog_wire() -> None:
                     "schema_namespace": "protein-workbench-contract/v2",
                     "contract_kind": "binding",
                     "contract_id": "fixture.catalog.direct",
+                    "method": {
+                        "contract_kind": "method",
+                        "contract_id": "fixture.catalog.method",
+                    },
                     "node_type": {
                         "contract_kind": "node_type",
                         "contract_id": "fixture.catalog",
                     },
+                },
+            },
+            {
+                "reference": {
+                    "contract_kind": "method",
+                    "contract_id": "fixture.catalog.method",
+                },
+                "descriptor": {
+                    "contract_kind": "method",
+                    "contract_id": "fixture.catalog.method",
                 },
             },
             {

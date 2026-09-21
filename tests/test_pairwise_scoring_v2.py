@@ -202,6 +202,7 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             paired_utility,
         )
     }
+    contracts["score.tm.pairwise"] = _pairwise_binding(contracts)
     return (
         FrozenCatalog(
             builtin.port_types,
@@ -740,7 +741,7 @@ def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> No
 
     admit_test_produced_score_collection(
         catalog=catalog,
-        binding=_pairwise_binding(contracts),
+        binding=contracts["score.tm.pairwise"],
         output_port="scores",
         collection=ScoreCollection("pairwise", [observation]),
         inputs=inputs,
@@ -750,7 +751,7 @@ def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> No
     with pytest.raises(ObservationAdmissionError, match="reference source"):
         admit_test_produced_score_collection(
             catalog=catalog,
-            binding=_pairwise_binding(contracts),
+            binding=contracts["score.tm.pairwise"],
             output_port="scores",
             collection=ScoreCollection("pairwise", [observation]),
             inputs={
@@ -789,7 +790,7 @@ def test_explicit_relation_allows_one_shared_reference() -> None:
 
     admit_test_produced_score_collection(
         catalog=catalog,
-        binding=_pairwise_binding(contracts),
+        binding=contracts["score.tm.pairwise"],
         output_port="scores",
         collection=scores,
         inputs={
@@ -843,7 +844,7 @@ def test_per_subject_pairing_rejects_a_swapped_bijection() -> None:
     with pytest.raises(ObservationAdmissionError, match="pairing source"):
         admit_test_produced_score_collection(
             catalog=catalog,
-            binding=_pairwise_binding(contracts),
+            binding=contracts["score.tm.pairwise"],
             output_port="scores",
             collection=scores,
             inputs={
@@ -906,6 +907,7 @@ def test_controlled_union_accepts_admitted_observations() -> None:
             },
         },
     )
+    catalog = replace(catalog, contracts=(*catalog.contracts, binding))
     inputs = {
         "left": ScoreCollection("left", [fixed]),
         "right": ScoreCollection("right", [paired]),
@@ -950,6 +952,7 @@ def test_controlled_pass_through_accepts_admitted_observations() -> None:
             },
         },
     )
+    catalog = replace(catalog, contracts=(*catalog.contracts, binding))
     inputs = {"source": ScoreCollection("source", [observation])}
 
     admit_test_produced_score_collection(
@@ -1000,6 +1003,7 @@ def test_controlled_filter_accepts_admitted_observations() -> None:
             },
         },
     )
+    catalog = replace(catalog, contracts=(*catalog.contracts, binding))
     inputs = {"source": ScoreCollection("source", [fixed, paired])}
 
     admit_test_produced_score_collection(

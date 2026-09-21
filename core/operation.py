@@ -25,7 +25,7 @@ from datatypes.i_json import admit_i_json
 if TYPE_CHECKING:
     from core.scoring.observation_plan import ResolvedProducedObservation
     from core.scoring.selection import (
-        ResolvedObservationSelector,
+        ObservationSelector,
         ResolvedSelectionObjective,
     )
 
@@ -479,7 +479,7 @@ class OperationContext:
     method: ExactContractReference
     produced_observations: tuple[ResolvedProducedObservation, ...]
     selection_objectives: tuple[ResolvedSelectionObjective, ...]
-    observation_selectors: tuple[ResolvedObservationSelector, ...]
+    observation_selectors: tuple[ObservationSelector, ...]
     environment: BindingEnvironment
     resources: OperationResources
 

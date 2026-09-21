@@ -11,7 +11,6 @@ from core.catalog.declarations import (
 from core.catalog.model import FrozenCatalog, result_identity_contract
 from core.scoring.selection import (
     ObservationSelector,
-    ResolvedObservationSelector,
     ResolvedSelectionObjective,
     SelectionObjective,
     observation_selector_identity_canonical,
@@ -71,7 +70,7 @@ def _result_identity_plan_facts(
     method_contract: Any,
     result_contracts: tuple[Any, ...],
     selected_objectives: tuple[ResolvedSelectionObjective, ...],
-    selected_selectors: tuple[ResolvedObservationSelector, ...],
+    selected_selectors: tuple[ObservationSelector, ...],
 ) -> ResultIdentityPlanFacts:
     node_definition = cast(
         NodeTypeDefinition,

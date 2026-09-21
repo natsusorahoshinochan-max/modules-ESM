@@ -178,35 +178,27 @@ def test_direct_operation_context_preserves_axis_and_method_sources() -> None:
     metric = ExactContractReference(
         "metric",
         "fixture.metric")
-    binding = SimpleNamespace(
-        descriptor={
-            "method": {
-                "contract_kind": method.contract_kind,
-                "contract_id": method.contract_id},
-            "produced_observations": (
-                {
-                    "output_port": "scores",
-                    "output_partition": "default",
-                    "metric": {
-                        "contract_kind": metric.contract_kind,
-                        "contract_id": metric.contract_id},
-                    "context_profile": {"kind": "intrinsic"},
-                    "subject_grain": "candidate",
-                    "source_role": "subject",
-                    "subject_direction": "input",
-                    "subject_port": "candidates",
-                    "axis_direction": "input",
-                    "axis_port": "facts",
-                    "method_direction": "input",
-                    "method_port": "facts",
-                    "guaranteed_multiplicity": "one",
-                },
+    plan = ProducedObservationPlan(
+        binding_method=method,
+        observations=(
+            ResolvedProducedObservation(
+                output_port="scores",
+                output_partition="default",
+                metric=metric,
+                context_profile=IntrinsicContextProfile(),
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="input",
+                subject_port="candidates",
+                axis_direction="input",
+                axis_port="facts",
+                method_direction="input",
+                method_port="facts",
+                guaranteed_multiplicity="one",
             ),
-        }
+        ),
     )
-    catalog = SimpleNamespace(
-        require_contract=lambda *args: binding,
-    )
+    catalog = SimpleNamespace(produced_observation_plan=lambda _binding_id: plan)
 
     context = operation_context(
         catalog,
@@ -214,6 +206,8 @@ def test_direct_operation_context_preserves_axis_and_method_sources() -> None:
         object(),
     )
 
+    assert context.produced_observations is plan.observations
+    assert context.method is plan.binding_method
     observation = context.produced_observations[0]
     assert (
         observation.axis_direction,

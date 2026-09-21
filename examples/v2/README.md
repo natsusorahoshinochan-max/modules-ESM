@@ -33,8 +33,9 @@ uv run --no-sync python -m examples.v2_suite
 ```
 
 Focused owner tests cover scientific Node and Binding behavior, Adapter
-translation, and every scientific Port codec's valid, invalid, and round-trip
-contract. Real Provider routes remain covered by their acceptance tiers; neither
+translation, valid and invalid values at each scientific Port's admission
+boundary, and separate canonical encoding and codec round-trip contracts.
+Real Provider routes remain covered by their acceptance tiers; neither
 the examples nor a Catalog identity inventory substitutes for those tests.
 
 `source-bound-1pga.workflow.json` is the exact 75-residue acceptance Workflow

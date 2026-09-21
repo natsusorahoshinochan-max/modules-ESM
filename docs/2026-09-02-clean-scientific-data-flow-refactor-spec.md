@@ -3,8 +3,7 @@
 - **状态**：已确认
 - **日期**：2026-09-02
 - **性质**：当前重构的工程规格
-- **适用阶段**：Phase 1–3
-- **独立设计阶段**：Phase 4 的精确关联设计已于 2026-09-21 确认，尚未实施
+- **适用阶段**：Phase 1–4，均已实现；Phase 4 的最终契约见[精确关联设计](2026-09-21-exact-resolved-axis-design.md)
 - **领域词汇**：`CONTEXT.md`
 - **历史材料**：`docs/legacy/` 下的设计文档与 ADR 只解释历史，不约束本规格
 
@@ -391,6 +390,8 @@ apply_prompt_recipe(
 ```
 
 不得保留直接 `_evaluate()` 与 workflow `_materialize()` 两套 scientific implementation。
+Recipe 只求值；Preview 发布入口与 runtime 输出准入各自调用同一个 Prompt 科学 owner，
+constructor、codec 与摘要不重复科学准入。
 
 Open、Preview 和 execution 的 provider-free 来源解析复用同一值合同 owner；FASTA parser 只解析，
 来源 ProteinSequence 必须完成 admission 后才能应用下游 edits。上游 Node 参数使用当前 Catalog 的
@@ -666,44 +667,35 @@ public protocol 与 WebUI 使用普通 author Node。
 - preview 与 execution 没有平行 scientific implementation；
 - 十个 micro Node Type 及其 Method、Binding、YAML 与 mechanics tests 已删除。
 
-### Phase 4：设计已独立确认，尚未实施
+### Phase 4：有序精确关联（已实现）
 
-2026-09-21 已确认 [Candidate–Residue Axis 精确关联设计](2026-09-21-exact-resolved-axis-design.md)：
-采用有序 subject + axis，普通消费者删除平行 Candidate 输入；真正读取 lineage 或原样透传
-Candidate 的消费者保留完整值。下列待决条目是当时的设计范围，具体决定以新设计为准；
-Phase 1–3 的已实现状态不变。
+Resolver 输出按输入 Candidate Collection 顺序排列的 `subject + residue_axis`。
+完整 Candidate Data Reference 是关联键；entry 顺序决定普通消费者的 parent slot、
+派生 seed 与输出顺序。ProteinMPNN、DSSP、SimpleFold confidence 与结构配对对齐消费
+有序 axis，不再重复输入同一结构 population 的完整 Candidate Collection。
 
-届时才决定：
+原样透传 Candidate 或读取 lineage 的消费者保留完整 Candidate，并复用
+`join_candidate_residue_axes` 检查两侧完整引用集合相等；此处只检查新形成的跨输入关系，
+不重新准入 Candidate 或 axis。Structure wire 由 axis 携带一次，没有通用 capability bundle。
 
-- Candidate、CandidateDataReference 与 ResolvedStructureResidueAxis 的最终 aggregate ownership；
-- structure wire representation 的唯一 owner；
-- ProteinMPNN、DSSP、folding confidence 与 structure comparison 的 closed transport interface。
-
-已固定的限制：
-
-- 只服务 resolved structures；
-- structure wire 只序列化一次；
-- 不扩展为 `Candidate + arbitrary capabilities` mega-bundle；
-- Phase 1–3 不预建 placeholder、registry 或 compatibility field。
+最终契约与完整验收分别见[精确关联设计](2026-09-21-exact-resolved-axis-design.md)和
+[验收记录](2026-09-21-exact-resolved-axis-acceptance.md)。
 
 ## 15. 明确推迟或排除
 
 本规格不包含：
 
 - Prompt Studio ProteinMPNN design-mask authoring；
-- atomic Candidate-associated Output Admission；
-- confidence/normalization materializer 重构；
 - broad lineage、provenance 或 evidence redesign；
 - Catalog single-source Node declaration；
 - generic Node Group framework；
-- closed resolved-structure transport implementation；
 - ProteinSequence 全局 ownership 重构；
 - performance、cache compatibility 或 legacy artifact replay。
 
 ## 16. 当前实现约束
 
-Phase 1–3 的实现遵循以下约束。测试覆盖见[科学回归测试覆盖位置](2026-09-07-scientific-regression-test-migration.md)，
-验收范围与证据见[集成交付与验收记录](2026-09-19-webui-integration-progress.md)：
+实现遵循以下约束。测试覆盖见[科学回归测试覆盖位置](2026-09-07-scientific-regression-test-migration.md)，
+最新完整验收见[Catalog、Selection 与 Run 阅读验收记录](2026-09-21-catalog-selection-run-acceptance.md)：
 
 1. 所有逐 residue Port value 都自带 authoritative layout；
 2. aggregate 不再与平行 layout outputs 分叉；
@@ -712,4 +704,4 @@ Phase 1–3 的实现遵循以下约束。测试覆盖见[科学回归测试覆�
 5. Prompt Studio 只有一个深 authoring Node；
 6. managed composition、micro Node chain 和重复 carrier 已删除；
 7. 没有 legacy、shim、dual path 或 speculative framework；
-8. Phase 4 的精确关联改造按 2026-09-21 独立设计实施；不得因前三阶段 implementation 偷渡未确认的 abstraction。
+8. 普通 resolved-axis 消费者仅依赖有序精确引用；完整 Candidate 只用于透传或读取其额外科学事实。

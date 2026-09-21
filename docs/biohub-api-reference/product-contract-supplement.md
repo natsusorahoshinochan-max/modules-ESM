@@ -74,8 +74,9 @@ Provider/Adapter 集成缺陷；不能通过同时接受多种猜测表示来掩
 这些值是 Method identity，不是用户参数。Adapter 不调用 `/fold_all_atom`，不公开
 distogram/embedding 选择，也不在 fold failure 时切换 model、endpoint 或配置。
 
-pLDDT、pTM、PAE 与 prediction residue axis 的 canonical scientific semantics 服从
-[ADR-0020](../legacy/adr/0020-canonical-plddt-contract.md)；当前置信度物化入口见
+pLDDT、pTM、PAE 与 prediction residue axis 的科学语义见
+[当前科学数据流规范](../2026-09-02-clean-scientific-data-flow-refactor-spec.md)，
+准入职责见[单次准入设计](../2026-09-21-single-admission-i-json-design.md)；当前置信度物化入口见
 [`structure_prediction` implementation](../../modules/structure_prediction/implementation.py)。
 
 ## 5. 当前 ESM-3 generation 合同
@@ -113,4 +114,5 @@ fallback route。
 真实 Provider Acceptance Campaign 定义与命令见
 [acceptance_campaign.py](../../verification/acceptance_campaign.py) 和
 [acceptance_cli.py](../../verification/acceptance_cli.py)。
-已完成验收的范围与证据见[集成交付与验收记录](../2026-09-19-webui-integration-progress.md)。
+最新完整验收见[Catalog、Selection 与 Run 阅读验收记录](../2026-09-21-catalog-selection-run-acceptance.md)；
+该记录绑定本轮源码及新构建产物，不将历史运行记录作为当前产物的通过证明。

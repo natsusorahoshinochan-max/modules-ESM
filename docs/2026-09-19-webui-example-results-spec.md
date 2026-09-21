@@ -65,11 +65,12 @@ on first open. Generation reports retain its measured size and original Run iden
 Changes to scientific definitions require a new real generation, not relabeling
 existing evidence.
 
-The current resource is `examples/v2/webui-3gb1.results.zip`: 1,570,196 compressed
-bytes and 7,905,039 uncompressed bytes (368 files, 137 objects, 226 transactions).
-It preserves the fresh real Run `run-8a5ce3ac544f4d57a031260029ee0ce3` and Commit
-`workflow-commit-f3f949169f224ca6a0f3eb7ca0e080c9`. Generation evidence is
-`example-subtraction-02.log` on the remote verification host. Port manifests carry
+The current resource is `examples/v2/webui-3gb1.results.zip`: 1,573,064 compressed
+bytes and 7,906,750 uncompressed bytes (368 files, 137 objects, 226 transactions).
+It preserves the fresh real Run `run-b3417a25608b4279ab350488926851c9` and Commit
+`workflow-commit-ba5a7cc892134f0c8bb4c51a14c4873d`. Its generation and installed
+evidence are recorded in the [exact-axis acceptance record](2026-09-21-exact-resolved-axis-acceptance.md#6-bundled-示例结果重生成).
+Port manifests carry
 original candidate references and port identities so readers do not recompute them.
 Production startup installs this resource unconditionally; the explicit
 `load_example_results=False` composition option is used for example evidence

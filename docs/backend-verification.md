@@ -31,6 +31,36 @@ environment summary under the ignored
 `.local/verification-results/<tier>/<UTC-run-id>/` directory. Retained directories
 are ordinary local verification output.
 
+## Execution policy
+
+Run all tests, type checks, builds, browser checks and Providers on the remote
+verification host, using its existing Python 3.12 environment, frontend
+dependencies and private Execution Profile. Local work is limited to reading,
+editing, searching and diff inspection.
+
+1. Freeze a task-specific source snapshot and record its digest. Keep running
+   snapshots immutable and credentials outside the repository and logs.
+2. In each diagnostic round, collect focused tests, all seven repository tiers
+   and the applicable [WebUI checks](../webui/README.md) independently. Save each
+   exit code, complete log and structured result. `verify-repository` stops at
+   the first failure, so diagnostic rounds invoke its seven existing tier entry
+   points separately; a remote temporary collector is sufficient.
+3. Finish the whole batch before fixing failures. Group failures by shared root
+   cause and repair all affected callers together. Import, collection or build
+   failures mark dependent checks blocked; continue other independent checks.
+   Do not use `-x`, `--maxfail=1` or success-chained independent commands.
+4. Start real Provider acceptance only after all non-Provider checks pass and
+   failures and blockers are cleared. Use artifacts built from the final source
+   snapshot. CPU checks may run independently; resource-heavy Provider work is
+   serial. Preserve the formal Campaign's existing stop-on-failure semantics.
+5. During the real Provider phase, inspect remote status only once every
+   30 minutes, with no intermediate status, log or process polling. Let started
+   work continue. Collect executed, failed and blocked results before a repair
+   batch; changed code must pass the non-Provider matrix before a new Campaign.
+
+Historical passes do not certify new artifacts. Retain scientific assertions and
+required real acceptance; do not add skips or weaken gates to obtain a pass.
+
 ## Available tiers
 
 | Tier | Command | Contract |
@@ -172,7 +202,7 @@ Python launcher that calls `create_application(v2_environment_configuration=...)
 is no longer required for ordinary backend deployment.
 
 All declared canonical pytest file targets are required to exist. A developer
-may use a focused override for local work; only the Campaign's fixed selectors
+may use a focused override for remote diagnosis; only the Campaign's fixed selectors
 constitute canonical acceptance.
 
 ## Architecture invariants
@@ -224,8 +254,9 @@ registers these production packages:
 - `structure_transform`
 
 Maintainers pass the package's `ModulePackageRegistration` to focused owner
-tests. Every scientific Port codec retains valid, invalid, and round-trip tests;
-Node and Binding behavior tests cover scientific inputs, output semantics, and
+tests. Scientific owners retain valid/invalid admission tests; codecs retain
+canonical-envelope, conformance and round-trip tests without implicit scientific
+admission. Node and Binding behavior tests cover scientific inputs, output semantics, and
 Adapter translation without exact-set equality over the whole package. The
 tests build the current stable-ID Catalog, commit a minimal Workflow, obtain
 run-scoped Readiness for Adapter routes, and execute

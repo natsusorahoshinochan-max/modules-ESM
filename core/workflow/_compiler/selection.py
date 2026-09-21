@@ -10,12 +10,9 @@ from core.catalog.declarations import UtilityTransformDefinition
 from core.catalog.model import FrozenCatalog
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
-    ObservationSelector,
-    ResolvedObservationSelector,
     ResolvedSelectionObjective,
     ResolvedUtilityTransform,
     SelectionObjective,
-    UtilityParameterFacts,
     context_selector_canonical,
 )
 from core.workflow.errors import WorkflowCompileError
@@ -59,7 +56,7 @@ def _compile_selection_objective(
             reference=catalog.require_reference(
                 *objective.utility_transform.key
             ),
-            parameters=UtilityParameterFacts(utility_parameters),
+            parameters=utility_parameters,
             apply=utility_definition.transform,
         ),
         declared_weight=objective.weight,
@@ -100,22 +97,4 @@ def _compile_selection_objectives(
             objective_index=compilation_by_id[objective.objective_id][0],
         )
         for objective in objectives
-    )
-
-
-def _compile_observation_selector(
-    selector: ObservationSelector,
-    *,
-    catalog: FrozenCatalog,
-) -> ResolvedObservationSelector:
-    return ResolvedObservationSelector(
-        selector_id=selector.selector_id,
-        candidate_input=selector.candidate_input,
-        score_collection_input=selector.score_collection_input,
-        source_partition=selector.source_partition,
-        metric=catalog.require_reference(*selector.metric.key),
-        method=catalog.require_reference(*selector.method.key),
-        context_selector=selector.context_selector,
-        match_cardinality=selector.match_cardinality,
-        missing_policy=selector.missing_policy,
     )
