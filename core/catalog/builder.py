@@ -591,19 +591,33 @@ def build_frozen_catalog(
                     else outputs_by_name
                 )[observation.subject_port]
                 subject_reference = subject_declaration.port_type
+                subject_entry = (
+                    entry_by_key.get(subject_reference.key)
+                    if isinstance(subject_reference, ContractIdentity)
+                    else None
+                )
+                subject_definition = (
+                    subject_entry[1] if subject_entry is not None else None
+                )
+                # The declared subject source is the complete Candidate
+                # population projected by exactly this Port. It is not a guess
+                # at some field of an arbitrary value: a multi-role projection
+                # declared here means its whole projected population, never one
+                # role silently selected out of it. Runtime admission still
+                # requires the projected Candidate IDs to be unique.
                 if (
                     observation.subject_grain != "candidate"
                     or observation.source_role != "subject"
                     or not isinstance(subject_reference, ContractIdentity)
-                    or subject_reference.key
-                    != (
-                        "port_type",
-                        "candidate.collection",
-                    )
+                    or subject_reference.contract_kind != "port_type"
+                    or not isinstance(subject_definition, PortTypeDefinition)
+                    or subject_definition.candidate_data_projection is None
+                    or subject_definition.runtime_candidate_data_projection
+                    is None
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        "subject must use candidate.collection "
+                        "subject must use one exact Candidate-projecting Port "
                         "with candidate subject grain"
                     )
                 metric_entry = entry_by_key.get(observation.metric.key)

@@ -171,8 +171,9 @@ def test_evidence_operations_reuse_the_admitted_structure_axis_identity(
         OperationCall,
     )
     from datatypes.exact_reference import ResidueAxisReference
-    from modules.structure_comparison.inserted_loop import _axes_by_subject
-    from modules.structure_comparison.three_way import _axis as _three_way_axis
+    from modules.structure_comparison.three_way import (
+        _singleton_axis as _three_way_axis,
+    )
     from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 
     subject = CandidateDataReference(
@@ -218,14 +219,11 @@ def test_evidence_operations_reuse_the_admitted_structure_axis_identity(
         effective_randomness={},
     )
 
-    assert _three_way_axis(call, "axes", subject) == (
+    assert _three_way_axis(call, "axes") == (
+        subject,
         residue_axis,
         admitted_axis,
     )
-    assert _axes_by_subject(
-        admitted,
-        {subject.candidate_id: subject},
-    ) == {subject: (residue_axis, admitted_axis)}
 
 
 def test_sequence_primary_axis_alignment_ignores_coordinate_lure() -> None:
@@ -819,9 +817,7 @@ def test_alignment_rejects_stale_axis_reference_before_engine_start() -> None:
             catalog=catalog,
             binding_id=binding_id,
             inputs={
-                "subjects": subjects,
                 "subject_residue_axes": subject_axes,
-                "references": references,
                 "reference_residue_axes": reference_axes,
                 "relation": relation,
             },
@@ -894,9 +890,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
         catalog=catalog,
         binding_id=alignment_binding,
         inputs={
-            "subjects": subjects,
             "subject_residue_axes": subject_axes,
-            "references": references,
             "reference_residue_axes": reference_axes,
             "relation": relation,
         },
@@ -1135,9 +1129,7 @@ def test_direct_ancestor_tm_score_allows_one_reference_for_two_subjects() -> Non
         catalog=catalog,
         binding_id=alignment_binding,
         inputs={
-            "subjects": subjects,
             "subject_residue_axes": subject_axes,
-            "references": ancestors,
             "reference_residue_axes": ancestor_axes,
             "relation": pairing,
         },
@@ -1280,23 +1272,43 @@ def _axis_edges() -> tuple[WorkflowEdge, ...]:
     )
 
 
-def _alignment_edges(target_node_id: str) -> tuple[WorkflowEdge, ...]:
-    return (
-        WorkflowEdge("source", "subjects", target_node_id, "subjects"),
+def _alignment_edges(
+    target_node_id: str,
+    *,
+    candidate_scope: bool,
+) -> tuple[WorkflowEdge, ...]:
+    """Wire one align_pairs or alignment-consuming metric node.
+
+    `align_pairs` derives both scopes from its own ordered relation and axes,
+    so only the alignment-consuming metric nodes still take complete Candidate
+    scopes.
+    """
+    edges: list[WorkflowEdge] = []
+    if candidate_scope:
+        edges.append(
+            WorkflowEdge("source", "subjects", target_node_id, "subjects")
+        )
+    edges.append(
         WorkflowEdge(
             "subject-axis",
             "residue_axes",
             target_node_id,
             "subject_residue_axes",
-        ),
-        WorkflowEdge("source", "references", target_node_id, "references"),
+        )
+    )
+    if candidate_scope:
+        edges.append(
+            WorkflowEdge("source", "references", target_node_id, "references")
+        )
+    edges.append(
         WorkflowEdge(
             "reference-axis",
             "residue_axes",
             target_node_id,
             "reference_residue_axes",
-        ),
+        )
     )
+    return tuple(edges)
 
 
 def _ctk_case(
@@ -1318,7 +1330,7 @@ def _ctk_case(
     if is_alignment:
         edges = (
             *_axis_edges(),
-            *_alignment_edges("contract-test-node"),
+            *_alignment_edges("contract-test-node", candidate_scope=False),
             WorkflowEdge(
                 "source", "pairing", "contract-test-node", "relation"
             ),
@@ -1339,7 +1351,7 @@ def _ctk_case(
         )
         edges = (
             *_axis_edges(),
-            *_alignment_edges("alignment"),
+            *_alignment_edges("alignment", candidate_scope=False),
             WorkflowEdge(
                 "alignment",
                 "alignments",
@@ -1493,9 +1505,7 @@ def _inserted_loop_ctk_case(
         WorkflowEdge("loop-source", "counterparts", "loop-counterpart-axis", "structure_candidates"),
         WorkflowEdge("loop-source", "subjects", "loop-core-relation", "subjects"),
         WorkflowEdge("loop-source", "references", "loop-core-relation", "references"),
-        WorkflowEdge("loop-source", "subjects", "loop-core-alignment", "subjects"),
         WorkflowEdge("loop-subject-axis", "residue_axes", "loop-core-alignment", "subject_residue_axes"),
-        WorkflowEdge("loop-source", "references", "loop-core-alignment", "references"),
         WorkflowEdge("loop-reference-axis", "residue_axes", "loop-core-alignment", "reference_residue_axes"),
         WorkflowEdge("loop-core-relation", "relation", "loop-core-alignment", "relation"),
         WorkflowEdge("loop-core-alignment", "alignments", "loop-core-tm", "alignments"),
@@ -1506,9 +1516,7 @@ def _inserted_loop_ctk_case(
         WorkflowEdge("loop-source", "subjects", "loop-core-rmsd", "subjects"),
         WorkflowEdge("loop-source", "references", "loop-core-rmsd", "references"),
         WorkflowEdge("loop-core-relation", "relation", "loop-core-rmsd", "relation"),
-        WorkflowEdge("loop-source", "subjects", "loop-counterpart-alignment", "subjects"),
         WorkflowEdge("loop-subject-axis", "residue_axes", "loop-counterpart-alignment", "subject_residue_axes"),
-        WorkflowEdge("loop-source", "counterparts", "loop-counterpart-alignment", "references"),
         WorkflowEdge("loop-counterpart-axis", "residue_axes", "loop-counterpart-alignment", "reference_residue_axes"),
         WorkflowEdge("loop-source", "pairing", "loop-counterpart-alignment", "relation"),
         WorkflowEdge("loop-counterpart-alignment", "alignments", "loop-counterpart-tm", "alignments"),
@@ -1822,9 +1830,7 @@ def _three_way_ctk_case(
     ):
         edges.extend(
             (
-                WorkflowEdge("source", f"{subject_role}_structures", alignment_node, "subjects"),
                 WorkflowEdge(f"axis-{subject_role}", "residue_axes", alignment_node, "subject_residue_axes"),
-                WorkflowEdge("source", f"{reference_role}_structures", alignment_node, "references"),
                 WorkflowEdge(f"axis-{reference_role}", "residue_axes", alignment_node, "reference_residue_axes"),
             )
         )
@@ -1873,7 +1879,6 @@ def _three_way_ctk_case(
             )
         )
     target_ports = {
-        "input_structures": ("source", "input_structures"),
         "sequence_parents": ("source", "sequence_parents"),
         "esmfold2_structures": ("source", "esmfold2_structures"),
         "simplefold_structures": ("source", "simplefold_structures"),

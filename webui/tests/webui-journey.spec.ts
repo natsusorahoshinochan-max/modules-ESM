@@ -6,7 +6,7 @@ test('default 3GB1 workflow remains connected from authoring through a real run 
   await expect(page.getByRole('heading', { name: '3GB1 Local Redesign Example' })).toBeVisible()
   await expect(page.getByText(/36 GRAPH NODES/)).toBeVisible()
   await expect(page.getByText('只读示例')).toBeVisible()
-  await expect(page.getByText(/66 persisted edges/)).toBeVisible()
+  await expect(page.getByText(/61 persisted edges/)).toBeVisible()
   await expect(page.getByTestId('rf__node-relation-generated-structure-parent').getByRole('heading', { name: 'Relate Candidates to their parents' })).toBeVisible()
   await expect(page.getByTestId('rf__node-relation-generated-pairs').getByRole('heading', { name: 'Invert a Candidate relation' })).toBeVisible()
 
@@ -785,4 +785,33 @@ test('a held candidate page cannot change another stage and revisiting reuses th
   } finally {
     release()
   }
+})
+
+test('the example selection chain keeps complete Candidate sources and axes-based score sources', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByText(/36 GRAPH NODES/)).toBeVisible()
+
+  const selectionNode = page.getByTestId('rf__node-rank-final')
+  await selectionNode.getByRole('button', { name: /编辑筛选与排序/ }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑流程筛选' })
+  await expect(dialog).toBeVisible()
+
+  // Complete Candidate values keep coming from the original Candidate branch.
+  const candidateOptions = await dialog.getByLabel('Candidate Collection 来源').locator('option').allTextContents()
+  expect(candidateOptions.some((text) => text.includes('fold-final / structure_candidates'))).toBe(true)
+  expect(candidateOptions.some((text) => text.includes('take-top-two / candidates'))).toBe(true)
+  expect(candidateOptions.some((text) => text.includes('当前不可用'))).toBe(false)
+
+  // Every offered score source belongs to a Node whose structure subjects are
+  // carried by the ordered resolved-axis value, not by a parallel Candidate
+  // input, and each one is still a real declared Score Collection output.
+  const scoreSelect = dialog.getByLabel('Score Collection 来源').first()
+  const scoreOptions = await scoreSelect.locator('option').allTextContents()
+  expect(scoreOptions.some((text) => text.includes('confidence-final / observations'))).toBe(true)
+  expect(scoreOptions.some((text) => text.includes('tm-final / scores'))).toBe(true)
+  expect(scoreOptions.some((text) => text.includes('当前不可用'))).toBe(false)
+
+  // The shipped objective still resolves to declared scalar observations.
+  const observations = await dialog.getByLabel('科学观察').first().locator('option').allTextContents()
+  expect(observations.filter((text) => text.length > 0 && !text.startsWith('选择来源声明的观察'))).toHaveLength(2)
 })

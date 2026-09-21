@@ -1883,12 +1883,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 WorkflowEdge(
                     "structure-source",
                     "structure_candidates",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
-                    "structure-source",
-                    "structure_candidates",
                     "structure-axis",
                     "structure_candidates",
                 ),

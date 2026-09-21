@@ -3,16 +3,11 @@ title: Evaluate existing-structure SimpleFold confidence
 summary: Evaluates each supplied existing protein structure with one fixed direct SimpleFold confidence head without folding or generating coordinates.
 category: evaluation
 inputs:
-  - name: structure_candidates
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Ordered complete existing protein-structure Candidates whose supplied coordinates are evaluated without refolding.
   - name: structure_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Exact CandidateDataReference-associated resolved structure axes that completely cover the supplied structure Candidates; collection position establishes no correspondence.
+    scientific_meaning: Nonempty exact CandidateDataReference-associated existing protein-structure axes whose supplied coordinates are evaluated without refolding; entry order owns the per-structure evaluation order.
 outputs:
   - name: confidence_observations
     port_type_id: score.collection

@@ -4,7 +4,7 @@
 - **日期**：2026-09-02
 - **性质**：当前重构的工程规格
 - **适用阶段**：Phase 1–3
-- **暂挂阶段**：Phase 4 closed resolved-structure transport
+- **独立设计阶段**：Phase 4 的精确关联设计已于 2026-09-21 确认，尚未实施
 - **领域词汇**：`CONTEXT.md`
 - **历史材料**：`docs/legacy/` 下的设计文档与 ADR 只解释历史，不约束本规格
 
@@ -666,9 +666,12 @@ public protocol 与 WebUI 使用普通 author Node。
 - preview 与 execution 没有平行 scientific implementation；
 - 十个 micro Node Type 及其 Method、Binding、YAML 与 mechanics tests 已删除。
 
-### Phase 4：暂挂
+### Phase 4：设计已独立确认，尚未实施
 
-Closed resolved-structure transport 暂挂，需独立设计。
+2026-09-21 已确认 [Candidate–Residue Axis 精确关联设计](2026-09-21-exact-resolved-axis-design.md)：
+采用有序 subject + axis，普通消费者删除平行 Candidate 输入；真正读取 lineage 或原样透传
+Candidate 的消费者保留完整值。下列待决条目是当时的设计范围，具体决定以新设计为准；
+Phase 1–3 的已实现状态不变。
 
 届时才决定：
 
@@ -709,4 +712,4 @@ Phase 1–3 的实现遵循以下约束。测试覆盖见[科学回归测试覆�
 5. Prompt Studio 只有一个深 authoring Node；
 6. managed composition、micro Node chain 和重复 carrier 已删除；
 7. 没有 legacy、shim、dual path 或 speculative framework；
-8. Phase 4 仍保持显式暂挂，不因前三阶段 implementation 偷渡新 abstraction。
+8. Phase 4 的精确关联改造按 2026-09-21 独立设计实施；不得因前三阶段 implementation 偷渡未确认的 abstraction。

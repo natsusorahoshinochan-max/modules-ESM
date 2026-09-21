@@ -64,6 +64,26 @@ def _singleton_candidate_reference(
     return call.inputs[port_name].candidate_data[0]
 
 
+def _singleton_residue_axis_association(
+    call: OperationCall,
+    *,
+    port_name: str,
+) -> tuple[CandidateDataReference, ResolvedStructureResidueAxis]:
+    """Read the only entry of one admitted resolved-axis value.
+
+    The single-item requirement belongs to the consuming Method; the admitted
+    value's own projection already supplies the exact subject and axis.
+    """
+    associations = call.inputs[port_name].value
+    if len(associations.entries) != 1:
+        raise ValueError(
+            f"{port_name} must contain one exact resolved residue-axis "
+            "association"
+        )
+    entry = associations.entries[0]
+    return entry.subject, entry.residue_axis
+
+
 class DSSPComputeOperation:
     """Expose mkdssp annotation through canonical scientific values only."""
 
@@ -71,20 +91,10 @@ class DSSPComputeOperation:
         self._adapter = adapter
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        subject = _singleton_candidate_reference(
+        subject, residue_axis = _singleton_residue_axis_association(
             call,
-            port_name="structure_candidates",
+            port_name="residue_axes",
         )
-        associations = call.inputs["residue_axes"].value
-        if (
-            len(associations.entries) != 1
-            or associations.entries[0].subject != subject
-        ):
-            raise ValueError(
-                "residue_axes must contain one exact resolved residue-axis "
-                "association for the admitted structure Candidate"
-            )
-        residue_axis = associations.entries[0].residue_axis
         secondary_structure, sasa = self._adapter.annotate(
             residue_axis,
             subject=subject,
@@ -174,25 +184,19 @@ class SecondaryStructureAgreementOperation:
         inputs = call.inputs
         expected = inputs["expected"].value
         observed = inputs["observed"].value
-        subject_reference = _singleton_candidate_reference(
+        subject_reference, residue_axis = _singleton_residue_axis_association(
             call,
-            port_name="subjects",
+            port_name="subject_residue_axes",
         )
         reference_reference = _singleton_candidate_reference(
             call,
             port_name="references",
         )
-        associations = inputs["subject_residue_axes"].value
-        if (
-            len(associations.entries) != 1
-            or associations.entries[0].subject != subject_reference
-        ):
-            raise ValueError(
-                "subject_residue_axes must contain one exact resolved "
-                "residue-axis association for the admitted subject Candidate"
-            )
-        residue_axis = associations.entries[0].residue_axis
-        admitted_axis = inputs["subject_residue_axes"].scientific_axes[0]
+        admitted_axis = next(
+            axis
+            for axis in inputs["subject_residue_axes"].scientific_axes
+            if axis.source == subject_reference
+        )
         if observed.subject != subject_reference:
             raise ValueError(
                 "observed track subject must equal the admitted subject Candidate"

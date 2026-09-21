@@ -1375,7 +1375,8 @@ def test_compiler_rejects_unknown_partition_before_any_provider_invocation() -> 
         )
 
 
-def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
+def test_output_score_keeps_its_raw_subject_and_never_claims_a_future_reference(
+) -> None:
     catalog, contracts = _compiler_catalog()
     subject = Candidate("raw-subject", ProteinSequence("AA"))
     reference = Candidate("raw-reference", ProteinSequence("AT"))
@@ -1418,19 +1419,26 @@ def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
         ),
         "scores": ScoreCollection("raw-scores", [fixed, paired]),
     }
-    with pytest.raises(
-        PortValueError,
-        match="cannot reference a same-operation output Candidate",
-    ):
-        normalize_fixture_outputs(
-            node_id="producer",
-            result_identity="sha256:" + "a" * 64,
-            inputs={},
-            outputs=outputs,
-            candidate_content_digest=lambda _candidate: (
-                "sha256:" + "b" * 64
-            ),
-        )
+    normalized = normalize_fixture_outputs(
+        node_id="producer",
+        result_identity="sha256:" + "a" * 64,
+        inputs={},
+        outputs=outputs,
+        candidate_content_digest=lambda _candidate: (
+            "sha256:" + "b" * 64
+        ),
+    )
+
+    # A same-operation output Candidate is never reachable as a fresh Score
+    # subject: it receives a new producer-local identity, and both pairwise
+    # subjects stay exactly as emitted. Produced-observation admission rejects
+    # any subject outside the declared source Port.
+    (produced_subject,) = normalized["candidates"].items
+    assert produced_subject.candidate_id != subject.candidate_id
+    assert [
+        observation.subject.candidate_id
+        for observation in normalized["scores"].entries
+    ] == [subject.candidate_id, subject.candidate_id]
 
 
 def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:

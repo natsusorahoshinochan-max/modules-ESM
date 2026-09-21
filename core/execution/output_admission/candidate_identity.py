@@ -74,10 +74,24 @@ def _candidate_data_type_id(value: object) -> str | None:
     }.get(type(value))
 
 
+def _require_score_observation(score: ScoreObservation) -> ScoreObservation:
+    """Return one fresh Score entry unchanged after its local type check.
+
+    Everything else about a fresh Observation is owned by produced-observation
+    admission against the declared subject, reference, axis, pairing, Metric,
+    Method, Context, and partition sources, and by nominal Score admission.
+    """
+    if type(score) is not ScoreObservation:
+        raise PortValueError(
+            "Score Collection contains an unsupported entry"
+        )
+    return score
+
+
 def _normalized_score(
     score: ScoreObservation,
     *,
-    require_exact_input_subject: Callable[
+    require_exact_propagated_subject: Callable[
         [CandidateDataReference], CandidateDataReference
     ],
 ) -> ScoreObservation:
@@ -85,7 +99,7 @@ def _normalized_score(
         raise PortValueError(
             "Score Collection contains an unsupported entry"
         )
-    subject = require_exact_input_subject(score.subject)
+    subject = require_exact_propagated_subject(score.subject)
     context = score.context
     if isinstance(context, PairwiseObservationContext):
         if (
@@ -99,13 +113,13 @@ def _normalized_score(
             context,
             subject=replace(
                 context.subject,
-                candidate=require_exact_input_subject(
+                candidate=require_exact_propagated_subject(
                     context.subject.candidate
                 ),
             ),
             reference=replace(
                 context.reference,
-                candidate=require_exact_input_subject(
+                candidate=require_exact_propagated_subject(
                     context.reference.candidate
                 ),
             ),
@@ -176,6 +190,44 @@ def _score_collection_id(
     ).removeprefix("sha256:")
 
 
+def _distinct_candidate_values(
+    inputs: Mapping[str, AdmittedPort],
+) -> dict[str, tuple[tuple[Candidate, CandidateDataReference], ...]]:
+    """Index complete input Candidates with their own admitted references.
+
+    One Candidate ID may legitimately appear in several inputs, and the same
+    value/reference pair may repeat. Conflicts are retained instead of overwritten so
+    that only the operation that actually resolves that identity has to reject
+    the ambiguity.
+    """
+    indexed: dict[str, list[tuple[Candidate, CandidateDataReference]]] = {}
+    for admitted in inputs.values():
+        for record in admitted.values:
+            references = {
+                reference.candidate_id: reference
+                for reference in record.candidate_data
+            }
+            for candidate in _candidate_values(record.value):
+                fact = (candidate, references[candidate.candidate_id])
+                known = indexed.setdefault(candidate.candidate_id, [])
+                if fact not in known:
+                    known.append(fact)
+    return {candidate_id: tuple(values) for candidate_id, values in indexed.items()}
+
+
+def _distinct_candidate_references(
+    inputs: Mapping[str, AdmittedPort],
+) -> dict[str, tuple[CandidateDataReference, ...]]:
+    """Index admitted exact input references without last-wins."""
+    indexed: dict[str, list[CandidateDataReference]] = {}
+    for admitted in inputs.values():
+        for reference in admitted.candidate_data:
+            known = indexed.setdefault(reference.candidate_id, [])
+            if reference not in known:
+                known.append(reference)
+    return {candidate_id: tuple(values) for candidate_id, values in indexed.items()}
+
+
 def _normalize_candidate_outputs(
     *,
     result_identity: str,
@@ -187,16 +239,8 @@ def _normalize_candidate_outputs(
     observation_propagation: ObservationPropagationPlan | None = None,
 ) -> _NormalizedCandidateOutputs:
     """Normalize producer-local identities before nominal Port admission."""
-    input_candidates = {
-        candidate.candidate_id: candidate
-        for admitted in inputs.values()
-        for candidate in _candidate_values(admitted.value)
-    }
-    input_candidate_references = {
-        reference.candidate_id: reference
-        for admitted in inputs.values()
-        for reference in admitted.candidate_data
-    }
+    input_candidate_facts = _distinct_candidate_values(inputs)
+    input_reference_facts = _distinct_candidate_references(inputs)
     input_pairing_references: dict[str, CandidateDataReference] = {}
     for admitted in inputs.values():
         value = admitted.value
@@ -267,13 +311,19 @@ def _normalize_candidate_outputs(
         resolving_candidates.add(raw_candidate_id)
         output = output_candidates[raw_candidate_id]
         candidate = output.candidate
-        input_candidate = input_candidates.get(raw_candidate_id)
-        if input_candidate is not None:
+        input_values = input_candidate_facts.get(raw_candidate_id)
+        if input_values:
             if raw_candidate_id in metadata_by_candidate:
                 raise PortValueError(
                     "Output identity intent cannot modify a pass-through "
                     "Candidate"
                 )
+            if len(input_values) != 1:
+                raise PortValueError(
+                    "Candidate pass-through names one identity with "
+                    "conflicting complete input values"
+                )
+            input_candidate, input_reference = input_values[0]
             if candidate != input_candidate:
                 raise PortValueError(
                     "Candidate pass-through changed exact input identity, "
@@ -281,18 +331,25 @@ def _normalize_candidate_outputs(
                 )
             normalized_ids[raw_candidate_id] = raw_candidate_id
             normalized_candidates[raw_candidate_id] = input_candidate
-            reference = input_candidate_references.get(raw_candidate_id)
-            if reference is None:
-                raise PortValueError(
-                    "Candidate pass-through lacks admitted content identity"
-                )
-            normalized_candidate_references[raw_candidate_id] = reference
+            normalized_candidate_references[raw_candidate_id] = input_reference
             resolving_candidates.remove(raw_candidate_id)
             return
 
+        if raw_candidate_id in input_reference_facts:
+            raise PortValueError(
+                "Candidate pass-through requires a complete input Candidate; "
+                "new Candidates must use a producer-local identity"
+            )
+
         parents: list[str] = []
         for parent_id in candidate.parent_ids:
-            if parent_id in input_candidates:
+            parent_references = input_reference_facts.get(parent_id)
+            if parent_references:
+                if len(parent_references) != 1:
+                    raise PortValueError(
+                        "Candidate parent identity names one Candidate ID with "
+                        "conflicting admitted input references"
+                    )
                 normalized_parent_id = parent_id
             else:
                 if parent_id not in output_candidates:
@@ -358,41 +415,11 @@ def _normalize_candidate_outputs(
     for raw_candidate_id in output_candidates:
         resolve_candidate(raw_candidate_id)
 
-    def exact_input_candidate_facts(
-        candidate_id: str,
-    ) -> tuple[Candidate, CandidateDataReference]:
-        candidate = input_candidates.get(candidate_id)
-        if candidate is None:
-            if candidate_id in output_candidates:
-                raise PortValueError(
-                    "Score subject cannot reference a same-operation output "
-                    "Candidate before admission"
-                )
-            raise PortValueError(
-                "Score subject names an unknown input Candidate identity"
-            )
-        reference = input_candidate_references.get(candidate_id)
-        if reference is None:
-            raise PortValueError(
-                "Score subject Candidate lacks admitted content identity"
-            )
-        return candidate, reference
-
-    def require_exact_input_subject(
-        subject: CandidateDataReference,
-    ) -> CandidateDataReference:
-        _, expected = exact_input_candidate_facts(subject.candidate_id)
-        if subject != expected:
-            raise PortValueError(
-                "Score subject conflicts with exact Candidate content identity"
-            )
-        return expected
-
     def require_exact_input_candidate_reference(
         reference: CandidateDataReference,
     ) -> CandidateDataReference:
-        candidate = input_candidates.get(reference.candidate_id)
-        if candidate is None:
+        input_values = input_candidate_facts.get(reference.candidate_id)
+        if not input_values:
             expected = input_pairing_references.get(reference.candidate_id)
             if expected is None:
                 raise PortValueError(
@@ -403,11 +430,17 @@ def _normalize_candidate_outputs(
                     "Candidate pairing conflicts with an admitted input pairing"
                 )
             return expected
-        expected = input_candidate_references.get(reference.candidate_id)
-        if expected is None:
+        references = input_reference_facts.get(reference.candidate_id, ())
+        if not references:
             raise PortValueError(
                 "Candidate pairing input lacks admitted content identity"
             )
+        if len(references) != 1:
+            raise PortValueError(
+                "Candidate pairing names one Candidate ID with conflicting "
+                "admitted input references"
+            )
+        expected = references[0]
         if reference != expected:
             raise PortValueError(
                 "Candidate pairing conflicts with exact input Candidate "
@@ -515,18 +548,30 @@ def _normalize_candidate_outputs(
         if type(value) is CandidateRelationIntent:
             return project_pairing_intent(value)
         if type(value) is ScoreCollection:
-            require_subject = (
-                require_exact_propagated_subject
-                if output_port == propagated_output_port
-                else require_exact_input_subject
-            )
-            entries = tuple(
-                _normalized_score(
-                    score,
-                    require_exact_input_subject=require_subject,
+            if output_port == propagated_output_port:
+                # The propagation branch of produced-observation admission
+                # returns before any subject check, so this closure stays the
+                # only owner of a propagated Score subject.
+                entries = tuple(
+                    _normalized_score(
+                        score,
+                        require_exact_propagated_subject=(
+                            require_exact_propagated_subject
+                        ),
+                    )
+                    for score in value.entries
                 )
-                for score in value.entries
-            )
+            else:
+                # A fresh Score needs no Candidate membership check here.
+                # Produced-observation admission already restricts every
+                # Observation to the complete population projected by the
+                # declared subject Port, to the declared Metric, Method,
+                # Context, and partition, and to the declared axis source;
+                # nominal Score admission owns the pairwise context subject.
+                entries = tuple(
+                    _require_score_observation(score)
+                    for score in value.entries
+                )
             return ScoreCollection(
                 collection_id=_score_collection_id(
                     result_identity=result_identity,

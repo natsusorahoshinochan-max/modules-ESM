@@ -429,20 +429,13 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
 
     adapter = RecordingAdapter()
     operation = DSSPComputeOperation(adapter)
-    candidates = CandidateCollection(
-        collection_id="subject-structures",
-        item_type="protein.structure",
-        items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
-    )
     output = operation.execute(
         _operation_call(
             inputs={
-                "structure_candidates": candidates,
                 "residue_axes": associations,
             },
             node_parameters={},
             binding_parameters={},
-            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
@@ -460,11 +453,6 @@ def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> No
         "TER\nEND\n"
     )
     subject = _candidate_reference("subject-structure")
-    candidates = CandidateCollection(
-        collection_id="subject-structures",
-        item_type="protein.structure",
-        items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
-    )
 
     class ForbiddenAdapter:
         def annotate(
@@ -479,14 +467,21 @@ def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> No
             raise AssertionError("adapter must not run before exact axis join")
 
     operation = DSSPComputeOperation(ForbiddenAdapter())
-    wrong_subject = _candidate_reference(
-        subject.candidate_id,
+    other_subject = _candidate_reference(
+        "other-structure",
         digest_symbol="b",
     )
+    # Two entries can never be one exact annotation subject. The ordered value
+    # owns that single-item requirement, so no parallel Candidate Port has to
+    # corroborate it.
     wrong_associations = CandidateResolvedResidueAxisAssociations(
         entries=(
             CandidateResolvedResidueAxisAssociation(
-                subject=wrong_subject,
+                subject=subject,
+                residue_axis=resolve_residue_axis(structure),
+            ),
+            CandidateResolvedResidueAxisAssociation(
+                subject=other_subject,
                 residue_axis=resolve_residue_axis(structure),
             ),
         )
@@ -498,12 +493,10 @@ def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> No
         operation.execute(
             _operation_call(
                 inputs={
-                    "structure_candidates": candidates,
                     "residue_axes": wrong_associations,
                 },
                 node_parameters={},
                 binding_parameters={},
-                candidate_data={"structure_candidates": (subject,)},
             )
         )
 
@@ -548,16 +541,10 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
     output = DSSPComputeOperation(adapter).execute(
         _operation_call(
             inputs={
-                "structure_candidates": CandidateCollection(
-                    collection_id="mse-structures",
-                    item_type="protein.structure",
-                    items=[Candidate(subject.candidate_id, structure)],
-                ),
                 "residue_axes": associations,
             },
             node_parameters={},
             binding_parameters={},
-            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
@@ -630,12 +617,10 @@ def test_dssp_compute_produces_observed_secondary_and_sasa_preserving_subject(
     output = DSSPComputeOperation(RecordingAdapter()).execute(
         _operation_call(
             inputs={
-                "structure_candidates": candidates,
                 "residue_axes": associations,
             },
             node_parameters={},
             binding_parameters={},
-            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
@@ -813,11 +798,6 @@ def test_agreement_reuses_the_admitted_subject_axis_reference() -> None:
         catalog=catalog,
         binding_id=binding_id,
         inputs={
-            "subjects": CandidateCollection(
-                "subjects",
-                "protein.structure",
-                (Candidate("subject", structure),),
-            ),
             "references": CandidateCollection(
                 "references",
                 "protein.structure",
@@ -920,11 +900,6 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
         "1.000   2.000   3.000  1.00 20.00           C  \n"
         "TER\nEND\n"
     )
-    subjects = CandidateCollection(
-        collection_id="subjects",
-        item_type="protein.structure",
-        items=[Candidate(candidate_id="subject-1", data=structure)],
-    )
     references = CandidateCollection(
         collection_id="references",
         item_type="protein.structure",
@@ -940,7 +915,6 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
     )
     call = _operation_call(
         inputs={
-            "subjects": subjects,
             "references": references,
             "expected": CandidateResidueTrack(
                 subject=(
@@ -963,7 +937,6 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
         node_parameters={},
         binding_parameters={},
         candidate_data={
-            "subjects": (subject_reference,),
             "references": (expected_reference,),
         },
     )
@@ -984,11 +957,6 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
         "TER\nEND\n"
     )
     inputs = {
-        "subjects": CandidateCollection(
-            collection_id="subjects",
-            item_type="protein.structure",
-            items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
-        ),
         "references": CandidateCollection(
             collection_id="references",
             item_type="protein.structure",
@@ -1021,7 +989,6 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
                 node_parameters={},
                 binding_parameters={},
                 candidate_data={
-                    "subjects": (subject,),
                     "references": (reference,),
                 },
             )
@@ -1034,8 +1001,8 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
     operation = _agreement_operation(resources)
     subject = _candidate_reference("subject-1")
     reference = _candidate_reference("reference-1", digest_symbol="c")
-    wrong_subject = _candidate_reference(
-        subject.candidate_id,
+    other_subject = _candidate_reference(
+        "other-subject-1",
         digest_symbol="b",
     )
     structure = ProteinStructure(
@@ -1051,11 +1018,6 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
         operation.execute(
             _operation_call(
                 inputs={
-                    "subjects": CandidateCollection(
-                        "subjects",
-                        "protein.structure",
-                        (Candidate(subject.candidate_id, structure),),
-                    ),
                     "references": CandidateCollection(
                         "references",
                         "protein.structure",
@@ -1069,11 +1031,18 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
                         subject=subject,
                         track=ResidueTrack(layout, ("H",)),
                     ),
+                    # Two subjects can never be the one subject this pairwise
+                    # Observation is about; the ordered value owns that
+                    # single-item requirement.
                     "subject_residue_axes": (
                         CandidateResolvedResidueAxisAssociations(
                             entries=(
                                 CandidateResolvedResidueAxisAssociation(
-                                    wrong_subject,
+                                    subject,
+                                    resolve_residue_axis(structure),
+                                ),
+                                CandidateResolvedResidueAxisAssociation(
+                                    other_subject,
                                     resolve_residue_axis(structure),
                                 ),
                             )
@@ -1083,7 +1052,6 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
                 node_parameters={},
                 binding_parameters={},
                 candidate_data={
-                    "subjects": (subject,),
                     "references": (reference,),
                 },
             )
@@ -1297,12 +1265,6 @@ def _run_dssp(
                 "import",
                 "structure_candidates",
                 "resolve-axis",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "import",
-                "structure_candidates",
-                "annotate",
                 "structure_candidates",
             ),
             WorkflowEdge(
@@ -1900,12 +1862,6 @@ def test_structure_annotation_passes_ctk_for_all_four_nodes(
                     "candidates", "subjects", "resolve-axis", "structure_candidates"
                 ),
                 WorkflowEdge(
-                    "candidates",
-                    "subjects",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
                     "resolve-axis", "residue_axes", "contract-test-node", "residue_axes"
                 ),
             ),
@@ -1948,9 +1904,6 @@ def test_structure_annotation_passes_ctk_for_all_four_nodes(
             + (
                 WorkflowEdge(
                     "candidates", "subjects", "resolve-axis", "structure_candidates"
-                ),
-                WorkflowEdge(
-                    "candidates", "subjects", "contract-test-node", "subjects"
                 ),
                 WorkflowEdge(
                     "candidates", "references", "contract-test-node", "references"
@@ -2117,7 +2070,6 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                 "resolve-axis",
                 "structure_candidates",
             ),
-            WorkflowEdge("candidates", "subjects", "agreement", "subjects"),
             WorkflowEdge(
                 "candidates",
                 "references",

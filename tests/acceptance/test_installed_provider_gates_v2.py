@@ -635,12 +635,6 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
                 "structure_candidates",
             ),
             WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "design",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
                 "resolve-axes",
                 "residue_axes",
                 "design",
@@ -718,12 +712,6 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
                 "residue_axes",
                 "score",
                 "structure_residue_axes",
-            ),
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "score",
-                "structure_candidates",
             ),
             WorkflowEdge(
                 "sequence-source",
@@ -872,12 +860,6 @@ def test_mkdssp_executes_exact_method_through_public_run(
                 "import",
                 "structure_candidates",
                 "resolve-axis",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "import",
-                "structure_candidates",
-                "annotate",
                 "structure_candidates",
             ),
             WorkflowEdge(

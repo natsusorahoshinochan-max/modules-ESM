@@ -185,9 +185,11 @@ _Avoid_: Batch, result list, candidate set
 
 **Candidate Data Reference**:
 The exact association key comprising a Candidate identity, its nominal data
-type, and the canonical content digest of that Candidate's data. Derived
-scientific values use it to name their subject without relying on collection
-position.
+type, and the canonical content digest of that Candidate's data; admitted
+references establish scientific subjects and parent identity without requiring
+the complete Candidate value or relying on collection position. A reference
+does not carry the complete Candidate content, lineage, or metadata required
+for unchanged Candidate pass-through.
 _Avoid_: Candidate, list index, Node Instance locator
 
 **Candidate Relation**:
@@ -247,6 +249,13 @@ including its parent residue sequence, identity-complete layout, segment
 topology, selected named-atom coordinates, masks, component dispositions, and
 modified-residue normalization provenance.
 _Avoid_: ATOM-only view, reparsed CA list, implicit chain sequence
+
+**Candidate-associated Resolved Residue Axes**:
+An ordered, nonempty collection binding each exact structure Candidate Data
+Reference to its Resolved Structure Residue Axis, preserving the source Candidate
+Collection order. It supplies structure subjects and their axes without carrying
+the complete Candidates' lineage or metadata.
+_Avoid_: Position-paired sidecar, unordered capability set, complete Candidate Collection
 
 **Prediction Residue Axis**:
 The exact residue population used by one structure prediction, binding its exact

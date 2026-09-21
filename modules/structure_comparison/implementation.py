@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Protocol, cast
 
 from core.operation import OperationCall, OperationContext
@@ -56,25 +57,22 @@ def _candidate_references(
     return tuple(sorted(admitted.candidate_data, key=_reference_key))
 
 
-def _axis_associations(
+def _axis_entries_by_reference(
     value: object,
-    references: tuple[CandidateDataReference, ...],
-    *,
-    role: str,
 ) -> dict[CandidateDataReference, _ResolvedAxisAssociation]:
+    """Index one admitted ordered resolved-axis value by exact reference.
+
+    The value is already admitted and binds each subject to its axis, so no
+    coverage against a separate Candidate Port is required or possible.
+    """
     associations = cast(_ResolvedAxisAssociations, value)
-    by_reference = {entry.subject: entry for entry in associations.entries}
-    if set(by_reference) != set(references):
-        raise ValueError(
-            f"{role} residue axes must cover exact Candidate references"
-        )
-    return by_reference
+    return {entry.subject: entry for entry in associations.entries}
 
 
 def _relation_pairs(
     value: CandidateRelation,
-    subjects: tuple[CandidateDataReference, ...],
-    references: tuple[CandidateDataReference, ...],
+    subjects: Iterable[CandidateDataReference],
+    references: Iterable[CandidateDataReference],
 ) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
     if not value.entries:
         raise ValueError("structure comparison requires a non-empty relation")
@@ -127,22 +125,16 @@ class StructureComparisonImplementation:
         return "structure_first_tm_align"
 
     def _align(self, call: OperationCall) -> dict[str, Any]:
-        subjects = _candidate_references(call, port_name="subjects")
-        references = _candidate_references(call, port_name="references")
+        subject_axes = _axis_entries_by_reference(
+            call.inputs["subject_residue_axes"].value
+        )
+        reference_axes = _axis_entries_by_reference(
+            call.inputs["reference_residue_axes"].value
+        )
         pairs = _relation_pairs(
             call.inputs["relation"].value,
-            subjects,
-            references,
-        )
-        subject_axes = _axis_associations(
-            call.inputs["subject_residue_axes"].value,
-            subjects,
-            role="subject",
-        )
-        reference_axes = _axis_associations(
-            call.inputs["reference_residue_axes"].value,
-            references,
-            role="reference",
+            subject_axes,
+            reference_axes,
         )
         admitted_subject_axes = {
             axis.source: axis
@@ -168,13 +160,13 @@ class StructureComparisonImplementation:
                 )
             alignments.append(
                 StructureAlignmentEvidence(
-                    subject=subject_association.subject,
-                    reference=reference_association.subject,
+                    subject=subject,
+                    reference=reference,
                     subject_axis_content_digest=admitted_subject_axes[
-                        subject_association.subject
+                        subject
                     ].axis_content_digest,
                     reference_axis_content_digest=admitted_reference_axes[
-                        reference_association.subject
+                        reference
                     ].axis_content_digest,
                     segment_map=resolved.segment_map,
                     policy=resolved.policy,

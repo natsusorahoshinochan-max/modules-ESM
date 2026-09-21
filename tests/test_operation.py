@@ -375,7 +375,7 @@ def _candidate_outputs(pairing: CandidateRelationIntent) -> dict[str, object]:
     }
 
 
-def test_score_subject_cannot_project_a_same_operation_output_candidate(
+def test_fresh_score_subject_is_never_rebound_to_a_same_operation_output(
 ) -> None:
     content_digest = "sha256:" + ("a" * 64)
     reference = ExactContractReference(
@@ -384,37 +384,47 @@ def test_score_subject_cannot_project_a_same_operation_output_candidate(
     method = ExactContractReference(
         "method",
         "fixture")
-    with pytest.raises(PortValueError, match="same-operation output"):
-        normalize_fixture_outputs(
-            node_id="source",
-            result_identity="sha256:" + ("d" * 64),
-            inputs={},
-            outputs={
-                "candidates": CandidateCollection(
-                    "raw-candidates",
-                    "protein.sequence",
-                    [Candidate("raw-subject", ProteinSequence("AA"))],
-                ),
-                "scores": ScoreCollection(
-                    "raw-scores",
-                    [
-                        ScoreObservation(
-                            subject=CandidateDataReference(
-                                "raw-subject",
-                                "protein.sequence",
-                                content_digest,
-                            ),
-                            metric=reference,
-                            method=method,
-                            context=IntrinsicObservationContext(),
-                            source_partition="default",
-                            value=0.5,
-                        )
-                    ],
-                ),
-            },
-            candidate_content_digest=lambda _: content_digest,
-        )
+    raw_subject = CandidateDataReference(
+        "raw-subject",
+        "protein.sequence",
+        content_digest,
+    )
+    normalized = normalize_fixture_outputs(
+        node_id="source",
+        result_identity="sha256:" + ("d" * 64),
+        inputs={},
+        outputs={
+            "candidates": CandidateCollection(
+                "raw-candidates",
+                "protein.sequence",
+                [Candidate("raw-subject", ProteinSequence("AA"))],
+            ),
+            "scores": ScoreCollection(
+                "raw-scores",
+                [
+                    ScoreObservation(
+                        subject=raw_subject,
+                        metric=reference,
+                        method=method,
+                        context=IntrinsicObservationContext(),
+                        source_partition="default",
+                        value=0.5,
+                    )
+                ],
+            ),
+        },
+        candidate_content_digest=lambda _: content_digest,
+    )
+
+    # The emitted Candidate receives one fresh producer-local identity, while
+    # the fresh Score subject passes through unchanged and is never rebound to
+    # it. Produced-observation admission owns rejecting a subject outside the
+    # declared source Port, which is the only way a same-operation output could
+    # be claimed.
+    (candidate,) = normalized["candidates"].items
+    assert candidate.candidate_id != "raw-subject"
+    (score,) = normalized["scores"].entries
+    assert score.subject == raw_subject
 
 
 def test_score_axis_source_is_not_rebound_to_the_direct_candidate_input(
@@ -1024,4 +1034,190 @@ def test_candidate_lineage_rejects_cycles(
             inputs={},
             outputs=outputs,
             candidate_content_digest=_lineage_digest,
+        )
+
+
+def _reference(value: str, candidate_id: str) -> CandidateDataReference:
+    return CandidateDataReference(
+        candidate_id,
+        "protein.sequence",
+        value,
+    )
+
+
+def test_child_parent_identity_comes_from_admitted_references_alone() -> None:
+    parent = _reference("sha256:" + ("1" * 64), "candidate-parent")
+    child = Candidate(
+        "raw-child",
+        ProteinSequence("AA"),
+        parent_ids=(parent.candidate_id,),
+    )
+
+    normalized = normalize_fixture_outputs(
+        node_id="transform",
+        result_identity="sha256:" + ("2" * 64),
+        inputs={
+            "references_only": admitted_port_fixture(
+                "fixture-reference-carrier",
+                port_type_id="fixture.reference_carrier",
+                value_content_digests=("sha256:" + ("3" * 64),),
+                candidate_data=(parent,),
+            )
+        },
+        outputs={"candidates": CandidateCollection("raw", "protein.sequence", [child])},
+        candidate_content_digest=lambda _: "sha256:" + ("4" * 64),
+    )
+
+    # A complete Candidate value was never supplied for the parent; the
+    # admitted exact reference alone establishes its identity.
+    (produced,) = normalized["candidates"].items
+    assert produced.parent_ids == (parent.candidate_id,)
+    assert produced.candidate_id != "raw-child"
+
+
+def test_child_parent_identity_still_rejects_an_unknown_parent() -> None:
+    with pytest.raises(PortValueError, match="not a resolved input"):
+        normalize_fixture_outputs(
+            node_id="transform",
+            result_identity="sha256:" + ("a" * 64),
+            inputs={},
+            outputs={
+                "candidates": CandidateCollection(
+                    "raw",
+                    "protein.sequence",
+                    [
+                        Candidate(
+                            "raw-child",
+                            ProteinSequence("AA"),
+                            parent_ids=("candidate-absent",),
+                        )
+                    ],
+                )
+            },
+            candidate_content_digest=lambda _: "sha256:" + ("b" * 64),
+        )
+
+
+def test_child_parent_identity_rejects_an_ambiguous_parent_id() -> None:
+    first = _reference("sha256:" + ("c" * 64), "candidate-parent")
+    second = _reference("sha256:" + ("d" * 64), "candidate-parent")
+    child = Candidate(
+        "raw-child",
+        ProteinSequence("AA"),
+        parent_ids=("candidate-parent",),
+    )
+
+    with pytest.raises(PortValueError, match="conflicting admitted input references"):
+        normalize_fixture_outputs(
+            node_id="transform",
+            result_identity="sha256:" + ("e" * 64),
+            inputs={
+                "left": admitted_port_fixture(
+                    "fixture-left",
+                    port_type_id="fixture.reference_carrier",
+                    value_content_digests=("sha256:" + ("f" * 64),),
+                    candidate_data=(first,),
+                ),
+                "right": admitted_port_fixture(
+                    "fixture-right",
+                    port_type_id="fixture.reference_carrier",
+                    value_content_digests=("sha256:" + ("0" * 64),),
+                    candidate_data=(second,),
+                ),
+            },
+            outputs={
+                "candidates": CandidateCollection("raw", "protein.sequence", [child])
+            },
+            candidate_content_digest=lambda _: "sha256:" + ("1" * 64),
+        )
+
+
+def test_pass_through_rejects_one_identity_with_conflicting_complete_values(
+) -> None:
+    first = Candidate("candidate-shared", ProteinSequence("AA"))
+    second = Candidate("candidate-shared", ProteinSequence("AT"))
+    raw = Candidate("candidate-shared", ProteinSequence("AA"))
+
+    with pytest.raises(PortValueError, match="conflicting complete input values"):
+        normalize_fixture_outputs(
+            node_id="transform",
+            result_identity="sha256:" + ("2" * 64),
+            inputs={
+                "left": admitted_port_fixture(
+                    CandidateCollection("left", "protein.sequence", [first]),
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("3" * 64),),
+                    candidate_data=(_reference("sha256:" + ("4" * 64), "candidate-shared"),),
+                ),
+                "right": admitted_port_fixture(
+                    CandidateCollection("right", "protein.sequence", [second]),
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("5" * 64),),
+                    candidate_data=(_reference("sha256:" + ("6" * 64), "candidate-shared"),),
+                ),
+            },
+            outputs={"candidates": CandidateCollection("raw", "protein.sequence", [raw])},
+            candidate_content_digest=lambda _: "sha256:" + ("7" * 64),
+        )
+
+
+@pytest.mark.parametrize("complete_first", (True, False))
+def test_pass_through_uses_its_complete_input_record_reference(
+    complete_first: bool,
+) -> None:
+    from core.execution.output_admission.candidate_identity import (
+        _normalize_candidate_outputs,
+    )
+
+    candidate = Candidate(
+        "candidate-shared", ProteinSequence("AA"),
+        parent_ids=("parent",), metadata={"source": "original"},
+    )
+    own_reference = _reference("sha256:" + "1" * 64, candidate.candidate_id)
+    other_reference = _reference("sha256:" + "2" * 64, candidate.candidate_id)
+    complete = admitted_port_fixture(
+        CandidateCollection("source", "protein.sequence", [candidate]),
+        port_type_id="candidate.collection",
+        value_content_digests=("sha256:" + "3" * 64,),
+        candidate_data=(own_reference,),
+    )
+    other = admitted_port_fixture(
+        "reference-only", port_type_id="fixture.reference_carrier",
+        value_content_digests=("sha256:" + "4" * 64,),
+        candidate_data=(other_reference,),
+    )
+    inputs = {"complete": complete, "other": other}
+    if not complete_first:
+        inputs = dict(reversed(tuple(inputs.items())))
+    normalized = _normalize_candidate_outputs(
+        result_identity="sha256:" + "5" * 64,
+        inputs=inputs,
+        outputs={"out": (CandidateCollection("out", "protein.sequence", [candidate]),)},
+        candidate_data_port_types={},
+        identity_encoder=SimpleNamespace(
+            encode_value=lambda **_: pytest.fail("Pass-through must not rehash")
+        ),
+    )
+    assert normalized.values["out"][0].items[0] == candidate
+    assert normalized.candidate_data[candidate.candidate_id] == own_reference
+
+
+def test_reference_only_input_cannot_supply_pass_through_identity() -> None:
+    candidate = Candidate("candidate-existing", ProteinSequence("AA"))
+    reference = _reference("sha256:" + "1" * 64, candidate.candidate_id)
+    with pytest.raises(PortValueError, match="requires a complete input Candidate"):
+        normalize_fixture_outputs(
+            node_id="transform",
+            result_identity="sha256:" + "2" * 64,
+            inputs={
+                "reference_only": admitted_port_fixture(
+                    "reference-only", port_type_id="fixture.reference_carrier",
+                    value_content_digests=("sha256:" + "3" * 64,),
+                    candidate_data=(reference,),
+                )
+            },
+            outputs={"out": CandidateCollection("out", "protein.sequence", [candidate])},
+            candidate_content_digest=lambda _: pytest.fail(
+                "Reject identity reuse before assigning a new identity"
+            ),
         )

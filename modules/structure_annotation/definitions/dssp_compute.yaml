@@ -3,16 +3,11 @@ title: Compute DSSP annotations
 summary: Runs the exact bound DSSP binary and reconciles its annotations to the authoritative resolved structure residue axis, emitting two observed tracks.
 category: structure_annotation
 inputs:
-  - name: structure_candidates
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Exactly one ProteinStructure Candidate whose admitted candidate ID, data type, and content digest identify the annotation subject.
   - name: residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Exactly one authoritative resolved residue axis associated by the complete admitted ProteinStructure Candidate reference; this axis alone defines residue identity, order, and layout, while its embedded exact structure is the sole mkdssp request value.
+    scientific_meaning: Exactly one authoritative resolved residue axis whose exact subject reference identifies the annotation subject; this axis alone defines residue identity, order, and layout, while its embedded exact structure is the sole mkdssp request value. A different entry count fails before the engine is invoked.
 outputs:
   - name: secondary_structure
     port_type_id: structure_annotation.secondary_structure.observed

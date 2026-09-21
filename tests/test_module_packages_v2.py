@@ -647,7 +647,7 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
         ),
         (
                 {"subject_port": "value"},
-                "subject must use candidate.collection",
+                "subject must use one exact Candidate-projecting Port",
         ),
         (
             {

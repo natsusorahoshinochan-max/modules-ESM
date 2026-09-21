@@ -588,7 +588,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                 subject_grain="candidate",
                 source_role="subject",
                 subject_direction="input",
-                subject_port="structure_candidates",
+                subject_port="structure_residue_axes",
                 axis_direction="input",
                 axis_port="structure_residue_axes",
                 guaranteed_multiplicity="one",

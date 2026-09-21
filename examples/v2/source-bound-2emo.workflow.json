@@ -347,12 +347,6 @@
       "target_port": "modified_residue_normalizations"
     },
     {
-      "source_node_id": "normalize-reference",
-      "source_port": "structure_candidates",
-      "target_node_id": "project-reference-axis",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "resolve-reference",
       "source_port": "residue_axes",
       "target_node_id": "project-reference-axis",
@@ -375,12 +369,6 @@
       "source_port": "constraints",
       "target_node_id": "design-sequences",
       "target_port": "constraints"
-    },
-    {
-      "source_node_id": "normalize-reference",
-      "source_port": "structure_candidates",
-      "target_node_id": "design-sequences",
-      "target_port": "structure_candidates"
     },
     {
       "source_node_id": "resolve-reference",
@@ -419,22 +407,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-esmfold2",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-folds",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds",
       "source_port": "residue_axes",
       "target_node_id": "align-folds",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "normalize-reference",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-folds",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-reference",

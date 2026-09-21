@@ -615,24 +615,6 @@
       "target_port": "sequence_candidates"
     },
     {
-      "source_node_id": "folding-fold-simplefold-local",
-      "source_port": "structure_candidates",
-      "target_node_id": "folding-simplefold-confidence-simplefold-local",
-      "target_port": "structure_candidates"
-    },
-    {
-      "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-annotation-dssp-compute-mkdssp-local",
-      "target_port": "structure_candidates"
-    },
-    {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "structure-annotation-dssp-compute-mkdssp-local",
       "source_port": "secondary_structure",
       "target_node_id": "observed-to-conditioning-ss-direct",
@@ -655,12 +637,6 @@
       "source_port": "sasa",
       "target_node_id": "observed-to-conditioning-sasa-direct",
       "target_port": "sasa"
-    },
-    {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
-      "target_port": "subjects"
     },
     {
       "source_node_id": "protein-io-import-structure-direct",
@@ -747,22 +723,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
       "source_port": "residue_axes",
       "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
-      "target_port": "references"
     },
     {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
@@ -771,22 +735,10 @@
       "target_port": "reference_residue_axes"
     },
     {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
       "source_port": "residue_axes",
       "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
-      "target_port": "references"
     },
     {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
@@ -795,22 +747,10 @@
       "target_port": "reference_residue_axes"
     },
     {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
       "source_port": "residue_axes",
       "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
-      "target_port": "references"
     },
     {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
@@ -819,22 +759,10 @@
       "target_port": "reference_residue_axes"
     },
     {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
       "source_port": "residue_axes",
       "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "folding-fold-simplefold-local",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
-      "target_port": "references"
     },
     {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-simplefold-direct",
@@ -979,12 +907,6 @@
       "source_port": "structure_candidates",
       "target_node_id": "collection-ops-pair-siblings-by-parent-direct-right-parent",
       "target_port": "subjects"
-    },
-    {
-      "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-transform-extract-sequence-candidates-direct",
-      "target_port": "structure_candidates"
     },
     {
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",

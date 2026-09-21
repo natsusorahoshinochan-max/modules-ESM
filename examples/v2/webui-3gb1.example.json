@@ -31,265 +31,6 @@
         "binding_parameters": {}
       },
       {
-        "node_id": "generate-paired",
-        "node_type_id": "esm3.generate_paired",
-        "binding_id": "esm3.generate_paired.biohub_medium",
-        "node_parameters": {
-          "effective_seed": 1603,
-          "num_samples": 7
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "confidence-generated",
-        "node_type_id": "structure_prediction.materialize_confidence",
-        "binding_id": "structure_prediction.materialize_confidence.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "rank-generated",
-        "node_type_id": "selection.weighted_rank",
-        "binding_id": "selection.weighted_rank.direct",
-        "node_parameters": {
-          "objective_ids": [
-            "generated-plddt"
-          ],
-          "tie_policy": "candidate_id_ascending"
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "take-top-four",
-        "node_type_id": "collection_ops.take_candidates",
-        "binding_id": "collection_ops.take_candidates.direct",
-        "node_parameters": {
-          "k": 4
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-generated-structure-parent",
-        "node_type_id": "collection_ops.relate_by_parent",
-        "binding_id": "collection_ops.relate_by_parent.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-generated-pairs",
-        "node_type_id": "collection_ops.invert_relation",
-        "binding_id": "collection_ops.invert_relation.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "select-paired-sequences",
-        "node_type_id": "collection_ops.select_related_subjects",
-        "binding_id": "collection_ops.select_related_subjects.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "fold-stage-one",
-        "node_type_id": "folding.fold",
-        "binding_id": "folding.fold.esmfold2_remote",
-        "node_parameters": {
-          "effective_seed": 1603,
-          "num_samples": 1
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "confidence-stage-one",
-        "node_type_id": "structure_prediction.materialize_confidence",
-        "binding_id": "structure_prediction.materialize_confidence.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-stage-one-fold-parent",
-        "node_type_id": "collection_ops.relate_by_parent",
-        "binding_id": "collection_ops.relate_by_parent.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-stage-one",
-        "node_type_id": "collection_ops.compose_relations",
-        "binding_id": "collection_ops.compose_relations.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "axes-stage-one",
-        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "axes-generated-top-four",
-        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "align-stage-one",
-        "node_type_id": "structure_comparison.align_pairs",
-        "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "tm-stage-one",
-        "node_type_id": "structure_comparison.tm_score_from_alignments",
-        "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "scores-stage-one",
-        "node_type_id": "collection_ops.merge_scores",
-        "binding_id": "collection_ops.merge_scores.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "rank-stage-one",
-        "node_type_id": "selection.weighted_rank",
-        "binding_id": "selection.weighted_rank.direct",
-        "node_parameters": {
-          "objective_ids": [
-            "stage-one-plddt",
-            "stage-one-parent-tm"
-          ],
-          "tie_policy": "candidate_id_ascending"
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "take-top-two",
-        "node_type_id": "collection_ops.take_candidates",
-        "binding_id": "collection_ops.take_candidates.direct",
-        "node_parameters": {
-          "k": 2
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "axes-top-two",
-        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "design-children",
-        "node_type_id": "proteinmpnn.design",
-        "binding_id": "proteinmpnn.design.local",
-        "node_parameters": {
-          "effective_seed": 1603,
-          "num_sequences": 3
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "fold-final",
-        "node_type_id": "folding.fold",
-        "binding_id": "folding.fold.esmfold2_remote",
-        "node_parameters": {
-          "effective_seed": 1603,
-          "num_samples": 1
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "confidence-final",
-        "node_type_id": "structure_prediction.materialize_confidence",
-        "binding_id": "structure_prediction.materialize_confidence.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-final-fold-parent",
-        "node_type_id": "collection_ops.relate_by_parent",
-        "binding_id": "collection_ops.relate_by_parent.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-design-parent",
-        "node_type_id": "collection_ops.relate_by_parent",
-        "binding_id": "collection_ops.relate_by_parent.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "relation-final",
-        "node_type_id": "collection_ops.compose_relations",
-        "binding_id": "collection_ops.compose_relations.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "axes-final",
-        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "align-final",
-        "node_type_id": "structure_comparison.align_pairs",
-        "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "tm-final",
-        "node_type_id": "structure_comparison.tm_score_from_alignments",
-        "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "scores-final",
-        "node_type_id": "collection_ops.merge_scores",
-        "binding_id": "collection_ops.merge_scores.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "rank-final",
-        "node_type_id": "selection.weighted_rank",
-        "binding_id": "selection.weighted_rank.direct",
-        "node_parameters": {
-          "objective_ids": [
-            "final-plddt",
-            "final-parent-tm"
-          ],
-          "tie_policy": "candidate_id_ascending"
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "take-top-three",
-        "node_type_id": "collection_ops.take_candidates",
-        "binding_id": "collection_ops.take_candidates.direct",
-        "node_parameters": {
-          "k": 3
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "export-final",
-        "node_type_id": "protein_io.export_structure",
-        "binding_id": "protein_io.export_structure.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
         "node_id": "prompt-composition-webui-3gb1.source.author",
         "node_type_id": "prompt_authoring.author",
         "binding_id": "prompt_authoring.author.direct",
@@ -580,6 +321,265 @@
           }
         },
         "binding_parameters": {}
+      },
+      {
+        "node_id": "generate-paired",
+        "node_type_id": "esm3.generate_paired",
+        "binding_id": "esm3.generate_paired.biohub_medium",
+        "node_parameters": {
+          "effective_seed": 1603,
+          "num_samples": 7
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "confidence-generated",
+        "node_type_id": "structure_prediction.materialize_confidence",
+        "binding_id": "structure_prediction.materialize_confidence.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "rank-generated",
+        "node_type_id": "selection.weighted_rank",
+        "binding_id": "selection.weighted_rank.direct",
+        "node_parameters": {
+          "objective_ids": [
+            "generated-plddt"
+          ],
+          "tie_policy": "candidate_id_ascending"
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "take-top-four",
+        "node_type_id": "collection_ops.take_candidates",
+        "binding_id": "collection_ops.take_candidates.direct",
+        "node_parameters": {
+          "k": 4
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-generated-structure-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-generated-pairs",
+        "node_type_id": "collection_ops.invert_relation",
+        "binding_id": "collection_ops.invert_relation.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "select-paired-sequences",
+        "node_type_id": "collection_ops.select_related_subjects",
+        "binding_id": "collection_ops.select_related_subjects.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "fold-stage-one",
+        "node_type_id": "folding.fold",
+        "binding_id": "folding.fold.esmfold2_remote",
+        "node_parameters": {
+          "effective_seed": 1603,
+          "num_samples": 1
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "confidence-stage-one",
+        "node_type_id": "structure_prediction.materialize_confidence",
+        "binding_id": "structure_prediction.materialize_confidence.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-stage-one-fold-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-stage-one",
+        "node_type_id": "collection_ops.compose_relations",
+        "binding_id": "collection_ops.compose_relations.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "axes-stage-one",
+        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "axes-generated-top-four",
+        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "align-stage-one",
+        "node_type_id": "structure_comparison.align_pairs",
+        "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "tm-stage-one",
+        "node_type_id": "structure_comparison.tm_score_from_alignments",
+        "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "scores-stage-one",
+        "node_type_id": "collection_ops.merge_scores",
+        "binding_id": "collection_ops.merge_scores.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "rank-stage-one",
+        "node_type_id": "selection.weighted_rank",
+        "binding_id": "selection.weighted_rank.direct",
+        "node_parameters": {
+          "objective_ids": [
+            "stage-one-plddt",
+            "stage-one-parent-tm"
+          ],
+          "tie_policy": "candidate_id_ascending"
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "take-top-two",
+        "node_type_id": "collection_ops.take_candidates",
+        "binding_id": "collection_ops.take_candidates.direct",
+        "node_parameters": {
+          "k": 2
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "axes-top-two",
+        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "design-children",
+        "node_type_id": "proteinmpnn.design",
+        "binding_id": "proteinmpnn.design.local",
+        "node_parameters": {
+          "effective_seed": 1603,
+          "num_sequences": 3
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "fold-final",
+        "node_type_id": "folding.fold",
+        "binding_id": "folding.fold.esmfold2_remote",
+        "node_parameters": {
+          "effective_seed": 1603,
+          "num_samples": 1
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "confidence-final",
+        "node_type_id": "structure_prediction.materialize_confidence",
+        "binding_id": "structure_prediction.materialize_confidence.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-final-fold-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-design-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-final",
+        "node_type_id": "collection_ops.compose_relations",
+        "binding_id": "collection_ops.compose_relations.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "axes-final",
+        "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+        "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "align-final",
+        "node_type_id": "structure_comparison.align_pairs",
+        "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "tm-final",
+        "node_type_id": "structure_comparison.tm_score_from_alignments",
+        "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "scores-final",
+        "node_type_id": "collection_ops.merge_scores",
+        "binding_id": "collection_ops.merge_scores.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "rank-final",
+        "node_type_id": "selection.weighted_rank",
+        "binding_id": "selection.weighted_rank.direct",
+        "node_parameters": {
+          "objective_ids": [
+            "final-plddt",
+            "final-parent-tm"
+          ],
+          "tie_policy": "candidate_id_ascending"
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "take-top-three",
+        "node_type_id": "collection_ops.take_candidates",
+        "binding_id": "collection_ops.take_candidates.direct",
+        "node_parameters": {
+          "k": 3
+        },
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "export-final",
+        "node_type_id": "protein_io.export_structure",
+        "binding_id": "protein_io.export_structure.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
       }
     ],
     "edges": [
@@ -594,6 +594,12 @@
         "source_port": "structure",
         "target_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
         "target_port": "structure"
+      },
+      {
+        "source_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
+        "source_port": "residue_axis",
+        "target_node_id": "prompt-composition-webui-3gb1.source.author",
+        "target_port": "structure_source"
       },
       {
         "source_node_id": "prompt-composition-webui-3gb1.source.author",
@@ -722,22 +728,10 @@
         "target_port": "structure_candidates"
       },
       {
-        "source_node_id": "fold-stage-one",
-        "source_port": "structure_candidates",
-        "target_node_id": "align-stage-one",
-        "target_port": "subjects"
-      },
-      {
         "source_node_id": "axes-stage-one",
         "source_port": "residue_axes",
         "target_node_id": "align-stage-one",
         "target_port": "subject_residue_axes"
-      },
-      {
-        "source_node_id": "take-top-four",
-        "source_port": "candidates",
-        "target_node_id": "align-stage-one",
-        "target_port": "references"
       },
       {
         "source_node_id": "axes-generated-top-four",
@@ -812,12 +806,6 @@
         "target_port": "structure_candidates"
       },
       {
-        "source_node_id": "take-top-two",
-        "source_port": "candidates",
-        "target_node_id": "design-children",
-        "target_port": "structure_candidates"
-      },
-      {
         "source_node_id": "axes-top-two",
         "source_port": "residue_axes",
         "target_node_id": "design-children",
@@ -884,22 +872,10 @@
         "target_port": "structure_candidates"
       },
       {
-        "source_node_id": "fold-final",
-        "source_port": "structure_candidates",
-        "target_node_id": "align-final",
-        "target_port": "subjects"
-      },
-      {
         "source_node_id": "axes-final",
         "source_port": "residue_axes",
         "target_node_id": "align-final",
         "target_port": "subject_residue_axes"
-      },
-      {
-        "source_node_id": "take-top-two",
-        "source_port": "candidates",
-        "target_node_id": "align-final",
-        "target_port": "references"
       },
       {
         "source_node_id": "axes-top-two",
@@ -972,12 +948,6 @@
         "source_port": "candidates",
         "target_node_id": "export-final",
         "target_port": "structures"
-      },
-      {
-        "source_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
-        "source_port": "residue_axis",
-        "target_node_id": "prompt-composition-webui-3gb1.source.author",
-        "target_port": "structure_source"
       }
     ],
     "observation_selectors": [],

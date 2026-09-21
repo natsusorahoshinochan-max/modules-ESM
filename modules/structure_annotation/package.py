@@ -146,7 +146,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 subject_grain="candidate",
                 source_role="subject",
                 subject_direction="input",
-                subject_port="subjects",
+                subject_port="subject_residue_axes",
                 reference_direction="input",
                 reference_port="references",
                 axis_direction="input",

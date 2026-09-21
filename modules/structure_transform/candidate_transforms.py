@@ -111,33 +111,16 @@ class SelectCandidateChainsImplementation:
 
 
 class ExtractSequenceCandidatesImplementation:
-    """Project exact-reference-associated axes into sequence Candidates."""
+    """Project ordered exact-reference-associated axes into sequence Candidates."""
 
     def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
 
     def execute(self, call: OperationCall) -> dict[str, object]:
-        candidates_and_references = _candidate_structures_and_references(call)
         residue_axes = cast(
             CandidateResolvedResidueAxisAssociations,
             call.inputs["residue_axes"].value,
         )
-        axes_by_id = {
-            entry.subject.candidate_id: entry
-            for entry in residue_axes.entries
-        }
-        references_by_id = {
-            reference.candidate_id: reference
-            for _, reference in candidates_and_references
-        }
-        if set(axes_by_id) != set(references_by_id) or any(
-            axes_by_id[candidate_id].subject != reference
-            for candidate_id, reference in references_by_id.items()
-        ):
-            raise ValueError(
-                "Candidate sequence extraction requires complete exact "
-                "Candidate references"
-            )
         with self._run_resources.engine_invocation():
             return {
                 "sequence_candidates": CandidateCollection(
@@ -146,12 +129,8 @@ class ExtractSequenceCandidatesImplementation:
                     items=tuple(
                         Candidate(
                             candidate_id=f"extracted-sequence-{index}",
-                            data=extract_sequence(
-                                axes_by_id[
-                                    reference.candidate_id
-                                ].residue_axis
-                            ),
-                            parent_ids=[candidate.candidate_id],
+                            data=extract_sequence(entry.residue_axis),
+                            parent_ids=[entry.subject.candidate_id],
                             metadata={
                                 "transform": (
                                     "structure_transform."
@@ -160,9 +139,7 @@ class ExtractSequenceCandidatesImplementation:
                                 "parent_index": index,
                             },
                         )
-                        for index, (candidate, reference) in enumerate(
-                            candidates_and_references
-                        )
+                        for index, entry in enumerate(residue_axes.entries)
                     ),
                 )
             }
@@ -293,16 +270,11 @@ class ProjectSingleResidueAxisImplementation:
         self._run_resources = run_resources
 
     def execute(self, call: OperationCall) -> dict[str, object]:
-        candidates_and_references = _candidate_structures_and_references(call)
         axes = cast(
             CandidateResolvedResidueAxisAssociations,
             call.inputs["residue_axes"].value,
         )
-        if (
-            len(candidates_and_references) != 1
-            or len(axes.entries) != 1
-            or axes.entries[0].subject != candidates_and_references[0][1]
-        ):
+        if len(axes.entries) != 1:
             raise ValueError(
                 "single residue-axis projection requires one exact association"
             )

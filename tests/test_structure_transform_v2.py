@@ -409,12 +409,6 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     ).execute(
         OperationCall(
             inputs={
-                "structure_candidates": admitted_port_fixture(
-                    structure_candidates,
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("e" * 64),),
-                    candidate_data=(subject,),
-                ),
                 "residue_axes": admitted_port_fixture(
                     residue_axes,
                     port_type_id="structure_transform.residue_axes",
@@ -452,35 +446,45 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     assert selected_axis.sequence == "AMG"
     assert selected_axis.modified_residue_normalizations.entries
 
-    mismatched_axes = CandidateResolvedResidueAxisAssociations(
+    # Entry order is the only owner of the extraction output order and of each
+    # child's exact parent lineage.
+    second_subject = replace(subject, candidate_id="second-subject")
+    ordered_axes = CandidateResolvedResidueAxisAssociations(
         entries=(
             CandidateResolvedResidueAxisAssociation(
-                subject=replace(subject, candidate_id="other-subject"),
+                subject=second_subject,
+                residue_axis=residue_axes.entries[0].residue_axis,
+            ),
+            CandidateResolvedResidueAxisAssociation(
+                subject=subject,
                 residue_axis=residue_axes.entries[0].residue_axis,
             ),
         )
     )
-    with pytest.raises(ValueError, match="complete exact Candidate references"):
-        ExtractSequenceCandidatesImplementation(_RunResources()).execute(
-            OperationCall(
-                inputs={
-                    "structure_candidates": admitted_port_fixture(
-                        structure_candidates,
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("e" * 64),),
-                        candidate_data=(subject,),
-                    ),
-                    "residue_axes": admitted_port_fixture(
-                        mismatched_axes,
-                        port_type_id="structure_transform.residue_axes",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                    ),
-                },
-                node_parameters={},
-                binding_parameters={},
-                effective_randomness={},
-            )
+    ordered_output = ExtractSequenceCandidatesImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={
+                "residue_axes": admitted_port_fixture(
+                    ordered_axes,
+                    port_type_id="structure_transform.residue_axes",
+                    value_content_digests=("sha256:" + ("f" * 64),),
+                ),
+            },
+            node_parameters={},
+            binding_parameters={},
+            effective_randomness={},
         )
+    )["sequence_candidates"]
+
+    assert [candidate.parent_ids for candidate in ordered_output.items] == [
+        ("second-subject",),
+        ("subject",),
+    ]
+    assert [
+        candidate.metadata["parent_index"] for candidate in ordered_output.items
+    ] == [0, 1]
 
 
 def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> None:
@@ -679,14 +683,13 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
     assert candidate_residue_axes["outputs"][0]["port_type"][
         "contract_id"
     ] == "structure_transform.candidate_resolved_residue_axis_associations"
-    assert candidate_sequence["inputs"][0]["name"] == "structure_candidates"
+    assert candidate_sequence["inputs"][0]["name"] == "residue_axes"
     assert candidate_sequence["inputs"][0]["port_type"][
         "contract_id"
-    ] == "candidate.collection"
-    assert candidate_sequence["inputs"][1]["name"] == "residue_axes"
-    assert candidate_sequence["inputs"][1]["port_type"][
-        "contract_id"
     ] == "structure_transform.candidate_resolved_residue_axis_associations"
+    assert [port["name"] for port in candidate_sequence["inputs"]] == [
+        "residue_axes"
+    ]
     normalize_binding = catalog.require_contract(
         "binding",
         "structure_transform.normalize_csh_parent_span.direct").descriptor
@@ -945,12 +948,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                 WorkflowEdge(
                     "source",
                     "structure_candidates",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "structure_candidates",
                     "resolve-candidate-axes",
                     "structure_candidates",
                 ),
@@ -1080,12 +1077,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                     "source",
                     "structure_candidates",
                     "resolve-candidate-axes",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "structure_candidates",
-                    "contract-test-node",
                     "structure_candidates",
                 ),
                 WorkflowEdge(

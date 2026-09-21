@@ -20,6 +20,9 @@ from datatypes.observation import (
     ScoreObservation,
 )
 from datatypes.structure import ResolvedStructureResidueAxis
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociations,
+)
 from ._output_construction import (
     CompletedFoldingSample,
     FoldingOutputConstruction,
@@ -191,7 +194,7 @@ class SimpleFoldConfidenceImplementation:
         }
 
     @staticmethod
-    def _structure_candidates_with_axes(
+    def _resolved_axis_entries(
         call: OperationCall,
     ) -> tuple[
         tuple[
@@ -201,51 +204,26 @@ class SimpleFoldConfidenceImplementation:
         ],
         ...,
     ]:
-        candidate_record = call.inputs["structure_candidates"]
-        collection = candidate_record.value
-        associations = call.inputs["structure_residue_axes"].value
-        if collection.item_type != "protein.structure" or not collection.items:
-            raise ValueError(
-                "SimpleFold confidence requires exact structure Candidates "
-                "and resolved axes"
-            )
+        """Read the ordered resolved-axis value and precheck the whole population.
 
-        references_by_id = {
-            reference.candidate_id: reference
-            for reference in candidate_record.candidate_data
-        }
-
-        axes_by_reference = {
-            entry.subject: entry.residue_axis
-            for entry in associations.entries
-        }
-        if set(axes_by_reference) != set(references_by_id.values()):
-            raise ValueError(
-                "SimpleFold confidence resolved axes must cover exact "
-                "structure references"
+        The admitted value already binds every exact structure subject to its
+        axis. This helper joins nothing: it only reads the value's own
+        scientific-axis projection and then applies the one Method condition
+        that must hold for the complete population before the first Provider
+        call.
+        """
+        axis_input = call.inputs["structure_residue_axes"]
+        associations: CandidateResolvedResidueAxisAssociations = (
+            axis_input.value
+        )
+        joined = tuple(
+            (entry.subject, entry.residue_axis, axis_reference)
+            for entry, axis_reference in zip(
+                associations.entries,
+                axis_input.scientific_axes,
+                strict=True,
             )
-
-        admitted_axes_by_reference = {
-            axis.source: axis
-            for axis in call.inputs["structure_residue_axes"].scientific_axes
-        }
-        joined: list[
-            tuple[
-                CandidateDataReference,
-                ResolvedStructureResidueAxis,
-                ResidueAxisReference,
-            ]
-        ] = []
-        for candidate in collection.items:
-            reference = references_by_id[candidate.candidate_id]
-            residue_axis = axes_by_reference[reference]
-            joined.append(
-                (
-                    reference,
-                    residue_axis,
-                    admitted_axes_by_reference[reference],
-                )
-            )
+        )
         if any(
             not any(residue_axis.ca_coordinate_mask)
             for _, residue_axis, _ in joined
@@ -254,10 +232,10 @@ class SimpleFoldConfidenceImplementation:
                 "SimpleFold confidence requires at least one resolved CA "
                 "coordinate per structure"
             )
-        return tuple(joined)
+        return joined
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        candidates_with_axes = self._structure_candidates_with_axes(call)
+        candidates_with_axes = self._resolved_axis_entries(call)
         observations: list[ScoreObservation] = []
         for candidate_index, (
             subject,

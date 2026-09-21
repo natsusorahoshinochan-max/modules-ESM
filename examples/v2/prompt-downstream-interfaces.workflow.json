@@ -128,12 +128,6 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "import-structure",
-      "source_port": "structure_candidates",
-      "target_node_id": "design-with-reference",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "resolve-proteinmpnn-targets",
       "source_port": "residue_axes",
       "target_node_id": "design-with-reference",

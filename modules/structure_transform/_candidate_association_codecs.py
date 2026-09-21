@@ -456,7 +456,7 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
         {
             "accepted_value_kind": "candidate_resolved_residue_axis_associations",
             "association_key": "exact-CandidateDataReference",
-            "entry_order": "canonical-only-not-correspondence",
+            "entry_order": "resolver-input-candidate-collection-order",
             "structure_binding": "subject-content-digest-equals-embedded-structure",
             "embedded_axis_contract": (
                 "structure_transform.resolved_residue_axis"
@@ -467,9 +467,7 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
         "structure_transform.candidate_resolved_residue_axis_associations/codec",
         {
             "canonicalization": "RFC 8785",
-            "association_order": (
-                "candidate-id-data-type-id-content-digest"
-            ),
+            "association_order": "preserved-entry-order",
         },
     ),
     content_identity=BehaviorReference(

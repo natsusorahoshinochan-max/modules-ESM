@@ -184,7 +184,7 @@
     name: exact-reference-associated-resolved-residue-axes
     scalar_resolution: resolved-protein-residue-axis
     association_key: exact-CandidateDataReference
-    collection_position: not-scientific-correspondence
+    collection_position: resolver-input-order-owns-entry-order
     candidate_coverage: complete-no-missing-duplicate-or-extra
     normalization_join: exact-reference-only
     structure_binding: candidate-content-digest

@@ -198,14 +198,7 @@ def _run_candidate_transform(
             binding_parameters={},
         )
     ]
-    edges = [
-        WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "transform",
-            "structure_candidates",
-        )
-    ]
+    edges = []
     if needs_resolved_axes:
         nodes.append(
             WorkflowNodeInstance(
@@ -234,6 +227,15 @@ def _run_candidate_transform(
                     "transform",
                     "residue_axes",
                 ),
+            )
+        )
+    else:
+        edges.append(
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "transform",
+                "structure_candidates",
             )
         )
     nodes.append(
