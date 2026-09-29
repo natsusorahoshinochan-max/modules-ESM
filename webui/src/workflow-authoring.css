@@ -82,3 +82,50 @@ summary.workflow-port-row::-webkit-details-marker { display: none; }
 .parameter-subgroup > .schema-parameter-field { padding: 5px 0; }
 .selection-dialog { width: min(900px,94vw); max-height: 90vh; overflow: auto; }
 .canvas-operation-picker button:focus-visible { outline: 2px solid #89ba7a; background: #2b3f31; }
+
+.canvas-stage-navigation { flex: 0 0 auto; display: flex; gap: 8px; overflow-x: auto; padding: 9px 16px; background: #141c17; border-bottom: 1px solid #354239; }
+.canvas-stage-navigation button { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 13px; color: #bfcac1; background: #202b23; border: 1px solid #3e4d42; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.canvas-stage-navigation button[aria-current=step] { color: #f2e5be; border-color: #d4b15d; background: #343022; }
+.canvas-stage-navigation button > span, .stage-number { color: #c7afd9; font: 12px 'DM Mono', monospace; }
+.canvas-group-node .group-rename { background: transparent; border: 0; padding: 3px; color: #a0aca1; font-size: 10px; }
+.canvas-group-node > .node-header { display: flex; }
+.workflow-node.stage-group-node { width: 360px; border-color: #867098; }
+.stage-group-node .node-header { padding: 14px; min-height: 62px; gap: 10px; }
+.stage-group-node .node-header > strong { flex: 1; min-width: 0; font-size: 16px; line-height: 1.4; }
+.stage-group-node .node-header > button { flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
+.stage-description { margin: 0; padding: 0 14px 12px; font-size: 12px; line-height: 1.6; color: #bec9c0; }
+.stage-group-node .node-meta { padding: 7px 14px; font-size: 10px; }
+.stage-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 14px 12px; padding: 9px 10px; background: #202c23; border-radius: 5px; color: #c6d2c8; font-size: 12px; }
+.stage-status small { font-size: 10px; color: #9eafa1; }
+.stage-status.status-failed, .stage-status.status-blocked { background: #3a2924; color: #f0b7a8; }
+.stage-status.status-running { background: #26362c; color: #b5dfbd; }
+.stage-status.status-succeeded { color: #a8d9b2; }
+.stage-controls { display: grid; gap: 8px; padding: 0 14px 14px; }
+.stage-control-parameter .parameter-group { border: 0; margin: 0; padding: 0; }
+.stage-control-parameter .parameter-group > summary, .stage-control-parameter .parameter-subgroup > summary { display: none; }
+.stage-control-parameter .schema-parameter-fields { padding: 0; }
+.stage-control-parameter .schema-parameter-field { padding: 6px 0; }
+.stage-control-parameter .parameter-label { font-size: 12px; }
+.stage-control-parameter input, .stage-control-parameter select { min-height: 32px; font-size: 13px; }
+.stage-control-parameter .parameter-description { display: none; }
+.canvas-group-node .stage-editor-button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px; font-size: 12px; text-align: left; }
+.stage-editor-button svg:last-child { margin-left: auto; }
+.stage-group-node .port-name { font-size: 10px; line-height: 1.4; }
+.stage-group-node .port-rules, .stage-group-node .port-type { font-size: 9px; }
+.stage-group-node > small { padding: 10px 14px; }
+
+/* Editing actions occupy their own row; zoom and fit controls keep the canvas corner. */
+.flow-canvas { display: flex; flex-direction: column; min-height: 0; }
+.flow-canvas > .react-flow { flex: 1; min-height: 0; height: auto; }
+.canvas-selection-tools.canvas-footer { flex: 0 0 auto; border-radius: 0; border-width: 1px 0 0; margin: 0; padding: 8px 12px; }
+.canvas-footer-hint { margin-left: auto; color: #829285; font-size: 9px; }
+/* Stage cards show exact ports compactly; expanding a port reveals its full contract. */
+.stage-group-node .workflow-port-row { min-height: 28px; padding: 6px 14px; }
+.stage-group-node .workflow-port:not([open]) .port-type,
+.stage-group-node .workflow-port:not([open]) .port-rules,
+.stage-group-node .workflow-port:not([open]) .port-match-hint { display: none; }
+.stage-group-node .workflow-port-row::after { content: 'ⓘ'; position: absolute; top: 6px; right: 12px; color: #879d8e; font-size: 10px; }
+.stage-group-node .workflow-port.input-port .port-name { padding-right: 14px; }
+.stage-group-node .workflow-port.output-port .port-name { padding-left: 14px; }
+.stage-group-node .workflow-port.output-port .workflow-port-row::after { right: auto; left: 12px; }
+.stage-group-node .workflow-port .port-name { font-size: 11px; line-height: 16px; }

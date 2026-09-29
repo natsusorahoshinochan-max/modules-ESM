@@ -4,7 +4,9 @@ import type { WorkflowPort } from './workflow-connections'
 export type Point = { x: number; y: number }
 export type CanvasViewport = Point & { zoom: number }
 export type GroupPort = WorkflowPort & { label?: string }
-export type CanvasGroup = { id: string; label: string; parentId: string | null; nodeIds: string[]; ports: GroupPort[] }
+export type StageControl = { kind: 'parameter'; nodeId: string; key: string; label: string } | { kind: 'prompt' | 'selection'; nodeId: string; label: string }
+export type CanvasStage = { order: number; description: string; controls: StageControl[] }
+export type CanvasGroup = { id: string; label: string; parentId: string | null; nodeIds: string[]; ports: GroupPort[]; stage?: CanvasStage }
 export type CanvasState = {
   positions: Record<string, Point>
   collapsed: string[]
@@ -94,7 +96,7 @@ export function moveCanvasItems(canvas: CanvasState, updates: Record<string, Poi
   return { ...canvas, positions }
 }
 export function cleanCanvasGroups(canvas: CanvasState, remainingNodeIds: ReadonlySet<string>, removedGroupIds: ReadonlySet<string> = new Set()): CanvasState {
-  const groups = (canvas.groups ?? []).filter(group => !groupPath(canvas, group.id).some(parent => removedGroupIds.has(parent.id))).map(group => ({ ...group, nodeIds: group.nodeIds.filter(id => remainingNodeIds.has(id)), ports: group.ports.filter(port => remainingNodeIds.has(port.nodeId)) }))
+  const groups = (canvas.groups ?? []).filter(group => !groupPath(canvas, group.id).some(parent => removedGroupIds.has(parent.id))).map(group => ({ ...group, nodeIds: group.nodeIds.filter(id => remainingNodeIds.has(id)), ports: group.ports.filter(port => remainingNodeIds.has(port.nodeId)), ...(group.stage ? { stage: { ...group.stage, controls: group.stage.controls.filter(control => remainingNodeIds.has(control.nodeId)) } } : {}) }))
   return { ...canvas, groups, currentGroup: groups.some(group => group.id === canvas.currentGroup) ? canvas.currentGroup : null }
 }
 
@@ -103,4 +105,21 @@ export function placeCanvasCopy(positions: Record<string, Point>, ids: ReadonlyM
   const points = [...ids.keys()].map(id => positions[id])
   const origin = { x: Math.min(...points.map(point => point.x)), y: Math.min(...points.map(point => point.y)) }
   return Object.fromEntries([...ids].map(([oldId, newId]) => [newId, { x: destination.x + positions[oldId].x - origin.x, y: destination.y + positions[oldId].y - origin.y }]))
+}
+
+/** Copy presentation references alongside the copied graph, without sharing mutable metadata. */
+export function copyCanvasGroup(group: CanvasGroup, nodeIds: ReadonlyMap<string, string>, groupIds: ReadonlyMap<string, string>, parentId: string | null): CanvasGroup {
+  const node = (id: string) => {
+    const copied = nodeIds.get(id)
+    if (!copied) throw new Error(`Copied group is missing its node: ${id}`)
+    return copied
+  }
+  const id = groupIds.get(group.id)
+  if (!id) throw new Error(`Copied group is missing its identity: ${group.id}`)
+  return {
+    ...group, id, label: `${group.label} 副本`,
+    parentId: group.parentId && groupIds.has(group.parentId) ? groupIds.get(group.parentId)! : parentId,
+    nodeIds: group.nodeIds.map(node), ports: group.ports.map(port => ({ ...port, nodeId: node(port.nodeId) })),
+    ...(group.stage ? { stage: { ...group.stage, controls: group.stage.controls.map(control => ({ ...control, nodeId: node(control.nodeId) })) } } : {}),
+  }
 }

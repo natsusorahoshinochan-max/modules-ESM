@@ -1,3 +1,4 @@
+import { createDefaultExampleCanvas } from './default-example-canvas'
 import type { JsonObject, PromptVersionContext, PublicV2Client, Workflow } from './protocol/client'
 import type { ProjectWorkspace, WorkflowVersionView, WorkspaceProject } from './project-workspace'
 
@@ -30,6 +31,7 @@ type Session = {
   acknowledged: ProjectWorkspace
   version?: WorkflowVersionView
   scienceRevision: number
+  unpublishedUi?: boolean
   history: Array<{ previous: EditableWorkspace; workflow: boolean; ui: boolean; label: string }>
   future: Array<{ previous: EditableWorkspace; workflow: boolean; ui: boolean; label: string }>
   queue: PendingEdit[]
@@ -59,7 +61,10 @@ export class WorkspaceEditor {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
 
   open(project: WorkspaceProject, workspace: ProjectWorkspace, version?: WorkflowVersionView): void {
-    this.session = { project, acknowledged: workspace, desired: { workflow: workspace.draft?.workflow ?? blankWorkflow(project.id), ui_state: workspace.ui_state }, version, scienceRevision: 0, history: [], future: [], queue: [] }
+    const workflow = workspace.draft?.workflow ?? blankWorkflow(project.id)
+    const preset = project.project_kind === 'default_example' && project.id === 'webui-3gb1-example'
+    const ui = preset ? { ...workspace.ui_state, canvas: createDefaultExampleCanvas(workflow) } : workspace.ui_state
+    this.session = { project, acknowledged: workspace, desired: { workflow, ui_state: ui }, version, scienceRevision: 0, unpublishedUi: preset, history: [], future: [], queue: [] }
     this.publish(this.session)
   }
 
@@ -92,7 +97,14 @@ export class WorkspaceEditor {
   navigate(updateUi: (ui: JsonObject) => JsonObject): Promise<ProjectWorkspace | undefined> {
     const session = this.session!
     for (const entry of [...session.history, ...session.future]) entry.previous = { ...entry.previous, ui_state: updateUi(entry.previous.ui_state) }
-    return this.accept(session, { ui_state: updateUi(session.desired.ui_state) }, false)
+    const ui_state = updateUi(session.desired.ui_state)
+    if (session.project.seed && session.queue.length === 0 && !session.copying) {
+      session.desired = { ...session.desired, ui_state }
+      session.unpublishedUi = true
+      this.publish(session)
+      return Promise.resolve(session.acknowledged)
+    }
+    return this.accept(session, { ui_state }, false)
   }
 
   flush(): Promise<ProjectWorkspace | undefined> {
@@ -204,6 +216,7 @@ export class WorkspaceEditor {
   }
 
   private accept(session: Session, change: WorkspaceChange, history = true, baseline?: PendingEdit['baseline'], label = change.workflow ? '流程修改' : '布局修改'): Promise<ProjectWorkspace | undefined> {
+    if (session.unpublishedUi && change.ui_state === undefined) change = { ...change, ui_state: session.desired.ui_state }
     if (history) { session.history.push({ previous: session.desired, workflow: change.workflow !== undefined, ui: change.ui_state !== undefined, label }); session.future = [] }
     session.desired = { workflow: change.workflow ?? session.desired.workflow, ui_state: change.ui_state ?? session.desired.ui_state }
     if (change.workflow) session.scienceRevision += 1
@@ -218,7 +231,13 @@ export class WorkspaceEditor {
     if (!session.project.seed) return Promise.resolve(session.project)
     session.copying ??= (async () => {
       const project = session.copyTarget ??= await this.client.copyExample(session.project.id, `${session.project.name} · 我的副本`)
-      const workspace = await this.client.projectWorkspace(project.id)
+      let workspace = await this.client.projectWorkspace(project.id)
+      // Modal preparation can copy before a content edit is accepted. Publish
+      // the displayed layout too, so cancelling that modal keeps the new view.
+      if (session.unpublishedUi && session.queue.length === 0) {
+        workspace = await this.client.saveWorkspace(project.id, { ui_state: session.desired.ui_state })
+        session.unpublishedUi = false
+      }
       session.project = project
       session.acknowledged = workspace
       session.copiedDraftRevision = workspace.draft?.draft_revision ?? 0
@@ -250,6 +269,7 @@ export class WorkspaceEditor {
             workspace = await this.client.saveWorkspace(session.project.id, { ...(edit.workflow ? { workflow } : {}), ...(edit.ui ? { ui_state: edit.target.ui_state } : {}), ...(expected !== undefined ? { expected_draft_revision: expected } : {}) })
           }
           session.acknowledged = workspace
+          if (edit.ui) session.unpublishedUi = false
           session.queue.shift()
           this.publish(session)
         }

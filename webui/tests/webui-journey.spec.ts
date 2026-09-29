@@ -1,12 +1,23 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import type { PromptPreview, PromptSnapshot, RunEventEnvelope, RunProjection, Workflow } from '../src/protocol/client'
 
+async function enterExampleStage(page: Page, order: number) {
+  const navigation = page.getByRole('navigation', { name: '流程阶段', exact: true }).getByRole('button', { name: new RegExp(`^阶段 ${order} `) })
+  const label = (await navigation.getAttribute('aria-label'))!.replace(/^阶段\s+\d+\s+/, '').trim()
+  await navigation.click()
+  await page.getByRole('button', { name: `进入组 ${label}`, exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '节点组路径', exact: true })).toContainText(label)
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await page.getByRole('button', { name: '适合视图', exact: true }).click()
+}
+
 test('default 3GB1 workflow remains connected from authoring through a real run preview', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '3GB1 Local Redesign Example' })).toBeVisible()
   await expect(page.getByText(/36 GRAPH NODES/)).toBeVisible()
   await expect(page.getByText('只读示例')).toBeVisible()
   await expect(page.getByText(/61 条草稿连线/)).toBeVisible()
+  await enterExampleStage(page, 2)
   await expect(page.getByTestId('rf__node-relation-generated-structure-parent').getByRole('heading', { name: 'Relate Candidates to their parents' })).toBeVisible()
   await expect(page.getByTestId('rf__node-relation-generated-pairs').getByRole('heading', { name: 'Invert a Candidate relation' })).toBeVisible()
 
@@ -44,16 +55,18 @@ test('default 3GB1 workflow remains connected from authoring through a real run 
   expect((await fetchedDraft.json()).draft.workflow.edges).toContainEqual(persistedEdge)
   await expect(page.getByText('已撤销画布修改')).toBeVisible()
 
+  await enterExampleStage(page, 1)
   await page.getByRole('button', { name: /打开 Prompt Studio/ }).click()
+  const beforePromptSave = await (await page.request.get(undoResponse.url())).json()
   await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).toBeVisible()
   await expect(page.getByText('57 residues')).toBeVisible()
-  await page.getByRole('button', { name: '状态图例' }).click()
+  await page.getByRole('button', { name: '显示轨道 / 状态', exact: true }).click()
   await expect(page.locator('.ps-state-legend').getByText('pending-delete', { exact: true })).toBeVisible()
   const promptSave = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workspace'))
   await page.getByRole('button', { name: '保存 ProteinPrompt' }).click()
   const promptResponse = await promptSave
   expect(promptResponse.request().postDataJSON()).not.toHaveProperty('ui_state')
-  expect((await promptResponse.json()).ui_state).toEqual(restoredDraft.ui_state)
+  expect((await promptResponse.json()).ui_state).toEqual(beforePromptSave.ui_state)
   await expect(page.getByText('Prompt 已保存')).toBeVisible()
 
   await page.getByRole('button', { name: '运行流程', exact: true }).click()
@@ -94,6 +107,7 @@ test('Catalog parameter schemas expose required and Binding-specific fields', as
   await prefixNode.locator('summary[aria-label="编辑参数"]').click()
   await expect(prefixNode.getByLabel('保留数量')).toHaveValue('')
 
+  await enterExampleStage(page, 3)
   const foldNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Fold protein sequences' }) }).first()
   const foldModel = foldNode.getByRole('combobox', { name: 'Fold protein sequences的执行模型' })
   await foldModel.selectOption('folding.fold.simplefold_local')
@@ -123,6 +137,7 @@ test('an unavailable Binding remains selectable for authoring without running a 
   })
   await page.goto('/')
 
+  await enterExampleStage(page, 2)
   const option = page.getByRole('combobox', { name: 'Generate paired sequences and structures with remote ESM-3的执行模型' }).locator('option[value="esm3.generate_paired.biohub_open"]')
   await expect(option).toBeEnabled()
   await expect(option).toHaveText('esm3-open-2024-03（不可用）')
@@ -134,6 +149,13 @@ test('an unavailable Binding remains selectable for authoring without running a 
 test('a model selector changes the pinned Execution Binding on an ordinary Node Instance', async ({ page }) => {
   await page.goto('/')
 
+  await enterExampleStage(page, 3)
+  await expect(page.getByRole('combobox', { name: 'Fold protein sequences的执行模型' }).first().locator('option')).toHaveText([
+    /^biohub\/ESMFold2(?:（不可用）)?$/,
+    /^esmfold2-fast-2026-05(?:（不可用）)?$/,
+    /^simplefold_100M(?:（不可用）)?$/,
+  ])
+  await enterExampleStage(page, 2)
   const generationModel = page.getByRole('combobox', { name: 'Generate paired sequences and structures with remote ESM-3的执行模型' })
   await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_medium')
   await expect(generationModel.locator('option')).toHaveText([
@@ -141,12 +163,6 @@ test('a model selector changes the pinned Execution Binding on an ordinary Node 
     /^esm3-open-2024-03(?:（不可用）)?$/,
     /^esm3_sm_open_v1(?:（不可用）)?$/,
   ])
-  await expect(page.getByRole('combobox', { name: 'Fold protein sequences的执行模型' }).first().locator('option')).toHaveText([
-    /^biohub\/ESMFold2(?:（不可用）)?$/,
-    /^esmfold2-fast-2026-05(?:（不可用）)?$/,
-    /^simplefold_100M(?:（不可用）)?$/,
-  ])
-
   await generationModel.selectOption('esm3.generate_paired.biohub_open')
 
   await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_open')
@@ -162,6 +178,7 @@ test('a model selector changes the pinned Execution Binding on an ordinary Node 
 
 test('dragging an ordinary Palette operation adds and saves a Node Instance', async ({ page }) => {
   await page.goto('/')
+  await enterExampleStage(page, 2)
 
   const operation = page.getByRole('button', { name: 'Invert a Candidate relation collection_ops' })
   const canvas = page.locator('.react-flow__pane')
@@ -181,6 +198,7 @@ test('dragging an ordinary Palette operation adds and saves a Node Instance', as
 
 test('a committed parameter edit can be undone with the keyboard', async ({ page }) => {
   await page.goto('/')
+  await enterExampleStage(page, 2)
   const generationNode = page.getByTestId('rf__node-generate-paired')
   await generationNode.getByLabel('编辑参数').click()
   const seed = generationNode.getByLabel('有效种子')
@@ -200,6 +218,7 @@ test('a committed parameter edit can be undone with the keyboard', async ({ page
 
 test('Prompt Studio edits the backend projection and shows every prompt track', async ({ page }) => {
   await page.goto('/')
+  await enterExampleStage(page, 1)
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === 'prompt-composition-webui-3gb1.source.author')
   await page.getByRole('button', { name: '打开 Prompt Studio' }).click()
   const snapshot = await (await opening).json() as PromptSnapshot
@@ -286,6 +305,7 @@ test('Prompt Studio edits the backend projection and shows every prompt track', 
 
 test('deleting a Node Instance persists and undo restores the backend Draft', async ({ page }) => {
   await page.goto('/')
+  await enterExampleStage(page, 2)
   const nodeId = 'relation-generated-pairs'
   const initial = await (await page.request.get('/api/v2/projects/webui-3gb1-example/workflow/draft')).json()
   const incidentEdges = initial.workflow.edges.filter((edge: { source_node_id: string; target_node_id: string }) => edge.source_node_id === nodeId || edge.target_node_id === nodeId)
@@ -325,6 +345,7 @@ test('preparing a run waits for the latest autosaved Workflow revision', async (
     await route.continue()
   })
   await page.goto('/')
+  await enterExampleStage(page, 2)
   const generation = page.getByTestId('rf__node-generate-paired')
   await generation.getByLabel('编辑参数').click()
   await generation.getByLabel('有效种子').fill('1604')
@@ -365,11 +386,20 @@ async function createRunWorkspace(request: APIRequestContext, fasta = '>one\nACD
 }
 
 async function openRunWorkspace(page: Page, name: string) {
-  await page.getByRole('button', { name: '项目', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '项目与版本' })
-  await dialog.getByRole('button').filter({ has: page.getByText(name, { exact: true }) }).click()
-  await dialog.getByRole('button', { name: '打开项目', exact: true }).click()
-  await expect(page.locator('.project-identity strong')).toHaveText(name)
+  const errors: string[] = []
+  const recordError = (error: Error) => errors.push(error.message)
+  page.on('pageerror', recordError)
+  try {
+    await page.getByRole('button', { name: '项目', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '项目与版本' })
+    await dialog.getByRole('button').filter({ has: page.getByText(name, { exact: true }) }).click()
+    await dialog.getByRole('button', { name: '打开项目', exact: true }).click()
+    expect(errors, 'Project navigation must not mix the previous canvas with the new workflow').toEqual([])
+    await expect(page.locator('.project-identity strong')).toHaveText(name)
+    expect(errors).toEqual([])
+  } finally {
+    page.off('pageerror', recordError)
+  }
 }
 
 async function prepareScope(page: Page, nodeId: string, label: string) {
@@ -742,6 +772,7 @@ test('a delayed real Prompt response cannot replace a newly opened project', asy
     await route.fulfill({ response })
   })
   await page.goto('/')
+  await enterExampleStage(page, 1)
   await page.getByTestId(`rf__node-${nodeId}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
   await responseReady
   await openRunWorkspace(page, project.name)
@@ -878,6 +909,7 @@ test('the example selection chain keeps complete Candidate sources and axes-base
   await page.goto('/')
   await expect(page.getByText(/36 GRAPH NODES/)).toBeVisible()
 
+  await enterExampleStage(page, 5)
   const selectionNode = page.getByTestId('rf__node-rank-final')
   await selectionNode.getByRole('button', { name: /编辑筛选与排序/ }).click()
   const dialog = page.getByRole('dialog', { name: '编辑流程筛选' })
@@ -982,5 +1014,6 @@ test('node groups preserve editing context, parameter Escape and independent cop
   await page.getByRole('button', { name: '返回上层 · Tab' }).click()
   await page.reload()
   await openRunWorkspace(page, project.name)
-  await expect(page.getByRole('button', { name: '进入组 节点组', exact: true })).toHaveCount(2)
+  await expect(page.getByRole('button', { name: '进入组 节点组', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('button', { name: '进入组 节点组 副本', exact: true })).toHaveCount(1)
 })

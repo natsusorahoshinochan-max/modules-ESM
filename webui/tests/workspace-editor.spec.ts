@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { PublicV2Client, type JsonObject, type Workflow } from '../src/protocol/client'
 import type { ProjectWorkspace, WorkflowVersionView, WorkspaceProject } from '../src/project-workspace'
@@ -379,4 +380,77 @@ test('navigation does not consume history or invalidate redo, including grouped 
   expect(editor.getSnapshot().desired!.workflow).toEqual(workflow('personal', 2))
   expect(editor.getSnapshot().desired!.ui_state.navigation).toBe('root')
   expect(editor.getSnapshot().canRedo).toBe(false)
+})
+
+
+test('default stage presentation is read-only until the first edit and persists with that edit', async () => {
+  const source = JSON.parse(readFileSync(new URL('../../examples/v2/webui-3gb1.example.json', import.meta.url), 'utf8')) as { workflow: Workflow }
+  const client = new EditorClient()
+  const id = 'webui-3gb1-example'
+  const original = { ...workspace(id), draft: { project_id: id, draft_revision: 1, workflow: source.workflow } }
+  const before = structuredClone(original)
+  const editor = new WorkspaceEditor(client)
+  editor.open(project(id, 'default_example'), original)
+  const canvas = editor.getSnapshot().desired!.ui_state.canvas as { groups: Array<{ id: string }>; currentGroup?: string }
+  expect(canvas.groups).toHaveLength(5)
+  expect(editor.getSnapshot().acknowledged).toBe(original)
+  await editor.navigate(ui => ({ ...ui, canvas: { ...canvas, currentGroup: canvas.groups[0].id } }))
+  expect(client.copies).toEqual([])
+  expect(client.saves).toEqual([])
+  expect(editor.getSnapshot().canUndo).toBe(false)
+  expect(original).toEqual(before)
+  await editor.edit(current => ({ workflow: { ...current.workflow, nodes: current.workflow.nodes.map(node => node.node_id === 'generate-paired' ? { ...node, node_parameters: { ...node.node_parameters, num_samples: 8 } } : node) } }), '修改生成数量')
+  expect(client.copies).toEqual([id])
+  expect(client.saves).toHaveLength(1)
+  expect(client.saves[0].change.ui_state).toEqual(editor.getSnapshot().desired!.ui_state)
+  expect(client.saves[0].change.workflow!.edges).toEqual(source.workflow.edges)
+  await editor.undo()
+  expect(editor.getSnapshot().desired!.workflow.nodes.find(node => node.node_id === 'generate-paired')!.node_parameters.num_samples).toBe(7)
+  expect((editor.getSnapshot().desired!.ui_state.canvas as typeof canvas).groups).toHaveLength(5)
+  editor.open(project('copy'), client.head)
+  expect((editor.getSnapshot().desired!.ui_state.canvas as typeof canvas).groups).toHaveLength(5)
+})
+
+test('prepared writable example session retains unpersisted navigation in its first content save', async () => {
+  const client = new EditorClient()
+  const editor = new WorkspaceEditor(client)
+  editor.open(project('tutorial', 'default_example'), workspace('tutorial'))
+  await editor.navigate(ui => ({ ...ui, stageLocation: 'next-stage' }))
+  const session = (await editor.beginEdit())!
+  await session.writableProject()
+  await session.commit({ workflow: workflow('copy', 2) })
+  expect(client.saves[0].change.ui_state!.stageLocation).toBe('next-stage')
+  expect(client.saves[0].change.workflow).toBeUndefined()
+  expect(client.saves[1].change.workflow!.nodes[0].node_parameters.k).toBe(2)
+})
+
+
+test('navigation during the first copy is published after the pending content edit', async () => {
+  const client = new EditorClient()
+  const copy = client.copyExample.bind(client)
+  const held = deferred<void>()
+  client.copyExample = async (id, name) => { await held.promise; return copy(id, name) }
+  const editor = new WorkspaceEditor(client)
+  editor.open(project('tutorial', 'default_example'), workspace('tutorial'))
+  const edit = editor.edit(() => ({ workflow: workflow('tutorial', 2) }))
+  const navigation = editor.navigate(ui => ({ ...ui, stageLocation: 'last-stage' }))
+  held.resolve()
+  await Promise.all([edit, navigation])
+  expect(client.head.ui_state.stageLocation).toBe('last-stage')
+  expect(client.copies).toEqual(['tutorial'])
+  expect(editor.getSnapshot().undoLabel).toBe('流程修改')
+})
+
+
+test('cancelling after writable modal preparation leaves copied presentation persisted', async () => {
+  const client = new EditorClient()
+  const editor = new WorkspaceEditor(client)
+  editor.open(project('tutorial', 'default_example'), workspace('tutorial'))
+  await editor.navigate(ui => ({ ...ui, stageLocation: 'prompt-stage' }))
+  const session = (await editor.beginEdit())!
+  await session.writableProject()
+  expect(client.head.ui_state.stageLocation).toBe('prompt-stage')
+  expect(client.saves).toHaveLength(1)
+  expect(client.saves[0].change.workflow).toBeUndefined()
+  expect(editor.getSnapshot().canUndo).toBe(false)
 })

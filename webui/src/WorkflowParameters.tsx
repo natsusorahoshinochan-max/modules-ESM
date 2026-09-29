@@ -114,20 +114,22 @@ function encodedValue(value: unknown): string {
 }
 
 /** Edits the Catalog contract; scientific admission remains the backend owner's job. */
-export function WorkflowParameters({ parameters, onParameter, onCancel, choices = {}, renderParameter }: {
+export function WorkflowParameters({ parameters, onParameter, onCancel, choices = {}, renderParameter, initiallyOpen = false }: {
   parameters: ParameterPresentation[]
+  initiallyOpen?: boolean
   onParameter: (parameter: ParameterPresentation, raw: string, commit: boolean) => void
   onCancel?: (parameter: ParameterPresentation) => void
   choices?: ParameterChoices
   renderParameter?: (parameter: ParameterPresentation) => ReactNode | undefined
 }) {
+  const [open, setOpen] = useState(initiallyOpen)
   const groups = new Map<string, { title: string; parameters: ParameterPresentation[] }>()
   for (const parameter of parameters) {
     const group = groups.get(parameter.groupId) ?? { title: parameter.groupTitle, parameters: [] }
     group.parameters.push(parameter)
     groups.set(parameter.groupId, group)
   }
-  return <details className="parameter-group nodrag nowheel"><summary aria-label="编辑参数">参数 <span>{parameters.length}</span></summary>
+  return <details className="parameter-group nodrag nowheel" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary aria-label="编辑参数">参数 <span>{parameters.length}</span></summary>
     <div className="parameter-fields schema-parameter-fields">{[...groups].map(([id, group]) => <details className="parameter-subgroup" key={id} open><summary>{group.title}</summary>{group.parameters.map((parameter) => {
       const custom = renderParameter?.(parameter)
       if (custom !== undefined) return <div key={parameter.key}>{custom}</div>

@@ -25,6 +25,27 @@ The example is read-only; its first edit creates a personal Project and preserve
 the original results as an explicit reference. No Provider is needed to inspect
 the bundled evidence. New Runs use the configured real Providers.
 
+The default example opens as five ordered stage groups:
+**模板 → Prompt (4) → 生成候选与初筛 (7) → 首轮折叠与筛选 (11) →
+设计序列 (2) → 末轮折叠与筛选 (11)**, followed by the ordinary export node.
+The 36 computation nodes and 61 edges remain unchanged; 14 connections cross
+stage boundaries, including two references from the first validation stage to
+the final stage. The groups form one horizontal row at an initial 100% zoom.
+Stage navigation and horizontal panning keep cards readable; Fit View is an
+explicit overview action.
+
+Stage controls map directly to existing node parameters and open the existing
+Prompt or Selection editors; they do not duplicate values or merge independent
+seeds. See the [stage and parameter mapping](../docs/research/2026-09-29-default-example-grouping.md).
+Browsing the immutable example does not create a copy. Its first edit preserves
+the displayed grouping, positions, per-level views and parameter mappings in the
+new personal Project's UI state. Existing personal copies are not migrated or
+automatically rearranged. Remote frontend verification passed: 70 focused cases, followed by five browser
+regressions after the final control-position adjustment. Application/test types,
+lint and build passed; the interaction contract records snapshots and viewport
+coverage. The user confirmed stage acceptance on 2026-09-29. Real-time structure
+preview remains deferred.
+
 Use **添加来源** for a blank Prompt, FASTA, a PDB chain or an existing Prompt.
 Batch FASTA import creates one Candidate per record. The canvas supports adding
 operations, editing parameters and Selection rules, replacing connections,
@@ -32,8 +53,8 @@ nested node groups, independent group copies, and undo/redo. See the
 [current frontend interaction contract](../docs/2026-09-29-frontend-interaction-contract.md)
 for matrix keys, 3D navigation and selection, group navigation, and the current
 stage acceptance record. Structure transforms currently use debounced backend
-previews; immediate local rendering remains a follow-up, not an implemented
-capability. The viewer uses 3Dmol.js directly. Run confirmation shows the actual full or
+previews; immediate local rendering is deferred and outside this grouping
+update, not an implemented capability. The viewer uses 3Dmol.js directly. Run confirmation shows the actual full or
 partial scope. Continuation forces the selected Nodes and descendants to execute
 and refuses missing reusable upstream results.
 
