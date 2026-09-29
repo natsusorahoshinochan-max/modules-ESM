@@ -7,11 +7,11 @@ from collections.abc import Callable
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -107,11 +107,11 @@ def _build(
 def _binding(operation: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"structure_transform.{operation}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"structure_transform.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"structure_transform.{operation}.method",
         ),

@@ -6,13 +6,13 @@ from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
     CandidateSelectionConsumptionDefinition,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ObservationSelectorConsumptionDefinition,
     ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -57,11 +57,11 @@ def _factory(operation: str):
 def _binding(operation: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"selection.{operation}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"selection.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"selection.{operation}.method",
         ),

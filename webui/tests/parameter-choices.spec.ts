@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { PublicV2Client, type Workflow } from '../src/protocol/client'
+import { PublishedResults } from '../src/published-results'
 import { loadWorkflowParameterChoices } from '../src/parameter-choices'
 
 async function sourceWorkspace(client: PublicV2Client) {
@@ -16,7 +17,7 @@ async function sourceWorkspace(client: PublicV2Client) {
     { source_node_id: 'chains', source_port: 'structure', target_node_id: 'axis', target_port: 'structure' },
     { source_node_id: 'axis', source_port: 'residue_axis', target_node_id: 'constraints', target_port: 'structure_residue_axis' },
   ], observation_selectors: [], selection_objectives: [] }
-  const draft = await client.saveWorkflowDraft(project.id, workflow)
+  const draft = (await client.saveWorkspace(project.id, { workflow })).draft!
   return { project, input, workflow, draft }
 }
 
@@ -44,7 +45,7 @@ test('a current published residue axis supplies choices without requiring a pros
   const current = { ...workflow, nodes: workflow.nodes.map(node => node.node_id === 'constraints'
     ? { ...node, node_parameters: { designed_chains: ['A'], fixed_residue_ids: ['A:1'] } }
     : node) }
-  await client.saveWorkflowDraft(project.id, current)
+  await client.saveWorkspace(project.id, { workflow: current })
   const commit = await client.commitWorkflow(project.id, current)
   const receipt = await client.startRun(project.id, commit.workflow_commit_id)
   await expect.poll(async () => (await client.runProjection(project.id, receipt.run_id)).status).toBe('succeeded')
@@ -52,14 +53,20 @@ test('a current published residue axis supplies choices without requiring a pros
   const catalog = await client.catalog()
   let previewRequests = 0
   let valueRequests = 0
+  class ReadingClient extends PublicV2Client {
+    override runEvents() { return { close() {} } as WebSocket }
+    override resultValue(...args: Parameters<PublicV2Client['resultValue']>) { valueRequests += 1; return super.resultValue(...args) }
+  }
+  const results = new PublishedResults(new ReadingClient(baseURL))
+  results.openRun(run)
+  await results.refresh()
   const choicesClient = {
     listProjectInputs: client.listProjectInputs.bind(client),
     inspectProjectInput: client.inspectProjectInput.bind(client),
     compareWorkflowScience: client.compareWorkflowScience.bind(client),
-    typedValue: (...args: Parameters<PublicV2Client['typedValue']>) => { valueRequests += 1; return client.typedValue(...args) },
     openPrompt: async () => { previewRequests += 1; throw new Error('This source requires its published execution result') },
   }
-  const choices = await loadWorkflowParameterChoices(choicesClient, project.id, current, catalog, run)
+  const choices = await loadWorkflowParameterChoices(choicesClient, project.id, current, catalog, results)
   expect(choices.constraints.source).toBe(`axis / residue_axis · Run ${run.run_id}`)
   expect(choices.constraints.choices.chains).toEqual([{ value: 'A', label: 'Chain A' }])
   expect(choices.constraints.choices.residues.map(item => item.value)).toEqual(Array.from({ length: 56 }, (_, index) => `A:${index + 1}`))
@@ -69,7 +76,7 @@ test('a current published residue axis supplies choices without requiring a pros
   const changed = { ...current, nodes: current.nodes.map(node => node.node_id === 'constraints'
     ? { ...node, node_parameters: { designed_chains: ['A'], fixed_residue_ids: ['A:2'] } }
     : node) }
-  const stale = await loadWorkflowParameterChoices(choicesClient, project.id, changed, catalog, run)
+  const stale = await loadWorkflowParameterChoices(choicesClient, project.id, changed, catalog, results)
   expect(stale.constraints.choices.residues).toBeUndefined()
   expect(stale.constraints.notice).toContain('尚未确认与当前流程一致')
   expect(previewRequests).toBe(0)

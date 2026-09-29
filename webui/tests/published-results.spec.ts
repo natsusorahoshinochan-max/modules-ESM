@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { strFromU8 } from 'fflate'
 import { PublishedResults } from '../src/published-results'
-import { PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection, type RunEvent } from '../src/protocol/client'
-import { candidateExportFiles } from '../src/result-explorer'
+import { PublicV2Client, type PublishedResultValue, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection, type RunEvent } from '../src/protocol/client'
+import { candidateExportFiles, candidateViewKey, resolveParentReferences } from '../src/result-explorer'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -52,8 +52,8 @@ class ResultsClient extends PublicV2Client {
     this.offsets.push(offset)
     return this.pageFor(offset)
   }
-  override async typedValue() { return { port_type_id: axisOutput.port_type.contract_id, value: { entries: [{ subject: item(0).reference, residue_axis: { sequence: 'ACDE' } }] } } }
-  override async resultCandidate(_projectId: string, _runId: string, _source: ResultLocation, itemIndex: number) { return { ...item(itemIndex), pdb: null } }
+  override async resultValue(): Promise<PublishedResultValue> { return { kind: 'candidate_sequences', value: { entries: [{ subject: item(0).reference, sequence: 'ACDE' }] } } }
+  override async resultStructure(): Promise<{ pdb: string }> { throw new Error('Sequence Candidates must not fetch structures') }
 }
 async function ready(reader: PublishedResults) {
   if (reader.getSnapshot().phase === 'ready') return
@@ -168,7 +168,7 @@ test('refresh during paging enriches the returned snapshot and export resolves p
   expect(snapshot.index.collections[0].items).toHaveLength(250)
   const candidate = snapshot.index.collections[0].items[0]
   expect(candidate.sequence).toBe('ACDE')
-  const files = await candidateExportFiles(client, [candidate], snapshot.index, snapshot.run!, { contracts: snapshot.index.definitions, availability: [] }, 'current')
+  const files = candidateExportFiles((await reader.prepareExport([candidateViewKey(candidate)]))!, 'current')
   expect(strFromU8(files['candidates.fasta'])).toBe('>candidate-0\nACDE\n')
   const manifest = JSON.parse(strFromU8(files['manifest.json']))
   expect(manifest.candidates[0].parents[0]).toMatchObject({ status: 'resolved', references: [item(100).reference] })
@@ -310,4 +310,128 @@ test('failed final projection retains published results and can be retried witho
   await reader.refresh()
   expect(reader.getSnapshot().run?.status).toBe('succeeded')
   expect(client.sockets).toHaveLength(1)
+})
+
+test('detail, alignment and export share one immutable PDB request without fetching every page', async () => {
+  const held = deferred<{ pdb: string }>()
+  class StructureClient extends ResultsClient {
+    structureReads = 0
+    override resultStructure() { this.structureReads += 1; return held.promise }
+  }
+  const client = new StructureClient()
+  client.pageFor = async offset => ({ ...collectionPage(offset), items: collectionPage(offset).items.map(candidate => ({ ...candidate, has_structure: true })) })
+  const reader = new PublishedResults(client)
+  await open(reader)
+  const key = candidateViewKey(reader.getSnapshot().index.collections[0].items[0])
+  const detail = reader.structure(key)
+  const overlay = reader.structure(key)
+  expect(client.structureReads).toBe(1)
+  expect(client.offsets).toEqual([0])
+  expect(resolveParentReferences(reader.getSnapshot().index.candidates.get(key)!, reader.getSnapshot().index)[0]).toMatchObject({ status: 'incomplete', references: [] })
+  const exporting = reader.prepareExport([key])
+  held.resolve({ pdb: 'ORIGINAL PDB\n' })
+  expect(await detail).toBe('ORIGINAL PDB\n')
+  expect(await overlay).toBe('ORIGINAL PDB\n')
+  const material = (await exporting)!
+  expect(client.structureReads).toBe(1)
+  expect(material.structures.get(key)).toBe('ORIGINAL PDB\n')
+  expect(material.index.complete).toBe(true)
+  expect(client.offsets).toEqual([0, 100, 200])
+})
+
+for (const outcome of ['success', 'failure'] as const) {
+  test(`retired immutable structure, reading and raw value ${outcome} cannot escape A to B to A`, async () => {
+    const structure = deferred<{ pdb: string }>()
+    const value = deferred<PublishedResultValue>()
+    const raw = deferred<{ port_type_id: string; value: unknown }>()
+    class HeldClient extends ResultsClient {
+      override resultStructure() { return structure.promise }
+      override resultValue() { return value.promise }
+      override typedValue() { return raw.promise }
+    }
+    const client = new HeldClient()
+    client.pageFor = async () => ({ ...collectionPage(0, 1), items: [{ ...item(0), has_structure: true }] })
+    const reader = new PublishedResults(client)
+    await open(reader)
+    const key = candidateViewKey(reader.getSnapshot().index.collections[0].items[0])
+    const pending = [reader.structure(key), reader.value(source), reader.rawValue(source)]
+    await open(reader, 'B')
+    await open(reader, 'A')
+    if (outcome === 'success') {
+      structure.resolve({ pdb: 'old' })
+      value.resolve({ kind: 'sequence', value: { sequence: 'OLD', residue_ids: null } })
+      raw.resolve({ port_type_id: 'extension.any', value: { old: true } })
+    } else {
+      structure.reject(new Error('old structure')); value.reject(new Error('old reading')); raw.reject(new Error('old raw'))
+    }
+    expect(await Promise.all(pending)).toEqual([undefined, undefined, undefined])
+    expect(reader.getSnapshot().phase).toBe('ready')
+  })
+}
+
+test('immutable reading and raw content share requests independently and failed reads allow explicit retry', async () => {
+  let reads = 0
+  let rawReads = 0
+  class ValueClient extends ResultsClient {
+    override async resultValue(): Promise<PublishedResultValue> {
+      reads += 1
+      if (reads === 1) throw new Error('read failed')
+      return { kind: 'sequence', value: { sequence: 'ACD', residue_ids: null } }
+    }
+    override async typedValue() { rawReads += 1; return { port_type_id: 'extension.any', value: { $tuple: ['unchanged'] } } }
+  }
+  const reader = new PublishedResults(new ValueClient())
+  await open(reader)
+  await expect(reader.value(source)).rejects.toThrow('read failed')
+  const [left, right] = await Promise.all([reader.value(source), reader.value(source)])
+  expect(left).toBe(right)
+  expect(reads).toBe(2)
+  const raw = await Promise.all([reader.rawValue(source), reader.rawValue(source)])
+  expect(raw[0]).toBe(raw[1])
+  expect(raw[0]!.value).toEqual({ $tuple: ['unchanged'] })
+  expect(rawReads).toBe(1)
+})
+
+test('export fixes clicked keys and freezes its completed scientific snapshot before immutable content finishes', async () => {
+  const held = deferred<{ pdb: string }>()
+  const requested = deferred<void>()
+  class StructureClient extends ResultsClient {
+    override resultStructure() { requested.resolve(); return held.promise }
+  }
+  const client = new StructureClient()
+  client.pageFor = async () => ({ ...collectionPage(0, 2), items: [0, 1].map(index => ({ ...item(index), has_structure: true })) })
+  const reader = new PublishedResults(client)
+  await open(reader)
+  const [first, second] = reader.getSnapshot().index.collections[0].items
+  const selected = [candidateViewKey(first)]
+  const exporting = reader.prepareExport(selected)
+  selected.splice(0, 1, candidateViewKey(second))
+  await requested.promise
+  client.projectionFor = async () => projection('A', [output, axisOutput])
+  await reader.refresh()
+  expect(reader.getSnapshot().index.candidates.get(candidateViewKey(first))!.sequence).toBe('ACDE')
+  held.resolve({ pdb: 'UNCHANGED\n' })
+  const material = (await exporting)!
+  expect(material.candidates.map(candidate => candidate.reference)).toEqual([first.reference])
+  expect(material.candidates[0].sequence).toBeNull()
+  expect(material.index.sequences).toEqual({})
+  const files = candidateExportFiles(material, 'current')
+  expect(strFromU8(files['structures/candidate-0001.pdb'])).toBe('UNCHANGED\n')
+})
+
+
+test('captured authoring reading cannot start on a replacement session after comparison completes', async () => {
+  let reads = 0
+  class ReadingClient extends ResultsClient {
+    override resultValue() { reads += 1; return super.resultValue() }
+  }
+  const reader = new PublishedResults(new ReadingClient())
+  await open(reader)
+  const reading = reader.captureReading()!
+  await open(reader, 'B')
+  await open(reader, 'A')
+  expect(await reading.value(source)).toBeUndefined()
+  expect(reads).toBe(0)
+  expect((await reader.captureReading()!.value(source))!.kind).toBe('candidate_sequences')
+  expect(reads).toBe(1)
 })

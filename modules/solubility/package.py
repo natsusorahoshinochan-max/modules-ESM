@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile, CalibrationContextProfile
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -141,11 +143,11 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
     model_variant = "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
     return ExecutionBindingDefinition(
         binding_id=f"solubility.soluprot_{mode}.local",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "solubility.score_sequence",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),
@@ -250,18 +252,15 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         deterministic=True,
         cacheable=True,
         produced_observations=(
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="scores",
                 output_partition=f"soluprot_{mode}",
-                metric=ContractIdentity(
+                metric=ExactContractReference(
                     "metric",
                     "solubility.soluprot_probability",
                 ),
-                context_profile={"kind": "intrinsic"},
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="sequence_candidates",
+                context_profile=IntrinsicContextProfile(),
+                subject_input="sequence_candidates",
                 guaranteed_multiplicity="one",
             ),
         ),
@@ -328,11 +327,11 @@ def _protein_sol_method() -> MethodDefinition:
 def _protein_sol_binding() -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id="solubility.protein_sol.local",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "solubility.score_sequence",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             "solubility.protein_sol.sequence_prediction_2017",
         ),
@@ -398,35 +397,32 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         deterministic=True,
         cacheable=True,
         produced_observations=tuple(
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="scores",
                 output_partition=partition,
-                metric=ContractIdentity(
+                metric=ExactContractReference(
                     "metric",
                     metric_id,
                 ),
                 context_profile=context_profile,
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="sequence_candidates",
+                subject_input="sequence_candidates",
                 guaranteed_multiplicity="one",
             )
             for partition, metric_id, context_profile in (
                 (
                     "protein_sol_percent",
                     "solubility.protein_sol_percent",
-                    PROTEIN_SOL_CALIBRATION_CONTEXT,
+                    CalibrationContextProfile(**PROTEIN_SOL_CALIBRATION_CONTEXT),
                 ),
                 (
                     "protein_sol_scaled",
                     "solubility.protein_sol_scaled",
-                    PROTEIN_SOL_CALIBRATION_CONTEXT,
+                    CalibrationContextProfile(**PROTEIN_SOL_CALIBRATION_CONTEXT),
                 ),
                 (
                     "protein_sol_pi",
                     "solubility.protein_sol_pi",
-                    {"kind": "intrinsic"},
+                    IntrinsicContextProfile(),
                 ),
             )
         ),

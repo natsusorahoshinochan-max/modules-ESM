@@ -28,6 +28,8 @@ from datatypes.exact_reference import (
 from datatypes.identifier import validate_canonical_identifier
 
 from core.catalog.errors import CatalogBuildError
+from core.catalog.observation import ProducedObservation, ObservationPropagation
+from datatypes.observation import observation_context_profile_descriptor
 from datatypes.i_json import validate_i_json
 from .port_contract import (
     CONTRACT_NAMESPACE,
@@ -54,7 +56,7 @@ def _require_identifier(value: str, field_name: str) -> None:
 
 
 def _admit_declaration(value: Any, *, path: str = "$") -> Any:
-    if isinstance(value, ContractIdentity):
+    if isinstance(value, ExactContractReference):
         return value
     if isinstance(value, Mapping):
         frozen: dict[str, Any] = {}
@@ -91,23 +93,11 @@ def _admit_parameter_declarations(
 
 
 @dataclass(frozen=True, slots=True)
-class ContractIdentity:
-    """A stable unresolved reference to one Catalog contract."""
-
-    contract_kind: ContractKind
-    contract_id: str
-
-    @property
-    def key(self) -> tuple[str, str]:
-        return (self.contract_kind, self.contract_id)
-
-
-@dataclass(frozen=True, slots=True)
 class NodePortDefinition:
     """One admitted Node input or output Port."""
 
     name: str
-    port_type: ContractIdentity
+    port_type: ExactContractReference
     required: bool
     multiplicity: Literal["one", "many"]
     scientific_meaning: str
@@ -145,8 +135,8 @@ class NodeTypeDefinition:
     parameter_contract: ParameterContract
 
     @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity("node_type", self.node_type_id)
+    def identity(self) -> ExactContractReference:
+        return ExactContractReference("node_type", self.node_type_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         descriptor = {
@@ -186,8 +176,8 @@ class MetricDefinition:
     validation_contract: Mapping[str, Any]
 
     @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity("metric", self.metric_id)
+    def identity(self) -> ExactContractReference:
+        return ExactContractReference("metric", self.metric_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
@@ -247,8 +237,8 @@ class MethodDefinition:
             )
 
     @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity("method", self.method_id)
+    def identity(self) -> ExactContractReference:
+        return ExactContractReference("method", self.method_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
@@ -296,8 +286,8 @@ class UtilityTransformDefinition:
         )
 
     @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity(
+    def identity(self) -> ExactContractReference:
+        return ExactContractReference(
             "utility_transform",
             self.transform_id,
         )
@@ -431,37 +421,6 @@ class EnvironmentFieldDeclaration:
 
 
 @dataclass(frozen=True, slots=True)
-class ObservationPropagationDefinition:
-    """One controlled Score Collection capability propagation operation."""
-
-    mode: Literal["pass_through", "union", "filter"]
-    output_port: str
-    input_ports: tuple[str, ...]
-    filter: Mapping[str, Any] | None = None
-    absent_input_policy: Literal["reject", "ignore"] = "reject"
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "input_ports", tuple(self.input_ports))
-        if self.filter is not None:
-            object.__setattr__(
-                self,
-                "filter",
-                _admit_declaration(self.filter),
-            )
-
-    def descriptor_template(self) -> dict[str, Any]:
-        descriptor = {
-            "mode": self.mode,
-            "output_port": self.output_port,
-            "input_ports": self.input_ports,
-            "filter": self.filter,
-        }
-        if self.absent_input_policy != "reject":
-            descriptor["absent_input_policy"] = self.absent_input_policy
-        return descriptor
-
-
-@dataclass(frozen=True, slots=True)
 class SelectionObjectiveConsumptionDefinition:
     """Closed declaration binding a Node to Workflow-owned objectives."""
 
@@ -517,67 +476,12 @@ class ObservationSelectorConsumptionDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class ProducedObservationDefinition:
-    """One closed guaranteed observation emitted by a Binding output."""
-
-    output_port: str
-    output_partition: str
-    metric: ContractIdentity
-    context_profile: Mapping[str, Any]
-    subject_grain: str
-    source_role: str
-    subject_direction: Literal["input", "output"]
-    subject_port: str
-    guaranteed_multiplicity: Literal[
-        "one",
-        "one_or_more",
-        "zero_or_more",
-    ]
-    reference_direction: Literal["input", "output"] | None = None
-    reference_port: str | None = None
-    pairing_direction: Literal["input", "output"] | None = None
-    pairing_port: str | None = None
-    axis_direction: Literal["input", "output"] | None = None
-    axis_port: str | None = None
-    method_direction: Literal["input", "output"] | None = None
-    method_port: str | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "context_profile",
-            _admit_declaration(self.context_profile),
-        )
-
-    def descriptor_template(self) -> dict[str, Any]:
-        return {
-            "output_port": self.output_port,
-            "output_partition": self.output_partition,
-            "metric": self.metric,
-            "context_profile": self.context_profile,
-            "subject_grain": self.subject_grain,
-            "source_role": self.source_role,
-            "subject_direction": self.subject_direction,
-            "subject_port": self.subject_port,
-            "reference_direction": self.reference_direction,
-            "reference_port": self.reference_port,
-            "pairing_direction": self.pairing_direction,
-            "pairing_port": self.pairing_port,
-            "axis_direction": self.axis_direction,
-            "axis_port": self.axis_port,
-            "method_direction": self.method_direction,
-            "method_port": self.method_port,
-            "guaranteed_multiplicity": self.guaranteed_multiplicity,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class ExecutionBindingDefinition:
     """Executable association between one Node Type and one Method."""
 
     binding_id: str
-    node_type: ContractIdentity
-    method: ContractIdentity
+    node_type: ExactContractReference
+    method: ExactContractReference
     binding_parameters: Mapping[str, Any]
     parameter_contract: ParameterContract = field(init=False, repr=False)
     execution_route: Literal["adapter", "direct"]
@@ -586,9 +490,9 @@ class ExecutionBindingDefinition:
     deterministic: bool
     cacheable: bool
     readiness: ReadinessDeclaration | None = None
-    produced_observations: tuple[ProducedObservationDefinition, ...] = ()
+    produced_observations: tuple[ProducedObservation, ...] = ()
     adapter_behavior: BehaviorReference | None = None
-    observation_propagation: ObservationPropagationDefinition | None = None
+    observation_propagation: ObservationPropagation | None = None
     selection_objective_consumption: (
         SelectionObjectiveConsumptionDefinition | None
     ) = None
@@ -637,8 +541,8 @@ class ExecutionBindingDefinition:
         )
 
     @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity("binding", self.binding_id)
+    def identity(self) -> ExactContractReference:
+        return ExactContractReference("binding", self.binding_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         descriptor = {
@@ -658,11 +562,11 @@ class ExecutionBindingDefinition:
             "deterministic": self.deterministic,
             "cacheable": self.cacheable,
             "produced_observations": [
-                observation.descriptor_template()
+                _produced_observation_descriptor(observation)
                 for observation in self.produced_observations
             ],
             "observation_propagation": (
-                self.observation_propagation.descriptor_template()
+                _observation_propagation_descriptor(self.observation_propagation)
                 if self.observation_propagation is not None
                 else None
             ),
@@ -727,3 +631,45 @@ class ModulePackageRegistration:
             "authoring_capabilities",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
+
+
+def _produced_observation_descriptor(value: ProducedObservation) -> dict[str, Any]:
+    """Keep the scientific descriptor independent of internal type layout."""
+    result = {
+        "output_port": value.output_port,
+        "output_partition": value.output_partition,
+        "metric": value.metric,
+        "context_profile": observation_context_profile_descriptor(value.context_profile),
+        "subject_grain": "candidate",
+        "source_role": "subject",
+        "subject_direction": "input",
+        "subject_port": value.subject_input,
+        "guaranteed_multiplicity": value.guaranteed_multiplicity,
+    }
+    for name in ("reference", "pairing", "axis", "method"):
+        source = getattr(value, f"{name}_source")
+        result[f"{name}_direction"] = source.direction if source is not None else None
+        result[f"{name}_port"] = source.port if source is not None else None
+    return result
+
+
+def _observation_propagation_descriptor(value: ObservationPropagation) -> dict[str, Any]:
+    filter_value = value.filter
+    filtered: dict[str, Any] | None = None
+    if filter_value is not None:
+        filtered = {}
+        for name in ("source_partition", "metric", "method"):
+            field_value = getattr(filter_value, name)
+            if field_value is not None:
+                filtered[name] = field_value
+        if filter_value.context_profile is not None:
+            filtered["context_profile"] = observation_context_profile_descriptor(filter_value.context_profile)
+    result = {
+        "mode": value.mode,
+        "output_port": value.output_port,
+        "input_ports": value.input_ports,
+        "filter": filtered,
+    }
+    if value.absent_input_policy != "reject":
+        result["absent_input_policy"] = value.absent_input_policy
+    return result

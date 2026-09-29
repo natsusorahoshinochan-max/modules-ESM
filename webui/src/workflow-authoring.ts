@@ -21,16 +21,20 @@ export type BindingOption = {
   availabilityReason?: { code: string; message: string; retryable: boolean }
 }
 
+export type PortPresentation = {
+  label?: string
+  name: string
+  portTypeId: string
+  multiplicity: 'one' | 'many'
+  required: boolean
+  meaning: string
+}
+
 export type NodeTypePresentation = {
   title: string
   category: string
-  inputs: string[]
-  outputs: string[]
-  inputPortTypes: Record<string, string>
-  inputMultiplicities: Record<string, string>
-  outputPortTypes: Record<string, string>
-  inputMeanings: Record<string, string>
-  outputMeanings: Record<string, string>
+  inputs: PortPresentation[]
+  outputs: PortPresentation[]
 }
 
 export type ParameterValueContract = {
@@ -159,10 +163,11 @@ export function parameterPresentations(catalog: CatalogSnapshot, node: WorkflowN
 export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: string): NodeTypePresentation {
   const descriptor = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === nodeTypeId)?.descriptor
   if (!descriptor) throw new Error(`Node Type ${nodeTypeId} is absent from the active Catalog`)
-  const ports = (field: 'inputs' | 'outputs') => ((descriptor[field] as JsonObject[] | undefined) ?? []).map((port) => ({
+  const ports = (field: 'inputs' | 'outputs'): PortPresentation[] => ((descriptor[field] as JsonObject[] | undefined) ?? []).map((port) => ({
     name: String(port.name),
     portTypeId: String((port.port_type as JsonObject).contract_id),
-    multiplicity: String(port.multiplicity),
+    multiplicity: port.multiplicity as PortPresentation['multiplicity'],
+    required: port.required as boolean,
     meaning: String(port.scientific_meaning),
   }))
   const inputs = ports('inputs')
@@ -170,13 +175,8 @@ export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: strin
   return {
     title: String(descriptor.title),
     category: String(descriptor.category),
-    inputs: inputs.map((port) => port.name),
-    outputs: outputs.map((port) => port.name),
-    inputPortTypes: Object.fromEntries(inputs.map((port) => [port.name, port.portTypeId])),
-    inputMultiplicities: Object.fromEntries(inputs.map((port) => [port.name, port.multiplicity])),
-    outputPortTypes: Object.fromEntries(outputs.map((port) => [port.name, port.portTypeId])),
-    inputMeanings: Object.fromEntries(inputs.map((port) => [port.name, port.meaning])),
-    outputMeanings: Object.fromEntries(outputs.map((port) => [port.name, port.meaning])),
+    inputs,
+    outputs,
   }
 }
 

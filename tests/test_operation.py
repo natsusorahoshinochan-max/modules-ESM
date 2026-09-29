@@ -1,3 +1,5 @@
+
+from core.catalog.observation import ObservationPortSource
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -23,13 +25,13 @@ from core.scoring.observation_admission import (
     admit_produced_observations,
 )
 from core.scoring.observation_plan import (
-    IntrinsicContextProfile,
-    ObservationPropagationFilter,
-    ObservationPropagationPlan,
     ProducedObservationPlan,
     ResolvedMetricFacts,
-    ResolvedProducedObservation,
 )
+from core.catalog.observation import ProducedObservation
+from core.catalog.observation import ObservationPropagation
+from core.catalog.observation import ObservationPropagationFilter
+from datatypes.observation import IntrinsicContextProfile
 from tests.support.output_admission import (
     admit_fixture_port,
     normalize_fixture_outputs,
@@ -181,19 +183,14 @@ def test_direct_operation_context_preserves_axis_and_method_sources() -> None:
     plan = ProducedObservationPlan(
         binding_method=method,
         observations=(
-            ResolvedProducedObservation(
+            ProducedObservation(
                 output_port="scores",
                 output_partition="default",
                 metric=metric,
                 context_profile=IntrinsicContextProfile(),
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="candidates",
-                axis_direction="input",
-                axis_port="facts",
-                method_direction="input",
-                method_port="facts",
+                subject_input="candidates",
+                axis_source=ObservationPortSource("input", "facts"),
+                method_source=ObservationPortSource("input", "facts"),
                 guaranteed_multiplicity="one",
             ),
         ),
@@ -209,11 +206,13 @@ def test_direct_operation_context_preserves_axis_and_method_sources() -> None:
     assert context.produced_observations is plan.observations
     assert context.method is plan.binding_method
     observation = context.produced_observations[0]
+    assert observation.axis_source is not None
+    assert observation.method_source is not None
     assert (
-        observation.axis_direction,
-        observation.axis_port,
-        observation.method_direction,
-        observation.method_port,
+        observation.axis_source.direction,
+        observation.axis_source.port,
+        observation.method_source.direction,
+        observation.method_source.port,
     ) == ("input", "facts", "input", "facts")
 
 
@@ -286,18 +285,14 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
         dynamic: bool,
         projected: tuple[ExactContractReference, ...],
     ) -> None:
-        declaration = ResolvedProducedObservation(
+        declaration = ProducedObservation(
             output_port="scores",
             output_partition="default",
             metric=metric,
             context_profile=IntrinsicContextProfile(),
-            subject_grain="candidate",
-            source_role="subject",
-            subject_direction="input",
-            subject_port="candidates",
+            subject_input="candidates",
             guaranteed_multiplicity="one",
-            method_direction="input" if dynamic else None,
-            method_port="confidence" if dynamic else None,
+            method_source=(ObservationPortSource("input", "confidence") if dynamic else None),
         )
         collection = ScoreCollection(
             "scores",
@@ -514,7 +509,7 @@ def test_observation_propagation_preserves_admitted_pairwise_references(
         candidate_content_digest=lambda _: pytest.fail(
             "propagated admitted Score references must not be recomputed"
         ),
-        observation_propagation=ObservationPropagationPlan(
+        observation_propagation=ObservationPropagation(
             mode="pass_through",
             output_port="scores",
             input_ports=("source",),
@@ -575,7 +570,7 @@ def test_observation_propagation_rejects_conflicting_candidate_references(
             candidate_content_digest=lambda _: pytest.fail(
                 "propagated admitted Score references must not be recomputed"
             ),
-            observation_propagation=ObservationPropagationPlan(
+            observation_propagation=ObservationPropagation(
                 mode="union",
                 output_port="scores",
                 input_ports=("left", "right"),
@@ -618,7 +613,7 @@ def test_observation_propagation_rejects_a_ghost_subject() -> None:
             candidate_content_digest=lambda _: pytest.fail(
                 "propagated admitted Score references must not be recomputed"
             ),
-            observation_propagation=ObservationPropagationPlan(
+            observation_propagation=ObservationPropagation(
                 mode="filter",
                 output_port="scores",
                 input_ports=("source",),

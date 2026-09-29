@@ -113,6 +113,7 @@ def register_workflow_routes(
         version_id: str | None = None,
     ) -> Any:
         workflow_payload: Any = None
+        body: Any = REST_BODY_ABSENT
         try:
             query, body = await public_rest_wire_sources(request)
             admitted = decode_rest_request(
@@ -125,9 +126,15 @@ def register_workflow_routes(
             )
             if operation == "project_workspace":
                 payload = encode_project_workspace(authoring.load_workspace(project_id))
-            elif operation == "save_project_ui_state":
-                payload = encode_project_workspace(authoring.save_ui_state(
-                    project_id, ui_state=admitted["ui_state"],
+            elif operation == "save_project_workspace":
+                workflow_payload = admitted.get("workflow")
+                workflow = (
+                    workflow_document_from_canonical(workflow_payload)
+                    if workflow_payload is not None else None
+                )
+                payload = encode_project_workspace(authoring.save_workspace(
+                    project_id, workflow=workflow, ui_state=admitted.get("ui_state"),
+                    expected_draft_revision=admitted.get("expected_draft_revision"),
                 ))
             elif operation == "list_workflow_versions":
                 payload = {
@@ -160,7 +167,7 @@ def register_workflow_routes(
                     project_id, workspace_revision=admitted["workspace_revision"],
                 ))
         except ProtocolValidationError as error:
-            return protocol_error_response(error)
+            return protocol_error_response(error, body)
         except WorkflowDocumentError as error:
             return workflow_document_error_response(error, workflow_payload)
         except WorkflowAuthoringError as error:
@@ -171,9 +178,9 @@ def register_workflow_routes(
     async def public_project_workspace(request: Request, project_id: str) -> Any:
         return await workspace_action(request, project_id, "project_workspace")
 
-    @app.put(rest_operations["save_project_ui_state"]["route"], include_in_schema=False)
-    async def public_save_project_ui_state(request: Request, project_id: str) -> Any:
-        return await workspace_action(request, project_id, "save_project_ui_state")
+    @app.put(rest_operations["save_project_workspace"]["route"], include_in_schema=False)
+    async def public_save_project_workspace(request: Request, project_id: str) -> Any:
+        return await workspace_action(request, project_id, "save_project_workspace")
 
     @app.get(rest_operations["list_workflow_versions"]["route"], include_in_schema=False)
     async def public_list_workflow_versions(request: Request, project_id: str) -> Any:
@@ -221,45 +228,6 @@ def register_workflow_routes(
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         return emit_rest_json_success("project_workflow_draft", payload)
-
-    @app.put(
-        rest_operations["save_project_workflow_draft"]["route"],
-        include_in_schema=False,
-    )
-    async def public_save_project_workflow_draft(
-        request: Request,
-        project_id: str,
-    ) -> Any:
-        workflow_payload: Any = None
-        json_body: Any = REST_BODY_ABSENT
-        try:
-            query_parameters, json_body = await public_rest_wire_sources(
-                request
-            )
-            admitted = decode_rest_request(
-                "save_project_workflow_draft",
-                path_parameters={"project_id": project_id},
-                query_parameters=query_parameters,
-                json_body=json_body,
-            )
-            workflow_payload = admitted["workflow"]
-            workflow = workflow_document_from_canonical(workflow_payload)
-            snapshot = encode_workflow_draft(
-                authoring.save_draft(
-                    admitted["project_id"],
-                    workflow=workflow,
-                )
-            )
-        except WorkflowDocumentError as error:
-            return workflow_document_error_response(error, workflow_payload)
-        except ProtocolValidationError as error:
-            return protocol_error_response(error, json_body)
-        except WorkflowAuthoringError as error:
-            return authoring_error_response(error)
-        return emit_rest_json_success(
-            "save_project_workflow_draft",
-            snapshot,
-        )
 
     @app.get(
         rest_operations["project_active_workflow_commit"]["route"],

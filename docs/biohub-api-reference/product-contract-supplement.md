@@ -114,5 +114,5 @@ fallback route。
 真实 Provider Acceptance Campaign 定义与命令见
 [acceptance_campaign.py](../../verification/acceptance_campaign.py) 和
 [acceptance_cli.py](../../verification/acceptance_cli.py)。
-最新完整验收见[Catalog、Selection 与 Run 阅读验收记录](../2026-09-21-catalog-selection-run-acceptance.md)；
-该记录绑定本轮源码及新构建产物，不将历史运行记录作为当前产物的通过证明。
+最新完整验收见[端口展示与连线编辑验收记录](../2026-09-24-port-connections-acceptance.md)；
+该记录绑定其明确列出的冻结源码及构建产物，不将历史运行记录作为当前产物的通过证明。

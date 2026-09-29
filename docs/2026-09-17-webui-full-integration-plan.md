@@ -1,7 +1,7 @@
 # WebUI 集成交付范围与验收要求
 
-- 最后更新：2026-09-21。
-- 状态：P0–P7 完整验收已完成；[最新完整验收记录](2026-09-21-catalog-selection-run-acceptance.md)保存 Catalog、Selection 与 Run 阅读重构后的最终快照与证据。[09-19 记录](2026-09-19-webui-integration-progress.md)对应此前集成快照。
+- 最后更新：2026-09-29。
+- 状态：P0–P7 的完整验收记录对应 [09-24 固定快照](2026-09-24-port-connections-acceptance.md)，[09-19 记录](2026-09-19-webui-integration-progress.md)对应此前集成快照。2026-09-29 前端交互改进已获阶段性通过；结构变换实时预览仍待优化，不能据此声称全部交互问题已解决。
 - 本文维护已确认的产品范围和验收要求；科学与持久化细节由下列现行规格拥有。
 - Selector/Objective 来源字段的进一步减法仍未完成，单独记录在验收文档中。
 
@@ -17,7 +17,7 @@
 
 继续遵守当前科学语义：Prompt Studio 编辑普通 `prompt_authoring.author` Node 的 `document`；FASTA/PDB 通过可见的 I/O Nodes 提供；不恢复 managed composition、平行 layout Ports 或旧前端。SS8、Function annotations 重复规则、absent 与 present all-null 按当前规格，不照抄旧原型。Availability 是启动诊断，不等于 Run-scoped Readiness，也不能单独阻止缓存复用或执行。
 
-不新增此前明确排除的功能：账号/多人协作、项目文件夹/标签/收藏、单节点取消、原子级坐标编辑、缩放、隐式结构优化、自然语言生成 Prompt、独立 ProteinMPNN 约束编辑器。按本轮用户决定，不提供自动残基对应或自动对齐草稿，只提供手动对应。仍只提供最近一次 Run 的常规入口；命名版本不等于 Run 历史列表。
+不新增此前明确排除的功能：账号/多人协作、项目文件夹/标签/收藏、单节点取消、原子级坐标编辑、结构几何缩放、隐式结构优化、自然语言生成 Prompt、独立 ProteinMPNN 约束编辑器。按本轮用户决定，不提供自动残基对应或自动对齐草稿，只提供手动对应。仍只提供最近一次 Run 的常规入口；命名版本不等于 Run 历史列表。
 
 ## 2. 当前规格
 
@@ -39,12 +39,12 @@
 |---|---|---|
 | Project workspace | 打开/保存当前工作、输入、命名版本、复制和恢复；协调 Draft 与 UI state | `webui/src/` 项目相关代码；`core/project/`、`core/workflow/authoring.py` |
 | Workflow authoring | graph 编辑、参数/模型/选择目标、undo 和复制；保持对象引用一致 | `webui/src/workflow-authoring.ts` 及画布相关代码 |
-| Prompt session | 一个编辑 document、一个局部 preview、最终保存 preview；支持取消和 undo | `webui/src/PromptStudio.tsx`，`modules/prompt_authoring/` |
+| Prompt session | 一个编辑 document；矩阵提交依次预览，复杂操作显式预览／应用；整份保存、取消、undo/redo | `webui/src/PromptStudio.tsx`，`modules/prompt_authoring/` |
 | Run authoring | 范围提案、确认启动与取消 | App 与 WebUI Run 控件，`core/execution/`、public Run routes |
 | Run reading | 同一 Session 的 REST 状态、事件订阅、cursor、活动、诊断与结果分页；REST 唯一决定完成状态 | `webui/src/published-results.ts` |
 | Result explorer | 集合/候选焦点、精确关联、比较、筛选、导出及来源 | WebUI Results 代码；published values 的只读 public projection |
 
-public transport 集中在 `webui/src/protocol/`。类型和请求形状以当前 bundle 为准；新增合同同时更新 Python owner、bundle、TypeScript consumer、fixtures 和测试。合同 owner 验证后下游信任，不在每层复制校验。沿用当前 React/Vite/React Flow/3Dmol，不为本轮另建框架、BFF、通用插件层或双轨协议。
+public transport 集中在 `webui/src/protocol/`。类型和请求形状以当前 bundle 为准；新增合同同时更新 Python owner、bundle、TypeScript consumer、fixtures 和测试。合同 owner 验证后下游信任，不在每层复制校验。沿用当前 React/Vite/React Flow/3Dmol，矩阵使用 AG Grid Community，模态与菜单使用 Radix；不为本轮另建框架、BFF、通用插件层或双轨协议。
 
 ## 4. 功能与验收要求
 
@@ -102,7 +102,7 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 - 谱系展示父结构→ProteinMPNN 子代序列→再次折叠结构；支持多个 parents，点击各角色同步内容与来源，不只展示第一个 parent 的字符串。
 - 展示全部适用 Score Observations，包含 Metric Definition、Method、单位、范围、方向、aggregation 和实际参考 Candidate；不只硬编码 pLDDT/TM-score。
 - 多候选并排结构/序列/分数。叠加消费已有 Structure Alignment Evidence 的明确 subject/reference 与 transform；不能假设多个候选天然共用同一坐标框架，证据不足时解释原因。
-- 临时排序/筛选、勾选与焦点分别维护；隐藏已勾选项仍保留并告知。保存为流程操作覆盖条件筛选、排序取前 N、手动勾选候选三类，先显示将新增的可编辑 Node 及所需 Selector/Objective 或候选引用，再写入 Draft，不重算旧结果。筛选完整保留 AND/OR 及分组；手动勾选按精确引用在当前输入集合中匹配，缺失报错并允许用户重新选择。不得把手动勾选仅保留为一次性导出状态。
+- 候选列表与详情／比较相邻显示；候选焦点、勾选、最多四个比较位置及临时排序／筛选分别维护。未完成的筛选草稿不改变列表，完整后显式应用；隐藏勾选可在“查看已选”中集中管理。Workflow 往返按工作区与结果 Run 恢复视图及滚动位置，对话框关闭恢复工作焦点。保存为流程操作覆盖条件筛选、排序取前 N、手动勾选候选三类，先显示将新增的可编辑 Node 及所需 Selector/Objective 或候选引用，再写入 Draft，不重算旧结果。筛选完整保留 AND/OR 及分组；手动勾选按精确引用在当前输入集合中匹配，缺失报错并允许用户重新选择。不得把手动勾选仅保留为一次性导出状态。
 - 固定 ZIP 直接导出，不要求先保存筛选或重新运行。使用真实 sequence/structure values，携带精确身份、完整 parent refs、Metric/Method/Context、单位、Run/Commit 和输出来源。允许纯序列及混合选择导出：包含 FASTA、分数 CSV 和 manifest，仅为实际有结构的 Candidate 写 PDB，明确列出没有结构的项。
 - 画布、Results、比较和导出持续展示实际 Run/Commit 来源及过期状态，不能因 copied-from 一直标旧或因非复制项目漏标。
 - 删除缺少数据时静默显示 `/3GB1.pdb` 的 fallback。无结果、无结构和加载错误分别展示真实状态。
@@ -117,15 +117,15 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 交付：
 
 - 布局/条件/结构模式改变可用操作和快捷键；blank 默认布局、其他来源默认条件，矩阵保持统一。
-- 同一选区组合编辑多条轨道，只保留一个可持续更新的 pending preview，一次应用整组操作；Enter/Esc/undo 和可见按钮等价。
-- 补齐矩阵输入细节：数字小数、Backspace、插入数量和序列、区间/非连续选择、跨链边界与焦点；诊断可点击定位。
+- 桌面采用结构视图与 AG Grid Community 残基矩阵两栏，分隔条可调整宽度；窄屏切换结构／矩阵。常用动作在矩阵工具栏，复杂动作按需打开对话框。单格确认逐次预览并分别进入撤销历史；显式多轨批量操作预览后整组应用。
+- 矩阵单击选中、键入替换、F2／双击编辑；Enter 下一轨道、Tab 下一残基、Shift 反向、Esc 取消输入。支持 Shift 锚点连选、Ctrl／⌘ 追加选择和 TSV 复制粘贴；无效粘贴整次拒绝，非法单格输入保留，输入法组合确认不提前提交。Coordinates／Function 使用专用编辑入口；诊断可点击定位。
 - Function annotations 提供明确端点编辑和拆分，完整 tuple 的变更经过后端 preview；遵守可重叠、完全相同 tuple 不重复的现行合同，不自动裁剪或合并。
 - 增加随机 Mask/插入控件：count、eligible scope、seed、换 seed 重抽、实际位置显示和最终确认；backend recipe 唯一实现随机选择，不在浏览器另做随机算法。
 - 保留当前随机插入 residues 的限制，不增加隐式固化、单独删除或 ID 猜测。显示随机结果和后续编辑的真实后果。
 - 保留 whole-track absent 与 present all-null，展示各轨道完整摘要。模型兼容性/effective-input 展示使用 ESM3 owner 的权威投影；不为兼容模型删除 named atoms 或科学内容。
-- Studio 退出和页面离开时保护未保存编辑；最终保存总是确认新鲜 normalized preview，失败保留编辑。草稿科学错误与模型执行不兼容分别表达。
+- Studio 退出和页面离开时保护未保存编辑；顶部保存直接写回整份会话，复用仍有效的 normalized preview，内容或来源变化后再重新预览，失败保留编辑。Ctrl／⌘ Z 与 Ctrl／⌘ Shift Z 按焦点范围撤销／重做。草稿科学错误与模型执行不兼容分别表达。
 
-**验收：** 多轨道联合编辑、随机重抽、Function 端点/拆分、布局变化可 preview→apply→undo→保存→重开；按相同已确认 document 执行得到一致 conditioning，合法稀疏 Prompt 可以保存。
+**验收：** 单格及粘贴确认后依次应用并可分别撤销；显式多轨批量、随机重抽、Function 端点／拆分和布局变化经过 preview→apply，再可 undo／redo→保存→重开。快速输入、无效粘贴、焦点范围和输入法组合确认有浏览器交互回归；按相同已确认 document 执行得到一致 conditioning，合法稀疏 Prompt 可以保存。
 
 ### P5：多来源合并、手动对应和精确刚体编辑
 
@@ -138,8 +138,9 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 - 显示逐残基、逐轨道的新增/保留/替换与冲突，用户明确选择采用部分；来源 Mask 覆盖、新增目标残基及注释后果均在预览中单独说明，由用户明确决定。全源/全目标覆盖、跨链和 unmapped 数据后果经 backend admission；Function 区间不自动截短以让合并成功。
 - 合并新来源涉及 graph 改动时，来源连接与已确认 document 的写回必须有一个后端 authoring 原子结果；取消不能留下已改的 Workflow。只发布而未引用的 immutable Input 与修改 Workflow 分别处理。
 - 三维残基选择支持连续和非连续集合；整个选区接受一个精确刚体变换，未选残基不动。
-- G/R、X/Y/Z、数值输入与按钮共享流程；默认世界坐标，位移使用 Å、角度使用 °。旋转默认中心为选区全部现有原子坐标的几何中心；允许选择明确的残基位置或输入自定义中心，并显示中心标记。所选残基位置的精确坐标、连续变换次序及边界提示遵循[Prompt 编辑规格](2026-09-17-prompt-editing-spec.md)，后端 recipe 应用 rotation/translation。预览/确认/取消/undo 不与 viewer camera 旋转混淆。
-- 对边界不连续作定位提示；不自动最小化或移动邻居，不支持原子单选/缩放。
+- 中键旋转镜头、Shift＋中键平移、滚轮缩放；三维点选与 B 穿透框选同步残基选区。G 默认在操作开始时的视平面移动，R 默认绕当时视线旋转；X/Y/Z 约束世界轴，再按同轴解除。鼠标、数值与按钮共享持续操作，Enter／左键确认，Esc／右键取消；最终坐标仍采用世界坐标，位移使用 Å、角度使用 °。旋转默认中心为选区全部现有原子坐标的几何中心；允许选择明确的残基位置或输入自定义中心，并显示中心标记。所选残基位置的精确坐标、连续变换次序及边界提示遵循[Prompt 编辑规格](2026-09-17-prompt-editing-spec.md)，后端 recipe 应用 rotation/translation。预览/确认/取消/undo 不与 viewer camera 旋转混淆。
+- 对边界不连续作定位提示；不自动最小化或移动邻居，不支持原子单选／结构几何缩放。
+- 当前仍使用 3Dmol；拖动经 90 ms debounce、后端 preview 和 PDB 模型重载更新显示，尚未满足流畅实时预览要求。此次阶段性通过保留这一后续优化项，未更换 renderer。
 
 **验收：** 不同长度及缺口来源完成手动对应与部分采用，结果与预览一致；刚体操作保持选区内部相对几何且未选坐标不变；默认中心按选区全部现有原子坐标计算，残基位置中心/自定义中心与标记及实际变换一致；取消、撤销和重开均核对；无对齐确认不会产生隐式科学对应。
 
@@ -154,7 +155,7 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 - 命名版本引用一个确定的 immutable Draft revision 与 UI snapshot；不强制把可能未完成的 Draft 当 runnable Commit。执行仍需正常 Commit admission。
 - 打开旧版本先查看；首次修改时建立新的当前工作并产生新的编辑 revision，保留旧版本和打开前当前工作，明确显示来源并提供返回原工作的入口；无需引入通用 Git 分支系统。
 - UI state 由前端解释，后端持久化 opaque payload；命名版本记录精确布局 snapshot。Draft 保存与 UI state 保存分别显示状态，不能一方失败仍声称全部成功。
-- 删除进入可恢复状态，恢复保持 Project identity、Inputs、版本和 Run evidence。删除运行中的项目时不自动取消，提供等待完成或明确取消后删除，Run closure 后才移动项目；永久删除需明确用户动作及引用处理合同，防止损坏其他有效项目。
+- 删除进入可恢复状态，恢复保持 Project identity、Inputs、版本和 Run evidence。删除运行中的项目时不自动取消，提供等待完成或明确取消后删除，Run closure 后才以 `deleted_at` 标记最近删除，项目数据保留原位；永久删除需明确用户动作及引用处理合同，防止损坏其他有效项目。
 - Project 切换、历史打开、复制和删除都遵守 Prompt 未保存离开流程；输入和科学内容不依赖 localStorage 生存。
 
 **验收：** 创建版本→继续编辑→打开旧版→分出当前工作→返回原工作；复制后尚未运行，源项目不受影响；删除/恢复保留原身份与完整内容；清空浏览器存储仍可恢复项目和版本布局。
@@ -216,9 +217,9 @@ public transport 集中在 `webui/src/protocol/`。类型和请求形状以当�
 | D04 | 保存为流程操作 | 支持条件筛选、排序并取前 N 个、手动勾选候选三类。筛选支持 AND/OR 和明确分组，保存后含义不变；手动选择保存精确候选引用，在当前输入集合匹配，缺失报错，不替换或跳过，用户可重新勾选 |
 | D05 | 逐区域合并 | 明确选择采用范围，可细到残基×轨道；Mask 覆盖、新增残基和注释后果在预览中单独说明，不自动决定 |
 | D06 | 自动对应 | 不需要自动对应；只提供手动残基对应，不实施自动对齐草稿或算法选择 |
-| D07 | 刚体变换 | 默认世界坐标、位移 Å、角度 °；默认旋转中心为选区全部现有原子坐标的几何中心，允许选明确残基位置或输入自定义中心并显示标记；镜头旋转不改变结构坐标 |
+| D07 | 刚体变换 | G 默认视平面、R 默认视线轴，X/Y/Z 约束世界轴；最终世界坐标、位移 Å、角度 °；默认旋转中心为选区全部现有原子坐标的几何中心，允许选明确残基位置或输入自定义中心并显示标记；镜头旋转不改变结构坐标 |
 | D08 | 命名版本 | 允许保存未完成 Draft；先查看旧版，首次修改建立新的当前工作，保留旧版本及打开前工作 |
-| D09 | 删除运行中的项目 | 不自动取消；提供等待完成或明确取消后删除，Run 结束后才移动项目 |
+| D09 | 删除运行中的项目 | 不自动取消；提供等待完成或明确取消后删除，Run 结束后才以 `deleted_at` 标记最近删除，项目数据保留原位 |
 | D10 | 纯序列/混合导出 | 允许导出；ZIP 包含 FASTA、分数和 manifest，只为确有结构的候选写 PDB，并列明无结构项 |
 | D11 | 批量 FASTA | 不按名称或序列自动去重，保留输入顺序和记录来源；非法记录明确定位，默认阻止本次导入，不静默跳过 |
 | D12 | 后端重启后继续 | 支持依据旧结果发起新 Run；重新验证 Commit，旧中断 Run 保持 interrupted，不伪装为原 Run 断点恢复 |

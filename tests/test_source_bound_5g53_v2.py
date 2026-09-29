@@ -47,7 +47,7 @@ from modules.structure_transform.domain import (
 )
 from tests.support.public_request import encode_project_input_content
 from tests.support.prompt_authoring import (
-    apply_prompt_document,
+    workflow_with_prompt_document,
     install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
@@ -429,17 +429,20 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 residue["residue_label"] == "224"
                 for residue in opened_prompt["residues"]
             )
-            applied_by_branch[branch] = apply_prompt_document(
-                client,
-                project_id,
-                node_id,
-                preview_prompt_document(
-                    client,
-                    project_id,
-                    node_id,
-                    prompt_document,
-                ),
+            workspace = client.get(f"/api/v2/projects/{project_id}/workspace").json()
+            confirmed = preview_prompt_document(
+                                client,
+                                project_id,
+                                node_id,
+                                prompt_document,
+                            )
+            response = client.put(
+                f"/api/v2/projects/{project_id}/workspace",
+                json={"workflow": workflow_with_prompt_document(workspace["draft"]["workflow"], node_id, confirmed["normalized_document"]),
+                      "expected_draft_revision": workspace["draft"]["draft_revision"]},
             )
+            response.raise_for_status()
+            applied_by_branch[branch] = response.json()
         committed = PublicRunClient(client).commit_workflow(project_id, payload)
         started = PublicRunClient(client).start_run(
             project_id,

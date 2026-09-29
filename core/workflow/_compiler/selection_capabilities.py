@@ -4,13 +4,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from core.catalog.observation import ObservationPropagationFilter
+from datatypes.observation import ObservationContextProfile
+from datatypes.observation import PairwiseContextProfile
 from datatypes.i_json import canonical_json_bytes
 from core.catalog.model import FrozenCatalog
-from core.scoring.observation_plan import (
-    ObservationContextProfile,
-    ObservationPropagationFilter,
-    PairwiseContextProfile,
-)
+
 from core.scoring.selection import (
     SelectionInput,
     context_selector_canonical,
@@ -339,9 +338,9 @@ def _derive_observation_capabilities(
                 _connected_source(
                     graph,
                     node_id=node_id,
-                    input_port=declaration.method_port,
+                    input_port=declaration.method_source.port,
                 )
-                if declaration.method_direction == "input"
+                if declaration.method_source is not None and declaration.method_source.direction == "input"
                 else None
             )
             observation_method = (
@@ -350,7 +349,7 @@ def _derive_observation_capabilities(
                 ).binding_method
                 if method_source is not None
                 else plan.binding_method
-                if declaration.method_direction != "input"
+                if declaration.method_source is None or declaration.method_source.direction != "input"
                 else None
             )
             capability = _ObservationCapability(
@@ -358,26 +357,26 @@ def _derive_observation_capabilities(
                 metric=declaration.metric,
                 method=observation_method,
                 context_profile=declaration.context_profile,
-                subject_grain=declaration.subject_grain,
-                source_role=declaration.source_role,
+                subject_grain="candidate",
+                source_role="subject",
                 guaranteed_multiplicity=declaration.guaranteed_multiplicity,
                 subject_source=_capability_source(
                     graph,
                     node_id=node_id,
-                    direction=declaration.subject_direction,
-                    port=declaration.subject_port,
+                    direction="input",
+                    port=declaration.subject_input,
                 ),
                 reference_source=_capability_source(
                     graph,
                     node_id=node_id,
-                    direction=declaration.reference_direction,
-                    port=declaration.reference_port,
+                    direction=declaration.reference_source.direction if declaration.reference_source is not None else None,
+                    port=declaration.reference_source.port if declaration.reference_source is not None else None,
                 ),
                 pairing_source=_capability_source(
                     graph,
                     node_id=node_id,
-                    direction=declaration.pairing_direction,
-                    port=declaration.pairing_port,
+                    direction=declaration.pairing_source.direction if declaration.pairing_source is not None else None,
+                    port=declaration.pairing_source.port if declaration.pairing_source is not None else None,
                 ),
             )
             key = (node_id, declaration.output_port)

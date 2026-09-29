@@ -9,11 +9,9 @@ import struct
 from typing import Any, Protocol, cast
 
 
+from datatypes.observation import PairwiseContextProfile
+from core.catalog.observation import ObservationPortSource
 from core.scoring.observation_plan import (
-    CalibrationContextProfile,
-    IntrinsicContextProfile,
-    ObservationContextProfile,
-    PairwiseContextProfile,
     ProducedObservationPlan,
     ResolvedMetricFacts,
 )
@@ -23,12 +21,11 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
 )
 from datatypes.observation import (
-    CalibrationObservationContext,
-    IntrinsicObservationContext,
     PairwiseObservationContext,
     CandidateRelation,
     ScoreCollection,
     ScoreObservation,
+    observation_context_profile,
 )
 
 
@@ -162,26 +159,6 @@ def _validate_resolved_metric_value(
                 )
 
 
-def _context_profile(context: object) -> ObservationContextProfile:
-    if isinstance(context, IntrinsicObservationContext):
-        return IntrinsicContextProfile()
-    if isinstance(context, CalibrationObservationContext):
-        return CalibrationContextProfile(
-            calibration_metric=context.calibration_metric,
-            calibration_value=context.calibration_value,
-            calibration_unit=context.calibration_unit,
-            population_id=context.population_id,
-        )
-    if isinstance(context, PairwiseObservationContext):
-        return PairwiseContextProfile(
-            subject_role=context.subject.role,
-            reference_role=context.reference.role,
-            pairing_mode=context.pairing_mode,
-            normalization=context.normalization,
-        )
-    raise ObservationAdmissionError("Observation uses an unknown Context type")
-
-
 def _structure_alignment_evidence_facts(
     admitted: ObservationAdmissionPort,
 ) -> tuple[StructureAlignmentEvidenceAdmissionFacts, ...]:
@@ -311,10 +288,8 @@ def admit_produced_observations(
             for declaration in declarations
             if declaration.metric == observation.metric
             and declaration.context_profile
-            == _context_profile(observation.context)
+            == observation_context_profile(observation.context)
             and declaration.output_partition == observation.source_partition
-            and declaration.subject_grain == "candidate"
-            and declaration.source_role == "subject"
         ]
         if len(matches) != 1:
             raise ObservationAdmissionError(
@@ -322,14 +297,14 @@ def admit_produced_observations(
                 "Observation Interface"
             )
         declaration = matches[0]
-        if declaration.method_port is None:
+        if declaration.method_source is None:
             allowed_methods = (plan.binding_method,)
         else:
             method_record = _directional_source_record(
                 inputs=inputs,
                 outputs=outputs,
-                direction=declaration.method_direction,
-                port_name=declaration.method_port,
+                direction=declaration.method_source.direction,
+                port_name=declaration.method_source.port,
             )
             allowed_methods = (
                 method_record.observation_methods
@@ -345,8 +320,8 @@ def admit_produced_observations(
         subject_record = _directional_source_record(
             inputs=inputs,
             outputs=outputs,
-            direction=declaration.subject_direction,
-            port_name=declaration.subject_port,
+            direction="input",
+            port_name=declaration.subject_input,
         )
         if subject_record is None:
             raise ObservationAdmissionError(
@@ -365,7 +340,7 @@ def admit_produced_observations(
             observation
             for observation in observations
             if observation.metric == declaration.metric
-            and _context_profile(observation.context)
+            and observation_context_profile(observation.context)
             == declaration.context_profile
             and observation.source_partition == declaration.output_partition
         ]
@@ -391,8 +366,8 @@ def admit_produced_observations(
             axis_record = _directional_source_record(
                 inputs=inputs,
                 outputs=outputs,
-                direction=declaration.axis_direction,
-                port_name=declaration.axis_port,
+                direction=cast(ObservationPortSource, declaration.axis_source).direction,
+                port_name=cast(ObservationPortSource, declaration.axis_source).port,
             )
             projected_axes = (
                 axis_record.scientific_axes if axis_record is not None else ()
@@ -495,8 +470,8 @@ def admit_produced_observations(
                 reference_record = _directional_source_record(
                     inputs=inputs,
                     outputs=outputs,
-                    direction=declaration.reference_direction,
-                    port_name=declaration.reference_port,
+                    direction=cast(ObservationPortSource, declaration.reference_source).direction,
+                    port_name=cast(ObservationPortSource, declaration.reference_source).port,
                 )
                 admitted_references = (
                     reference_record.candidate_data
@@ -518,8 +493,8 @@ def admit_produced_observations(
                 pairing_record = _directional_source_record(
                     inputs=inputs,
                     outputs=outputs,
-                    direction=declaration.pairing_direction,
-                    port_name=declaration.pairing_port,
+                    direction=cast(ObservationPortSource, declaration.pairing_source).direction,
+                    port_name=cast(ObservationPortSource, declaration.pairing_source).port,
                 )
                 if pairing_record is None:
                     raise ObservationAdmissionError(

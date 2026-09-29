@@ -7,9 +7,8 @@ async function createWorkspace(request: APIRequestContext) {
   const uploaded = await request.post(`/api/v2/projects/${project.id}/inputs`, { data: { filename: 'protein.fa', content_base64: Buffer.from('>protein\nACDE\n').toString('base64') } })
   const input = await uploaded.json()
   const workflow = { schema_version: '2.1.0', workflow_id: project.id, nodes: [{ node_id: 'import', node_type_id: 'protein_io.import_sequence', binding_id: 'protein_io.import_sequence.direct', node_parameters: { project_input_ref: input.project_input_ref }, binding_parameters: {} }], edges: [], observation_selectors: [], selection_objectives: [] }
-  await request.put(`/api/v2/projects/${project.id}/workflow/draft`, { data: { workflow } })
   const ui = { canvas: { positions: { import: { x: 120, y: 140 } }, collapsed: [] } }
-  await request.put(`/api/v2/projects/${project.id}/workspace/ui-state`, { data: { ui_state: ui } })
+  await request.put(`/api/v2/projects/${project.id}/workspace`, { data: { workflow, ui_state: ui } })
   return { project, workflow, ui, input }
 }
 
@@ -32,7 +31,7 @@ test('viewing a version is read-only and the first layout edit preserves a retur
   const prefix = `/api/v2/projects/${project.id}`
   const version = await (await request.post(`${prefix}/versions`, { data: { name: 'Original layout' } })).json()
   const latestUi = { canvas: { positions: { import: { x: 430, y: 260 } }, collapsed: [] } }
-  await request.put(`${prefix}/workspace/ui-state`, { data: { ui_state: latestUi } })
+  await request.put(`${prefix}/workspace`, { data: { ui_state: latestUi } })
   const originalWork = await (await request.get(`${prefix}/workspace`)).json()
 
   await page.goto('/')
@@ -112,11 +111,19 @@ test('new Prompt sources stay staged until confirmed and cancel leaves the saved
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
   await expect(page.getByRole('heading', { name: '确认写回 Workflow', exact: true })).toBeVisible()
   expect((await (await request.get(`${prefix}/workflow/draft`)).json()).workflow).toEqual(workflow)
-  const applying = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:apply'))
+  const beforeConfirmation = await (await request.get(`${prefix}/workspace`)).json()
+  const publications: unknown[] = []
+  page.on('request', outgoing => {
+    if (outgoing.method() === 'PUT' && outgoing.url().endsWith(`${prefix}/workspace`)) publications.push(outgoing.postDataJSON())
+  })
+  const applying = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workspace') && response.request().postDataJSON().workflow)
   await page.getByRole('button', { name: '确认并写回 Workflow', exact: true }).click()
   expect((await applying).status()).toBe(200)
   await expect(page.getByLabel('布局保存状态')).toContainText('布局已保存')
   const saved = await (await request.get(`${prefix}/workspace`)).json()
+  expect(publications).toHaveLength(1)
+  expect(saved.workspace_revision).toBe(beforeConfirmation.workspace_revision + 1)
+  expect(publications[0]).toMatchObject({ workflow: saved.draft.workflow, ui_state: saved.ui_state })
   expect(saved.draft.workflow.nodes.map((node: { node_type_id: string }) => node.node_type_id)).toEqual(['protein_io.import_sequence', 'prompt_authoring.author'])
   expect(saved.draft.workflow.nodes[1].node_parameters.document.chains).toEqual([{ chain_id: 'A', length: 3 }])
   expect(Object.keys(saved.ui_state.canvas.positions)).toEqual(saved.draft.workflow.nodes.map((node: { node_id: string }) => node.node_id))

@@ -53,7 +53,7 @@ from tests.acceptance.biohub_environment import (
 )
 from tests.support.runtime_results import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
-    apply_prompt_document,
+    workflow_with_prompt_document,
     install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
@@ -1340,17 +1340,19 @@ def _materialize_prompt_compositions(
     if base_tier_name == "fresh-2emo":
         node_id = f"{_FRESH_2EMO_PROMPT_COMPOSITION_IDS[0]}.source.author"
         opened = open_pdb_prompt_document(client, project_id, node_id)
-        apply_prompt_document(
-            client,
-            project_id,
-            node_id,
-            preview_prompt_document(
-                client,
-                project_id,
-                node_id,
-                opened["document"],
-            ),
+        workspace = client.get(f"/api/v2/projects/{project_id}/workspace").json()
+        confirmed = preview_prompt_document(
+                        client,
+                        project_id,
+                        node_id,
+                        opened["document"],
+                    )
+        response = client.put(
+            f"/api/v2/projects/{project_id}/workspace",
+            json={"workflow": workflow_with_prompt_document(workspace["draft"]["workflow"], node_id, confirmed["normalized_document"]),
+                  "expected_draft_revision": workspace["draft"]["draft_revision"]},
         )
+        response.raise_for_status()
         return
 
     for composition_id in _FRESH_5G53_PROMPT_COMPOSITION_IDS:
@@ -1377,12 +1379,14 @@ def _materialize_prompt_compositions(
             for residue_id in inserted_ids
         ]
         document["target_residues"] = source_residues
-        apply_prompt_document(
-            client,
-            project_id,
-            node_id,
-            preview_prompt_document(client, project_id, node_id, document),
+        workspace = client.get(f"/api/v2/projects/{project_id}/workspace").json()
+        confirmed = preview_prompt_document(client, project_id, node_id, document)
+        response = client.put(
+            f"/api/v2/projects/{project_id}/workspace",
+            json={"workflow": workflow_with_prompt_document(workspace["draft"]["workflow"], node_id, confirmed["normalized_document"]),
+                  "expected_draft_revision": workspace["draft"]["draft_revision"]},
         )
+        response.raise_for_status()
 
 
 def test_5g53_materialized_prompt_updates_loop_consumer_identities() -> None:

@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile
+
 from collections.abc import Mapping
 from typing import Any
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -45,7 +47,7 @@ from datatypes.sequence import ProteinSequence
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 
-METRIC = ContractIdentity(
+METRIC = ExactContractReference(
     "metric",
     "contract_test.collection_ops_value")
 _SEQUENCE_CONTENT_IDENTITY = exact_content_identity(
@@ -260,7 +262,7 @@ def _source_method(partition: str) -> MethodDefinition:
 
 
 def _source_binding(partition: str) -> ExecutionBindingDefinition:
-    method = ContractIdentity(
+    method = ExactContractReference(
         "method",
         f"contract_test.collection_ops_source.{partition}.method")
 
@@ -272,7 +274,7 @@ def _source_binding(partition: str) -> ExecutionBindingDefinition:
 
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.collection_ops_source.{partition}",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "contract_test.collection_ops_source"),
         method=method,
@@ -322,10 +324,10 @@ def _lineage_binding() -> ExecutionBindingDefinition:
     behavior_prefix = "contract_test.collection_ops_lineage_source"
     return ExecutionBindingDefinition(
         binding_id=f"{behavior_prefix}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             behavior_prefix),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"{behavior_prefix}.method"),
         binding_parameters={},
@@ -393,10 +395,10 @@ def _scorer_binding(
 
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.collection_ops_scorer.{binding_name}",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "contract_test.collection_ops_scorer"),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             "contract_test.collection_ops_scorer.method"),
         binding_parameters={},
@@ -430,14 +432,11 @@ def _scorer_binding(
         deterministic=True,
         cacheable=True,
         produced_observations=(
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="scores",
                 metric=METRIC,
-                context_profile={"kind": "intrinsic"},
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="candidates",
+                context_profile=IntrinsicContextProfile(),
+                subject_input="candidates",
                 guaranteed_multiplicity="one",
                 output_partition=source_partition,
             ),
@@ -452,10 +451,10 @@ def _legacy_binding() -> ExecutionBindingDefinition:
 
     return ExecutionBindingDefinition(
         binding_id="contract_test.collection_ops_legacy_scores.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "contract_test.collection_ops_legacy_scores"),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             "contract_test.collection_ops_legacy_scores.method"),
         binding_parameters={},
@@ -498,7 +497,7 @@ def _utility(partition: str) -> UtilityTransformDefinition:
         transform_id=f"contract_test.collection_ops_identity.{partition}",
         compatible_input_contract={
             "metric": METRIC,
-            "method": ContractIdentity(
+            "method": ExactContractReference(
                 "method",
                 "contract_test.collection_ops_scorer.method"),
             "context_profile": {"kind": "intrinsic"},

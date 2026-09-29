@@ -209,7 +209,7 @@ WebUI 分别选择 Candidate 来源与 Score 来源，`selectionSources` 按实�
 
 若用户要先筛选或重新排序，再执行对顺序敏感的 Method：先操作 Candidate Collection，再接 resolver。此次不提供 axis subset/reorder Node，不提供“从 axis 重建完整 Candidate”Node，也不引入跨请求 axis cache。resolver 的重复工作若成为真实需求，另行证明再设计；不预建机制。
 
-Results 的原 Candidate 页面仍来自原始 Candidate outputs；其 sequence evidence 由完整引用关联 axis，不从 PDB/parent 猜。`published-results.ts` 消费 entries/subject/residue_axis 字段。科学存储格式的读取仍按现有 core ResultBrowser 与前端职责分工，没有新增 public 科学投影。
+Results 的原 Candidate 页面仍来自原始 Candidate outputs；其 sequence evidence 由完整引用关联 axis，不从 PDB/parent 猜。科学 owner 从已发布 association 投影精确 subject 与 sequence，public 阅读 module 组合输出定位，`PublishedResults` 统一消费该阅读值并建立关联。参数候选另读实际 axis layout；这些阅读投影不恢复未使用的完整 axis，也不改变 canonical 存储与下载。具体职责见 [04 / 05 / 06 设计](2026-09-22-architecture-04-05-06-design.md)。
 
 ## 8. 失败位置、随机性与 evidence
 

@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
+from core.catalog.observation import ObservationPropagation
 from core.catalog.errors import PortValueError
 from datatypes.i_json import canonical_sha256
 from core.catalog.port_contract import (
@@ -22,7 +23,7 @@ from core.operation import (
 from core.execution.output_admission.identity import (
     _FreshOutputIdentityEncoder,
 )
-from core.scoring.observation_plan import ObservationPropagationPlan
+
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -115,7 +116,7 @@ def _normalized_score(
 
 def _propagated_candidate_reference_index(
     *,
-    observation_propagation: ObservationPropagationPlan,
+    observation_propagation: ObservationPropagation,
     inputs: Mapping[str, AdmittedPort],
 ) -> tuple[str, Mapping[str, CandidateDataReference]]:
     output_port = observation_propagation.output_port
@@ -222,7 +223,7 @@ def _normalize_candidate_outputs(
     candidate_data_port_types: Mapping[str, Any],
     identity_encoder: _FreshOutputIdentityEncoder,
     candidate_metadata: tuple[CandidateMetadataIdentity, ...] = (),
-    observation_propagation: ObservationPropagationPlan | None = None,
+    observation_propagation: ObservationPropagation | None = None,
 ) -> _NormalizedCandidateOutputs:
     """Normalize producer-local identities before nominal Port admission."""
     input_candidate_facts = _distinct_candidate_values(inputs)

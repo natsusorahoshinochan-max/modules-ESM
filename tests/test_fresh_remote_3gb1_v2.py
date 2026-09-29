@@ -37,7 +37,7 @@ from tests.acceptance.biohub_environment import (
 )
 from tests.support.runtime_results import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
-    apply_prompt_document,
+    workflow_with_prompt_document,
     install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
@@ -131,12 +131,15 @@ def _materialize_local_prompt_compositions(
     document = opened["document"]
     assert document["random_operations"], "fixture document must seed randomness"
     assert document["track_edits"], "fixture document must edit tracks"
-    return apply_prompt_document(
-        client,
-        project_id,
-        author_node_id,
-        preview_prompt_document(client, project_id, author_node_id, document),
+    workspace = client.get(f"/api/v2/projects/{project_id}/workspace").json()
+    confirmed = preview_prompt_document(client, project_id, author_node_id, document)
+    response = client.put(
+        f"/api/v2/projects/{project_id}/workspace",
+        json={"workflow": workflow_with_prompt_document(workspace["draft"]["workflow"], author_node_id, confirmed["normalized_document"]),
+              "expected_draft_revision": workspace["draft"]["draft_revision"]},
     )
+    response.raise_for_status()
+    return response.json()
 
 
 def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:

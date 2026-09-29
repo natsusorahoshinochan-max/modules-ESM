@@ -12,11 +12,9 @@ from datatypes.prompt import ProteinPrompt
 from modules.esm3.adapter import describe_conditioning
 from modules.esm3.implementation import describe_generation_compatibility
 from modules.prompt_authoring.authoring import (
-    PromptApplyResult,
     PromptAuthoringPreview,
     PromptAuthoringSnapshot,
 )
-from protein_workbench_public.workflow_codec import encode_workflow_draft
 
 
 def _reference(reference: ExactContractReference) -> dict[str, str]:
@@ -154,10 +152,4 @@ def encode_prompt_preview(
             diagnostic.projection() for diagnostic in preview.diagnostics
         ],
         "summary": thaw_i_json(preview.summary),
-    }
-
-
-def encode_prompt_apply_result(result: PromptApplyResult) -> dict[str, Any]:
-    return {
-        "draft": encode_workflow_draft(result.draft),
     }

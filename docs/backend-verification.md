@@ -53,10 +53,12 @@ editing, searching and diff inspection.
    failures and blockers are cleared. Use artifacts built from the final source
    snapshot. CPU checks may run independently; resource-heavy Provider work is
    serial. Preserve the formal Campaign's existing stop-on-failure semantics.
-5. During the real Provider phase, inspect remote status only once every
-   30 minutes, with no intermediate status, log or process polling. Let started
-   work continue. Collect executed, failed and blocked results before a repair
-   batch; changed code must pass the non-Provider matrix before a new Campaign.
+5. During both the non-Provider diagnostic batch and the real Provider phase,
+   inspect remote status only once every 30 minutes, with no intermediate status,
+   log or process polling. Wait silently between inspections and let started work
+   continue. This changes only external monitoring, not polling required inside
+   tests. Collect executed, failed and blocked results before a repair batch;
+   changed code must pass the non-Provider matrix before a new Campaign.
 
 Historical passes do not certify new artifacts. Retain scientific assertions and
 required real acceptance; do not add skips or weaken gates to obtain a pass.
@@ -349,8 +351,9 @@ and `.local/verification-results/`. The profile contains paths and transport pol
 never token contents, and is injected explicitly into each child process.
 
 Run verification on the remote verification host, reusing its existing virtual
-environment. After the provider-free/backend matrix passes, freeze one source
-snapshot and run one canonical Campaign against its artifacts:
+environment. Freeze the source before running the provider-free/backend matrix.
+After the complete matrix passes, build artifacts from that same frozen snapshot
+and run one canonical Campaign against those artifacts:
 
 ```bash
 CAMPAIGN=.local/verification-results/acceptance-campaign

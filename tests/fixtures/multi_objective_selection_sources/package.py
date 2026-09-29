@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datatypes.observation import PairwiseContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from collections.abc import Mapping
 from contextlib import nullcontext
 from typing import Any
@@ -9,15 +13,15 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -47,19 +51,19 @@ from datatypes.structure import ProteinStructure
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 
-SOURCE_NODE_TYPE = ContractIdentity(
+SOURCE_NODE_TYPE = ExactContractReference(
     "node_type",
     "contract_test.multi_objective_selection_source")
-SCORER_NODE_TYPE = ContractIdentity(
+SCORER_NODE_TYPE = ExactContractReference(
     "node_type",
     "contract_test.multi_objective_selection_scores")
-SOURCE_METHOD = ContractIdentity(
+SOURCE_METHOD = ExactContractReference(
     "method",
     "contract_test.multi_objective_selection_source.candidates.method")
-METHOD = ContractIdentity(
+METHOD = ExactContractReference(
     "method",
     "contract_test.multi_objective_selection_source.method")
-PAIRWISE_SELECTION_SCORE = ContractIdentity(
+PAIRWISE_SELECTION_SCORE = ExactContractReference(
     "metric",
     "contract_test.multi_objective_selection_score")
 FIXED_PARTITION = "canonical.selection_score.fixed_3gb1"
@@ -404,45 +408,34 @@ MODULE_PACKAGE = ModulePackageRegistration(
             deterministic=True,
             cacheable=True,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="scores",
                     metric=PAIRWISE_SELECTION_SCORE,
-                    context_profile={
-                        "kind": "pairwise",
-                        "subject_role": "subject",
-                        "reference_role": "reference",
-                        "pairing_mode": "fixed_reference",
-                        "normalization": NORMALIZATION,
-                    },
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="candidates",
+                    context_profile=PairwiseContextProfile(
+                        subject_role="subject",
+                        reference_role="reference",
+                        pairing_mode="fixed_reference",
+                        normalization=NORMALIZATION,
+                    ),
+                    subject_input="candidates",
                     guaranteed_multiplicity="one",
                     output_partition=FIXED_PARTITION,
-                    reference_direction="input",
-                    reference_port="references",
+                    reference_source=ObservationPortSource("input", "references"),
                 ),
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="scores",
                     metric=PAIRWISE_SELECTION_SCORE,
-                    context_profile={
-                        "kind": "pairwise",
-                        "subject_role": "subject",
-                        "reference_role": "reference",
-                        "pairing_mode": "explicit_relation",
-                        "normalization": NORMALIZATION,
-                    },
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="candidates",
+                    context_profile=PairwiseContextProfile(
+                        subject_role="subject",
+                        reference_role="reference",
+                        pairing_mode="explicit_relation",
+                        normalization=NORMALIZATION,
+                    ),
+                    subject_input="candidates",
                     guaranteed_multiplicity="one",
                     output_partition=PAIRED_PARTITION,
-                    reference_direction="input",
-                    reference_port="references",
-                    pairing_direction="input",
-                    pairing_port="pairing",
+                    reference_source=ObservationPortSource("input", "references"),
+                    pairing_source=ObservationPortSource("input", "pairing"),
                 ),
             ),
         ),

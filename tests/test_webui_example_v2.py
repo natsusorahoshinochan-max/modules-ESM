@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from tests.support.prompt_authoring import workflow_with_prompt_document
+
 from dataclasses import replace
 from pathlib import Path
 
@@ -267,17 +269,18 @@ def test_webui_example_public_journey_and_prompt_contract(
             0,
         ]
 
-        rejected = http.post(
-            f"/api/v2/projects/{copied['id']}/prompt-authoring:apply",
+        rejected = http.put(
+            f"/api/v2/projects/{copied['id']}/workspace",
             json={
-                "node_id": author_node_id,
-                "document": preview["normalized_document"],
+                "workflow": workflow_with_prompt_document(
+                    {**draft["workflow"], "workflow_id": copied["id"]}, author_node_id, preview["normalized_document"],
+                ),
                 "expected_draft_revision": 0,
             },
         )
         assert rejected.status_code == 400
         validate_response(
-            "apply_prompt_authoring",
+            "save_project_workspace",
             rejected.status_code,
             rejected.json(),
         )
@@ -285,17 +288,18 @@ def test_webui_example_public_journey_and_prompt_contract(
             "expected_draft_revision"
         ]
 
-        apply_response = http.post(
-            f"/api/v2/projects/{copied['id']}/prompt-authoring:apply",
+        apply_response = http.put(
+            f"/api/v2/projects/{copied['id']}/workspace",
             json={
-                "node_id": author_node_id,
-                "document": preview["normalized_document"],
+                "workflow": workflow_with_prompt_document(
+                    {**draft["workflow"], "workflow_id": copied["id"]}, author_node_id, preview["normalized_document"],
+                ),
                 "expected_draft_revision": draft["draft_revision"],
             },
         )
         assert apply_response.status_code == 200
         validate_response(
-            "apply_prompt_authoring",
+            "save_project_workspace",
             apply_response.status_code,
             apply_response.json(),
         )

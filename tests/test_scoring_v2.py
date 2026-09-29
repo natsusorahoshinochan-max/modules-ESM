@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.observation import ObservationPortSource
+
 from tests.support.public_runs import PublicRunClient
 
 from dataclasses import FrozenInstanceError, replace
@@ -43,11 +45,11 @@ from core.scoring.observation_admission import (
     admit_produced_observations,
 )
 from core.scoring.observation_plan import (
-    IntrinsicContextProfile,
     ProducedObservationPlan,
     ResolvedMetricFacts,
-    ResolvedProducedObservation,
 )
+from core.catalog.observation import ProducedObservation
+from datatypes.observation import IntrinsicContextProfile
 from core.scoring.selection import (
     SelectionError,
     SelectionInput,
@@ -1272,17 +1274,13 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
         plan=ProducedObservationPlan(
             binding_method=method,
             observations=(
-                ResolvedProducedObservation(
+                ProducedObservation(
                     output_port="scores",
                     output_partition="default",
                     metric=metric,
                     context_profile=IntrinsicContextProfile(),
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="axes",
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "axes"),
                     guaranteed_multiplicity="one",
                 ),
             ),

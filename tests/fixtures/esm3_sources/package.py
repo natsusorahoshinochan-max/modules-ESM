@@ -7,13 +7,13 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -121,10 +121,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.esm3_prompt_source.direct",
-            node_type=ContractIdentity(
+            node_type=ExactContractReference(
                 "node_type",
                 "contract_test.esm3_prompt_source"),
-            method=ContractIdentity(
+            method=ExactContractReference(
                 "method",
                 "contract_test.esm3_prompt_source.method"),
             binding_parameters={},

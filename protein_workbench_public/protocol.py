@@ -201,11 +201,12 @@ def _validate(
             except ProtocolValidationError as error:
                 failures.append(error)
             else:
-                return
-        raise ProtocolValidationError(
-            path,
-            f"must match a schema alternative ({failures[0].reason})",
-        )
+                break
+        else:
+            raise ProtocolValidationError(
+                path,
+                f"must match a schema alternative ({failures[0].reason})",
+            )
 
     if "const" in schema and value != schema["const"]:
         raise ProtocolValidationError(path, f"must equal {schema['const']!r}")

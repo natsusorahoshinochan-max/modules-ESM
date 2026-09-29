@@ -1,8 +1,11 @@
 # Provider execution contract
 
-Status: current operational specification.
+Status: historical reference, not a current contract. Use the
+[current scientific specification](../2026-09-02-clean-scientific-data-flow-refactor-spec.md),
+[domain vocabulary](../../CONTEXT.md), and
+[verification instructions](../backend-verification.md) for current requirements.
 
-This document defines the common execution contract for Adapter-backed
+This document records the historical common execution contract for Adapter-backed
 Execution Bindings. Method-specific scientific contracts remain authoritative
 for scientific inputs, outputs, units, shapes, residue mappings, masking,
 randomness, lineage, provenance, and Provider translation.

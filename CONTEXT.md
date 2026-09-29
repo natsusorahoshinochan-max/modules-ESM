@@ -58,6 +58,14 @@ _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
 ## Authoring Language
 
+**Project Workspace**:
+One exact pairing of an immutable Workflow Draft revision and an opaque UI
+revision, made current by one workspace publication. Workflow and layout from
+the same edit become current together; ordinary layout-only edits do not create
+a scientific Draft. An editor's pending desired changes are distinct from the
+acknowledged workspace.
+_Avoid_: Workflow Commit, transaction across all storage, mutable scientific Draft
+
 **Authoring Capability Projection**:
 A startup-frozen, non-scientific projection over exact contracts in the same
 FrozenCatalog. It declares ordinary Palette operations and dedicated editor
@@ -218,6 +226,13 @@ _Avoid_: Metric, provider, arbitrary implementation
 The typed scientific context required to interpret a Score Observation, such as
 an intrinsic measurement or role-labelled reference Candidate.
 _Avoid_: Score ID suffix, free-form details, Method
+
+**Observation Context Profile**:
+The fixed scientific conditions shared by a family of Observation Contexts.
+For a pairwise measurement these are the participant roles, pairing mode, and
+normalization, without the particular Candidate pair or its realized evidence.
+A Profile does not replace the complete Context of a measured Observation.
+_Avoid_: Complete Observation Context, display grouping key, Candidate relation
 
 **Score Observation**:
 A value that binds one Candidate to one Metric Definition, one Method, and one

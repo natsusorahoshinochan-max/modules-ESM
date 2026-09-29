@@ -7,13 +7,13 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -221,10 +221,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.proteinmpnn_source.direct",
-            node_type=ContractIdentity(
+            node_type=ExactContractReference(
                 "node_type",
                 "contract_test.proteinmpnn_source"),
-            method=ContractIdentity(
+            method=ExactContractReference(
                 "method",
                 "contract_test.proteinmpnn_source.method"),
             binding_parameters={},
@@ -258,10 +258,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id=(
                 "contract_test.proteinmpnn_structure_candidateize.direct"
             ),
-            node_type=ContractIdentity(
+            node_type=ExactContractReference(
                 "node_type",
                 "contract_test.proteinmpnn_structure_candidateize"),
-            method=ContractIdentity(
+            method=ExactContractReference(
                 "method",
                 "contract_test.proteinmpnn_candidateize.method"),
             binding_parameters={},
@@ -293,10 +293,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
             cacheable=True),
         ExecutionBindingDefinition(
             binding_id="contract_test.proteinmpnn_sequence_source.direct",
-            node_type=ContractIdentity(
+            node_type=ExactContractReference(
                 "node_type",
                 "contract_test.proteinmpnn_sequence_source"),
-            method=ContractIdentity(
+            method=ExactContractReference(
                 "method",
                 "contract_test.proteinmpnn_sequence_source.method"),
             binding_parameters={},

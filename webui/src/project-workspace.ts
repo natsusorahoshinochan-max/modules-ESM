@@ -59,7 +59,6 @@ export type ProjectWorkspaceApi = {
   restoreProject(projectId: string): Promise<WorkspaceProject>
   deleteProject(projectId: string): Promise<{ project_id: string; deleted: true }>
   projectWorkspace(projectId: string): Promise<ProjectWorkspace>
-  saveProjectUiState(projectId: string, uiState: JsonObject): Promise<ProjectWorkspace>
   workflowVersions(projectId: string): Promise<{ project_id: string; versions: WorkflowVersion[] }>
   nameWorkflowVersion(projectId: string, name: string): Promise<WorkflowVersion>
   workflowVersion(projectId: string, versionId: string): Promise<WorkflowVersionView>

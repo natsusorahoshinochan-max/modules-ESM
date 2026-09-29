@@ -1,4 +1,5 @@
 import type { CatalogSnapshot, PromptAuthoringDocument, PromptChainDeclaration, Workflow } from './protocol/client'
+import { connectWorkflowPorts } from './workflow-connections'
 import { insertOrdinaryNode, nodeTypePresentation } from './workflow-authoring'
 
 export type ProjectInputPublication = {
@@ -46,7 +47,7 @@ export function preparePromptSource(workflow: Workflow, catalog: CatalogSnapshot
     return nodeId
   }
   const connect = (sourceNodeId: string, sourcePort: string, targetNodeId: string, targetPort: string) => {
-    staged = { ...staged, edges: [...staged.edges, { source_node_id: sourceNodeId, source_port: sourcePort, target_node_id: targetNodeId, target_port: targetPort }] }
+    staged = connectWorkflowPorts(staged, catalog, { nodeId: sourceNodeId, portName: sourcePort, direction: 'output' }, { nodeId: targetNodeId, portName: targetPort, direction: 'input' })
   }
 
   let upstream: { nodeId: string; outputPort: string; targetPort: string } | undefined
@@ -101,7 +102,7 @@ export function existingPromptSources(workflow: Workflow, catalog: CatalogSnapsh
   }
   return workflow.nodes.filter(node => !excluded.has(node.node_id)).flatMap(node => {
     const presentation = nodeTypePresentation(catalog, node.node_type_id)
-    return presentation.outputs.filter(port => presentation.outputPortTypes[port] === 'protein.prompt').filter(port => !workflow.edges.some(edge => edge.source_node_id === node.node_id && edge.source_port === port && edge.target_node_id === mergeTargetNodeId && edge.target_port === 'merge_sources')).map(outputPort => ({ nodeId: node.node_id, outputPort, title: presentation.title }))
+    return presentation.outputs.filter(port => port.portTypeId === 'protein.prompt').filter(port => !workflow.edges.some(edge => edge.source_node_id === node.node_id && edge.source_port === port.name && edge.target_node_id === mergeTargetNodeId && edge.target_port === 'merge_sources')).map(port => ({ nodeId: node.node_id, outputPort: port.name, title: presentation.title }))
   })
 }
 

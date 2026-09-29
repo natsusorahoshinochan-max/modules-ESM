@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile
+
 from collections.abc import Callable, Mapping
 import base64
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -40,13 +42,13 @@ from .implementation import (
 
 _SOURCE_NODE_TYPE_ID = "contract_test.synthetic_candidate_source"
 _SCORER_NODE_TYPE_ID = "contract_test.synthetic_echo"
-_SOURCE_METHOD = ContractIdentity(
+_SOURCE_METHOD = ExactContractReference(
     "method",
     "contract_test.synthetic_candidate_source.method")
-_METHOD = ContractIdentity(
+_METHOD = ExactContractReference(
     "method",
     "contract_test.synthetic_echo.method")
-_METRIC = ContractIdentity(
+_METRIC = ExactContractReference(
     "metric",
     "contract_test.synthetic_identity")
 
@@ -140,19 +142,19 @@ def _binding(
     binding_id: str,
     *,
     node_type_id: str,
-    method: ContractIdentity,
+    method: ExactContractReference,
     build: Callable[
         [OperationContext],
         SyntheticCandidateSourceImplementation
         | SyntheticEchoScorerImplementation,
     ],
-    produced_observations: tuple[ProducedObservationDefinition, ...],
+    produced_observations: tuple[ProducedObservation, ...],
     requires_fixture_ready: bool,
 ) -> ExecutionBindingDefinition:
     behavior_prefix = binding_id.replace(".", "/")
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        node_type=ContractIdentity("node_type", node_type_id),
+        node_type=ExactContractReference("node_type", node_type_id),
         method=method,
         binding_parameters={
             "repeat_count": {
@@ -254,15 +256,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
             method=_METHOD,
             build=_build_scorer,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="scores",
                     output_partition="default",
                     metric=_METRIC,
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="candidate_input",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="candidate_input",
                     guaranteed_multiplicity="one",
                 ),
             ),

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { RunScopePreview, RunScopeRequest } from './protocol/client'
 import './run-session.css'
+import { InteractionDialog } from './InteractionDialog'
 
 export type PreparedRun = { projectId: string; request: RunScopeRequest; preview: RunScopePreview }
 
@@ -20,7 +21,7 @@ export function RunDialog({ selectedNodeIds, sourceRunId, onClose, onPrepare, on
   const request: RunScopeRequest = { mode, node_ids: mode === 'full' ? [] : selectedNodeIds, ...(mode === 'from_node' ? { source_run_id: sourceRunId } : {}) }
   const unavailable = (mode !== 'full' && selectedNodeIds.length === 0) || (mode === 'from_node' && !sourceRunId)
   const perform = async (work: () => Promise<void>) => { setBusy(true); setError(''); try { await work() } catch (reason) { setError(reason instanceof Error ? reason.message : JSON.stringify(reason)) } finally { setBusy(false) } }
-  return <div className="modal-backdrop"><section className="run-dialog run-scope-dialog" role="dialog" aria-label="确认运行范围">
+  return <InteractionDialog className="run-dialog run-scope-dialog" title="确认运行范围" busy={busy} onClose={onClose}>
     <header><h2>确认运行范围</h2><button onClick={onClose} disabled={busy}>关闭</button></header>
     <div className="run-mode-choices">{(['full', 'to_node', 'from_node'] as const).map((value) => <label key={value}><input type="radio" name="run-scope" value={value} checked={mode === value} disabled={busy} onChange={() => { setMode(value); setPrepared(undefined) }} />{labels[value]}</label>)}</div>
     {mode !== 'full' && <p>画布选中：{selectedNodeIds.join('、') || '请先选择节点'}</p>}
@@ -33,5 +34,5 @@ export function RunDialog({ selectedNodeIds, sourceRunId, onClose, onPrepare, on
       {prepared.preview.nodes.map((node) => <details key={node.node_id}><summary>{node.action === 'reuse' ? '仅复用' : prepared.preview.scope.forced_node_ids.includes(node.node_id) ? '强制重算' : '执行'} · {node.node_id} · {node.method.contract_id}</summary><dl><dt>执行模型</dt><dd>{node.binding.contract_id}</dd><dt>节点参数</dt><dd><pre>{JSON.stringify(node.node_parameters, null, 2)}</pre></dd><dt>模型参数</dt><dd><pre>{JSON.stringify(node.binding_parameters, null, 2)}</pre></dd><dt>实际随机参数</dt><dd>{node.randomness_status === 'resolved' ? <pre>{JSON.stringify(node.effective_randomness, null, 2)}</pre> : '待上游输出后确定；不会隐式更换 seed'}</dd></dl></details>)}
       <footer><button onClick={onClose} disabled={busy}>取消</button><button className="primary-button" disabled={busy || prepared.preview.blockers.length > 0} onClick={() => void perform(() => onStart(prepared))}>开始运行已确认范围</button></footer>
     </div>}
-  </section></div>
+  </InteractionDialog>
 }

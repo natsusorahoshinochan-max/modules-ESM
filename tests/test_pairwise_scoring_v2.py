@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datatypes.observation import PairwiseContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -13,13 +17,14 @@ from core.catalog.builder import (
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
+from core.catalog.declarations import _produced_observation_descriptor, _observation_propagation_descriptor
 from core.catalog.declarations import (
-    ObservationPropagationDefinition,
-    ContractIdentity,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
+from core.catalog.observation import ObservationPropagation
 from core.catalog.model import (
     CatalogContract,
     FrozenCatalog,
@@ -1018,39 +1023,44 @@ def test_controlled_filter_accepts_admitted_observations() -> None:
 
 
 def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() -> None:
-    produced = ProducedObservationDefinition(
+    produced = ProducedObservation(
         output_port="scores",
         output_partition="per-subject",
-        metric=ContractIdentity(
+        metric=ExactContractReference(
             "metric",
             "structure.tm_score"),
-        context_profile={
-            "kind": "pairwise",
-            "subject_role": "subject",
-            "reference_role": "reference",
-            "pairing_mode": "explicit_relation",
-            "normalization": "tm-score/reference-length",
-        },
-        subject_grain="candidate",
-        source_role="subject",
-        subject_direction="input",
-        subject_port="subjects",
-        reference_direction="input",
-        reference_port="counterparts",
-        pairing_direction="input",
-        pairing_port="pairings",
+        context_profile=PairwiseContextProfile(
+            subject_role="subject",
+            reference_role="reference",
+            pairing_mode="explicit_relation",
+            normalization="tm-score/reference-length",
+        ),
+        subject_input="subjects",
+        reference_source=ObservationPortSource("input", "counterparts"),
+        pairing_source=ObservationPortSource("input", "pairings"),
         guaranteed_multiplicity="one",
     )
-    propagation = ObservationPropagationDefinition(
+    propagation = ObservationPropagation(
         mode="union",
         output_port="scores",
         input_ports=("fixed_scores", "paired_scores"),
     )
 
-    assert produced.descriptor_template()["output_partition"] == "per-subject"
-    assert produced.descriptor_template()["reference_port"] == "counterparts"
-    assert produced.descriptor_template()["pairing_port"] == "pairings"
-    assert propagation.descriptor_template() == {
+    assert _produced_observation_descriptor(produced) == {
+        "output_port": "scores", "output_partition": "per-subject",
+        "metric": ExactContractReference("metric", "structure.tm_score"),
+        "context_profile": {"kind": "pairwise", "subject_role": "subject",
+            "reference_role": "reference", "pairing_mode": "explicit_relation",
+            "normalization": "tm-score/reference-length"},
+        "subject_grain": "candidate", "source_role": "subject",
+        "subject_direction": "input", "subject_port": "subjects",
+        "guaranteed_multiplicity": "one",
+        "reference_direction": "input", "reference_port": "counterparts",
+        "pairing_direction": "input", "pairing_port": "pairings",
+        "axis_direction": None, "axis_port": None,
+        "method_direction": None, "method_port": None,
+    }
+    assert _observation_propagation_descriptor(propagation) == {
         "mode": "union",
         "output_port": "scores",
         "input_ports": ("fixed_scores", "paired_scores"),
@@ -1058,7 +1068,7 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
     }
 
     propagation_public = {
-        **propagation.descriptor_template(),
+        **_observation_propagation_descriptor(propagation),
         "input_ports": list(propagation.input_ports),
     }
     validate_schema(
@@ -1091,7 +1101,11 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         "node_type",
         "score.pairwise.producer",
         {
-            "inputs": [],
+            "inputs": [{
+                "name": "subjects", "port_type": candidate_type.reference(),
+                "required": True, "multiplicity": "one",
+                "scientific_meaning": "Admitted subject Candidates.",
+            }],
             "outputs": [
                 {
                     "name": "candidates",
@@ -1124,6 +1138,15 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             ],
             "node_parameters": {},
         },
+    )
+    source_node = _contract(
+        "node_type", "score.pairwise.subject_source",
+        {"inputs": [], "outputs": [producer_node.descriptor["outputs"][0]], "node_parameters": {}},
+    )
+    source_binding = _contract(
+        "binding", "score.pairwise.subject_source.direct",
+        {"node_type": source_node.reference(), "method": scoring["tm-align"].reference(),
+         "execution_route": "direct", "binding_parameters": {}, "produced_observations": []},
     )
     union_node = _contract(
         "node_type",
@@ -1178,8 +1201,8 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     ),
                     "subject_grain": "candidate",
                     "source_role": "subject",
-                    "subject_direction": "output",
-                    "subject_port": "candidates",
+                    "subject_direction": "input",
+                    "subject_port": "subjects",
                     "reference_direction": "output",
                     "reference_port": "references",
                     "guaranteed_multiplicity": "one",
@@ -1196,8 +1219,8 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     ),
                     "subject_grain": "candidate",
                     "source_role": "subject",
-                    "subject_direction": "output",
-                    "subject_port": "candidates",
+                    "subject_direction": "input",
+                    "subject_port": "subjects",
                     "reference_direction": "output",
                     "reference_port": "references",
                     "pairing_direction": "output",
@@ -1228,6 +1251,8 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     contracts = {
         **scoring,
         producer_node.contract_id: producer_node,
+        source_node.contract_id: source_node,
+        source_binding.contract_id: source_binding,
         union_node.contract_id: union_node,
         producer_binding.contract_id: producer_binding,
         union_binding.contract_id: union_binding,
@@ -1237,7 +1262,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             binding,
             datetime(2026, 7, 29, tzinfo=timezone.utc),
         )
-        for binding in (producer_binding, union_binding)
+        for binding in (source_binding, producer_binding, union_binding)
     )
 
     def fail_if_factory_is_constructed(_context: object) -> object:
@@ -1253,7 +1278,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 build=fail_if_factory_is_constructed,
             )
         )
-        for binding in (producer_binding, union_binding)
+        for binding in (source_binding, producer_binding, union_binding)
     }
     readiness = {
         binding.contract_id: (
@@ -1266,7 +1291,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 check=lambda _input: ReadinessResult(True),
             )
         )
-        for binding in (producer_binding, union_binding)
+        for binding in (source_binding, producer_binding, union_binding)
     }
     return (
         replace(
@@ -1298,6 +1323,11 @@ def _compiler_workflow(
         workflow_id="pairwise-capability",
         nodes=(
             WorkflowNodeInstance(
+                node_id="subjects", node_type_id="score.pairwise.subject_source",
+                binding_id="score.pairwise.subject_source.direct",
+                node_parameters={}, binding_parameters={},
+            ),
+            WorkflowNodeInstance(
                 node_id="producer",
                 node_type_id="score.pairwise.producer",
                 binding_id="score.pairwise.producer.direct",
@@ -1320,10 +1350,11 @@ def _compiler_workflow(
             ),
         ),
         edges=(
+            V2WorkflowEdge("subjects", "candidates", "producer", "subjects"),
             V2WorkflowEdge("producer", "scores", "union", "left"),
             V2WorkflowEdge("producer", "scores", "union", "right"),
             V2WorkflowEdge(
-                "producer",
+                "subjects",
                 "candidates",
                 "select",
                 "candidates",
@@ -1339,7 +1370,7 @@ def _compiler_workflow(
                     pairing_mode="fixed_reference",
                     utility="tm-score.fixed",
                 ),
-                candidate_input=SelectionInput("producer", "candidates"),
+                candidate_input=SelectionInput("subjects", "candidates"),
                 score_collection_input=SelectionInput("union", "scores"),
             ),
         ),

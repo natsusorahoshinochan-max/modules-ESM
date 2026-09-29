@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 import math
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -594,12 +598,12 @@ def _fixture_binding(
     method_id: str,
     factory_name: str,
     build,
-    produced_observations: tuple[ProducedObservationDefinition, ...] = (),
+    produced_observations: tuple[ProducedObservation, ...] = (),
 ) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        node_type=ContractIdentity("node_type", node_type_id),
-        method=ContractIdentity("method", method_id),
+        node_type=ExactContractReference("node_type", node_type_id),
+        method=ExactContractReference("method", method_id),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
@@ -657,10 +661,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.structure_comparison_source.fixture",
-            node_type=ContractIdentity(
+            node_type=ExactContractReference(
                 "node_type",
                 "contract_test.structure_comparison_source"),
-            method=ContractIdentity(
+            method=ExactContractReference(
                 "method",
                 "contract_test.structure_comparison_source.method"),
             binding_parameters={},
@@ -718,18 +722,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
             factory_name="contract_test.inserted_loop_confidence_source/factory",
             build=_build_inserted_loop_confidence_source,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="observations",
                     output_partition="prediction_confidence",
-                    metric=ContractIdentity(
+                    metric=ExactContractReference(
                         "metric", "structure.plddt.per_residue"),
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="confidence_facts",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "confidence_facts"),
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -745,18 +745,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             build=_build_inserted_loop_confidence_source,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="observations",
                     output_partition="prediction_confidence",
-                    metric=ContractIdentity(
+                    metric=ExactContractReference(
                         "metric", "structure.plddt.per_residue"),
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="confidence_facts",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "confidence_facts"),
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -768,18 +764,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
             factory_name="contract_test.esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="observations",
                     output_partition="prediction_confidence",
-                    metric=ContractIdentity(
+                    metric=ExactContractReference(
                         "metric", "structure.plddt.mean_residue"),
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="confidence_facts",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "confidence_facts"),
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -791,18 +783,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
             factory_name="contract_test.local_esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="observations",
                     output_partition="prediction_confidence",
-                    metric=ContractIdentity(
+                    metric=ExactContractReference(
                         "metric", "structure.plddt.mean_residue"),
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="confidence_facts",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "confidence_facts"),
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -814,18 +802,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
             factory_name="contract_test.simplefold_confidence_source/factory",
             build=_build_simplefold_confidence_source,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="observations",
                     output_partition="prediction_confidence",
-                    metric=ContractIdentity(
+                    metric=ExactContractReference(
                         "metric", "structure.plddt.mean_residue"),
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="confidence_facts",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "confidence_facts"),
                     guaranteed_multiplicity="one",
                 ),
             ),

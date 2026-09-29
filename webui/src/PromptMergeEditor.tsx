@@ -4,7 +4,15 @@ import type { PromptAuthoringDocument, PromptDocumentFunctionAnnotation, PromptM
 import { PromptMergeEvidence, type ManualMergeRow as Row } from './PromptMergeEvidence'
 
 type DraftAdoption = Omit<PromptTrackAdoption, 'mask_policy'> & { mask_policy: '' | 'adopt' | 'preserve' }
+export type PromptMergeDraft = {
+  sourceIndex: number; editing?: number; rows: Row[]; adoptions: DraftAdoption[]
+  adoptAnnotations: PromptDocumentFunctionAnnotation[]; removeAnnotations: PromptDocumentFunctionAnnotation[]
+  submitted: string
+}
 type Props = {
+  initialDraft?: PromptMergeDraft
+  onDraftState: (draft: PromptMergeDraft) => void
+  onDraftChange: (dirty: boolean) => void
   sources: PromptMergeSource[]
   projection: Pick<PromptSnapshot, 'residues' | 'tracks' | 'function_annotations' | 'merge_targets'>
   diagnostics: PromptDiagnostic[]
@@ -21,17 +29,27 @@ function annotationIntents(projection: Pick<PromptSnapshot, 'residues' | 'functi
   return projection.function_annotations.filter(item => item.state !== 'pending-delete').map(item => ({ label: item.label, start_residue_id: ids.get(item.start_residue_handle)!, end_residue_id: ids.get(item.end_residue_handle)! }))
 }
 
-export function PromptMergeEditor({ sources, projection, document, busy, diagnostics, onTargetSelection, onPreview }: Props) {
-  const [sourceIndex, setSourceIndex] = useState(0)
-  const [editing, setEditing] = useState<number>()
-  const [rows, setRows] = useState<Row[]>([])
-  const [adoptions, setAdoptions] = useState<DraftAdoption[]>([])
-  const [adoptAnnotations, setAdoptAnnotations] = useState<PromptDocumentFunctionAnnotation[]>([])
-  const [removeAnnotations, setRemoveAnnotations] = useState<PromptDocumentFunctionAnnotation[]>([])
+export function PromptMergeEditor({ initialDraft, onDraftState, onDraftChange, sources, projection, document, busy, diagnostics, onTargetSelection, onPreview }: Props) {
+  const [sourceIndex, setSourceIndex] = useState(initialDraft?.sourceIndex ?? 0)
+  const [editing, setEditing] = useState<number | undefined>(initialDraft?.editing)
+  const [rows, setRows] = useState<Row[]>(initialDraft?.rows ?? [])
+  const [adoptions, setAdoptions] = useState<DraftAdoption[]>(initialDraft?.adoptions ?? [])
+  const [adoptAnnotations, setAdoptAnnotations] = useState<PromptDocumentFunctionAnnotation[]>(initialDraft?.adoptAnnotations ?? [])
+  const [removeAnnotations, setRemoveAnnotations] = useState<PromptDocumentFunctionAnnotation[]>(initialDraft?.removeAnnotations ?? [])
   const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [selectedSource, setSelectedSource] = useState<string[]>([])
   const [selectedTarget, setSelectedTarget] = useState<string[]>([])
   const [selectedRow, setSelectedRow] = useState<number>()
+  const signature = JSON.stringify({ sourceIndex, editing, rows, adoptions, adoptAnnotations, removeAnnotations })
+  const submitted = useRef(initialDraft?.submitted ?? signature)
+  const callbacks = useRef({ onDraftState, onDraftChange })
+  useEffect(() => { callbacks.current = { onDraftState, onDraftChange } })
+  useEffect(() => {
+    callbacks.current.onDraftState({ sourceIndex, editing, rows, adoptions, adoptAnnotations, removeAnnotations, submitted: submitted.current })
+    callbacks.current.onDraftChange(signature !== submitted.current)
+  }, [signature, sourceIndex, editing, rows, adoptions, adoptAnnotations, removeAnnotations])
+  const [switchRequest, setSwitchRequest] = useState<(() => void) | null>(null)
+  const switchDraft = (action: () => void) => { if (signature !== submitted.current) setSwitchRequest(() => action); else action() }
   const lastValidTargets = useRef<PromptMergeTarget[]>(projection.merge_targets)
   useEffect(() => { if (projection.merge_targets.length) lastValidTargets.current = projection.merge_targets }, [projection.merge_targets])
   const mergeIndex = editing === undefined || editing >= (document.source_merges?.length ?? 0) ? document.source_merges?.length ?? 0 : editing
@@ -52,11 +70,12 @@ export function PromptMergeEditor({ sources, projection, document, busy, diagnos
   const targetResidues = targetStage?.residues.filter(item => item.state !== 'pending-delete') ?? []
   const updateRow = (index: number, value: Partial<Row>) => setRows(current => current.map((item, i) => i === index ? { ...item, ...value } : item))
   const load = (merge: PromptSourceMerge, index: number) => {
+    submitted.current = JSON.stringify({ sourceIndex: merge.source_index, editing: index, rows: merge.correspondence.map(item => ({ source_residue_id: '', target_residue_id: '', ...item })), adoptions: merge.track_adoptions, adoptAnnotations: merge.adopt_annotations, removeAnnotations: merge.remove_annotations })
     setEditing(index); setSourceIndex(merge.source_index); selectEvidence([], [])
     setRows(merge.correspondence.map(item => ({ source_residue_id: '', target_residue_id: '', ...item })))
     setAdoptions(merge.track_adoptions); setAdoptAnnotations(merge.adopt_annotations); setRemoveAnnotations(merge.remove_annotations)
   }
-  const newMerge = (index: number) => { setSourceIndex(index); setEditing(undefined); setRows([]); setAdoptions([]); setAdoptAnnotations([]); setRemoveAnnotations([]); selectEvidence([], []) }
+  const newMerge = (index: number) => { submitted.current = JSON.stringify({ sourceIndex: index, rows: [], adoptions: [], adoptAnnotations: [], removeAnnotations: [] }); setSourceIndex(index); setEditing(undefined); setRows([]); setAdoptions([]); setAdoptAnnotations([]); setRemoveAnnotations([]); selectEvidence([], []) }
   const toggleTrack = (track: PromptTrackKey, residueId: string, selected: boolean) => setAdoptions(current => {
     const prior = current.find(item => item.track === track)
     const ids = selected ? [...prior?.source_residue_ids ?? [], residueId] : (prior?.source_residue_ids ?? []).filter(item => item !== residueId)
@@ -68,16 +87,20 @@ export function PromptMergeEditor({ sources, projection, document, busy, diagnos
     const merge: PromptSourceMerge = { source_index: sourceIndex, correspondence, track_adoptions: adoptions.map(item => ({ ...item, mask_policy: item.mask_policy as 'adopt' | 'preserve' })), adopt_annotations: adoptAnnotations, remove_annotations: removeAnnotations }
     const merges = [...document.source_merges ?? []]
     if (editing === undefined || editing >= merges.length) { setEditing(merges.length); merges.push(merge) } else merges[editing] = merge
+    submitted.current = JSON.stringify({ sourceIndex, editing: editing === undefined || editing >= (document.source_merges?.length ?? 0) ? (document.source_merges?.length ?? 0) : editing, rows, adoptions, adoptAnnotations, removeAnnotations })
+    onDraftChange(false)
+    onDraftState({ sourceIndex, editing: editing ?? merges.length - 1, rows, adoptions, adoptAnnotations, removeAnnotations, submitted: submitted.current })
     onPreview({ ...document, source_merges: merges }, '手动来源合并 · 区域、Mask 与注释')
   }
   const previewEnabled = Boolean(targetStage) && rows.length > 0 && !adoptions.some(item => !item.mask_policy) && !rows.some(row => row.disposition !== 'target_gap' && !row.source_residue_id || row.disposition !== 'source_gap' && !row.target_residue_id)
   return <section className="ps-editor-section ps-merge-editor" aria-label="手动来源合并">
+    {switchRequest && <div className="ps-help" role="alert">当前合并表尚未预览。<button onClick={() => setSwitchRequest(null)}>继续编辑当前表</button><button onClick={() => { switchRequest(); setSwitchRequest(null) }}>放弃表中修改并切换</button></div>}
     <span className="ps-kicker">MANUAL SOURCE MERGE</span>
     <p className="ps-help">添加来源后逐行明确对应；每个来源和原目标残基须按各自顺序出现一次。</p>
-    {(document.source_merges ?? []).map((merge, index) => <div className="ps-action-row" key={index}><button onClick={() => load(merge, index)}>编辑合并 {index + 1} · Source {merge.source_index + 1}</button><button disabled={busy} onClick={() => { onPreview({ ...document, source_merges: document.source_merges!.filter((_, i) => i !== index) }, '移除合并意图'); newMerge(sourceIndex) }}>移除</button></div>)}
+    {(document.source_merges ?? []).map((merge, index) => <div className="ps-action-row" key={index}><button onClick={() => switchDraft(() => load(merge, index))}>编辑合并 {index + 1} · Source {merge.source_index + 1}</button><button disabled={busy} onClick={() => { onPreview({ ...document, source_merges: document.source_merges!.filter((_, i) => i !== index) }, '移除合并意图'); newMerge(sourceIndex) }}>移除</button></div>)}
     {!sources.length ? <p className="ps-help">当前没有已连接的 ProteinPrompt 合并来源。</p> : <>
-      <label>来源<select aria-label="合并来源" value={sourceIndex} onChange={event => newMerge(Number(event.target.value))}>{sources.map(item => <option key={item.source_index} value={item.source_index}>{item.source_index + 1} · {String(item.source.node_id)} / {String(item.source.port)}</option>)}</select></label>
-      <button onClick={() => newMerge(sourceIndex)}>新建合并意图</button>
+      <label>来源<select aria-label="合并来源" value={sourceIndex} onChange={event => { const index = Number(event.target.value); switchDraft(() => newMerge(index)) }}>{sources.map(item => <option key={item.source_index} value={item.source_index}>{item.source_index + 1} · {String(item.source.node_id)} / {String(item.source.port)}</option>)}</select></label>
+      <button onClick={() => switchDraft(() => newMerge(sourceIndex))}>新建合并意图</button>
       <button disabled={!targetStage} onClick={() => setEvidenceOpen(true)}>打开来源 / 目标证据分屏</button>
       {!projection.merge_targets.length && <p role="status">当前预览无效；对应编辑显示上次有效预览的目标基线，修正后需重新预览。</p>}
       <small>Source digest: {String(source.source.content_digest)}</small>

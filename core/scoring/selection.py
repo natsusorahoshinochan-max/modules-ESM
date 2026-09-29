@@ -7,13 +7,12 @@ from dataclasses import dataclass, field
 import math
 from typing import Any, TypeAlias
 
+from datatypes.observation import CalibrationContextProfile
+from datatypes.observation import IntrinsicContextProfile
+from datatypes.observation import ObservationContextProfile
 from core.operation import OperationDiagnosticError
 from core.parameters.model import AdmittedParameterValues
-from core.scoring.observation_plan import (
-    ObservationContextProfile,
-    IntrinsicContextProfile,
-    CalibrationContextProfile,
-)
+
 from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,

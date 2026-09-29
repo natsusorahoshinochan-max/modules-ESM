@@ -1,5 +1,5 @@
-import { type CandidateReference, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
-import { candidateWithSequence, locationKey, publishedFields, referenceKey, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
+import { type CanonicalTypedValue, type PublishedResultValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
+import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
 
 export type RunReference = Pick<RunProjection, 'project_id' | 'run_id'>
 export type ResultSnapshot = {
@@ -33,9 +33,12 @@ type Session = {
   axes: Map<string, ResultIndex['sequences']>
   loaded: Set<string>
   pending: Map<string, Promise<void>>
+  values: Map<string, Promise<PublishedResultValue>>
+  rawValues: Map<string, Promise<CanonicalTypedValue>>
+  structures: Map<string, Promise<string>>
 }
 
-const emptyIndex = (): ResultIndex => ({ collections: [], scores: [], alignments: [], sequences: {}, definitions: [] })
+const emptyIndex = (): ResultIndex => buildResultIndex({ collections: [], scores: [], alignments: [], sequences: {}, definitions: [] }, false)
 
 /** Owns one actual result Run, including every consumer's candidate read progress. */
 export class PublishedResults {
@@ -58,7 +61,7 @@ export class PublishedResults {
     }
     this.session?.socket?.close()
     this.session = reference ? {
-      reference, cursor: eventCursor, connection: 'connecting', attempts: {}, diagnostics: {}, revision: 0, collections: new Map(), scores: new Map(), alignments: new Map(), axes: new Map(), loaded: new Set(), pending: new Map(),
+      reference, cursor: eventCursor, connection: 'connecting', attempts: {}, diagnostics: {}, revision: 0, collections: new Map(), scores: new Map(), alignments: new Map(), axes: new Map(), loaded: new Set(), pending: new Map(), values: new Map(), rawValues: new Map(), structures: new Map(),
     } : undefined
     this.snapshot = { index: emptyIndex(), phase: reference ? 'loading' : 'idle', diagnostics: {} }
     this.notify()
@@ -150,24 +153,103 @@ export class PublishedResults {
     }
   }
 
+  async structure(key: string): Promise<string | null | undefined> {
+    const session = this.session
+    if (!session) return undefined
+    const candidate = this.snapshot.index.candidates.get(key)!
+    if (!candidate.has_structure) return null
+    const contentKey = JSON.stringify([locationKey(candidate.source), candidate.item_index])
+    let pending = session.structures.get(contentKey)
+    if (!pending) {
+      pending = this.client.resultStructure(session.reference.project_id, session.reference.run_id, candidate.source, candidate.item_index)
+        .then(value => value.pdb).catch(error => { session.structures.delete(contentKey); throw error })
+      session.structures.set(contentKey, pending)
+    }
+    try {
+      const pdb = await pending
+      return this.session === session ? pdb : undefined
+    } catch (error) { if (this.session === session) throw error }
+  }
+
+  value(source: ResultLocation): Promise<PublishedResultValue | undefined> {
+    return this.session ? this.sessionValue(this.session, source) : Promise.resolve(undefined)
+  }
+
+  /** A long authoring read keeps the Run it compared, even before its HTTP read starts. */
+  captureReading() {
+    const session = this.session
+    if (!session?.run) return undefined
+    return { run: session.run, value: (source: ResultLocation) => this.sessionValue(session, source) }
+  }
+
+  private async sessionValue(session: Session, source: ResultLocation): Promise<PublishedResultValue | undefined> {
+    if (this.session !== session) return undefined
+    try {
+      const value = await this.readValue(session, source)
+      return this.session === session ? value : undefined
+    } catch (error) { if (this.session === session) throw error }
+  }
+
+  async rawValue(source: ResultLocation): Promise<CanonicalTypedValue | undefined> {
+    const session = this.session
+    if (!session) return undefined
+    const key = locationKey(source)
+    let pending = session.rawValues.get(key)
+    if (!pending) {
+      const { project_id, run_id } = session.reference
+      pending = this.client.typedValue(project_id, run_id, source.node_id, source.output_port, source.value_index)
+        .catch(error => { session.rawValues.delete(key); throw error })
+      session.rawValues.set(key, pending)
+    }
+    try {
+      const value = await pending
+      return this.session === session ? value : undefined
+    } catch (error) { if (this.session === session) throw error }
+  }
+
+  async prepareExport(keys: readonly string[]): Promise<CandidateExportMaterial | undefined> {
+    const selected = [...keys]
+    const session = this.session
+    if (!session) return undefined
+    const snapshot = await this.ensureCandidates({ all: true })
+    if (!snapshot?.run || this.session !== session) return undefined
+    const candidates = selected.map(key => snapshot.index.candidates.get(key)!)
+    const content = await Promise.all(candidates.map(candidate => this.structure(candidateViewKey(candidate))))
+    if (this.session !== session) return undefined
+    return { candidates, structures: new Map(candidates.map((candidate, index) => [candidateViewKey(candidate), content[index]!])), index: snapshot.index, run: snapshot.run }
+  }
+
+  private readValue(session: Session, source: ResultLocation): Promise<PublishedResultValue> {
+    const key = locationKey(source)
+    let pending = session.values.get(key)
+    if (!pending) {
+      pending = this.client.resultValue(session.reference.project_id, session.reference.run_id, source)
+        .catch(error => { session.values.delete(key); throw error })
+      session.values.set(key, pending)
+    }
+    return pending
+  }
+
   private notify(): void { for (const listener of this.listeners) listener() }
 
   private publish(session: Session, phase = this.snapshot.phase, error = this.snapshot.error): void {
     if (this.session !== session) return
     const sources = session.run?.outputs.flatMap((output) => Array.from({ length: output.value_count }, (_, value_index) => locationKey({ node_id: output.node_id, output_port: output.output_port, value_index }))) ?? []
     const sequences: ResultIndex['sequences'] = Object.assign({}, ...sources.map((key) => session.axes.get(key)))
+    const candidateSources = session.run?.outputs.filter(output => output.port_type.contract_id === 'candidate.collection').reduce((count, output) => count + output.value_count, 0)
+    const allSourcesKnown = candidateSources !== undefined && candidateSources === session.collections.size && [...session.collections.values()].every(collection => collection.total !== undefined)
     this.snapshot = {
       connection: session.connection, diagnostics: session.diagnostics,
       currentNodeId: session.run && ['admitted', 'running'].includes(session.run.status) && !session.run.node_dispositions.some((item) => item.node_id === session.currentNodeId) ? session.currentNodeId : undefined,
       run: session.run, phase, error: phase === 'error' ? error : undefined,
-      index: {
+      index: buildResultIndex({
         sequences, definitions: session.definitions ?? [],
         collections: [...session.collections.values()].filter((collection) => collection.total !== undefined).map(({ source, output, total, items }) => ({
           source, output, total: total!, title: `${source.node_id} / ${source.output_port}${output.value_count > 1 ? ` [${source.value_index}]` : ''}`,
-          items: items.map((item) => candidateWithSequence({ ...item, source, output }, sequences)),
+          items: items.map((item) => ({ ...item, source, output })),
         })),
         scores: sources.flatMap((key) => session.scores.get(key) ?? []), alignments: sources.flatMap((key) => { const alignment = session.alignments.get(key); return alignment ? [alignment] : [] }),
-      },
+      }, allSourcesKnown),
     }
     this.notify()
   }
@@ -199,17 +281,14 @@ export class PublishedResults {
     if (!['score.collection', 'structure_transform.candidate_resolved_residue_axis_associations', 'structure_comparison.alignment_evidence'].includes(type) || session.loaded.has(key)) return Promise.resolve()
     const existing = session.pending.get(key)
     if (existing) return existing
-    const { project_id, run_id } = session.reference
-    const task = this.client.typedValue(project_id, run_id, source.node_id, source.output_port, source.value_index).then((payload) => {
+    const task = this.readValue(session, source).then((payload) => {
       if (this.session !== session) return
-      if (type === 'score.collection') {
-        const collection = publishedFields(payload.value) as { entries: Omit<ScoreView, 'source'>[] }
-        session.scores.set(key, collection.entries.map((entry) => ({ ...entry, source })))
-      } else if (type === 'structure_transform.candidate_resolved_residue_axis_associations') {
-        const value = payload.value as { entries: Array<{ subject: CandidateReference; residue_axis: { sequence: string } }> }
-        session.axes.set(key, Object.fromEntries(value.entries.map((entry) => [referenceKey(entry.subject), { ...entry, source }])))
-      } else {
-        session.alignments.set(key, { ...payload.value as Omit<AlignmentView, 'source' | 'output'>, source, output })
+      if (payload.kind === 'scores') {
+        session.scores.set(key, payload.value.entries.map(entry => ({ ...entry, source })))
+      } else if (payload.kind === 'candidate_sequences') {
+        session.axes.set(key, Object.fromEntries(payload.value.entries.map(entry => [referenceKey(entry.subject), { sequence: entry.sequence, source }])))
+      } else if (payload.kind === 'alignment') {
+        session.alignments.set(key, { ...payload.value, source, output })
       }
       session.loaded.add(key)
       this.publish(session)

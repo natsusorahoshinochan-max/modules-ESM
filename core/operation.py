@@ -23,7 +23,7 @@ from datatypes.residue import residue_identity_chain
 from datatypes.i_json import admit_i_json
 
 if TYPE_CHECKING:
-    from core.scoring.observation_plan import ResolvedProducedObservation
+    from core.catalog.observation import ProducedObservation
     from core.scoring.selection import (
         ObservationSelector,
         ResolvedSelectionObjective,
@@ -477,7 +477,7 @@ class OperationContext:
     """Resolved facts available while constructing one scientific operation."""
 
     method: ExactContractReference
-    produced_observations: tuple[ResolvedProducedObservation, ...]
+    produced_observations: tuple[ProducedObservation, ...]
     selection_objectives: tuple[ResolvedSelectionObjective, ...]
     observation_selectors: tuple[ObservationSelector, ...]
     environment: BindingEnvironment

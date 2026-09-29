@@ -4,13 +4,13 @@
 `webui-3gb1.example.json` is the separate protected WebUI example;
 `webui-3gb1.results.zip` carries its completed real Run and is included in the
 backend wheel. Its results are available offline on first open; new Runs require
-the configured real Providers. See the [WebUI guide](../../webui/README.md) and
-[result resource contract](../../docs/2026-09-19-webui-example-results-spec.md).
+the configured real Providers. See the [WebUI guide](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/webui/README.md) and
+[result resource contract](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/2026-09-19-webui-example-results-spec.md).
 
 `repository-capabilities.workflow.json` is a provider-free Catalog compilation
 fixture. It fixes its Execution Bindings by stable ID and separates Node and
-Binding parameters. Its materialized Prompt Nodes demonstrate current scientific
-contracts; they are not ordinary Palette entries or a public authoring surface.
+Binding parameters. Its ordinary `prompt_authoring.author` Nodes declare Prompt
+content through the `document` parameter, as in the public authoring surface.
 Verification parses and compiles the Workflow against the current Catalog without
 invoking a Provider or selecting a sibling Binding.
 
@@ -65,7 +65,8 @@ The `design-constraints` Node authors explicit ProteinMPNN constraints from the
 resolved reference axis. It fixes A:42, A:44, A:46, A:60–A:72, A:92, A:94, A:96,
 A:110, A:112, A:121, A:123, A:145, A:148, A:150, A:165, A:167, A:183, A:203,
 A:205, A:220, and A:222, preserving the SHG precursor and the declared functional
-neighborhood. This is the fixed set in the [source-bound scientific contract](../../docs/legacy/2026-07-31-workflow-usability-debug-test-contracts.md#76-设计约束要求).
+neighborhood. The maintained [source-bound Workflow](source-bound-2emo.workflow.json) records
+this exact set. The [current scientific specification](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/2026-09-02-clean-scientific-data-flow-refactor-spec.md#12-当前-authoring-边界) defines the authoring boundary.
 The Adapter maps these residue identities to Provider positions. Prompt sequence
 masking does not supply ProteinMPNN constraints, and the missing backbone oxygen
 at normalized A:65 remains missing.

@@ -165,7 +165,7 @@ def prepare_fasta_journey(client: TestClient, evidence_directory: Path) -> dict[
         f"{base}/inputs/{published['project_input_ref']}:inspect", json={"format": "fasta"},
     ))
     workflow = fasta_journey_workflow(project_id, published["project_input_ref"])
-    _json(client.put(f"{base}/workflow/draft", json={"workflow": workflow}))
+    _json(client.put(f"{base}/workspace", json={"workflow": workflow}))
     committed = _json(client.post(f"{base}/workflow:commit", json={"workflow": workflow}))
     _write(evidence_directory, "workflow.json", workflow)
     _write(evidence_directory, "input.json", {"publication": published, "inspection": inspection})

@@ -2,6 +2,7 @@
 
 - 状态：已确认
 - 日期：2026-09-06
+- 产品约束更新：2026-09-22
 - 领域合同：`CONTEXT.md` 的 Workflow Commit、Execution Plan 定义
 
 ## 范围与所有权
@@ -10,6 +11,10 @@ Workflow authoring module 拥有可执行 Commit 的科学 admission，覆盖普
 重新加载、canonical seed 复用，以及显式关闭预置结果加载
 （`load_example_results=False`）时的 WebUI example 编译安装。
 各入口拥有相应的 Project 安装、Workflow 一致性检查和发布政策。
+
+canonical Workflow 是面向用户的教程示例，其 Project 随应用正常启动安装是产品要求。
+后续结构优化须保留正常启动中的安装和用户可见的教程示例；验证任务对该 Workflow
+的复用不改变其教学身份。
 
 默认启动通过 `install_bundled_example_results` 安装随包提供的 WebUI 结果，信任随包
 owner records，不为展示旧结果重新编译 Workflow 或比较当前 Catalog 科学定义。

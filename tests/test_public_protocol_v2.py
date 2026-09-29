@@ -95,14 +95,12 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "list_project_inputs",
         "inspect_project_input",
         "project_workspace",
-        "save_project_ui_state",
         "list_workflow_versions",
         "name_workflow_version",
         "workflow_version",
         "fork_workflow_version",
         "return_project_workspace",
         "artifact_retrieval",
-        "apply_prompt_authoring",
         "workflow_observation_options",
         "authoring_capability_projection",
         "cancel_run",
@@ -119,9 +117,10 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "project_workflow_draft",
         "run_projection",
         "result_collection",
-        "result_candidate",
+        "result_structure",
+        "result_value",
         "preview_run_scope",
-        "save_project_workflow_draft",
+        "save_project_workspace",
         "start_derived_run",
         "start_run",
         "typed_value_retrieval",
@@ -139,7 +138,6 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "list_project_inputs": ("GET", "/api/v2/projects/{project_id}/inputs"),
         "inspect_project_input": ("POST", "/api/v2/projects/{project_id}/inputs/{project_input_ref}:inspect"),
         "project_workspace": ("GET", "/api/v2/projects/{project_id}/workspace"),
-        "save_project_ui_state": ("PUT", "/api/v2/projects/{project_id}/workspace/ui-state"),
         "list_workflow_versions": ("GET", "/api/v2/projects/{project_id}/versions"),
         "name_workflow_version": ("POST", "/api/v2/projects/{project_id}/versions"),
         "workflow_version": ("GET", "/api/v2/projects/{project_id}/versions/{version_id}"),
@@ -149,10 +147,6 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "GET",
             "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
             "{artifact_reference}",
-        ),
-        "apply_prompt_authoring": (
-            "POST",
-            "/api/v2/projects/{project_id}/prompt-authoring:apply",
         ),
         "authoring_capability_projection": (
             "GET",
@@ -199,14 +193,15 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         ),
         "preview_run_scope": ("POST", "/api/v2/projects/{project_id}/runs/preview"),
         "result_collection": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:collection"),
-        "result_candidate": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:candidate"),
+        "result_structure": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:structure"),
+        "result_value": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:value"),
         "run_projection": (
             "GET",
             "/api/v2/projects/{project_id}/runs/{run_id}",
         ),
-        "save_project_workflow_draft": (
+        "save_project_workspace": (
             "PUT",
-            "/api/v2/projects/{project_id}/workflow/draft",
+            "/api/v2/projects/{project_id}/workspace",
         ),
         "start_derived_run": (
             "POST",
@@ -1428,7 +1423,7 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
             ),
             *(
                 client.put(
-                    "/api/v2/projects/project-1/workspace/ui-state",
+                    "/api/v2/projects/project-1/workspace",
                     content=body,
                     headers={"content-type": "application/json"},
                 )
@@ -1642,9 +1637,9 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
         "nodes": [],
         "edges": []}
     cases = {
-        "save_project_workflow_draft": (
+        "save_project_workspace": (
             "PUT",
-            "/api/v2/projects/project-1/workflow/draft",
+            "/api/v2/projects/project-1/workspace",
             {
                 "project_id": "project-2",
                 "workflow": workflow,
@@ -1879,9 +1874,37 @@ def test_inbound_rest_request_is_derived_from_the_bundle_operation() -> None:
 def test_request_admission_rejects_non_i_json_in_opaque_fields(ui_state: dict) -> None:
     with pytest.raises(ProtocolValidationError):
         decode_rest_request(
-            "save_project_ui_state",
+            "save_project_workspace",
             path_parameters={"project_id": "project-1"},
             json_body={"ui_state": ui_state},
+        )
+
+
+@pytest.mark.parametrize("parts", ["workflow", "ui", "both"])
+def test_workspace_request_accepts_each_complete_edit_shape(parts: str) -> None:
+    body: dict[str, Any] = {"expected_draft_revision": 0}
+    if parts in {"workflow", "both"}:
+        body["workflow"] = {
+            "schema_version": "2.1.0", "workflow_id": "project-1", "nodes": [],
+            "edges": [], "observation_selectors": [], "selection_objectives": [],
+        }
+    if parts in {"ui", "both"}:
+        body["ui_state"] = {"positions": {"node": {"x": 10, "y": 20}}}
+    request = decode_rest_request(
+        "save_project_workspace", path_parameters={"project_id": "project-1"}, json_body=body,
+    )
+    assert request == {"project_id": "project-1", **body}
+
+
+@pytest.mark.parametrize("body", [
+    {}, {"expected_draft_revision": 0}, {"ui_state": {}, "unexpected": True},
+    {"workflow": None}, {"ui_state": None},
+    {"ui_state": {}, "expected_draft_revision": -1},
+])
+def test_workspace_request_rejects_missing_edit_or_invalid_contract(body: dict[str, Any]) -> None:
+    with pytest.raises(ProtocolValidationError):
+        decode_rest_request(
+            "save_project_workspace", path_parameters={"project_id": "project-1"}, json_body=body,
         )
 
 

@@ -1,6 +1,9 @@
 # Provider installation contract
 
-Status: current operational contract.
+Status: historical reference, not a current contract. Use the
+[current scientific specification](../2026-09-02-clean-scientific-data-flow-refactor-spec.md),
+[domain vocabulary](../../CONTEXT.md), and
+[verification instructions](../backend-verification.md) for current requirements.
 
 Provider repositories, packages, models, and checkpoints remain external to the
 Protein Workbench wheel. Environment Configuration supplies their operator-owned
@@ -19,7 +22,7 @@ Readiness does not prove them, and Run Evidence does not claim that it did.
 | ESM / Biohub | Installed Python package from the `providers` optional dependency |
 | SimpleFold | Installed Python package from the `providers` optional dependency |
 | ProteinMPNN | Operator-owned source root selected by `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT` |
-| SoluProt-next | Wheel built from [`repositories/soluprot-next`](../repositories/soluprot-next) on the target machine |
+| SoluProt-next | Wheel built from [`repositories/soluprot-next`](../../repositories/soluprot-next) on the target machine |
 | Protein-Sol | Operator-owned source root selected by `PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT` |
 
 Equivalent wheels, containers, copied source trees, and editable installations

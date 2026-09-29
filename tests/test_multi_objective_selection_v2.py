@@ -1589,7 +1589,9 @@ def test_catalog_observation_plans_are_shared_by_compiler_and_editor(
     def forbid_projection(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("fixed Observation facts must be resolved only at startup")
 
-    monkeypatch.setattr(observation_projection, "_resolved_context_profile", forbid_projection)
+    binding = catalog.require_contract("binding", _scorer().binding_id).definition
+    assert fixed.observations is binding.produced_observations
+    assert fixed.propagation is binding.observation_propagation
     monkeypatch.setattr(observation_projection, "resolve_metric_facts", forbid_projection)
     for _ in range(2):
         plan = compile(CompilationRequest(workflow), catalog)

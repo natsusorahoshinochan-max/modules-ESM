@@ -116,13 +116,6 @@ class PromptAuthoringPreview:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptApplyResult:
-    """The Draft carrying the applied authoring Node Instance."""
-
-    draft: WorkflowDraft
-
-
-@dataclass(frozen=True, slots=True)
 class _StructureValue:
     value: ProteinStructure
     descriptor: ProjectInputDescriptor
@@ -197,7 +190,7 @@ def _empty_summary() -> dict[str, Any]:
 
 
 class PromptAuthoringService:
-    """The sole open, preview, and apply interface for Prompt Studio."""
+    """Resolve and preview prospective Prompt Studio edits."""
 
     def __init__(
         self,
@@ -1326,40 +1319,3 @@ class PromptAuthoringService:
         node, draft = self._require_author_node(project_id, request["node_id"], request.get("workflow"))
         document = _normalize_document(request["document"])
         return self._preview_loaded(project_id, node, draft, document, request.get("version_context"))
-
-    def apply(
-        self,
-        project_id: str,
-        request: Mapping[str, Any],
-    ) -> PromptApplyResult:
-        workflow = (
-            workflow_document_from_canonical(request["workflow"])
-            if "workflow" in request
-            else self._workflow_authoring.load_draft(project_id).workflow
-        )
-        node = next(item for item in workflow.nodes if item.node_id == request["node_id"])
-        parameters = dict(thaw_i_json(node.node_parameters))
-        parameters["document"] = _copy_document(request["document"])
-        workflow = replace(
-            workflow,
-            nodes=tuple(
-                replace(item, node_parameters=parameters) if item.node_id == node.node_id else item
-                for item in workflow.nodes
-            ),
-        )
-        version_context = request.get("version_context")
-        if version_context is None:
-            updated = self._workflow_authoring.save_draft(
-                project_id, workflow=workflow,
-                expected_draft_revision=request["expected_draft_revision"],
-            )
-        else:
-            workspace = self._workflow_authoring.fork_version(
-                project_id,
-                version_id=version_context["version_id"],
-                return_workspace_revision=version_context["return_workspace_revision"],
-                workflow=workflow,
-                ui_state=version_context["ui_state"],
-            )
-            updated = cast(WorkflowDraft, workspace.draft)
-        return PromptApplyResult(draft=updated)

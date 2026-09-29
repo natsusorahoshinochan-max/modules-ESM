@@ -2,8 +2,9 @@ import { expect, test, type APIRequestContext, type Page, type TestInfo } from '
 import { readFile } from 'node:fs/promises'
 import { strFromU8, unzipSync } from 'fflate'
 import { PublicV2Client, type CandidateReference, type ProjectMetadata, type PromptPreview, type PromptSnapshot, type RunProjection, type WorkflowDraft } from '../src/protocol/client'
-import { observationKey, referenceKey, type CandidateView, type ResultCollection, type ResultIndex, type ScoreView } from '../src/result-explorer'
+import { candidateViewKey, observationKey, referenceKey, type CandidateView, type ResultCollection, type ResultIndex, type ScoreView } from '../src/result-explorer'
 import { PublishedResults, type RunReference } from '../src/published-results'
+import type { ProjectWorkspace } from '../src/project-workspace'
 
 // One worker serializes Providers; tests own their Projects and do not skip each other.
 
@@ -100,6 +101,28 @@ async function assertScore(page: Page, index: ResultIndex, candidate: CandidateV
   expect.soft(facts.definition).toEqual(definition)
 }
 
+async function confirmSelectionWorkspace(page: Page, request: APIRequestContext, projectId: string) {
+  const url = `/api/v2/projects/${projectId}/workspace`
+  const before = await (await request.get(url)).json() as ProjectWorkspace
+  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(url))
+  await page.getByRole('dialog', { name: '保存流程操作预览' }).getByRole('button', { name: '确认保存到流程', exact: true }).click()
+  const response = await saving
+  expect(response.status()).toBe(200)
+  const workspace = await response.json() as ProjectWorkspace
+  const submitted = response.request().postDataJSON()
+  expect(workspace.workspace_revision).toBe(before.workspace_revision + 1)
+  expect(workspace.ui_state_revision).toBeGreaterThan(before.ui_state_revision)
+  expect(submitted.workflow).toEqual(workspace.draft!.workflow)
+  expect(submitted.ui_state).toEqual(workspace.ui_state)
+  const positions = (workspace.ui_state.canvas as { positions: Record<string, { x: number; y: number }> }).positions
+  const previousNodes = new Set(before.draft!.workflow.nodes.map(node => node.node_id))
+  for (const node of workspace.draft!.workflow.nodes.filter(node => !previousNodes.has(node.node_id))) {
+    expect(positions[node.node_id]).toEqual({ x: expect.any(Number), y: expect.any(Number) })
+  }
+  expect(await (await request.get(url)).json()).toEqual(workspace)
+  return workspace.draft!
+}
+
 async function saveDisplayedFilter(page: Page, request: APIRequestContext, journey: Journey, stage: ResultCollection, score: ScoreView, threshold: number, info: TestInfo) {
   await showCollection(page, stage)
   const details = page.locator('details').filter({ has: page.getByText('临时条件筛选 · 支持 AND/OR 分组', { exact: true }) })
@@ -108,15 +131,14 @@ async function saveDisplayedFilter(page: Page, request: APIRequestContext, journ
   await details.getByLabel('临时筛选分数', { exact: true }).selectOption(observationKey(score))
   await details.getByLabel('临时筛选比较符', { exact: true }).selectOption('>=')
   await details.getByLabel('阈值（分数原单位）', { exact: true }).fill(String(threshold))
+  await details.getByRole('button', { name: '应用筛选', exact: true }).click()
   const expected = stage.items.filter(candidate => journey.index.scores.some(item => observationKey(item) === observationKey(score) && referenceKey(item.subject) === referenceKey(candidate.reference) && typeof item.value === 'number' && item.value >= threshold))
   await expect(page.locator('.result-table input[type=checkbox]')).toHaveCount(expected.length)
   await details.getByRole('button', { name: '条件保存为流程', exact: true }).click()
   const preview = page.getByRole('dialog', { name: '保存流程操作预览' })
   await expect(preview.getByLabel('范围外观察值', { exact: true })).toHaveValue('ignore')
   await expect(preview.getByLabel('阈值（Metric 原单位）', { exact: true })).toHaveValue(String(threshold))
-  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/projects/${journey.project.id}/workflow/draft`))
-  await preview.getByRole('button', { name: '确认保存到流程', exact: true }).click()
-  const saved = await (await saving).json() as WorkflowDraft
+  const saved = await confirmSelectionWorkspace(page, request, journey.project.id)
   const added = saved.workflow.nodes.filter(node => node.node_id.startsWith('selection-'))
   expect(added.at(-1)?.node_type_id).toBe('selection.filter')
   expect(added.at(-1)?.node_parameters.expression).toEqual([{ selector_index: 0, operator: '>=', threshold }])
@@ -125,8 +147,6 @@ async function saveDisplayedFilter(page: Page, request: APIRequestContext, journ
   expect(selector).toMatchObject({ metric: score.metric, method: score.method, source_partition: score.source_partition, context_selector: score.context })
   const stored = await (await request.get(`/api/v2/projects/${journey.project.id}/workflow/draft`)).json() as WorkflowDraft
   expect(stored.workflow).toEqual(saved.workflow)
-  const committed = await request.post(`/api/v2/projects/${journey.project.id}/workflow:commit`, { data: { workflow: saved.workflow } })
-  expect(committed.status()).toBe(200)
   await info.attach('saved-display-filter', { body: Buffer.from(JSON.stringify(saved.workflow, null, 2)), contentType: 'application/json' })
   await details.getByRole('button', { name: '清除条件', exact: true }).click()
   return { [added.at(-1)!.node_id]: expected.map(item => item.reference) }
@@ -168,9 +188,7 @@ async function saveTopOne(page: Page, request: APIRequestContext, journey: Journ
   const transformId = 'structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit'
   await preview.getByLabel('Utility Transform（输出 0–1）', { exact: true }).selectOption(transformId)
   await preview.getByLabel('候选数量 N', { exact: true }).fill('1')
-  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/projects/${journey.project.id}/workflow/draft`))
-  await preview.getByRole('button', { name: '确认保存到流程', exact: true }).click()
-  const saved = await (await saving).json() as WorkflowDraft
+  const saved = await confirmSelectionWorkspace(page, request, journey.project.id)
   const added = saved.workflow.nodes.findLast(node => node.node_id.startsWith('selection-') && node.node_type_id === 'selection.top_k')!
   expect(added.node_parameters.k).toBe(1)
   const objective = saved.workflow.selection_objectives.find(item => item.objective_id === added.node_parameters.objective_id)!
@@ -180,8 +198,6 @@ async function saveTopOne(page: Page, request: APIRequestContext, journey: Journ
     { source_node_id: stage.source.node_id, source_port: stage.source.output_port, target_node_id: added.node_id, target_port: 'candidates' },
     { source_node_id: score.source.node_id, source_port: score.source.output_port, target_node_id: added.node_id, target_port: 'scores' },
   ]))
-  const committed = await request.post(`/api/v2/projects/${journey.project.id}/workflow:commit`, { data: { workflow: saved.workflow } })
-  expect(committed.status()).toBe(200)
   await expect(preview).toHaveCount(0)
   return { [added.node_id]: stage.items.slice(0, 1).map(item => item.reference) }
 }
@@ -265,7 +281,7 @@ async function preparePromptJourney(page: Page, request: APIRequestContext, info
     if (node.node_id === 'design-children') node.node_parameters.num_sequences = 1
     if (node.node_type_id === 'collection_ops.take_candidates') node.node_parameters.k = 1
   }
-  expect((await request.put(`${base}/workflow/draft`, { data: { workflow: draft.workflow } })).status()).toBe(200)
+  expect((await request.put(`${base}/workspace`, { data: { workflow: draft.workflow } })).status()).toBe(200)
   await openProject(page, project)
   const author = draft.workflow.nodes.find(node => node.node_type_id === 'prompt_authoring.author')!
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === author.node_id)
@@ -284,9 +300,15 @@ async function preparePromptJourney(page: Page, request: APIRequestContext, info
   await expect(page.getByRole('region', { name: 'ESM3 有效条件' })).toContainText('SDK 可以表示当前条件')
   await screenshot(page, info, 'own-prompt-effective-conditioning')
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  const applying = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:apply'))
+  const beforePrompt = await (await request.get(`${base}/workspace`)).json() as ProjectWorkspace
+  const applying = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`${base}/workspace`))
   await page.getByRole('button', { name: '确认并写回 Workflow', exact: true }).click()
-  expect((await applying).status()).toBe(200)
+  const response = await applying
+  expect(response.status()).toBe(200)
+  const savedPrompt = await response.json() as ProjectWorkspace
+  expect(savedPrompt.workspace_revision).toBe(beforePrompt.workspace_revision + 1)
+  expect(savedPrompt.draft!.workflow.nodes.find(node => node.node_id === author.node_id)!.node_parameters.document).toEqual(edited.normalized_document)
+  expect(savedPrompt.ui_state).toEqual(beforePrompt.ui_state)
   return project
 }
 
@@ -302,7 +324,9 @@ test('own Prompt → real ESM3 → refold preserves exact stage scores and saves
   expect(refolded.items).toHaveLength(1)
   await checkCandidate(page, redesign.index, generated.items[0])
   await checkCandidate(page, redesign.index, refolded.items[0])
-  await page.getByRole('button', { name: '并排比较 (2)', exact: true }).click()
+  await page.getByRole('button', { name: /^并排比较/ }).click()
+  await page.getByLabel('比较位置 1', { exact: true }).selectOption(candidateViewKey(generated.items[0]))
+  await page.getByLabel('比较位置 2', { exact: true }).selectOption(candidateViewKey(refolded.items[0]))
   await expect(page.locator('.result-comparison .result-detail')).toHaveCount(2)
   await expect(page.locator('.result-comparison .result-structure canvas')).toHaveCount(2)
   await screenshot(page, info, 'esm3-refold-stage-comparison')
@@ -338,7 +362,10 @@ test('real MPNN descendants expose parents, use exact alignment evidence and exp
   await checkCandidate(page, redesign.index, child)
   await checkCandidate(page, redesign.index, folded)
   await checkCandidate(page, redesign.index, parent)
-  await page.getByRole('button', { name: '并排比较 (3)', exact: true }).click()
+  await page.getByRole('button', { name: /^并排比较/ }).click()
+  await page.getByLabel('比较位置 1', { exact: true }).selectOption(candidateViewKey(child))
+  await page.getByLabel('比较位置 2', { exact: true }).selectOption(candidateViewKey(folded))
+  await page.getByLabel('比较位置 3', { exact: true }).selectOption(candidateViewKey(parent))
   const overlay = page.locator('.alignment-comparison')
   await expect(overlay.locator('.alignment-viewer canvas')).toBeVisible()
   await expect(overlay).toContainText(`RMSD ${alignment.rmsd.toPrecision(5)} Å`)
@@ -350,9 +377,7 @@ test('real MPNN descendants expose parents, use exact alignment evidence and exp
   await page.getByRole('button', { name: '勾选保存为流程', exact: true }).click()
   const selection = page.getByRole('dialog', { name: '保存流程操作预览' })
   await expect(selection.getByRole('region', { name: '流程筛选编辑器' })).toHaveCount(3)
-  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/projects/${redesign.project.id}/workflow/draft`))
-  await selection.getByRole('button', { name: '确认保存到流程', exact: true }).click()
-  const saved = await (await saving).json() as WorkflowDraft
+  const saved = await confirmSelectionWorkspace(page, request, redesign.project.id)
   const manual = saved.workflow.nodes.filter(node => node.node_type_id === 'selection.manual')
   expect(manual).toHaveLength(3)
   expect(manual.flatMap(node => node.node_parameters.selected_candidates as CandidateReference[]).map(referenceKey).sort()).toEqual([child, folded, parent].map(item => referenceKey(item.reference)).sort())

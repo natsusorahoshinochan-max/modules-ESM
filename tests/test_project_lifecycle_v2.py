@@ -63,7 +63,7 @@ def _prepared_project(subject: Lifecycle, name: str) -> tuple[str, str]:
             {"project_input_ref": "input-used"}, {},
         ),), (), (), (),
     )
-    subject.authoring.save_draft(project.id, workflow=workflow)
+    subject.authoring.save_workspace(project.id, workflow=workflow)
     commit = subject.authoring.commit(project.id, workflow=workflow)
     subject.authoring.load_active_commit(project.id)
     subject.authoring.require_verified_commit(project.id, workflow_commit_id=commit.workflow_commit_id)

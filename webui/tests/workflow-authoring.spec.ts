@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { CatalogSnapshot, JsonObject, Workflow, WorkflowNode } from '../src/protocol/client'
-import { bindingOptions, parameterPresentations, projectPalette, selectNodeBinding } from '../src/workflow-authoring'
-import { compatibleWorkflowPorts, connectWorkflowPorts } from '../src/workflow-connections'
+import { bindingOptions, nodeTypePresentation, parameterPresentations, projectPalette, selectNodeBinding } from '../src/workflow-authoring'
+import { compatibleWorkflowPorts, connectWorkflowPorts, deleteWorkflowElements, PromptMergeSourcesLockedError, reconnectWorkflowPorts, workflowEdgeId, type WorkflowPort } from '../src/workflow-connections'
 import { copyWorkflowFragment, pasteWorkflowFragment, removeWorkflowNodes } from '../src/workflow-fragments'
 
 function node(id: string, type = 'operation'): WorkflowNode {
@@ -116,4 +116,120 @@ test('compatible ports use nominal Port identity and one-input reconnection repl
   const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'workspace', nodes: [node('old', 'source'), node('new', 'source'), node('target', 'target')], edges: [{ source_node_id: 'old', source_port: 'sequence', target_node_id: 'target', target_port: 'source' }], observation_selectors: [], selection_objectives: [] }
   expect(compatibleWorkflowPorts(workflow, catalog, { nodeId: 'new', portName: 'sequence', direction: 'output' })).toEqual([{ nodeId: 'target', portName: 'source', direction: 'input' }])
   expect(connectWorkflowPorts(workflow, catalog, { nodeId: 'new', portName: 'sequence', direction: 'output' }, { nodeId: 'target', portName: 'source', direction: 'input' }).edges).toEqual([{ source_node_id: 'new', source_port: 'sequence', target_node_id: 'target', target_port: 'source' }])
+})
+
+
+function connectionFixture(locked = false) {
+  const port = (name: string, multiplicity: 'one' | 'many', required: boolean) => ({ name, multiplicity, required, port_type: { contract_id: 'protein.prompt' }, scientific_meaning: `Meaning of ${name}.` })
+  const catalog: CatalogSnapshot = { availability: [], contracts: [
+    { reference: { contract_kind: 'node_type', contract_id: 'prompt_authoring.author' }, descriptor: { title: 'Author', category: 'prompt', inputs: [port('prompt_source', 'one', false), port('merge_sources', 'many', false)], outputs: [port('protein_prompt', 'one', true)] } },
+    { reference: { contract_kind: 'binding', contract_id: 'prompt_authoring.author.binding' }, descriptor: {} },
+  ] }
+  const edge = (source: string, target = 'target', targetPort = 'merge_sources'): Workflow['edges'][number] => ({ source_node_id: source, source_port: 'protein_prompt', target_node_id: target, target_port: targetPort })
+  const output = (nodeId: string): WorkflowPort => ({ nodeId, portName: 'protein_prompt', direction: 'output' })
+  const input = (nodeId = 'target', portName = 'merge_sources'): WorkflowPort => ({ nodeId, portName, direction: 'input' })
+  const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'connections', nodes: ['A', 'B', 'C', 'target', 'other'].map(id => ({ ...node(id, 'prompt_authoring.author'), node_parameters: { document: locked && id === 'target' ? { source_merges: [{ source_index: 1, correspondence: [], track_adoptions: [], adopt_annotations: [], remove_annotations: [] }] } : {} } })), edges: [edge('A'), edge('B')], observation_selectors: [], selection_objectives: [] }
+  return { workflow, catalog, edge, output, input }
+}
+
+test('port presentation preserves a complete typed descriptor without parallel maps', () => {
+  const { catalog } = connectionFixture()
+  const presentation = nodeTypePresentation(catalog, 'prompt_authoring.author')
+  expect(presentation.inputs[1]).toEqual({ name: 'merge_sources', portTypeId: 'protein.prompt', multiplicity: 'many', required: false, meaning: 'Meaning of merge_sources.' })
+  expect(presentation.outputs[0].required).toBe(true)
+  expect(presentation).not.toHaveProperty('inputPortTypes')
+})
+
+test('edge identity is independent of array position and delimiters in endpoint names', () => {
+  const { edge } = connectionFixture()
+  expect(workflowEdgeId(edge('A'))).toBe(workflowEdgeId({ ...edge('A') }))
+  expect(workflowEdgeId({ ...edge('A'), source_node_id: 'A:B', source_port: 'C' })).not.toBe(workflowEdgeId({ ...edge('A'), source_node_id: 'A', source_port: 'B:C' }))
+})
+
+test('no-op and duplicate connections retain both owner identity and many-source order', () => {
+  const { workflow, catalog, edge, output, input } = connectionFixture()
+  expect(connectWorkflowPorts(workflow, catalog, output('A'), input())).toBe(workflow)
+  expect(reconnectWorkflowPorts(workflow, catalog, edge('A'), output('A'), input())).toBe(workflow)
+  expect(reconnectWorkflowPorts(workflow, catalog, edge('A'), output('B'), input())).toBe(workflow)
+  expect(workflow.edges).toEqual([edge('A'), edge('B')])
+})
+
+test('reconnect preserves its many-input slot and appends only on transfer to another input', () => {
+  const { workflow, catalog, edge, output, input } = connectionFixture()
+  expect(reconnectWorkflowPorts(workflow, catalog, edge('A'), output('C'), input()).edges).toEqual([edge('C'), edge('B')])
+  const withOther = { ...workflow, edges: [...workflow.edges, edge('C', 'other')] }
+  expect(reconnectWorkflowPorts(withOther, catalog, edge('A'), output('A'), input('other')).edges).toEqual([edge('B'), edge('C', 'other'), edge('A', 'other')])
+})
+
+test('connect and reconnect replace occupied one-inputs consistently', () => {
+  const { workflow, catalog, edge, output, input } = connectionFixture()
+  const one = { ...workflow, edges: [edge('A', 'target', 'prompt_source'), edge('C', 'other', 'prompt_source')] }
+  const target = input('target', 'prompt_source')
+  expect(connectWorkflowPorts(one, catalog, output('B'), target).edges).toEqual([edge('C', 'other', 'prompt_source'), edge('B', 'target', 'prompt_source')])
+  expect(reconnectWorkflowPorts(one, catalog, edge('C', 'other', 'prompt_source'), output('C'), target).edges).toEqual([edge('C', 'target', 'prompt_source')])
+})
+
+test('configured Prompt merges reject changed source identity or order but allow append and no-op', () => {
+  const { workflow, catalog, edge, output, input } = connectionFixture(true)
+  const before = structuredClone(workflow)
+  expect(() => reconnectWorkflowPorts(workflow, catalog, edge('A'), output('C'), input())).toThrow(PromptMergeSourcesLockedError)
+  expect(() => reconnectWorkflowPorts(workflow, catalog, edge('A'), output('A'), input('other'))).toThrow(PromptMergeSourcesLockedError)
+  expect(() => deleteWorkflowElements(workflow, catalog, { nodeIds: new Set(), edges: [edge('A')] })).toThrow(PromptMergeSourcesLockedError)
+  expect(() => deleteWorkflowElements(workflow, catalog, { nodeIds: new Set(['A']), edges: [] })).toThrow(PromptMergeSourcesLockedError)
+  expect(reconnectWorkflowPorts(workflow, catalog, edge('A'), output('A'), input())).toBe(workflow)
+  expect(connectWorkflowPorts(workflow, catalog, output('C'), input()).edges).toEqual([...workflow.edges, edge('C')])
+  expect(workflow).toEqual(before)
+})
+
+test('batch deletion ignores removed Prompt owners but reports all retained affected owners atomically', () => {
+  const { workflow, catalog, edge } = connectionFixture(true)
+  const other = workflow.nodes.find(item => item.node_id === 'other')!
+  const both = { ...workflow, nodes: workflow.nodes.map(item => item === other ? { ...item, node_parameters: workflow.nodes.find(node => node.node_id === 'target')!.node_parameters } : item), edges: [...workflow.edges, edge('A', 'other')] }
+  try {
+    deleteWorkflowElements(both, catalog, { nodeIds: new Set(['A', 'target']), edges: [] })
+    throw new Error('Expected a locked merge error')
+  } catch (error) {
+    expect(error).toBeInstanceOf(PromptMergeSourcesLockedError)
+    expect((error as PromptMergeSourcesLockedError).nodeIds).toEqual(['other'])
+  }
+  const removed = deleteWorkflowElements(workflow, catalog, { nodeIds: new Set(['A', 'target']), edges: [] })
+  expect(removed.workflow.nodes.map(item => item.node_id)).toEqual(['B', 'C', 'other'])
+  expect(removed.workflow.edges).toEqual([])
+})
+
+test('clearing merge operations permits source changes without altering other Prompt edits', () => {
+  const { workflow, catalog, edge, output, input } = connectionFixture(true)
+  const cleared = { ...workflow, nodes: workflow.nodes.map(item => item.node_id === 'target' ? { ...item, node_parameters: { document: { source_merges: [], chains: [{ chain_id: 'A', length: 2 }] } } } : item) }
+  const changed = reconnectWorkflowPorts(cleared, catalog, edge('A'), output('C'), input())
+  expect(changed.edges).toEqual([edge('C'), edge('B')])
+  expect(changed.nodes).toBe(cleared.nodes)
+})
+
+test('unified deletion retains Selection cleanup and an empty operation retains workflow identity', () => {
+  const workflow = fragmentWorkflow()
+  expect(deleteWorkflowElements(workflow, catalog, { nodeIds: new Set(), edges: [] }).workflow).toBe(workflow)
+  const removed = deleteWorkflowElements(workflow, catalog, { nodeIds: new Set(['score']), edges: [] })
+  expect(removed.workflow.observation_selectors).toEqual([])
+  expect(removed.workflow.selection_objectives).toEqual([])
+  expect(removed.workflow.nodes.find(item => item.node_id === 'filter')!.node_parameters).toEqual({})
+})
+
+
+test('port matching rejects many outputs into one inputs and incompatible reconnect leaves the original edge', () => {
+  const { workflow, catalog, edge, output, input } = connectionFixture()
+  const descriptor = catalog.contracts.find(item => item.reference.contract_kind === 'node_type')!.descriptor
+  descriptor.outputs = [{ name: 'protein_prompt', port_type: { contract_id: 'protein.prompt' }, multiplicity: 'many', required: true, scientific_meaning: 'Many prompts.' }]
+  const candidates = compatibleWorkflowPorts(workflow, catalog, output('A'))
+  expect(candidates.every(port => port.portName === 'merge_sources')).toBe(true)
+  expect(connectWorkflowPorts(workflow, catalog, output('C'), input('target', 'prompt_source'))).toBe(workflow)
+  expect(reconnectWorkflowPorts(workflow, catalog, edge('A'), output('A'), input('target', 'prompt_source'))).toBe(workflow)
+  descriptor.outputs = [{ name: 'protein_prompt', port_type: { contract_id: 'protein.structure' }, multiplicity: 'one', required: true, scientific_meaning: 'Structure.' }]
+  expect(reconnectWorkflowPorts(workflow, catalog, edge('A'), output('C'), input())).toBe(workflow)
+})
+
+
+test('incomplete Prompt drafts without a document permit connection editing', () => {
+  const { workflow, catalog, output, input, edge } = connectionFixture()
+  const incomplete = { ...workflow, nodes: workflow.nodes.map(item => item.node_id === 'target' ? { ...item, node_parameters: {} } : item) }
+  expect(connectWorkflowPorts(incomplete, catalog, output('C'), input()).edges).toEqual([...workflow.edges, edge('C')])
 })

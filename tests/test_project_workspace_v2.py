@@ -46,14 +46,14 @@ def test_named_incomplete_draft_fork_and_return_preserve_exact_ui_after_restart(
         original.schema_version, original.workflow_id, original.nodes,
         (WorkflowEdge("missing", "sequence", "import", "missing"),), (), (),
     )
-    first = authoring.save_draft(project.id, workflow=incomplete)
-    named_workspace = authoring.save_ui_state(
+    first = authoring.save_workspace(project.id, workflow=incomplete).draft
+    named_workspace = authoring.save_workspace(
         project.id, ui_state={"positions": {"import": {"x": 30, "y": 70}}},
     )
     version = authoring.name_version(project.id, name="Unfinished proposal")
     assert version.draft_revision == first.draft_revision
-    authoring.save_draft(project.id, workflow=original)
-    prior_work = authoring.save_ui_state(project.id, ui_state={"positions": {"import": {"x": 90, "y": 50}}})
+    authoring.save_workspace(project.id, workflow=original)
+    prior_work = authoring.save_workspace(project.id, ui_state={"positions": {"import": {"x": 90, "y": 50}}})
 
     _, restarted = _authoring(tmp_path)
     viewed = restarted.load_workspace(project.id, revision=version.workspace_revision)
@@ -83,7 +83,7 @@ def test_failed_workspace_publication_keeps_the_previous_current_draft(
 ) -> None:
     projects, authoring = _authoring(tmp_path)
     project = projects.create("atomic head")
-    original = authoring.save_draft(project.id, workflow=_draft(project.id))
+    original = authoring.save_workspace(project.id, workflow=_draft(project.id)).draft
     real_write = authoring_module.write_new_file
 
     def fail_workspace(root, parts, payload):
@@ -94,21 +94,95 @@ def test_failed_workspace_publication_keeps_the_previous_current_draft(
     with monkeypatch.context() as scoped:
         scoped.setattr(authoring_module, "write_new_file", fail_workspace)
         with pytest.raises(OSError, match="publication interrupted"):
-            authoring.save_draft(project.id, workflow=_draft(project.id, input_ref="different"))
+            authoring.save_workspace(project.id, workflow=_draft(project.id, input_ref="different"))
     _, restarted = _authoring(tmp_path)
     assert restarted.load_draft(project.id) == original
-    saved = restarted.save_draft(project.id, workflow=_draft(project.id, input_ref="next"))
+    saved = restarted.save_workspace(project.id, workflow=_draft(project.id, input_ref="next")).draft
     assert saved.draft_revision == 3
 
 
-@pytest.mark.parametrize("operation", ["draft", "ui", "name", "fork"])
+def test_complete_edit_publishes_workflow_and_ui_once_and_ui_only_reuses_draft(
+    tmp_path: Path,
+) -> None:
+    projects, authoring = _authoring(tmp_path)
+    project = projects.create("coherent edit")
+    first = authoring.save_workspace(
+        project.id, workflow=_draft(project.id), ui_state={"zoom": 1},
+    )
+    assert first.draft is not None
+    saved = authoring.save_workspace(
+        project.id, workflow=_draft(project.id, input_ref="edited"),
+        ui_state={"zoom": 2}, expected_draft_revision=first.draft.draft_revision,
+    )
+    assert saved.draft is not None
+    assert saved.workspace_revision == first.workspace_revision + 1
+    assert saved.draft.draft_revision == first.draft.draft_revision + 1
+    assert saved.ui_state_revision == first.ui_state_revision + 1
+    assert saved.draft.workflow.nodes[0].node_parameters["project_input_ref"] == "edited"
+    assert saved.ui_state == {"zoom": 2}
+    layout = authoring.save_workspace(project.id, ui_state={"zoom": 3})
+    assert layout.draft == saved.draft
+    assert layout.workspace_revision == saved.workspace_revision + 1
+    assert authoring._latest_record_revision(project.id, "drafts") == saved.draft.draft_revision
+
+
+@pytest.mark.parametrize("failed_collection", ["ui-states", "workspaces"])
+def test_complete_edit_failure_before_publication_preserves_head_and_written_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_collection: str,
+) -> None:
+    projects, authoring = _authoring(tmp_path)
+    project = projects.create("coherent edit failure")
+    previous = authoring.save_workspace(project.id, workflow=_draft(project.id), ui_state={"zoom": 1})
+    write_record = authoring._write_record
+
+    def interrupted(project_id: str, collection: str, revision: int, payload: Mapping[str, Any]) -> None:
+        if collection == failed_collection:
+            raise OSError("publication interrupted")
+        write_record(project_id, collection, revision, payload)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(authoring, "_write_record", interrupted)
+        with pytest.raises(OSError, match="publication interrupted"):
+            authoring.save_workspace(project.id, workflow=_draft(project.id, input_ref="failed"), ui_state={"zoom": 2})
+    _, restarted = _authoring(tmp_path)
+    assert restarted.load_workspace(project.id) == previous
+    saved = restarted.save_workspace(project.id, workflow=_draft(project.id, input_ref="retry"), ui_state={"zoom": 3})
+    assert saved.draft is not None
+    assert saved.draft.draft_revision == 3
+    assert saved.ui_state_revision == (2 if failed_collection == "ui-states" else 3)
+    assert saved.workspace_revision == previous.workspace_revision + 1
+
+
+def test_touch_failure_after_publication_keeps_complete_current_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects, authoring = _authoring(tmp_path)
+    project = projects.create("published edit")
+    previous = authoring.save_workspace(project.id, workflow=_draft(project.id), ui_state={"zoom": 1})
+
+    def fail_touch(_project_id: str) -> None:
+        raise OSError("metadata touch interrupted")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(projects, "touch", fail_touch)
+        with pytest.raises(OSError, match="metadata touch interrupted"):
+            authoring.save_workspace(project.id, workflow=_draft(project.id, input_ref="published"), ui_state={"zoom": 2})
+    _, restarted = _authoring(tmp_path)
+    saved = restarted.load_workspace(project.id)
+    assert saved.workspace_revision == previous.workspace_revision + 1
+    assert saved.draft is not None
+    assert saved.draft.workflow.nodes[0].node_parameters["project_input_ref"] == "published"
+    assert saved.ui_state == {"zoom": 2}
+
+
+@pytest.mark.parametrize("operation", ["draft", "ui", "both", "name", "fork"])
 def test_workspace_writes_reuse_known_content_without_reading_it_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str,
 ) -> None:
     projects, authoring = _authoring(tmp_path)
     project = projects.create("content reuse")
-    original = authoring.save_draft(project.id, workflow=_draft(project.id))
-    previous = authoring.save_ui_state(project.id, ui_state={"zoom": 1})
+    original = authoring.save_workspace(project.id, workflow=_draft(project.id)).draft
+    previous = authoring.save_workspace(project.id, ui_state={"zoom": 1})
     version = authoring.name_version(project.id, name="Original")
     reads: list[tuple[str, int]] = []
     read_record = authoring._read_record
@@ -122,14 +196,21 @@ def test_workspace_writes_reuse_known_content_without_reading_it_back(
     with monkeypatch.context() as scoped:
         scoped.setattr(authoring, "_read_record", observe_read)
         if operation == "draft":
-            saved = authoring.save_draft(
+            saved = authoring.save_workspace(
                 project.id, workflow=_draft(project.id, input_ref="changed"),
                 expected_draft_revision=original.draft_revision,
-            )
+            ).draft
             assert saved.workflow.nodes[0].node_parameters["project_input_ref"] == "changed"
         elif operation == "ui":
-            saved_workspace = authoring.save_ui_state(project.id, ui_state={"zoom": 2})
+            saved_workspace = authoring.save_workspace(project.id, ui_state={"zoom": 2})
             assert saved_workspace.draft == original
+            assert saved_workspace.ui_state == {"zoom": 2}
+        elif operation == "both":
+            saved_workspace = authoring.save_workspace(
+                project.id, workflow=_draft(project.id, input_ref="changed"), ui_state={"zoom": 2},
+            )
+            assert saved_workspace.draft is not None
+            assert saved_workspace.draft.workflow.nodes[0].node_parameters["project_input_ref"] == "changed"
             assert saved_workspace.ui_state == {"zoom": 2}
         elif operation == "name":
             named = authoring.name_version(project.id, name="Same content")
@@ -147,7 +228,10 @@ def test_workspace_writes_reuse_known_content_without_reading_it_back(
             assert fork.ui_state == {"zoom": 3}
 
     content_reads = [entry for entry in reads if entry[0] in {"drafts", "ui-states"}]
-    assert content_reads == ([("drafts", original.draft_revision)] if operation == "ui" else [])
+    assert content_reads == {
+        "ui": [("drafts", original.draft_revision)],
+        "draft": [("ui-states", previous.ui_state_revision)],
+    }.get(operation, [])
     workspace_reads = [entry for entry in reads if entry[0] == "workspaces"]
     assert workspace_reads == [("workspaces", previous.workspace_revision)]
 
@@ -162,8 +246,8 @@ def test_interrupted_workspace_edit_keeps_head_and_never_reuses_written_revision
 ) -> None:
     projects, authoring = _authoring(tmp_path)
     project = projects.create("interrupted edit")
-    authoring.save_draft(project.id, workflow=_draft(project.id))
-    previous = authoring.save_ui_state(project.id, ui_state={"zoom": 1})
+    authoring.save_workspace(project.id, workflow=_draft(project.id))
+    previous = authoring.save_workspace(project.id, ui_state={"zoom": 1})
     version = authoring.name_version(project.id, name="Original")
     write_record = authoring._write_record
 
@@ -178,7 +262,7 @@ def test_interrupted_workspace_edit_keeps_head_and_never_reuses_written_revision
         scoped.setattr(authoring, "_write_record", interrupted_write)
         with pytest.raises(OSError, match="edit interrupted"):
             if operation == "ui":
-                authoring.save_ui_state(project.id, ui_state={"zoom": 2})
+                authoring.save_workspace(project.id, ui_state={"zoom": 2})
             else:
                 authoring.fork_version(
                     project.id, version_id=version.version_id,
@@ -189,7 +273,7 @@ def test_interrupted_workspace_edit_keeps_head_and_never_reuses_written_revision
     _, restarted = _authoring(tmp_path)
     assert restarted.load_workspace(project.id) == previous
     if operation == "ui":
-        saved = restarted.save_ui_state(project.id, ui_state={"zoom": 3})
+        saved = restarted.save_workspace(project.id, ui_state={"zoom": 3})
         assert saved.draft == previous.draft
     else:
         saved = restarted.fork_version(
@@ -210,14 +294,14 @@ def test_published_ui_is_deeply_immutable_and_detached_from_submitted_content(
 ) -> None:
     projects, authoring = _authoring(tmp_path)
     project = projects.create("immutable published UI")
-    authoring.save_draft(project.id, workflow=_draft(project.id))
+    authoring.save_workspace(project.id, workflow=_draft(project.id))
     previous = authoring.load_workspace(project.id)
     version = authoring.name_version(project.id, name="Original")
     positions = {"x": 10}
     collapsed = ["import"]
     ui: dict[str, Any] = {"positions": {"import": positions}, "collapsed": collapsed}
     if operation == "ui":
-        published = authoring.save_ui_state(project.id, ui_state=ui)
+        published = authoring.save_workspace(project.id, ui_state=ui)
     else:
         published = authoring.fork_version(
             project.id, version_id=version.version_id,
@@ -244,14 +328,14 @@ def test_expected_draft_revision_after_return_uses_current_head_not_largest_revi
 ) -> None:
     projects, authoring = _authoring(tmp_path)
     project = projects.create("return then edit")
-    first = authoring.save_draft(project.id, workflow=_draft(project.id))
+    first = authoring.save_workspace(project.id, workflow=_draft(project.id)).draft
     retained = authoring.load_workspace(project.id)
-    later = authoring.save_draft(project.id, workflow=_draft(project.id, input_ref="later"))
+    later = authoring.save_workspace(project.id, workflow=_draft(project.id, input_ref="later")).draft
     returned = authoring.return_workspace(project.id, workspace_revision=retained.workspace_revision)
     assert returned.draft == first
 
     with pytest.raises(WorkflowAuthoringError) as raised:
-        authoring.save_draft(
+        authoring.save_workspace(
             project.id, workflow=_draft(project.id, input_ref="wrong revision"),
             expected_draft_revision=later.draft_revision,
         )
@@ -259,10 +343,10 @@ def test_expected_draft_revision_after_return_uses_current_head_not_largest_revi
     assert raised.value.details == {"field_path": ["expected_draft_revision"]}
     assert authoring.load_workspace(project.id) == returned
 
-    saved = authoring.save_draft(
+    saved = authoring.save_workspace(
         project.id, workflow=_draft(project.id, input_ref="new edit"),
         expected_draft_revision=first.draft_revision,
-    )
+    ).draft
     assert saved.draft_revision == later.draft_revision + 1
     assert authoring.load_draft(project.id) == saved
 
@@ -274,8 +358,8 @@ def test_duplicate_copies_required_inputs_and_ui_without_versions_runs_or_cache(
     source = projects.create("source")
     for ref in ("input-used", "input-unused"):
         projects.publish_input(source.id, ref, b">source\nACDE\n", filename=f"{ref}.fa")
-    authoring.save_draft(source.id, workflow=_draft(source.id))
-    source_workspace = authoring.save_ui_state(source.id, ui_state={"collapsed": ["import"]})
+    authoring.save_workspace(source.id, workflow=_draft(source.id))
+    source_workspace = authoring.save_workspace(source.id, ui_state={"collapsed": ["import"]})
     authoring.name_version(source.id, name="source history")
     for root in (projects.run_storage_root(source.id), projects.result_cache_storage_root(source.id)):
         root.mkdir(parents=True)
@@ -304,8 +388,8 @@ def test_failed_duplicate_cleans_unpublished_target_and_reads_source_once(
     projects, authoring = _authoring(tmp_path)
     source = projects.create("copy source")
     projects.publish_input(source.id, "input-used", b">source\nACDE\n", filename="source.fa")
-    authoring.save_draft(source.id, workflow=_draft(source.id))
-    previous = authoring.save_ui_state(source.id, ui_state={"zoom": 2})
+    authoring.save_workspace(source.id, workflow=_draft(source.id))
+    previous = authoring.save_workspace(source.id, ui_state={"zoom": 2})
     metadata = projects.require_meta(source.id)
     write_record = authoring._write_record
     read_record = authoring._read_record
@@ -403,8 +487,7 @@ def test_public_workspace_history_and_idle_only_deletion(
         assert first.json()["draft"] is None
         assert first.json()["ui_state_revision"] == 0
         draft = _draft(project["id"]).canonical_projection()
-        assert http.put(f"{prefix}/workflow/draft", json={"workflow": draft}).status_code == 200
-        layout = http.put(f"{prefix}/workspace/ui-state", json={"ui_state": {"zoom": 1.2}})
+        layout = http.put(f"{prefix}/workspace", json={"workflow": draft, "ui_state": {"zoom": 1.2}})
         assert layout.status_code == 200
         named = http.post(f"{prefix}/versions", json={"name": "First"})
         validate_response("name_workflow_version", 201, named.json())

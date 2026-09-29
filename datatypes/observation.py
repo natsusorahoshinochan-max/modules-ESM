@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import Any, Literal
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference, ResidueAxisReference
@@ -207,3 +208,75 @@ def validate_pairwise_evidence(value: PairwiseObservationContext) -> None:
         raise ValueError(
             "Pairwise Context requires complete exact axis provenance"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class IntrinsicContextProfile:
+    """Fixed scientific intrinsic Observation Context contract."""
+
+    kind: Literal["intrinsic"] = "intrinsic"
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationContextProfile:
+    """Fixed scientific calibration Observation Context contract."""
+
+    calibration_metric: str
+    calibration_value: int | float
+    calibration_unit: str
+    population_id: str
+    kind: Literal["calibration"] = "calibration"
+
+
+@dataclass(frozen=True, slots=True)
+class PairwiseContextProfile:
+    """Fixed scientific pairwise Observation Context contract."""
+
+    subject_role: str
+    reference_role: str
+    pairing_mode: str
+    normalization: str
+    kind: Literal["pairwise"] = "pairwise"
+
+
+ObservationContextProfile = (
+    IntrinsicContextProfile
+    | CalibrationContextProfile
+    | PairwiseContextProfile
+)
+
+
+def observation_context_profile(context: IntrinsicObservationContext | CalibrationObservationContext | PairwiseObservationContext) -> ObservationContextProfile:
+    """Extract fixed conditions from an admitted actual Observation Context."""
+    if isinstance(context, IntrinsicObservationContext):
+        return IntrinsicContextProfile()
+    if isinstance(context, CalibrationObservationContext):
+        return CalibrationContextProfile(
+            context.calibration_metric, context.calibration_value,
+            context.calibration_unit, context.population_id,
+        )
+    return PairwiseContextProfile(
+        context.subject.role, context.reference.role,
+        context.pairing_mode, context.normalization,
+    )
+
+
+def observation_context_profile_descriptor(profile: ObservationContextProfile) -> dict[str, Any]:
+    """Project fixed scientific conditions without admitting them again."""
+    if isinstance(profile, IntrinsicContextProfile):
+        return {"kind": profile.kind}
+    if isinstance(profile, CalibrationContextProfile):
+        return {
+            "kind": profile.kind,
+            "calibration_metric": profile.calibration_metric,
+            "calibration_value": profile.calibration_value,
+            "calibration_unit": profile.calibration_unit,
+            "population_id": profile.population_id,
+        }
+    return {
+        "kind": profile.kind,
+        "subject_role": profile.subject_role,
+        "reference_role": profile.reference_role,
+        "pairing_mode": profile.pairing_mode,
+        "normalization": profile.normalization,
+    }

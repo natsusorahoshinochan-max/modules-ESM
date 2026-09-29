@@ -1,13 +1,13 @@
-import type { CatalogSnapshot, PromptSnapshot, PublicV2Client, RunProjection, Workflow, WorkflowNode } from './protocol/client'
+import type { CatalogSnapshot, PromptSnapshot, PublicV2Client, Workflow, WorkflowNode } from './protocol/client'
 import type { ParameterChoices } from './WorkflowParameters'
 import { nodeTypePresentation, parameterPresentations, type ParameterValueContract } from './workflow-authoring'
-import { publishedFields } from './result-explorer'
+import type { PublishedResults } from './published-results'
 import { workspaceErrorMessage } from './project-workspace'
 import type { PdbInputInspection } from './input-sources'
 
 export type NodeParameterChoices = { choices: ParameterChoices; source?: string; notice?: string }
 export type WorkflowParameterChoices = Record<string, NodeParameterChoices>
-type ChoicesClient = Pick<PublicV2Client, 'listProjectInputs' | 'inspectProjectInput' | 'openPrompt' | 'typedValue' | 'compareWorkflowScience'>
+type ChoicesClient = Pick<PublicV2Client, 'listProjectInputs' | 'inspectProjectInput' | 'openPrompt' | 'compareWorkflowScience'>
 const residueFields = new Set(['residue_id', 'residue_ids', 'designable_residue_ids', 'fixed_residue_ids', 'tied_residue_groups'])
 const chainFields = new Set(['chain_ids', 'designed_chains', 'fixed_chains'])
 const axisType = 'structure_transform.resolved_residue_axis'
@@ -45,7 +45,9 @@ function sourcePreview(workflow: Workflow, source: WorkflowNode, outputPort: str
 }
 
 /** Choices are suggestions from exact source facts; existing parameter values are never rewritten. */
-export async function loadWorkflowParameterChoices(client: ChoicesClient, projectId: string, workflow: Workflow, catalog: CatalogSnapshot, publishedRun?: RunProjection): Promise<WorkflowParameterChoices> {
+export async function loadWorkflowParameterChoices(client: ChoicesClient, projectId: string, workflow: Workflow, catalog: CatalogSnapshot, results?: PublishedResults): Promise<WorkflowParameterChoices> {
+  const reading = results?.captureReading()
+  const publishedRun = reading?.run
   const { inputs } = await client.listProjectInputs(projectId)
   const inputChoices = inputs.map(input => ({ value: input.project_input_ref, label: `${input.filename} · ${input.project_input_ref}` }))
   const sourceLoads = new Map<string, Promise<NodeParameterChoices>>()
@@ -64,11 +66,13 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
       if (output) {
         comparison ??= client.compareWorkflowScience(publishedRun!.project_id, publishedRun!.workflow_commit_id, projectId, workflow)
         if ((await comparison).status !== 'current') return { choices: {}, notice: `${sourceLabel} 的已发布残基轴尚未确认与当前流程一致；请先执行当前来源。` }
-        const payload = await client.typedValue(publishedRun!.project_id, publishedRun!.run_id, source.node_id, outputPort)
-        const axis = publishedFields(payload.value) as { layout: { residue_ids: string[] }; segments: Array<{ chain_id: string }> }
+        const payload = await reading!.value({ node_id: source.node_id, output_port: outputPort, value_index: 0 })
+        if (!payload) return { choices: {} }
+        if (payload.kind !== 'axis_layout') throw new Error('已发布来源不是残基轴布局')
+        const axis = payload.value
         return { choices: {
-          chains: [...new Set(axis.segments.map(segment => segment.chain_id))].map(value => ({ value, label: `Chain ${value}` })),
-          residues: axis.layout.residue_ids.map(value => ({ value, label: value })),
+          chains: [...new Set(axis.chain_ids)].map(value => ({ value, label: `Chain ${value}` })),
+          residues: axis.residue_ids.map(value => ({ value, label: value })),
         }, source: `${sourceLabel} · Run ${publishedRun!.run_id}` }
       }
       const canPreview = portType === 'protein.prompt' || portType === 'protein.structure' || source.node_type_id === 'structure_transform.resolve_residue_axis'
@@ -87,12 +91,12 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
     const parameters = parameterPresentations(catalog, node)
     const choices: ParameterChoices = Object.fromEntries(parameters.filter(parameter => parameter.resourceKind === 'project_input').map(parameter => [parameter.key, inputChoices]))
     if (!parameters.some(parameter => needsLayout(parameter.key, parameter.contract))) return [node.node_id, { choices, ...(Object.keys(choices).length && !inputs.length ? { notice: '项目暂无 Input；可通过“添加来源”上传或粘贴输入。' } : {}) }]
-    const inputsByPort = nodeTypePresentation(catalog, node.node_type_id).inputPortTypes
-    const edges = workflow.edges.filter(edge => edge.target_node_id === node.node_id && [axisType, 'protein.prompt', 'protein.structure'].includes(inputsByPort[edge.target_port]))
+    const inputPorts = nodeTypePresentation(catalog, node.node_type_id).inputs
+    const edges = workflow.edges.filter(edge => edge.target_node_id === node.node_id && [axisType, 'protein.prompt', 'protein.structure'].includes(inputPorts.find(port => port.name === edge.target_port)!.portTypeId))
     if (edges.length !== 1) return [node.node_id, { choices, notice: edges.length ? '存在多个布局来源；尚无唯一的参数选项依据。' : '尚未连接可读取的结构、Prompt 或残基轴来源；已有参数值仍保留。' }]
     const edge = edges[0]
     try {
-      const source = await loadSource(workflow.nodes.find(item => item.node_id === edge.source_node_id)!, edge.source_port, inputsByPort[edge.target_port])
+      const source = await loadSource(workflow.nodes.find(item => item.node_id === edge.source_node_id)!, edge.source_port, inputPorts.find(port => port.name === edge.target_port)!.portTypeId)
       return [node.node_id, { ...source, choices: { ...choices, ...source.choices } }]
     } catch (reason) {
       return [node.node_id, { choices, notice: `来源 ${edge.source_node_id} / ${edge.source_port} 无法提供选项：${workspaceErrorMessage(reason)}` }]

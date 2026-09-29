@@ -1,6 +1,6 @@
-# Catalog、Selection 与 Run 阅读：当前架构
+# Catalog、Selection 与 Run 阅读：09-21 阶段架构
 
-状态：04 / 12 / 07 已实现并完成全部远端验收；05 暂缓。实施基线：`2b83d8e3`。证据与删除统计见[验收记录](2026-09-21-catalog-selection-run-acceptance.md)。
+状态：04 / 12 / 07 已实现并完成远端验收，原实施基线为 `2b83d8e3`，该阶段证据见[验收记录](2026-09-21-catalog-selection-run-acceptance.md)。后续 04 / 05 / 06 改造也已完成实施与完整验收；最终接口和职责以[结构优化设计](2026-09-22-architecture-04-05-06-design.md)为准。下文 04 / 12 / 07 记录原阶段的实现边界，不作为后续改造接口的定义。
 
 沿用[科学单次准入与 I-JSON 分工](2026-09-21-single-admission-i-json-design.md)。ADR 仅作历史背景。职责集中通过删除重复解析、包装和状态实现，不增加兼容路径、registry、验证凭据、缓存框架或状态机。
 
@@ -77,13 +77,13 @@ REST `ledger_cursor` 与 WS 已接收 cursor 是不同事实；重连使用后�
 
 App 保留 Workflow 编辑、scope preview、commit/start/cancel、操作错误、science comparison 与 Project `latest_run_id` 同步。App 不再保存 RunProgress 镜像或跨 Run 阅读字典。start receipt 至首个 REST 返回之间，已有会话表示正在读取的 Run，防止重复启动；不增加启动状态机。
 
-## 05：科学阅读投影暂缓
+## 05：已完成的阅读边界改造
 
-当前 ResultBrowser 仍位于 core，负责既有 Candidate page/detail。前端继续解释已发布 Score/axis/alignment 等 wire，完成完整引用关联、分页消费及 ZIP/FASTA/CSV 导出。没有新增 public 科学投影路由。
+本轮原始基线中的 ResultBrowser 位于 core，负责 Candidate page/detail；前端解释已发布 Score/axis/alignment 等 wire。该划分现由后续 04 / 05 / 06 改造替换：public 组合科学 owner 的阅读投影，PublishedResults 统一会话、读取、关联及导出准备。
 
-已确认的后续职责方向是 public 组合层统一科学阅读投影，前端保留消费职责。但独立估算新增六类投影、协议和客户端形状会使生产实现净增约 200–450 行；这是静态估算，不是实施统计，因此未进入本轮实现。
+05 已完成 public 阅读投影、PublishedResults 会话与导出准备的消费者迁移。最终接口及验证证据见[04 / 05 / 06 结构优化设计](2026-09-22-architecture-04-05-06-design.md)和[完整验收记录](2026-09-24-architecture-04-05-06-acceptance.md)。
 
-重新纳入的条件是：同一范围内全栈生产实现净减少，且不重复科学字段解释。不能用其他候选的删除抵消本项增长，不能放宽协议为任意 JSON、增加展示 callback/registry/visitor，或扩大为后端导出与整 Run 查询系统。canonical 下载正文、科学 identity、原始值查看和前端精确引用关联均保持其职责。
+评价目标是明确职责、让同一科学事实只有一个 owner、形成清晰的 seam，并消除重复解释和编排。合理新增代码可以换取更深的 module 和更好的 locality；净行数减少不再是进入设计或验收的门槛，仅移动文件不构成结构收益。实现保留 canonical 下载正文、科学 identity、原始值查看和精确引用关联的语义，不能通过重复校验、兼容路径或无实际消费者的抽象换取表面统一。下方历史验收只认证原始基线；后续改造由上述 09-24 验收记录认证。
 
 ## 验收与持续约束
 

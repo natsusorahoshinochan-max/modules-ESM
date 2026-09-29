@@ -9,7 +9,6 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     EffectiveRandomnessResolver,
     EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
@@ -19,6 +18,7 @@ from core.catalog.declarations import (
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -109,11 +109,11 @@ ESM3_MEAN_PLDDT_UTILITY = UtilityTransformDefinition(
         "esm3_medium_2024_08.percent_to_unit"
     ),
     compatible_input_contract={
-        "metric": ContractIdentity(
+        "metric": ExactContractReference(
             "metric",
             "structure.plddt.mean_residue",
         ),
-        "method": ContractIdentity(
+        "method": ExactContractReference(
             "method",
             "esm3.generate_paired.esm3_medium_2024_08",
         ),
@@ -184,11 +184,11 @@ def _esmc_binding() -> ExecutionBindingDefinition:
         binding_id=(
             "esm3.represent_sequence.biohub_esmc_600m_2024_12"
         ),
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "esm3.represent_sequence",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             "esm3.represent_sequence.esmc_600m_2024_12",
         ),
@@ -485,11 +485,11 @@ def _binding(
     method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.{model['route']}",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"esm3.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),
@@ -551,11 +551,11 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
     method_id = f"esm3.{operation}.esm3_sm_open_v1_local"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.local_open",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"esm3.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),

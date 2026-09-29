@@ -8,7 +8,7 @@ import math
 from typing import Any
 
 from core.operation import OperationCall
-from core.scoring.observation_plan import ResolvedProducedObservation
+from core.catalog.observation import ProducedObservation
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import (
     ExactContractReference,
@@ -184,7 +184,7 @@ class SimpleFoldConfidenceImplementation:
         *,
         adapter: SimpleFoldConfidenceAdapter,
         method: ExactContractReference,
-        produced_observations: Sequence[ResolvedProducedObservation],
+        produced_observations: Sequence[ProducedObservation],
     ) -> None:
         self._adapter = adapter
         self._method = method

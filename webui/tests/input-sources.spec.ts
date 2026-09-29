@@ -9,9 +9,9 @@ async function sourceWorkspace(request: APIRequestContext) {
   const project = await projectResponse.json() as { id: string }
   const base = `/api/v2/projects/${project.id}`
   const workflow: Workflow = { schema_version: '2.1.0', workflow_id: project.id, nodes: [], edges: [], observation_selectors: [], selection_objectives: [] }
-  const saved = await request.put(`${base}/workflow/draft`, { data: { workflow } })
+  const saved = await request.put(`${base}/workspace`, { data: { workflow } })
   expect(saved.status()).toBe(200)
-  const draft = await saved.json() as WorkflowDraft
+  const draft = (await saved.json()).draft as WorkflowDraft
   const catalog = await (await request.get('/api/v2/catalog')).json() as CatalogSnapshot
   return { base, workflow, draft, catalog }
 }
@@ -27,14 +27,14 @@ async function openPersonalSourceDialog(page: Page) {
   const generation = page.getByTestId('rf__node-generate-paired')
   await generation.getByLabel('编辑参数').click()
   await generation.getByLabel('有效种子').fill('2709')
-  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workspace') && response.request().postDataJSON().workflow)
   await generation.getByLabel('有效种子').press('Tab')
   const response = await saving
-  const draft = await response.json() as WorkflowDraft
+  const draft = (await response.json()).draft as WorkflowDraft
   await page.getByRole('button', { name: '添加来源', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '添加来源', exact: true })
   await expect(dialog).toBeVisible()
-  return { dialog, draft, url: response.url() }
+  return { dialog, draft, url: response.url().replace('/workspace', '/workflow/draft') }
 }
 
 test('source dialog uploads and inspects pasted input but cancel preserves the current Workflow', async ({ page }) => {
@@ -73,7 +73,7 @@ test('source dialog reports the invalid record and blocks the entire batch impor
   expect(await (await page.request.get(url)).json()).toEqual(draft)
 })
 
-test('FASTA Prompt stages explicit multi-chain layout and publishes graph only with final apply', async ({ request }) => {
+test('FASTA Prompt stages explicit multi-chain layout and publishes the complete graph only on final confirmation', async ({ request }) => {
   const { base, workflow, draft, catalog } = await sourceWorkspace(request)
   const input = await publish(request, base, 'records.fasta', '>same\nACD\n>same\nEFG\n>\nH\n')
   const inspected = await request.post(`${base}/inputs/${input.project_input_ref}:inspect`, { data: { format: 'fasta' } })
@@ -95,7 +95,8 @@ test('FASTA Prompt stages explicit multi-chain layout and publishes graph only w
   expect(await (await request.get(`${base}/workflow/draft`)).json()).toEqual(draft)
   const inputs = await (await request.get(`${base}/inputs`)).json() as { inputs: ProjectInputPublication[] }
   expect(inputs.inputs).toContainEqual(input)
-  const applied = await request.post(`${base}/prompt-authoring:apply`, { data: { node_id: plan.nodeId, workflow: plan.workflow, document: preview.normalized_document, expected_draft_revision: draft.draft_revision } })
+  const confirmedWorkflow = { ...plan.workflow, nodes: plan.workflow.nodes.map(node => node.node_id === plan.nodeId ? { ...node, node_parameters: { ...node.node_parameters, document: preview.normalized_document } } : node) }
+  const applied = await request.put(`${base}/workspace`, { data: { workflow: confirmedWorkflow, expected_draft_revision: draft.draft_revision } })
   expect(applied.status()).toBe(200)
   const saved = (await applied.json()).draft as WorkflowDraft
   expect(saved.workflow.nodes.map(node => node.node_type_id)).toEqual(['protein_io.import_sequence', 'prompt_authoring.author'])
@@ -124,7 +125,7 @@ test('PDB chain choice is represented by ordinary selection and axis nodes', asy
 test('adding a merge source exposes manual input without adopting values or allowing cycles', async ({ request }) => {
   const { base, workflow, catalog } = await sourceWorkspace(request)
   const target = preparePromptSource(workflow, catalog, { kind: 'blank', chains: [{ chain_id: 'A', length: 3 }] })
-  expect((await request.put(`${base}/workflow/draft`, { data: { workflow: target.workflow } })).status()).toBe(200)
+  expect((await request.put(`${base}/workspace`, { data: { workflow: target.workflow } })).status()).toBe(200)
   const input = await publish(request, base, 'merge.fasta', '>source\nACD\n')
   const plan = preparePromptSource(target.workflow, catalog, { kind: 'fasta', projectInputRef: input.project_input_ref, chains: [{ chain_id: 'A', length: 3 }] }, target.nodeId)
   expect(plan.nodeId).toBe(target.nodeId)
@@ -157,4 +158,118 @@ test('batch FASTA retains duplicate records as independent Candidates through a 
   const candidates = await collection.json()
   expect(candidates.items.map((item: { sequence: string }) => item.sequence)).toEqual(['ACD', 'ACD', 'EFG'])
   expect(new Set(candidates.items.map((item: { reference: { candidate_id: string } }) => item.reference.candidate_id)).size).toBe(3)
+})
+
+test('opening and cancelling tutorial source and merge dialogs does not create a personal copy', async ({ page }) => {
+  const copies: string[] = []
+  const writes: string[] = []
+  page.on('request', outgoing => {
+    if (outgoing.method() === 'POST' && outgoing.url().endsWith(':copy')) copies.push(outgoing.url())
+    if (outgoing.method() === 'PUT' && outgoing.url().endsWith('/workspace')) writes.push(outgoing.url())
+  })
+  await page.goto('/')
+  await expect(page.getByText('只读示例')).toBeVisible()
+  await page.getByRole('button', { name: '添加来源', exact: true }).click()
+  const source = page.getByRole('dialog', { name: '添加来源', exact: true })
+  await expect(source).toBeVisible()
+  await source.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(source).toHaveCount(0)
+  expect(copies).toEqual([])
+  expect(writes).toEqual([])
+  await page.getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '合并来源', exact: true }).click()
+  await page.getByRole('button', { name: '添加合并来源', exact: true }).click()
+  const merge = page.getByRole('dialog', { name: '添加手动合并来源', exact: true })
+  await expect(merge).toBeVisible()
+  await merge.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(merge).toHaveCount(0)
+  await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).toBeVisible()
+  expect(copies).toEqual([])
+  expect(writes).toEqual([])
+})
+
+test('publishing a tutorial Input copies once and maps upload, preview and confirmed Workflow to that copy', async ({ page, request }) => {
+  const copies: string[] = []
+  page.on('request', outgoing => {
+    if (outgoing.method() === 'POST' && outgoing.url().endsWith(':copy')) copies.push(outgoing.url())
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '添加来源', exact: true }).click()
+  const source = page.getByRole('dialog', { name: '添加来源', exact: true })
+  await source.getByRole('button', { name: /FASTA → Prompt/ }).click()
+  await source.getByRole('button', { name: '粘贴文本', exact: true }).click()
+  await source.getByLabel('来源文本').fill('>new source\nACD\n')
+  expect(copies).toEqual([])
+  const copiedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(':copy'))
+  const publishedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/inputs'))
+  const inspectedResponse = page.waitForResponse(response => response.url().endsWith(':inspect') && response.request().postDataJSON().format === 'fasta')
+  await source.getByRole('button', { name: '上传并检查输入', exact: true }).click()
+  const copied = await (await copiedResponse).json() as { id: string; copied_from_project_id: string }
+  const published = await publishedResponse
+  expect(published.status()).toBe(201)
+  expect(published.url()).toContain(`/projects/${copied.id}/inputs`)
+  const inspection = await inspectedResponse
+  expect(inspection.status()).toBe(200)
+  expect(inspection.url()).toContain(`/projects/${copied.id}/inputs/`)
+  const original = await (await request.get(`/api/v2/projects/${copied.copied_from_project_id}/workspace`)).json()
+  await expect(source.getByRole('heading', { name: '1 条记录 · 3 个残基' })).toBeVisible()
+  const openedResponse = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open'))
+  await source.getByRole('button', { name: '进入 Prompt 预览', exact: true }).click()
+  const opened = await openedResponse
+  expect(opened.status()).toBe(200)
+  expect(opened.url()).toContain(`/projects/${copied.id}/`)
+  expect(opened.request().postDataJSON().workflow.workflow_id).toBe(copied.id)
+  const savedResponse = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/projects/${copied.id}/workspace`) && response.request().postDataJSON().workflow)
+  await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
+  const saved = await savedResponse
+  expect(saved.status()).toBe(200)
+  expect(saved.request().postDataJSON().workflow.workflow_id).toBe(copied.id)
+  expect(copies).toHaveLength(1)
+  expect(await (await request.get(`/api/v2/projects/${copied.copied_from_project_id}/workspace`)).json()).toEqual(original)
+})
+
+test('a tutorial blank Prompt preview can be cancelled without copying or publishing its staged graph', async ({ page, request }) => {
+  const copies: string[] = []
+  const writes: string[] = []
+  page.on('request', outgoing => {
+    if (outgoing.method() === 'POST' && outgoing.url().endsWith(':copy')) copies.push(outgoing.url())
+    if (outgoing.method() === 'PUT' && outgoing.url().endsWith('/workspace')) writes.push(outgoing.url())
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '添加来源', exact: true }).click()
+  const source = page.getByRole('dialog', { name: '添加来源', exact: true })
+  await source.getByLabel('来源 Chain 1 length').fill('3')
+  const openedResponse = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open'))
+  await source.getByRole('button', { name: '进入 Prompt 预览', exact: true }).click()
+  const opened = await openedResponse
+  expect(opened.status()).toBe(200)
+  const base = opened.url().replace('/prompt-authoring:open', '')
+  const before = await (await request.get(`${base}/workspace`)).json()
+  await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '返回 Workflow', exact: true }).click()
+  await expect(page.getByRole('button', { name: '添加来源', exact: true })).toBeVisible()
+  expect(await (await request.get(`${base}/workspace`)).json()).toEqual(before)
+  expect(copies).toEqual([])
+  expect(writes).toEqual([])
+})
+
+test('switching source file modes never uploads an invisible previous file', async ({ page }) => {
+  const { dialog } = await openPersonalSourceDialog(page)
+  await dialog.getByRole('button', { name: /FASTA → Prompt/ }).click()
+  await dialog.getByLabel('来源文件').setInputFiles({ name: 'sequence.fa', mimeType: 'text/plain', buffer: Buffer.from('>one\nACDE\n') })
+  await expect(dialog.getByRole('button', { name: '上传并检查输入', exact: true })).toBeEnabled()
+  await dialog.getByRole('button', { name: '粘贴文本', exact: true }).click()
+  await dialog.getByRole('button', { name: '上传文件', exact: true }).click()
+  await expect(dialog.getByLabel('来源文件')).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: '上传并检查输入', exact: true })).toBeDisabled()
+  await dialog.getByLabel('来源文件').setInputFiles({ name: 'sequence.fa', mimeType: 'text/plain', buffer: Buffer.from('>one\nACDE\n') })
+  await dialog.getByRole('button', { name: /PDB → Prompt/ }).click()
+  await expect(dialog.getByLabel('来源文件')).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: '上传并检查输入', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: /FASTA → Prompt/ }).click()
+  await dialog.getByLabel('来源文件').setInputFiles({ name: 'sequence.fa', mimeType: 'text/plain', buffer: Buffer.from('>one\nACDE\n') })
+  await dialog.getByRole('button', { name: /FASTA → Prompt/ }).click()
+  await expect(dialog.getByRole('button', { name: '上传并检查输入', exact: true })).toBeEnabled()
 })

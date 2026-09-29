@@ -10,12 +10,13 @@ from typing import Any
 
 from core.catalog.declarations import (
     AvailabilityResult,
-    ContractIdentity,
     EffectiveRandomnessResolver,
     EnvironmentFieldDeclaration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from core.catalog.observation import ProducedObservation, ObservationPortSource, ObservationPropagation, ObservationPropagationFilter
+from datatypes.observation import IntrinsicContextProfile, CalibrationContextProfile, PairwiseContextProfile, ObservationContextProfile
 from core.catalog.model import CatalogAvailabilityProjection, CatalogContract
 from core.catalog.port_contract import BehaviorReference
 from core.operation import ReadinessResult
@@ -30,8 +31,8 @@ _REFERENCE_FIELDS = {
 _AVAILABLE = AvailabilityResult.available()
 
 
-def _identity(value: Mapping[str, Any]) -> ContractIdentity:
-    return ContractIdentity(
+def _identity(value: Mapping[str, Any]) -> ExactContractReference:
+    return ExactContractReference(
         value["contract_kind"],
         value["contract_id"],
     )
@@ -80,44 +81,47 @@ def _updated(value: Any, **changes: Any) -> Any:
     return SimpleNamespace(**{**vars(value), **changes})
 
 
-def _produced_observation(
-    value: Mapping[str, Any],
-) -> SimpleNamespace:
-    fields = dict(value)
-    fields["metric"] = _identity(value["metric"])
-    for name in (
-        "reference_direction", "reference_port", "pairing_direction",
-        "pairing_port", "axis_direction", "axis_port",
-        "method_direction", "method_port",
-    ):
-        fields.setdefault(name, None)
-    return SimpleNamespace(**fields)
+def _profile(value: Mapping[str, Any]) -> ObservationContextProfile:
+    constructors = {
+        "intrinsic": IntrinsicContextProfile,
+        "calibration": CalibrationContextProfile,
+        "pairwise": PairwiseContextProfile,
+    }
+    return constructors[value["kind"]](**value)
 
 
-def _propagation(
-    value: Mapping[str, Any] | None,
-) -> SimpleNamespace | None:
+def _produced_observation(value: Mapping[str, Any]) -> ProducedObservation:
+    return ProducedObservation(
+        output_port=value["output_port"],
+        output_partition=value["output_partition"],
+        metric=_identity(value["metric"]),
+        context_profile=_profile(value["context_profile"]),
+        subject_input=value["subject_port"],
+        guaranteed_multiplicity=value["guaranteed_multiplicity"],
+        **{
+            f"{name}_source": (
+                ObservationPortSource(value[f"{name}_direction"], value[f"{name}_port"])
+                if value.get(f"{name}_port") is not None else None
+            )
+            for name in ("reference", "pairing", "axis", "method")
+        },
+    )
+
+
+def _propagation(value: Mapping[str, Any] | None) -> ObservationPropagation | None:
     if value is None:
         return None
     filter_value = value.get("filter")
-    return SimpleNamespace(
-        mode=value["mode"],
-        output_port=value["output_port"],
+    return ObservationPropagation(
+        mode=value["mode"], output_port=value["output_port"],
         input_ports=tuple(value["input_ports"]),
-        filter=(
-            None
-            if filter_value is None
-            else {
-                **filter_value,
-                **{
-                    name: _identity(filter_value[name])
-                    for name in ("metric", "method")
-                    if filter_value.get(name) is not None
-                },
-            }
-        ),
+        filter=(None if filter_value is None else ObservationPropagationFilter(
+            source_partition=filter_value.get("source_partition"),
+            metric=_identity(filter_value["metric"]) if filter_value.get("metric") else None,
+            method=_identity(filter_value["method"]) if filter_value.get("method") else None,
+            context_profile=_profile(filter_value["context_profile"]) if filter_value.get("context_profile") else None,
+        )),
         absent_input_policy=value.get("absent_input_policy", "reject"),
-
     )
 
 
@@ -140,7 +144,7 @@ def catalog_contract(
     )
     if contract_kind == "node_type":
         definition = SimpleNamespace(
-            identity=ContractIdentity(
+            identity=ExactContractReference(
                 "node_type",
                 contract_id,
             ),

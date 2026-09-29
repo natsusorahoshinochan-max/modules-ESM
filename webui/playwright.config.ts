@@ -11,6 +11,8 @@ export default defineConfig({
   workers: 4,
   use: {
     baseURL: 'http://127.0.0.1:5179',
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
     viewport: { width: 1600, height: 1000 },
   },
   webServer: [

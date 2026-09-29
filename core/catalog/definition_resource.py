@@ -8,11 +8,11 @@ from typing import Any, Literal
 
 import yaml
 
+from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, validate_i_json
 
 from .declarations import (
     CatalogDefinition,
-    ContractIdentity,
     MethodDefinition,
     MetricDefinition,
     ModulePackageRegistration,
@@ -96,7 +96,7 @@ def _parse_port(
         },
     )
     _require_identifier(port["name"], f"{resource_name}.name")
-    reference = ContractIdentity(
+    reference = ExactContractReference(
         "port_type",
         port["port_type_id"],
     )

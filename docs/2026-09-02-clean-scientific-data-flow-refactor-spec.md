@@ -695,7 +695,7 @@ Resolver 输出按输入 Candidate Collection 顺序排列的 `subject + residue
 ## 16. 当前实现约束
 
 实现遵循以下约束。测试覆盖见[科学回归测试覆盖位置](2026-09-07-scientific-regression-test-migration.md)，
-最新完整验收见[Catalog、Selection 与 Run 阅读验收记录](2026-09-21-catalog-selection-run-acceptance.md)：
+最新完整验收见[端口展示与连线编辑验收记录](2026-09-24-port-connections-acceptance.md)：
 
 1. 所有逐 residue Port value 都自带 authoritative layout；
 2. aggregate 不再与平行 layout outputs 分叉；

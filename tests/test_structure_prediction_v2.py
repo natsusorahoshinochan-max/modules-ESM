@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.observation import ObservationPortSource
+
 from dataclasses import replace
 
 import pytest
@@ -12,10 +14,9 @@ from core.catalog.builder import (
 from core.operation import (
     OperationCall,
 )
-from core.scoring.observation_plan import (
-    IntrinsicContextProfile,
-    ResolvedProducedObservation,
-)
+
+from core.catalog.observation import ProducedObservation
+from datatypes.observation import IntrinsicContextProfile
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -313,23 +314,18 @@ def _produced_observation(
     *,
     has_axis: bool,
     multiplicity: str = "one",
-) -> ResolvedProducedObservation:
-    return ResolvedProducedObservation(
+) -> ProducedObservation:
+    return ProducedObservation(
         output_port="observations",
         output_partition="prediction_confidence",
         metric=ExactContractReference(
             "metric",
             metric_id),
         context_profile=IntrinsicContextProfile(),
-        subject_grain="candidate",
-        source_role="subject",
-        subject_direction="input",
-        subject_port="structure_candidates",
+        subject_input="structure_candidates",
         guaranteed_multiplicity=multiplicity,
-        axis_direction="input" if has_axis else None,
-        axis_port="confidence_facts" if has_axis else None,
-        method_direction="input",
-        method_port="confidence_facts",
+        axis_source=(ObservationPortSource("input", "confidence_facts") if has_axis else None),
+        method_source=ObservationPortSource("input", "confidence_facts"),
     )
 
 

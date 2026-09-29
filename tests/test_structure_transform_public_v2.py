@@ -228,7 +228,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             "nodes": nodes,
             "edges": edges}
         saved = public_request(
-            "save_project_workflow_draft",
+            "save_project_workspace",
             {
                 "project_id": project_id,
                 "workflow": workflow,
@@ -240,7 +240,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             {"project_id": project_id},
             200,
         ).json()
-        assert draft == saved
+        assert draft == saved["draft"]
         committed = public_request(
             "commit_project_workflow",
             {

@@ -27,8 +27,6 @@ from core.project.storage import write_new_file, write_new_file_durable
 from core.workflow.compiler import CompilationRequest, compile
 from core.workflow.document import (
     WorkflowDocument,
-    WorkflowEdge,
-    WorkflowNodeInstance,
     workflow_document_from_canonical,
 )
 from core.workflow.errors import WorkflowCompileError
@@ -350,20 +348,6 @@ class WorkflowAuthoringService:
             head.source_version_id, head.return_workspace_revision,
         )
 
-    def save_ui_state(
-        self, project_id: str, *, ui_state: Mapping[str, Any],
-    ) -> ProjectWorkspace:
-        """Persist opaque UI state separately from scientific Draft content."""
-        self._require_project(project_id)
-        self._require_writable_project(project_id)
-        current = self._read_workspace_head(project_id)
-        ui_revision = self._publish_ui_state(project_id, ui_state)
-        head = self._publish_workspace(
-            project_id, replace(current, ui_state_revision=ui_revision),
-        )
-        self._projects.touch(project_id)
-        return self._workspace_value(project_id, head, ui_state=ui_state)
-
     def list_versions(self, project_id: str) -> tuple[WorkflowVersion, ...]:
         """List immutable named Draft/UI snapshots, newest first."""
         self._require_project(project_id)
@@ -426,15 +410,14 @@ class WorkflowAuthoringService:
         self._read_version(project_id, version_id)
         self._read_workspace_head(project_id, return_workspace_revision)
         self._validate_draft_submission(project_id, workflow)
-        draft = self._append_draft(project_id, workflow)
-        ui_revision = self._publish_ui_state(project_id, ui_state)
-        head = self._publish_workspace(project_id, _WorkspaceHead(
-            draft_revision=draft.draft_revision, ui_state_revision=ui_revision,
-            source_version_id=version_id,
-            return_workspace_revision=return_workspace_revision,
-        ))
-        self._projects.touch(project_id)
-        return self._workspace_value(project_id, head, draft=draft, ui_state=ui_state)
+        return self._save_workspace_content(
+            project_id,
+            _WorkspaceHead(
+                source_version_id=version_id,
+                return_workspace_revision=return_workspace_revision,
+            ),
+            workflow=workflow, ui_state=ui_state,
+        )
 
     def return_workspace(
         self, project_id: str, *, workspace_revision: int,
@@ -478,26 +461,49 @@ class WorkflowAuthoringService:
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
 
-    def save_draft(
+    def save_workspace(
         self,
         project_id: str,
         *,
-        workflow: WorkflowDocument,
+        workflow: WorkflowDocument | None = None,
+        ui_state: Mapping[str, Any] | None = None,
         expected_draft_revision: int | None = None,
-    ) -> WorkflowDraft:
-        """Persist a Draft without requiring it to compile."""
+    ) -> ProjectWorkspace:
+        """Publish all submitted parts of one edit in a single workspace record."""
         self._require_project(project_id)
         self._require_writable_project(project_id)
-        self._validate_draft_submission(project_id, workflow)
+        if workflow is not None:
+            self._validate_draft_submission(project_id, workflow)
         current = self._read_workspace_head(project_id)
         if expected_draft_revision is not None and expected_draft_revision != current.draft_revision:
             raise WorkflowAuthoringError(
-                "malformed_request", "Workflow changed while Prompt Studio was open; reopen before saving",
+                "malformed_request", "Workflow changed while the editor was open; reopen before saving",
                 details={"field_path": ["expected_draft_revision"]},
             )
-        draft = self._publish_draft(project_id, current, workflow)
+        return self._save_workspace_content(
+            project_id, current, workflow=workflow, ui_state=ui_state,
+        )
+
+    def _save_workspace_content(
+        self, project_id: str, current: _WorkspaceHead, *,
+        workflow: WorkflowDocument | None = None,
+        ui_state: Mapping[str, Any] | None = None,
+    ) -> ProjectWorkspace:
+        """Append admitted content, publish once, then touch Project metadata."""
+        draft = self._append_draft(project_id, workflow) if workflow is not None else None
+        ui_revision = (
+            self._publish_ui_state(project_id, ui_state)
+            if ui_state is not None else current.ui_state_revision
+        )
+        head = self._publish_workspace(
+            project_id, replace(
+                current,
+                draft_revision=draft.draft_revision if draft is not None else current.draft_revision,
+                ui_state_revision=ui_revision,
+            ),
+        )
         self._projects.touch(project_id)
-        return draft
+        return self._workspace_value(project_id, head, draft=draft, ui_state=ui_state)
 
     def copy_project(self, source_project_id: str, *, name: str) -> ProjectMeta:
         """Create the first personal copy of one protected example Project."""
@@ -573,71 +579,6 @@ class WorkflowAuthoringService:
             {"workflow": draft.workflow.canonical_projection()},
         )
         return draft
-
-    def _publish_draft(
-        self, project_id: str, head: _WorkspaceHead, workflow: WorkflowDocument,
-    ) -> WorkflowDraft:
-        draft = self._append_draft(project_id, workflow)
-        self._publish_workspace(
-            project_id, replace(head, draft_revision=draft.draft_revision),
-        )
-        return draft
-
-    def update_node_parameters(
-        self,
-        project_id: str,
-        *,
-        node_id: str,
-        node_parameters: Mapping[str, Any],
-    ) -> WorkflowDraft:
-        """Replace one ordinary Node Instance's parameters in the Draft.
-
-        Prompt Studio uses this to write a previewed ``document`` parameter
-        back onto the edited ``prompt_authoring.author`` Node Instance. The
-        whole Draft is re-persisted as a new immutable revision.
-        """
-        self._require_project(project_id)
-        self._require_writable_project(project_id)
-        head = self._read_workspace_head(project_id)
-        draft = self._load_draft_revision(
-            project_id, self._require_draft_revision(project_id, head),
-        )
-        found = False
-        nodes: list[WorkflowNodeInstance] = []
-        for node in draft.workflow.nodes:
-            if node.node_id == node_id:
-                found = True
-                nodes.append(
-                    WorkflowNodeInstance(
-                        node.node_id,
-                        node.node_type_id,
-                        node.binding_id,
-                        node_parameters,
-                        node.binding_parameters,
-                    )
-                )
-            else:
-                nodes.append(node)
-        if not found:
-            raise WorkflowAuthoringError(
-                "workflow_draft_not_found",
-                "Workflow Node Instance was not found",
-                details={
-                    "resource_kind": "workflow_node_instance",
-                    "resource_id": node_id,
-                },
-            )
-        workflow = WorkflowDocument(
-            draft.workflow.schema_version,
-            draft.workflow.workflow_id,
-            tuple(nodes),
-            draft.workflow.edges,
-            draft.workflow.observation_selectors,
-            draft.workflow.selection_objectives,
-        )
-        updated = self._publish_draft(project_id, head, workflow)
-        self._projects.touch(project_id)
-        return updated
 
     @staticmethod
     def _commit_value(
@@ -830,7 +771,7 @@ class WorkflowAuthoringService:
         workflow: WorkflowDocument,
     ) -> WorkflowCommit:
         """Save, compile, and publish one runnable Workflow Commit."""
-        draft = self.save_draft(project_id, workflow=workflow)
+        draft = cast(WorkflowDraft, self.save_workspace(project_id, workflow=workflow).draft)
         commit_record_revision = (
             self._latest_record_revision(project_id, "commits") + 1
         )
@@ -908,9 +849,9 @@ class WorkflowAuthoringService:
             )
         commit_revision = self._latest_record_revision(project_id, "commits")
         if commit_revision == 0:
-            draft = self._publish_draft(
-                project_id, self._read_workspace_head(project_id), workflow,
-            )
+            draft = cast(WorkflowDraft, self._save_workspace_content(
+                project_id, self._read_workspace_head(project_id), workflow=workflow,
+            ).draft)
             commit = self._commit_value(
                 project_id=project_id,
                 workflow=workflow,
@@ -958,9 +899,9 @@ class WorkflowAuthoringService:
             return None
         commit_revision = self._latest_record_revision(project_id, "commits")
         if commit_revision == 0:
-            draft = self._publish_draft(
-                project_id, self._read_workspace_head(project_id), workflow,
-            )
+            draft = cast(WorkflowDraft, self._save_workspace_content(
+                project_id, self._read_workspace_head(project_id), workflow=workflow,
+            ).draft)
             commit = self._commit_value(
                 project_id=project_id,
                 workflow=workflow,

@@ -1,3 +1,4 @@
+import { InteractionDialog } from './InteractionDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PromptDiagnostic, PromptDocumentFunctionAnnotation, PromptTrackAdoption, PromptMergeSource, PromptMergeTarget, PromptSnapshot, PromptTrackKey } from './protocol/client'
 import { StructureViewer } from './StructureViewer'
@@ -37,11 +38,6 @@ export function PromptMergeEvidence({ source, target, result, rows, selectedSour
   const [newTargetId, setNewTargetId] = useState('')
   const dialog = useRef<HTMLElement>(null)
   useEffect(() => {
-    const prior = globalThis.document.activeElement
-    dialog.current?.focus()
-    return () => { if (prior instanceof HTMLElement) prior.focus() }
-  }, [])
-  useEffect(() => {
     for (const [attribute, ids] of [['data-merge-source', selectedSource], ['data-merge-target', selectedTarget]] as const) {
       const selected = Array.from(dialog.current?.querySelectorAll<HTMLElement>(`[${attribute}]`) ?? []).find(element => ids.includes(element.getAttribute(attribute)!))
       selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
@@ -61,13 +57,13 @@ export function PromptMergeEvidence({ source, target, result, rows, selectedSour
     const from = axis.findIndex(item => item.residue_id === anchor), to = axis.findIndex(item => item.residue_id === id)
     const next = event.range && from >= 0 ? axis.slice(Math.min(from, to), Math.max(from, to) + 1).map(item => item.residue_id) : event.toggle ? selected.includes(id) ? selected.filter(item => item !== id) : [...selected, id] : [id]
     if (side === 'source') {
-      setSourceAnchor(id)
+      if (!event.range) setSourceAnchor(id)
       const counterparts = rows.filter(row => next.includes(row.source_residue_id) && row.disposition === 'match').map(row => row.target_residue_id)
       const rowIndex = rows.findIndex(row => row.source_residue_id === id)
       const previouslyLinked = rows.filter(row => selectedSource.includes(row.source_residue_id) && row.disposition === 'match').map(row => row.target_residue_id)
       onSelection(next, counterparts.length ? counterparts : selectedTarget.filter(id => !previouslyLinked.includes(id)), next.length === 1 && rowIndex >= 0 ? rowIndex : undefined)
     } else {
-      setTargetAnchor(id)
+      if (!event.range) setTargetAnchor(id)
       const counterparts = rows.filter(row => next.includes(row.target_residue_id) && row.disposition === 'match').map(row => row.source_residue_id)
       const rowIndex = rows.findIndex(row => row.target_residue_id === id)
       const previouslyLinked = rows.filter(row => selectedTarget.includes(row.target_residue_id) && row.disposition === 'match').map(row => row.source_residue_id)
@@ -95,16 +91,7 @@ export function PromptMergeEvidence({ source, target, result, rows, selectedSour
     const action = !row ? '缺少明确对应' : !adoption.mask_policy ? '待明确 Mask 处理' : from.value == null && adoption.mask_policy === 'preserve' ? '来源 Mask：保留目标' : from.value == null ? '明确清除目标' : '采用来源值'
     return { track: adoption.track, sourceId, row, from, prior, action }
   }))
-  return <div className="ps-modal-backdrop ps-evidence-backdrop"><section ref={dialog} tabIndex={-1} className="ps-evidence-dialog" role="dialog" aria-modal="true" aria-labelledby="merge-evidence-title" onPaste={event => event.stopPropagation()} onKeyDown={event => {
-    event.stopPropagation()
-    if (event.key === 'Escape') { event.preventDefault(); onClose() }
-    if (event.key === 'Tab') {
-      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)'))
-      const first = controls[0], last = controls.at(-1)
-      if (event.shiftKey && (event.target === first || event.target === event.currentTarget)) { event.preventDefault(); last?.focus() }
-      else if (!event.shiftKey && event.target === last) { event.preventDefault(); first?.focus() }
-    }
-  }}>
+  return <InteractionDialog title="来源 / 目标证据分屏" className="ps-evidence-dialog" onClose={onClose}><section ref={dialog} onPaste={event => event.stopPropagation()}>
     <header><div><span className="ps-kicker">MANUAL CORRESPONDENCE</span><h2 id="merge-evidence-title">来源 / 目标证据分屏</h2></div><button aria-label="关闭合并分屏" onClick={onClose}>返回编辑</button></header>
     <p className="ps-help">点击残基或三维位置定位；Ctrl/⌘ 多选、Shift 选择范围。仅既有 Match 行同步对应高亮；新对应须点击明确匹配。镜头独立，不做自动对齐。</p>
     <div className="ps-evidence-panes">
@@ -117,5 +104,5 @@ export function PromptMergeEvidence({ source, target, result, rows, selectedSour
     <section className="ps-evidence-impact" aria-label="区域采用影响"><h3>区域采用影响 · {impact.length} 个残基轨道单元</h3><p className="ps-help">目标旧值来自后端该合并前的科学投影；下面列出当前编辑意图。点击预览后，完整结果还会包含后续合并、手动覆盖、变换和随机操作。</p><table><thead><tr><th>来源 → 目标</th><th>轨道</th><th>目标旧值</th><th>来源值</th><th>本次处理</th></tr></thead><tbody>{impact.map(item => <tr key={`${item.track}:${item.sourceId}`}><th>{item.sourceId} → {item.row?.target_residue_id ?? '未对应'}{item.row?.disposition === 'insert' && '（新增）'}</th><td>{item.track}</td><td>{shown(item.prior)}</td><td>{shown(item.from)}</td><td>{item.action}</td></tr>)}</tbody></table><p>明确新增残基 {rows.filter(row => row.disposition === 'insert').length}；采用完整注释 {adoptAnnotations.length}；移除目标注释 {removeAnnotations.length}。</p>{adoptAnnotations.map(item => <p key={`adopt:${item.label}:${item.start_residue_id}:${item.end_residue_id}`}>采用来源注释：{item.label} · {item.start_residue_id}–{item.end_residue_id}（后端须确认整个区间连续对应）</p>)}{removeAnnotations.map(item => <p key={`remove:${item.label}:${item.start_residue_id}:${item.end_residue_id}`}>移除目标注释：{item.label} · {item.start_residue_id}–{item.end_residue_id}</p>)}</section>
     {diagnostics.length > 0 && <ul role="alert">{diagnostics.map((item, index) => <li key={index}>{item.message}</li>)}</ul>}
     <footer><span>采用前后值在主编辑器逐轨显示。确认后的整组修改支持撤销。</span><button disabled={busy || !previewEnabled} onClick={onPreview}>预览全部合并意图</button><button onClick={onClose}>返回轨道决策与确认</button></footer>
-  </section></div>
+  </section></InteractionDialog>
 }

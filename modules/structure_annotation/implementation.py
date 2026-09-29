@@ -9,10 +9,9 @@ from core.operation import (
     AdmittedPort,
     OperationCall,
 )
-from core.scoring.observation_plan import (
-    PairwiseContextProfile,
-    ResolvedProducedObservation,
-)
+
+from core.catalog.observation import ProducedObservation
+from datatypes.observation import PairwiseContextProfile
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
@@ -174,7 +173,7 @@ class SecondaryStructureAgreementOperation:
         *,
         resources: OperationResources,
         method: ExactContractReference,
-        produced_observation: ResolvedProducedObservation,
+        produced_observation: ProducedObservation,
     ) -> None:
         self._resources = resources
         self._method = method

@@ -11,7 +11,7 @@ from core.execution.output_admission.candidate_identity import (
 )
 from core.execution.output_admission.port_values import _admit_fresh_port
 from core.operation import AdmittedPort, PortMultiplicity
-from core.scoring.observation_plan import ObservationPropagationPlan
+from core.catalog.observation import ObservationPropagation
 from datatypes.candidate import Candidate
 
 
@@ -38,7 +38,7 @@ def normalize_fixture_outputs(
     inputs: Mapping[str, AdmittedPort],
     outputs: Mapping[str, Any],
     candidate_content_digest: Callable[[Candidate], str],
-    observation_propagation: ObservationPropagationPlan | None = None,
+    observation_propagation: ObservationPropagation | None = None,
 ) -> Mapping[str, Any]:
     """Exercise the identity partition without inventing a production seam."""
     del node_id

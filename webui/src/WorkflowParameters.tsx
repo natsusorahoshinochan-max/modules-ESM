@@ -13,6 +13,8 @@ type ValueEditorProps = {
   value: unknown
   choices: ParameterChoices
   onChange: (value: unknown) => void
+  onRawChange?: (raw: string, commit: boolean) => void
+  onCancel?: () => void
 }
 
 const residueFields = new Set(['residue_id', 'residue_ids', 'designable_residue_ids', 'fixed_residue_ids', 'tied_residue_groups'])
@@ -30,16 +32,26 @@ function scalarValue(raw: string, contract: ParameterValueContract): unknown {
   return contract.type === 'number' || contract.type === 'integer' ? Number(raw) : raw
 }
 
-function ScalarEditor({ label, contract, value, onChange }: Pick<ValueEditorProps, 'label' | 'contract' | 'value' | 'onChange'>) {
+function ScalarEditor({ label, contract, value, onChange, onRawChange, onCancel }: Pick<ValueEditorProps, 'label' | 'contract' | 'value' | 'onChange' | 'onRawChange' | 'onCancel'>) {
   const [text, setText] = useState(value === undefined ? '' : String(value))
   useEffect(() => { setText(value === undefined ? '' : String(value)) }, [value])
   const numeric = contract.type === 'integer' || contract.type === 'number'
-  return <input aria-label={label} type={numeric ? 'number' : 'text'} value={text}
+  return <input aria-label={label} type="text" inputMode={numeric ? 'decimal' : undefined} value={text}
     min={contract.minimum} max={contract.maximum} step={contract.type === 'integer' ? 1 : contract.multipleOf ?? 'any'}
     minLength={contract.minLength} maxLength={contract.maxLength} pattern={contract.pattern}
-    onChange={(event) => setText(event.target.value)}
-    onBlur={() => { if (text !== (value === undefined ? '' : String(value))) onChange(scalarValue(text, contract)) }}
-    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }} />
+    onChange={event => { setText(event.target.value); event.currentTarget.setCustomValidity(''); delete event.currentTarget.dataset.workspaceInvalid; onRawChange?.(event.target.value, false) }}
+    onBlur={event => {
+      if (onRawChange) { onRawChange(text, true); return }
+      if (text === (value === undefined ? '' : String(value))) return
+      const parsed = scalarValue(text, contract)
+      if (numeric && text !== '' && (text.trim() === '' || !Number.isFinite(parsed) || contract.type === 'integer' && !Number.isInteger(parsed))) {
+        event.currentTarget.setCustomValidity('请完成有效的数字输入后继续。')
+        event.currentTarget.dataset.workspaceInvalid = 'true'
+        return
+      }
+      onChange(parsed)
+    }}
+    onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); event.currentTarget.setCustomValidity(''); delete event.currentTarget.dataset.workspaceInvalid; setText(value === undefined ? '' : String(value)); onCancel?.() } }} />
 }
 
 function selectionChoices(fieldName: string, choices: ParameterChoices): ParameterChoice[] | undefined {
@@ -48,7 +60,7 @@ function selectionChoices(fieldName: string, choices: ParameterChoices): Paramet
   return choices[fieldName]
 }
 
-function ValueEditor({ label, fieldName, contract, value, choices, onChange }: ValueEditorProps) {
+function ValueEditor({ label, fieldName, contract, value, choices, onChange, onRawChange, onCancel }: ValueEditorProps) {
   if (Object.hasOwn(contract, 'const')) return <output className="parameter-fixed-value">{String(contract.const)}</output>
   const options = selectionChoices(fieldName, choices)
   if (contract.type === 'array') {
@@ -86,8 +98,8 @@ function ValueEditor({ label, fieldName, contract, value, choices, onChange }: V
       {available.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   }
-  if (contract.type === 'boolean') return <label className="parameter-boolean"><input type="checkbox" aria-label={label} checked={value === true} onChange={(event) => onChange(event.target.checked)} /><span>{value === undefined ? '未设置' : value ? '启用' : '关闭'}</span></label>
-  return <ScalarEditor label={label} contract={contract} value={value} onChange={onChange} />
+  if (contract.type === 'boolean') return <select aria-label={label} value={value === undefined ? '' : String(value)} onChange={event => onChange(event.target.value === '' ? undefined : event.target.value === 'true')}><option value="">未设置</option><option value="true">启用</option><option value="false">关闭</option></select>
+  return <ScalarEditor label={label} contract={contract} value={value} onChange={onChange} onRawChange={onRawChange} onCancel={onCancel} />
 }
 
 function parameterValue(parameter: ParameterPresentation): unknown {
@@ -102,9 +114,10 @@ function encodedValue(value: unknown): string {
 }
 
 /** Edits the Catalog contract; scientific admission remains the backend owner's job. */
-export function WorkflowParameters({ parameters, onParameter, choices = {}, renderParameter }: {
+export function WorkflowParameters({ parameters, onParameter, onCancel, choices = {}, renderParameter }: {
   parameters: ParameterPresentation[]
   onParameter: (parameter: ParameterPresentation, raw: string, commit: boolean) => void
+  onCancel?: (parameter: ParameterPresentation) => void
   choices?: ParameterChoices
   renderParameter?: (parameter: ParameterPresentation) => ReactNode | undefined
 }) {
@@ -115,13 +128,13 @@ export function WorkflowParameters({ parameters, onParameter, choices = {}, rend
     groups.set(parameter.groupId, group)
   }
   return <details className="parameter-group nodrag nowheel"><summary aria-label="编辑参数">参数 <span>{parameters.length}</span></summary>
-    <div className="parameter-fields schema-parameter-fields">{[...groups].map(([id, group]) => <fieldset key={id}><legend>{group.title}</legend>{group.parameters.map((parameter) => {
+    <div className="parameter-fields schema-parameter-fields">{[...groups].map(([id, group]) => <details className="parameter-subgroup" key={id} open><summary>{group.title}</summary>{group.parameters.map((parameter) => {
       const custom = renderParameter?.(parameter)
       if (custom !== undefined) return <div key={parameter.key}>{custom}</div>
       const numeric = parameter.valueType === 'number' || parameter.valueType === 'integer'
       return <div className="schema-parameter-field" key={parameter.key}>
         <span className="parameter-label" title={parameter.description}>{fieldLabels[parameter.key] ?? parameter.label}{parameter.required ? ' *' : ''}{parameter.unit && <em>{parameter.unit}</em>}</span>
-        <ValueEditor label={parameter.label} fieldName={parameter.key} contract={parameter.contract} value={parameterValue(parameter)} choices={parameter.resourceKind === 'project_input' ? { ...choices, [parameter.key]: choices[parameter.key] ?? [] } : choices} onChange={(value) => {
+        <ValueEditor onCancel={() => onCancel?.(parameter)} label={parameter.label} fieldName={parameter.key} contract={parameter.contract} value={numeric || parameter.valueType === 'string' ? parameter.value : parameterValue(parameter)} onRawChange={(raw, commit) => onParameter(parameter, raw, commit)} choices={parameter.resourceKind === 'project_input' ? { ...choices, [parameter.key]: choices[parameter.key] ?? [] } : choices} onChange={(value) => {
           const raw = encodedValue(value)
           onParameter(parameter, raw, false)
           onParameter(parameter, raw, true)
@@ -130,6 +143,6 @@ export function WorkflowParameters({ parameters, onParameter, choices = {}, rend
         {parameter.resourceKind === 'project_input' && !(parameter.key in choices) && <small className="parameter-empty-hint">从项目输入列表选择文件。</small>}
         {parameter.description && <small className="parameter-description">{parameter.description}</small>}
       </div>
-    })}</fieldset>)}</div>
+    })}</details>)}</div>
   </details>
 }

@@ -2553,16 +2553,13 @@
           ]
         },
         "source_role": {
-          "$ref": "#/$defs/Identifier"
+          "const": "subject"
         },
         "subject_direction": {
-          "enum": [
-            "input",
-            "output"
-          ]
+          "const": "input"
         },
         "subject_grain": {
-          "$ref": "#/$defs/Identifier"
+          "const": "candidate"
         },
         "subject_port": {
           "$ref": "#/$defs/Identifier"
@@ -3046,49 +3043,6 @@
       ],
       "type": "object"
     },
-    "PromptAuthoringApplyRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "document": {
-          "$ref": "#/$defs/PromptAuthoringDocument"
-        },
-        "node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "project_id": {
-          "$ref": "#/$defs/ProjectId"
-        },
-        "version_context": {
-          "$ref": "#/$defs/PromptVersionContext"
-        },
-        "workflow": {
-          "$ref": "#/$defs/WorkflowDocument"
-        },
-        "expected_draft_revision": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "project_id",
-        "node_id",
-        "document",
-        "expected_draft_revision"
-      ],
-      "type": "object"
-    },
-    "PromptAuthoringApplyResult": {
-      "additionalProperties": false,
-      "properties": {
-        "draft": {
-          "$ref": "#/$defs/ProjectWorkflowDraft"
-        }
-      },
-      "required": [
-        "draft"
-      ],
-      "type": "object"
-    },
     "PromptAuthoringChange": {
       "oneOf": [
         {
@@ -3439,6 +3393,10 @@
         "document": {
           "$ref": "#/$defs/PromptAuthoringDocument"
         },
+        "draft_revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "esm3_conditioning": {
           "anyOf": [
             {
@@ -3478,10 +3436,6 @@
         },
         "tracks": {
           "$ref": "#/$defs/PromptTrackProjectionSet"
-        },
-        "draft_revision": {
-          "type": "integer",
-          "minimum": 0
         }
       },
       "required": [
@@ -4520,21 +4474,12 @@
     "PromptVersionContext": {
       "additionalProperties": false,
       "properties": {
-        "return_workspace_revision": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "ui_state": {
-          "$ref": "#/$defs/JsonObject"
-        },
         "version_id": {
           "$ref": "#/$defs/Identifier"
         }
       },
       "required": [
-        "version_id",
-        "return_workspace_revision",
-        "ui_state"
+        "version_id"
       ],
       "type": "object"
     },
@@ -4749,6 +4694,468 @@
       ],
       "type": "object"
     },
+    "PublishedAlignment": {
+      "additionalProperties": false,
+      "properties": {
+        "correspondence": {
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          },
+          "type": "array"
+        },
+        "coverage": {
+          "type": "number"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "normalization": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "policy": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "reference": {
+          "$ref": "#/$defs/ResultCandidateReference"
+        },
+        "reference_axis_content_digest": {
+          "type": "string"
+        },
+        "rmsd": {
+          "type": "number"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "segment_map": {
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "$ref": "#/$defs/ResultCandidateReference"
+        },
+        "subject_axis_content_digest": {
+          "type": "string"
+        },
+        "transform": {
+          "$ref": "#/$defs/JsonObject"
+        }
+      },
+      "required": [
+        "schema_version",
+        "subject",
+        "reference",
+        "subject_axis_content_digest",
+        "reference_axis_content_digest",
+        "segment_map",
+        "policy",
+        "correspondence",
+        "transform",
+        "normalization",
+        "rmsd",
+        "coverage",
+        "method"
+      ],
+      "type": "object"
+    },
+    "PublishedAxisLayout": {
+      "additionalProperties": false,
+      "properties": {
+        "chain_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "residue_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "residue_ids",
+        "chain_ids"
+      ],
+      "type": "object"
+    },
+    "PublishedCandidateSequences": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "sequence": {
+                "type": "string"
+              },
+              "subject": {
+                "$ref": "#/$defs/ResultCandidateReference"
+              }
+            },
+            "required": [
+              "subject",
+              "sequence"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "PublishedPrompt": {
+      "additionalProperties": false,
+      "properties": {
+        "coordinates": {
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "atoms": {
+                    "items": {
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "items": {
+                              "type": "number"
+                            },
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "type": "array"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "atoms"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "function_annotations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "end_residue_id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "start_residue_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "label",
+              "start_residue_id",
+              "end_residue_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "residue_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sasa": {
+          "oneOf": [
+            {
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondary_structure": {
+          "oneOf": [
+            {
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sequence": {
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "residue_ids",
+        "sequence",
+        "coordinates",
+        "secondary_structure",
+        "sasa",
+        "function_annotations"
+      ],
+      "type": "object"
+    },
+    "PublishedResultValue": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "scores"
+            },
+            "value": {
+              "$ref": "#/$defs/PublishedScores"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "candidate_sequences"
+            },
+            "value": {
+              "$ref": "#/$defs/PublishedCandidateSequences"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "alignment"
+            },
+            "value": {
+              "$ref": "#/$defs/PublishedAlignment"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "sequence"
+            },
+            "value": {
+              "$ref": "#/$defs/PublishedSequence"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "structure"
+            },
+            "value": {
+              "$ref": "#/$defs/ResultStructure"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "prompt"
+            },
+            "value": {
+              "$ref": "#/$defs/PublishedPrompt"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "axis_layout"
+            },
+            "value": {
+              "$ref": "#/$defs/PublishedAxisLayout"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PublishedScore": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "context_profile": {
+          "$ref": "#/$defs/ObservationContextSelector"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "metric": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "residue_axis": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/JsonObject"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_partition": {
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/ResultCandidateReference"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": [
+        "subject",
+        "metric",
+        "method",
+        "context",
+        "context_profile",
+        "source_partition",
+        "value",
+        "residue_axis"
+      ],
+      "type": "object"
+    },
+    "PublishedScores": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/PublishedScore"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "collection_id",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "PublishedSequence": {
+      "additionalProperties": false,
+      "properties": {
+        "residue_ids": {
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sequence": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "residue_ids"
+      ],
+      "type": "object"
+    },
     "RandomnessAndProjectionInvocationProvenance": {
       "additionalProperties": false,
       "properties": {
@@ -4869,60 +5276,6 @@
       ],
       "type": "object"
     },
-    "ResultCandidateDetail": {
-      "additionalProperties": false,
-      "properties": {
-        "has_structure": {
-          "type": "boolean"
-        },
-        "item_index": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "metadata": {
-          "$ref": "#/$defs/JsonObject"
-        },
-        "parent_ids": {
-          "items": {
-            "$ref": "#/$defs/Identifier"
-          },
-          "type": "array"
-        },
-        "pdb": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "reference": {
-          "$ref": "#/$defs/ResultCandidateReference"
-        },
-        "sequence": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "item_index",
-        "reference",
-        "parent_ids",
-        "metadata",
-        "sequence",
-        "has_structure",
-        "pdb"
-      ],
-      "type": "object"
-    },
     "ResultCandidateReference": {
       "additionalProperties": false,
       "properties": {
@@ -4940,41 +5293,6 @@
         "candidate_id",
         "data_type_id",
         "content_digest"
-      ],
-      "type": "object"
-    },
-    "ResultCandidateRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "item_index": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "output_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "project_id": {
-          "$ref": "#/$defs/ProjectId"
-        },
-        "run_id": {
-          "$ref": "#/$defs/RunId"
-        },
-        "value_index": {
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "node_id",
-        "output_port",
-        "project_id",
-        "run_id",
-        "value_index",
-        "item_index"
       ],
       "type": "object"
     },
@@ -5131,6 +5449,83 @@
         "producer_run_id",
         "producer_result_identity",
         "output_port"
+      ],
+      "type": "object"
+    },
+    "ResultStructure": {
+      "additionalProperties": false,
+      "properties": {
+        "pdb": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pdb"
+      ],
+      "type": "object"
+    },
+    "ResultStructureRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "item_index": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "value_index": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "project_id",
+        "run_id",
+        "value_index",
+        "item_index"
+      ],
+      "type": "object"
+    },
+    "ResultValueRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "value_index": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "project_id",
+        "run_id",
+        "value_index"
       ],
       "type": "object"
     },
@@ -5615,19 +6010,39 @@
       ],
       "type": "object"
     },
-    "SaveProjectUiStateRequest": {
+    "SaveProjectWorkspaceRequest": {
       "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "workflow"
+          ],
+          "type": "object"
+        },
+        {
+          "required": [
+            "ui_state"
+          ],
+          "type": "object"
+        }
+      ],
       "properties": {
+        "expected_draft_revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "project_id": {
           "$ref": "#/$defs/ProjectId"
         },
         "ui_state": {
           "$ref": "#/$defs/JsonObject"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
         }
       },
       "required": [
-        "project_id",
-        "ui_state"
+        "project_id"
       ],
       "type": "object"
     },
@@ -6621,6 +7036,62 @@
       ],
       "type": "object"
     },
+    "WorkflowObservationOptionsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "ranking": {
+          "type": "boolean"
+        },
+        "workflow": {
+          "additionalProperties": false,
+          "properties": {
+            "edges": {
+              "items": {
+                "$ref": "#/$defs/WorkflowEdge"
+              },
+              "maxItems": 8192,
+              "type": "array"
+            },
+            "nodes": {
+              "items": {
+                "$ref": "#/$defs/NodeInstance"
+              },
+              "maxItems": 2048,
+              "type": "array"
+            }
+          },
+          "required": [
+            "nodes",
+            "edges"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "project_id",
+        "workflow",
+        "ranking"
+      ],
+      "type": "object"
+    },
+    "WorkflowObservationOptionsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "options": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "options"
+      ],
+      "type": "object"
+    },
     "WorkflowScienceComparison": {
       "additionalProperties": false,
       "properties": {
@@ -6752,62 +7223,6 @@
         "return_workspace_revision"
       ],
       "type": "object"
-    },
-    "WorkflowObservationOptionsRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "project_id": {
-          "$ref": "#/$defs/ProjectId"
-        },
-        "workflow": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "nodes": {
-              "items": {
-                "$ref": "#/$defs/NodeInstance"
-              },
-              "maxItems": 2048,
-              "type": "array"
-            },
-            "edges": {
-              "items": {
-                "$ref": "#/$defs/WorkflowEdge"
-              },
-              "maxItems": 8192,
-              "type": "array"
-            }
-          },
-          "required": [
-            "nodes",
-            "edges"
-          ]
-        },
-        "ranking": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "project_id",
-        "workflow",
-        "ranking"
-      ]
-    },
-    "WorkflowObservationOptionsResult": {
-      "type": "object",
-      "properties": {
-        "options": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        }
-      },
-      "required": [
-        "options"
-      ],
-      "additionalProperties": false
     }
   },
   "bundle_discovery": {
@@ -6829,23 +7244,6 @@
     "max_decoded_bytes": 67108864
   },
   "rest_operations": {
-    "apply_prompt_authoring": {
-      "method": "POST",
-      "request_schema": "#/$defs/PromptAuthoringApplyRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/PromptAuthoringApplyResult",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/prompt-authoring:apply",
-      "status_mapping": {
-        "200": "response",
-        "404": "structured_error",
-        "409": "structured_error",
-        "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
     "artifact_retrieval": {
       "method": "GET",
       "request_schema": "#/$defs/ArtifactRetrievalRequest",
@@ -7299,22 +7697,6 @@
         "default": "structured_error"
       }
     },
-    "result_candidate": {
-      "method": "POST",
-      "request_schema": "#/$defs/ResultCandidateRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ResultCandidateDetail",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:candidate",
-      "status_mapping": {
-        "200": "response",
-        "404": "structured_error",
-        "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
     "result_collection": {
       "method": "POST",
       "request_schema": "#/$defs/ResultCollectionRequest",
@@ -7324,6 +7706,38 @@
         "success_status": 200
       },
       "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:collection",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "result_structure": {
+      "method": "POST",
+      "request_schema": "#/$defs/ResultStructureRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ResultStructure",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:structure",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "result_value": {
+      "method": "POST",
+      "request_schema": "#/$defs/ResultValueRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PublishedResultValue",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:value",
       "status_mapping": {
         "200": "response",
         "404": "structured_error",
@@ -7365,32 +7779,15 @@
         "default": "structured_error"
       }
     },
-    "save_project_ui_state": {
+    "save_project_workspace": {
       "method": "PUT",
-      "request_schema": "#/$defs/SaveProjectUiStateRequest",
+      "request_schema": "#/$defs/SaveProjectWorkspaceRequest",
       "response": {
         "kind": "json",
         "schema": "#/$defs/ProjectWorkspace",
         "success_status": 200
       },
-      "route": "/api/v2/projects/{project_id}/workspace/ui-state",
-      "status_mapping": {
-        "200": "response",
-        "404": "structured_error",
-        "409": "structured_error",
-        "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "save_project_workflow_draft": {
-      "method": "PUT",
-      "request_schema": "#/$defs/SubmitProjectWorkflowRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ProjectWorkflowDraft",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/workflow/draft",
+      "route": "/api/v2/projects/{project_id}/workspace",
       "status_mapping": {
         "200": "response",
         "404": "structured_error",
@@ -7498,6 +7895,20 @@
         "default": "structured_error"
       }
     },
+    "workflow_observation_options": {
+      "method": "POST",
+      "request_schema": "#/$defs/WorkflowObservationOptionsRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/WorkflowObservationOptionsResult",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow:observation-options",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
     "workflow_version": {
       "method": "GET",
       "request_schema": "#/$defs/WorkflowVersionRequest",
@@ -7512,20 +7923,6 @@
         "404": "structured_error",
         "409": "structured_error",
         "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "workflow_observation_options": {
-      "method": "POST",
-      "route": "/api/v2/projects/{project_id}/workflow:observation-options",
-      "request_schema": "#/$defs/WorkflowObservationOptionsRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/WorkflowObservationOptionsResult",
-        "success_status": 200
-      },
-      "status_mapping": {
-        "200": "response",
         "default": "structured_error"
       }
     }

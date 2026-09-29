@@ -2,25 +2,92 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import type { PromptAuthoringDocument, PromptPreview, PromptSnapshot, WorkflowDraft } from '../src/protocol/client'
 
+async function matrixCell(page: Page, handle: string, track: string) {
+  const cell = page.locator(`[data-cell="${handle}:${track}"]`)
+  if (!await cell.count()) {
+    const scroller = page.locator('.ag-body-horizontal-scroll-viewport')
+    const { width, maximum } = await scroller.evaluate(element => ({ width: element.clientWidth, maximum: element.scrollWidth - element.clientWidth }))
+    for (let offset = 0; offset <= maximum + width; offset += Math.max(1, width / 2)) {
+      await scroller.evaluate((element, left) => { element.scrollLeft = left }, Math.min(offset, maximum))
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      if (await cell.count()) break
+    }
+  }
+  await expect(cell).toBeAttached()
+  await cell.scrollIntoViewIfNeeded()
+  // Native editors replace the renderer; retain the domain row/column identity while editing.
+  return page.locator(`.residue-matrix [row-id="${track}"] [role="gridcell"][col-id="${handle}"]`)
+}
+
+async function matrixHandles(page: Page) {
+  const columns = new Map<number, string>()
+  const scroller = page.locator('.ag-body-horizontal-scroll-viewport')
+  const { width, maximum } = await scroller.evaluate(element => ({ width: element.clientWidth, maximum: element.scrollWidth - element.clientWidth }))
+  for (let offset = 0; offset <= maximum + width; offset += Math.max(1, width / 2)) {
+    await scroller.evaluate((element, left) => { element.scrollLeft = left }, Math.min(offset, maximum))
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    const visible = await page.locator('[data-cell$=":sequence"]').evaluateAll(elements => elements.map(element => ({
+      index: Number(element.closest('[role="gridcell"]')!.getAttribute('aria-colindex')),
+      handle: element.getAttribute('data-cell')!.replace(':sequence', ''),
+    })))
+    for (const column of visible) columns.set(column.index, column.handle)
+  }
+  return [...columns].sort(([left], [right]) => left - right).map(([, handle]) => handle)
+}
+
+async function applyToolPreview(page: Page) {
+  await page.getByRole('dialog').getByRole('button', { name: '应用操作', exact: true }).click()
+  await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
+}
+
 async function personalDraft(page: Page) {
   await page.goto('/')
   const generation = page.getByTestId('rf__node-generate-paired')
   await generation.getByLabel('编辑参数').click()
   await generation.getByLabel('有效种子').fill('1704')
-  const saving = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workflow/draft'))
+  const saving = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workspace') && r.request().postDataJSON().workflow)
   await generation.getByLabel('有效种子').press('Tab')
   const saved = await saving
-  return { url: saved.url(), draft: await saved.json() as WorkflowDraft }
+  return { url: saved.url(), draft: (await saved.json()).draft as WorkflowDraft }
 }
 
-async function reopenStoredDraft(page: Page, url: string) {
+async function reopenStoredDraft(page: Page, url: string, authorNodeId: string) {
   const name = `Prompt regression ${crypto.randomUUID()}`
-  expect((await page.request.patch(url.replace('/workflow/draft', ''), { data: { name } })).status()).toBe(200)
+  expect((await page.request.patch(url.replace('/workspace', ''), { data: { name } })).status()).toBe(200)
   await page.getByRole('button', { name: '项目', exact: true }).click()
   const manager = page.getByRole('dialog', { name: '项目与版本', exact: true })
   await manager.getByRole('button').filter({ has: page.getByText(name, { exact: true }) }).click()
   await manager.getByRole('button', { name: '打开项目', exact: true }).click()
   await expect(manager).not.toBeVisible()
+  const authorButton = page.getByTestId(`rf__node-${authorNodeId}`).getByRole('button', { name: '打开 Prompt Studio', exact: true })
+  const geometry = async () => ({
+    target: await authorButton.boundingBox(),
+    canvas: await page.locator('.flow-canvas').boundingBox(),
+    breadcrumb: await page.getByRole('navigation', { name: '节点组路径', exact: true }).boundingBox(),
+    viewport: page.viewportSize(),
+  })
+  const before = await geometry()
+  // API-authored nodes can lie outside the workspace's saved viewport. Use the same fit control as a user.
+  await page.getByRole('button', { name: '适合视图', exact: true }).click()
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await test.info().attach('prompt-node-fit-geometry', {
+    body: Buffer.from(JSON.stringify({ nodeId: authorNodeId, before, after: await geometry() }, null, 2)),
+    contentType: 'application/json',
+  })
+  await expect(authorButton).toBeVisible()
+  // Transformed nodes can produce intersection ratios fractionally below 1.
+  // Require every button edge inside the visible canvas, allowing one CSS pixel of rounding.
+  await expect.poll(async () => {
+    const { target, canvas, viewport } = await geometry()
+    if (!target || !canvas || !viewport || target.width <= 0 || target.height <= 0) return Infinity
+    return Math.max(
+      0,
+      Math.max(0, canvas.x) - target.x,
+      Math.max(0, canvas.y) - target.y,
+      target.x + target.width - Math.min(viewport.width, canvas.x + canvas.width),
+      target.y + target.height - Math.min(viewport.height, canvas.y + canvas.height),
+    )
+  }, { message: 'Prompt button must fit inside the visible canvas within 1 CSS pixel' }).toBeLessThanOrEqual(1)
 }
 
 for (const explicitTargets of [true, false]) {
@@ -35,34 +102,39 @@ for (const explicitTargets of [true, false]) {
       delete document.function_annotations
     }
     expect((await page.request.put(url, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  await reopenStoredDraft(page, url)
+    await reopenStoredDraft(page, url, author.node_id)
     const opening = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:open') && r.request().postDataJSON().node_id === author.node_id)
     await page.getByRole('button', { name: '打开 Prompt Studio' }).click()
     const snapshot = await (await opening).json() as PromptSnapshot
     const handle = snapshot.random_selections.find(r => r.kind === 'insert')!.realized_residue_handles[0]
-    const cell = page.locator(`[data-cell="${handle}:sequence"]`)
+    const cell = await matrixCell(page, handle, 'sequence')
     await cell.click()
     await page.getByRole('button', { name: '布局', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Delete selected', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Insert after focus', exact: true })).toBeDisabled()
-    await cell.press('+')
-    await expect(page.getByRole('alert')).toContainText('随机生成残基保留 seed 规则')
+    await expect(page.getByRole('dialog')).toContainText('随机生成残基保留 seed 规则')
+    await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
     const other = snapshot.residues.find(r => r.residue_handle !== handle)!
-    await page.locator(`[data-cell="${other.residue_handle}:sequence"]`).click({ modifiers: ['Control'] })
+    await (await matrixCell(page, other.residue_handle, 'sequence')).click({ modifiers: ['Control'] })
+    await page.getByRole('button', { name: '布局', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Delete selected', exact: true })).toBeDisabled()
-    await cell.click()
+    await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
+    await (await matrixCell(page, handle, 'sequence')).click()
     await page.getByRole('button', { name: '条件', exact: true }).click()
     const previewing = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:preview'))
-    await cell.press('G')
+    const editable = await matrixCell(page, handle, 'sequence')
+    await editable.press('F2')
+    await editable.locator('input').fill('G')
+    await editable.locator('input').press('Enter')
     const response = await previewing
     expect(response.status()).toBe(200)
     const preview = await response.json() as PromptPreview
     expect(preview.diagnostics).toEqual([])
     expect(preview.tracks.sequence.values.find(v => v.residue_handle === handle)?.value).toBe('G')
     expect(preview.normalized_document.random_operations).toEqual(document.random_operations)
-    await page.getByRole('button', { name: '应用操作', exact: true }).click()
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeEnabled()
     const ordinary = snapshot.residues.find(r => !snapshot.random_selections[0].realized_residue_handles.includes(r.residue_handle))!
-    await page.locator(`[data-cell="${ordinary.residue_handle}:sequence"]`).click()
+    await (await matrixCell(page, ordinary.residue_handle, 'sequence')).click()
     await page.getByRole('button', { name: '布局', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Delete selected', exact: true })).toBeEnabled()
     const deleting = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:preview'))
@@ -71,21 +143,23 @@ for (const explicitTargets of [true, false]) {
     expect(deleted.diagnostics).toEqual([])
     expect(deleted.residues.find(r => r.residue_handle === ordinary.residue_handle)?.state).toBe('pending-delete')
     expect(deleted.normalized_document.random_operations).toEqual(document.random_operations)
-    const displayed = await page.locator('[data-cell$=":sequence"]').evaluateAll(elements => elements.map(e => e.getAttribute('data-cell')!.replace(':sequence', '')))
+    await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
+    const displayed = await matrixHandles(page)
     expect(displayed).toEqual(deleted.residues.map(r => r.residue_handle))
   })
 }
 
 test('Palette author can declare chains, preview and save', async ({ page }) => {
   await page.goto('/')
-  const saving = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workflow/draft'))
+  const saving = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workspace') && r.request().postDataJSON().workflow)
   await page.getByRole('button', { name: 'Author ProteinPrompt prompt_authoring', exact: true }).dragTo(page.locator('.react-flow__pane'), { targetPosition: { x: 520, y: 620 } })
-  const draft = await (await saving).json() as WorkflowDraft
+  const draft = (await (await saving).json()).draft as WorkflowDraft
   const added = draft.workflow.nodes.find(n => n.node_type_id === 'prompt_authoring.author' && !n.node_id.startsWith('prompt-composition-'))!
   expect(added.node_parameters).toEqual({ document: {} })
   const opening = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:open') && r.request().postDataJSON().node_id === added.node_id)
   await page.getByTestId(`rf__node-${added.node_id}`).getByRole('button', { name: '打开 Prompt Studio' }).click()
   expect((await opening).status()).toBe(200)
+  await page.getByRole('button', { name: '插入 / 删除', exact: true }).click()
   await page.getByRole('button', { name: '添加 Chain', exact: true }).click()
   await page.getByLabel('Chain 1 ID', { exact: true }).fill('!')
   await page.getByLabel('Chain 1 length', { exact: true }).fill('3')
@@ -96,11 +170,10 @@ test('Palette author can declare chains, preview and save', async ({ page }) => 
   await expect(page.getByLabel('Chain 1 ID', { exact: true })).toBeEnabled()
   await page.getByLabel('Chain 1 ID', { exact: true }).fill('A')
   await page.getByRole('button', { name: '预览 Chains', exact: true }).click()
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
-  await expect(page.locator('.ps-residue-column')).toHaveCount(3)
+  await applyToolPreview(page)
+  await expect(page.getByRole('grid')).toHaveAttribute('aria-colcount', '4')
+  const applying = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workspace') && r.request().postDataJSON().workflow)
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  const applying = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:apply'))
-  await page.getByRole('button', { name: '确认并写回 Workflow' }).click()
   const response = await applying
   expect(response.status()).toBe(200)
   const saved = (await response.json()).draft as WorkflowDraft
@@ -108,31 +181,50 @@ test('Palette author can declare chains, preview and save', async ({ page }) => 
   await expect(page.locator('.prompt-studio')).not.toBeVisible()
 })
 
-test('stale Draft revision rejects save and preserves editing', async ({ page }) => {
+test('stale Draft revision rejects save and preserves the submitted proposal', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
-  await page.goto('/')
+  const { url } = await personalDraft(page)
   await page.getByRole('button', { name: '打开 Prompt Studio' }).click()
-  const previewing = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:preview'))
+  let release!: () => void
+  let publishPreview!: (preview: PromptPreview) => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  const previewReady = new Promise<PromptPreview>(resolve => { publishPreview = resolve })
+  await page.route('**/prompt-authoring:preview', async route => {
+    const response = await route.fetch()
+    expect(response.status()).toBe(200)
+    publishPreview(await response.json() as PromptPreview)
+    await barrier
+    await route.fulfill({ response })
+  })
+  const applying = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workspace') && r.request().postDataJSON().workflow)
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  const response = await previewing
-  expect(response.status()).toBe(200)
-  const base = response.url().replace('/prompt-authoring:preview', '')
+  const confirmedPreview = await previewReady
+  const base = url.replace('/workspace', '')
   const draft = await (await page.request.get(`${base}/workflow/draft`)).json() as WorkflowDraft
-  const imports = draft.workflow.nodes.filter(n => n.node_type_id === 'protein_io.import_structure')
-  expect(imports.length).toBeGreaterThan(0)
-  const original = readFileSync('../examples/v2/structures/3GB1.pdb', 'utf8')
-  const payload = Buffer.from(`REMARK source revision\n${original}`).toString('base64')
-  const publication = await page.request.post(`${base}/inputs`, { data: { filename: 'updated.pdb', content_base64: payload } })
-  expect(publication.status()).toBe(201)
-  const ref = (await publication.json()).project_input_ref
-  for (const source of imports) source.node_parameters.project_input_ref = ref
-  expect((await page.request.put(`${base}/workflow/draft`, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  const applying = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:apply'))
-  await page.getByRole('button', { name: '确认并写回 Workflow' }).click()
-  expect((await applying).status()).toBe(400)
-  await expect(page.getByRole('alert')).toContainText('Workflow changed while Prompt Studio was open')
-  await expect(page.locator('.ps-header .ps-primary')).toBeEnabled()
+  try {
+    const imports = draft.workflow.nodes.filter(n => n.node_type_id === 'protein_io.import_structure')
+    expect(imports.length).toBeGreaterThan(0)
+    const original = readFileSync('../examples/v2/structures/3GB1.pdb', 'utf8')
+    const payload = Buffer.from(`REMARK source revision\n${original}`).toString('base64')
+    const publication = await page.request.post(`${base}/inputs`, { data: { filename: 'updated.pdb', content_base64: payload } })
+    expect(publication.status()).toBe(201)
+    const ref = (await publication.json()).project_input_ref
+    for (const source of imports) source.node_parameters.project_input_ref = ref
+    expect((await page.request.put(`${base}/workspace`, { data: { workflow: draft.workflow } })).status()).toBe(200)
+  } finally {
+    release()
+  }
+  const failedSave = await applying
+  expect(failedSave.status()).toBe(400)
+  const submitted = failedSave.request().postDataJSON().workflow
+  const author = submitted.nodes.find((node: { node_type_id: string }) => node.node_type_id === 'prompt_authoring.author')
+  expect(author.node_parameters.document).toEqual(confirmedPreview.normalized_document)
+  expect((await (await page.request.get(`${base}/workflow/draft`)).json()).workflow).toEqual(draft.workflow)
+  await expect(page.getByRole('alert').filter({ has: page.getByRole('button', { name: '重试保存', exact: true }) })).toContainText('Workflow changed while the editor was open')
+  await expect(page.locator('.ps-header .ps-primary')).toBeDisabled()
+  await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '重试保存', exact: true })).toBeEnabled()
   expect(errors).toEqual([])
 })
 
@@ -153,16 +245,16 @@ test('a stale chain declaration can be repaired inside Studio', async ({ page })
     { source_node_id: 'review-materialize', source_port: 'sequence', target_node_id: author.node_id, target_port: 'sequence_source' },
   )
   expect((await page.request.put(url, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  await reopenStoredDraft(page, url)
+  await reopenStoredDraft(page, url, author.node_id)
   await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio' }).click()
   await expect(page.getByText('无可比较的旧结果', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '插入 / 删除', exact: true }).click()
   await page.getByLabel('Chain 1 length', { exact: true }).fill('4')
   await page.getByRole('button', { name: '预览 Chains', exact: true }).click()
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
-  await expect(page.locator('.ps-residue-column')).toHaveCount(4)
+  await applyToolPreview(page)
+  await expect(page.getByRole('grid')).toHaveAttribute('aria-colcount', '5')
+  const applying = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workspace') && r.request().postDataJSON().workflow)
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  const applying = page.waitForResponse(r => r.url().endsWith('/prompt-authoring:apply'))
-  await page.getByRole('button', { name: '确认并写回 Workflow' }).click()
   expect((await applying).status()).toBe(200)
 })
 
@@ -184,18 +276,19 @@ async function resultingPreview(page: Page, action: () => Promise<void>) {
   return preview
 }
 
-test('joint track previews apply and undo as one operation', async ({ page }) => {
+test('successive track commits retain both values and each undo restores its preceding document', async ({ page }) => {
   const snapshot = await openedPrompt(page)
   const residue = snapshot.residues.find(item => item.state !== 'pending-delete')!
-  await page.locator(`[data-cell="${residue.residue_handle}:sequence"]`).click()
+  await (await matrixCell(page, residue.residue_handle, 'sequence')).click()
   await page.getByLabel('指定氨基酸', { exact: true }).fill('W')
   await resultingPreview(page, () => page.getByRole('button', { name: 'Specify', exact: true }).click())
-  await page.getByRole('button', { name: 'SASA', exact: true }).click()
+  await (await matrixCell(page, residue.residue_handle, 'sasa')).click()
   await page.getByLabel('指定 SASA', { exact: true }).fill('12.5')
   const joint = await resultingPreview(page, () => page.getByRole('button', { name: 'Specify', exact: true }).click())
   expect(joint.tracks.sequence.values.find(item => item.residue_handle === residue.residue_handle)!.value).toBe('W')
   expect(joint.tracks.sasa.values.find(item => item.residue_handle === residue.residue_handle)!.value).toBe(12.5)
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await page.getByRole('button', { name: '撤销', exact: true }).click()
+  await expect((await matrixCell(page, residue.residue_handle, 'sequence')).locator('strong')).toHaveText('W')
   await page.getByRole('button', { name: '撤销', exact: true }).click()
   const saved = await resultingPreview(page, () => page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click())
   expect(saved.normalized_document).toEqual(snapshot.document)
@@ -207,14 +300,14 @@ test('rigid controls use all atom centroid, compose transforms and retain other 
   const chosen = coordinateRows.slice(0, 2)
   const atomValues = chosen.flatMap(item => (item.value as { atoms: Array<{ coordinates: number[] }> }).atoms)
   const origin = [0, 1, 2].map(index => atomValues.reduce((sum, atom) => sum + atom.coordinates[index], 0) / atomValues.length)
-  await page.locator(`[data-cell="${chosen[0].residue_handle}:coordinates"]`).click()
-  await page.locator(`[data-cell="${chosen[1].residue_handle}:coordinates"]`).click({ modifiers: ['Control'] })
-  await page.getByRole('button', { name: '结构', exact: true }).click()
-  const coordinateCell = page.locator(`[data-cell="${chosen[1].residue_handle}:coordinates"]`)
-  await coordinateCell.press('g')
-  await coordinateCell.press('x')
-  await coordinateCell.press('1')
-  await page.keyboard.type('0')
+  await (await matrixCell(page, chosen[0].residue_handle, 'coordinates')).click()
+  await (await matrixCell(page, chosen[1].residue_handle, 'coordinates')).click({ modifiers: ['Control'] })
+  const coordinateCell = await matrixCell(page, chosen[1].residue_handle, 'coordinates')
+  await coordinateCell.press('F2')
+  await expect(page.getByRole('dialog', { name: '精确结构参数', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'G 位移', exact: true }).click()
+  await page.getByRole('button', { name: 'X', exact: true }).click()
+  await page.getByLabel('变换数值', { exact: true }).fill('10')
   await expect(page.getByLabel('变换数值', { exact: true })).toHaveValue('10')
   const moved = await resultingPreview(page, () => page.getByRole('button', { name: '预览刚体变换', exact: true }).click())
   const transform = moved.normalized_document.rigid_transforms!.at(-1)!
@@ -232,7 +325,8 @@ test('rigid controls use all atom centroid, compose transforms and retain other 
 
 test('random controls expose backend realized selection and stable explicit seed', async ({ page }) => {
   const snapshot = await openedPrompt(page)
-  await page.locator(`[data-cell="${snapshot.residues[0].residue_handle}:sequence"]`).click()
+  await (await matrixCell(page, snapshot.residues[0].residue_handle, 'sequence')).click()
+  await page.getByRole('button', { name: '随机操作', exact: true }).click()
   await page.getByLabel('随机数量', { exact: true }).fill('1')
   await page.getByLabel('随机 seed', { exact: true }).fill('123')
   const first = await resultingPreview(page, () => page.getByRole('button', { name: '预览随机操作', exact: true }).click())
@@ -255,9 +349,10 @@ test('manual region merge requires explicit correspondence and Mask choice', asy
     { source_node_id: 'merge-source', source_port: 'protein_prompt', target_node_id: author.node_id, target_port: 'merge_sources' },
   )
   expect((await page.request.put(url, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  await reopenStoredDraft(page, url)
+  await reopenStoredDraft(page, url, author.node_id)
   await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
-  await expect(page.getByLabel('合并来源', { exact: true })).toContainText('merge-source')
+  await page.getByRole('button', { name: '合并来源', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: '合并来源', exact: true })).toContainText('merge-source')
   await expect(page.getByRole('button', { name: '预览区域合并', exact: true })).toBeDisabled()
   for (const index of [1, 2, 3]) {
     await page.getByRole('button', { name: '添加手动对应行', exact: true }).click()
@@ -287,9 +382,10 @@ test('manual region merge requires explicit correspondence and Mask choice', asy
   await evidence.getByLabel('查看当前后端结果（编辑意图始终引用目标基线）').check()
   await expect(evidence.getByRole('button', { name: '目标残基 A:new', exact: true })).toContainText('T')
   await evidence.getByRole('button', { name: '关闭合并分屏', exact: true }).click()
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await applyToolPreview(page)
+  const savedResponse = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workspace') && response.request().postDataJSON().workflow)
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: '确认写回 Workflow', exact: true })).toBeVisible()
+  expect((await savedResponse).status()).toBe(200)
 })
 
 test('Function endpoint and split edits preserve exact tuple identity', async ({ page }) => {
@@ -298,12 +394,13 @@ test('Function endpoint and split edits preserve exact tuple identity', async ({
   author.node_parameters.document = { chains: [{ chain_id: 'A', length: 4 }], function_annotations: [{ label: 'site', start_residue_id: 'A:1', end_residue_id: 'A:4' }] }
   draft.workflow.edges = draft.workflow.edges.filter(item => item.target_node_id !== author.node_id)
   expect((await page.request.put(url, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  await reopenStoredDraft(page, url)
+  await reopenStoredDraft(page, url, author.node_id)
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === author.node_id)
   await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
   const snapshot = await (await opening).json() as PromptSnapshot
   await page.getByRole('button', { name: '条件', exact: true }).click()
-  await page.locator(`[data-cell="${snapshot.residues[0].residue_handle}:function"]`).click()
+  await (await matrixCell(page, snapshot.residues[0].residue_handle, 'function')).getByRole('button', { name: /编辑 .* Function/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Function 区间', exact: true })).toBeVisible()
   await page.getByLabel('Function 终点', { exact: true }).selectOption('A:3')
   const edited = await resultingPreview(page, () => page.getByRole('button', { name: '预览端点修改', exact: true }).click())
   expect(edited.normalized_document.function_annotations).toEqual([{ label: 'site', start_residue_id: 'A:1', end_residue_id: 'A:3' }])
@@ -321,8 +418,9 @@ test('split evidence records explicit leading and trailing gaps with regional ad
   draft.workflow.edges = draft.workflow.edges.filter(item => item.target_node_id !== author.node_id)
   draft.workflow.edges.push({ source_node_id: 'gap-base', source_port: 'protein_prompt', target_node_id: author.node_id, target_port: 'prompt_source' }, { source_node_id: 'gap-source', source_port: 'protein_prompt', target_node_id: author.node_id, target_port: 'merge_sources' })
   expect((await page.request.put(url, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  await reopenStoredDraft(page, url)
+  await reopenStoredDraft(page, url, author.node_id)
   await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
+  await page.getByRole('button', { name: '合并来源', exact: true }).click()
   await page.getByRole('button', { name: '打开来源 / 目标证据分屏', exact: true }).click()
   const evidence = page.getByRole('dialog', { name: '来源 / 目标证据分屏', exact: true })
   await expect(evidence.locator('.ps-evidence-correspondence button')).toHaveCount(0)
@@ -347,25 +445,26 @@ test('split evidence records explicit leading and trailing gaps with regional ad
   expect(result.normalized_document.source_merges![0].track_adoptions).toEqual([{ track: 'sequence', source_residue_ids: ['A:2'], mask_policy: 'preserve' }])
   expect(result.tracks.sequence.values.map(item => item.value)).toEqual(['A', 'W', 'T'])
   await evidence.getByRole('button', { name: '关闭合并分屏', exact: true }).click()
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await applyToolPreview(page)
 })
 
 test('undoing document edits retains unsaved source graph protection', async ({ page }) => {
   const snapshot = await openedPrompt(page)
-  await page.locator(`[data-cell="${snapshot.residues[0].residue_handle}:sequence"]`).click()
+  await (await matrixCell(page, snapshot.residues[0].residue_handle, 'sequence')).click()
   await page.getByLabel('指定氨基酸', { exact: true }).fill('W')
   await resultingPreview(page, () => page.getByRole('button', { name: 'Specify', exact: true }).click())
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await page.getByRole('button', { name: '合并来源', exact: true }).click()
   await page.getByRole('button', { name: '添加合并来源', exact: true }).click()
   const source = page.getByRole('dialog', { name: '添加手动合并来源', exact: true })
   await source.getByLabel('来源 Chain 1 length', { exact: true }).fill('2')
   await source.getByRole('button', { name: '进入 Prompt 预览', exact: true }).click()
   await expect(source).not.toBeVisible()
-  await expect(page.getByLabel('合并来源', { exact: true }).locator('option')).toHaveCount(1)
+  await expect(page.getByRole('combobox', { name: '合并来源', exact: true }).locator('option')).toHaveCount(1)
+  await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
   await page.getByRole('button', { name: '撤销', exact: true }).click()
   await expect(page.locator('.ps-session-state')).toContainText('有未保存修改')
   await page.getByRole('button', { name: '返回 Workflow', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '尚未保存 Prompt 修改', exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '离开 Prompt 编辑', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '放弃修改', exact: true }).click()
 })
 
@@ -378,37 +477,37 @@ test('ordinary layout after a merge preserves correspondence and deletes inserte
   draft.workflow.edges = draft.workflow.edges.filter(item => item.target_node_id !== author.node_id)
   draft.workflow.edges.push({ source_node_id: 'layout-base', source_port: 'protein_prompt', target_node_id: author.node_id, target_port: 'prompt_source' }, { source_node_id: 'layout-source', source_port: 'protein_prompt', target_node_id: author.node_id, target_port: 'merge_sources' })
   expect((await page.request.put(url, { data: { workflow: draft.workflow } })).status()).toBe(200)
-  await reopenStoredDraft(page, url)
+  await reopenStoredDraft(page, url, author.node_id)
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === author.node_id)
   await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
   const snapshot = await (await opening).json() as PromptSnapshot
   const merged = snapshot.residues.find(item => item.residue_id === 'A:new')!
-  await page.locator(`[data-cell="${merged.residue_handle}:sequence"]`).click()
+  await (await matrixCell(page, merged.residue_handle, 'sequence')).click()
   await page.getByRole('button', { name: '布局', exact: true }).click()
   await page.getByLabel('插入序列', { exact: true }).fill('C')
   const inserted = await resultingPreview(page, () => page.getByRole('button', { name: 'Insert after focus', exact: true }).click())
   expect(inserted.tracks.sequence.values.map(item => item.value)).toEqual(['G', 'W', 'T', 'C'])
   expect(inserted.normalized_document.target_residues!.some(item => item.residue_id === 'A:new')).toBe(false)
   expect(inserted.normalized_document.source_merges![0].correspondence.at(-1)!.disposition).toBe('target_gap')
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await applyToolPreview(page)
   const original = inserted.residues.find(item => item.residue_id === 'A:1')!
-  await page.locator(`[data-cell="${original.residue_handle}:sequence"]`).click()
+  await (await matrixCell(page, original.residue_handle, 'sequence')).click()
+  await page.getByRole('button', { name: '插入 / 删除', exact: true }).click()
   const deletedOriginal = await resultingPreview(page, () => page.getByRole('button', { name: 'Delete selected', exact: true }).click())
   expect(deletedOriginal.normalized_document.source_merges![0].correspondence[0]).toEqual({ disposition: 'source_gap', source_residue_id: 'A:1' })
   expect(deletedOriginal.normalized_document.source_merges![0].track_adoptions[0].source_residue_ids).toEqual(['A:2', 'A:3'])
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
-  await page.locator(`[data-cell="${merged.residue_handle}:sequence"]`).click()
+  await applyToolPreview(page)
+  await (await matrixCell(page, merged.residue_handle, 'sequence')).click()
+  await page.getByRole('button', { name: '插入 / 删除', exact: true }).click()
   const deletedMerged = await resultingPreview(page, () => page.getByRole('button', { name: 'Delete selected', exact: true }).click())
   expect(deletedMerged.normalized_document.source_merges![0].correspondence[2]).toEqual({ disposition: 'source_gap', source_residue_id: 'A:3' })
   expect(deletedMerged.normalized_document.source_merges![0].track_adoptions[0].source_residue_ids).toEqual(['A:2'])
   expect(deletedMerged.tracks.sequence.values.filter(item => item.state !== 'pending-delete').map(item => item.value)).toEqual(['W', 'C'])
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await applyToolPreview(page)
   await page.getByRole('button', { name: '撤销', exact: true }).click()
+  const applied = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workspace') && response.request().postDataJSON().workflow)
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: '确认写回 Workflow', exact: true })).toBeVisible()
-  const applied = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:apply'))
-  await page.getByRole('button', { name: '确认并写回 Workflow', exact: true }).click()
   const response = await applied
   expect(response.status()).toBe(200)
-  expect(response.request().postDataJSON().document).toEqual(deletedOriginal.normalized_document)
+  expect(response.request().postDataJSON().workflow.nodes.find((node: { node_id: string }) => node.node_id === author.node_id).node_parameters.document).toEqual(deletedOriginal.normalized_document)
 })

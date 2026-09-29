@@ -183,10 +183,10 @@ def test_invalid_draft_can_be_saved_and_loaded(tmp_path) -> None:
     authoring = WorkflowAuthoringService(projects, _catalog())
     workflow = _workflow(project.id, invalid_edge=True)
 
-    saved = authoring.save_draft(
+    saved = authoring.save_workspace(
         project.id,
         workflow=workflow,
-    )
+    ).draft
 
     assert encode_workflow_draft(saved) == {
         "project_id": project.id,
@@ -373,7 +373,7 @@ def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters
     payload["nodes"][0]["node_parameters"] = {"undeclared": 1}
 
     workflow = decode_workflow_document(payload)
-    draft = authoring.save_draft(project.id, workflow=workflow)
+    draft = authoring.save_workspace(project.id, workflow=workflow).draft
 
     assert draft.workflow == workflow
     with pytest.raises(WorkflowAuthoringError) as captured:
@@ -663,7 +663,7 @@ def test_science_comparison_clears_after_revert_and_reports_invalid_draft_unknow
         project.id, workflow_commit_id=committed.workflow_commit_id, workflow_project_id=project.id, workflow=workflow,
     )
     assert compare(_workflow(project.id, node_id="other-source"))["status"] == "stale"
-    authoring.save_ui_state(project.id, ui_state={"positions": {"source": {"x": 900, "y": -300}}})
+    authoring.save_workspace(project.id, ui_state={"positions": {"source": {"x": 900, "y": -300}}})
     assert compare(committed.workflow)["status"] == "current"
     invalid = compare(_workflow(project.id, invalid_edge=True))
     assert invalid["status"] == "unknown"

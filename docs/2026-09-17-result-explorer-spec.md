@@ -2,19 +2,25 @@
 
 此增量规格落实集成计划 P0/P3。浏览入口为 Run、Node Instance、output Port、Typed Output value index，不能依赖最后一个 Selection 或整个 Run 成功。只读取已原子发布的值。
 
-`result_collection` 对一个已发布 Candidate Collection 分页，保持其顺序；返回总数和每个条目的原始 item index、完整 Candidate Data Reference、全部 parent IDs、metadata、实际 sequence（序列候选）及结构是否存在。精确数据身份由 Catalog 的 nominal Port Type owner 在首次发布时计算并保存，浏览读取沿用已有身份。分页不创建新 Collection，不修改候选身份。`result_candidate` 按同一个输出定位及 item index 返回实际结构；item index 仅用于该不可变输出内取值，不用于关联 Score 或跨 Run 选择。
+`result_collection` 对一个已发布 Candidate Collection 分页，保持其顺序；返回总数和每个条目的原始 item index、完整 Candidate Data Reference、全部 parent IDs、metadata、实际 sequence（序列候选）及结构是否存在。精确数据身份由 Catalog 的 nominal Port Type owner 在首次发布时计算并保存，浏览读取沿用已有身份。分页不创建新 Collection，不修改候选身份。`result_structure` 按同一个输出定位及 item index 只返回原始 PDB；序列候选不请求结构内容。item index 仅用于该不可变输出内取值，不用于关联 Score 或跨 Run 选择。
+
+public 的 `PublishedResultReader` 组合定位、元数据与科学 owner 的纯阅读投影。`result_value` 为已有消费者返回 Score、Candidate sequence evidence、完整 alignment、独立 sequence/structure/Prompt 和 axis layout 的闭合阅读类型。科学 owner 解释自己的编码；public 不重新准入、重算身份或执行 Prompt recipe。Score 的额外 Context Profile 只服务分组，不代替完整 Context，也不进入原始 Observation 导出。任意扩展仍有原值出口，canonical 下载字节及身份合同不变。Prompt 保留轨道 absent、元素 Mask、named atoms 和完整 Function tuples。
 
 结构候选的序列只读取已发布的、以同一 Candidate Data Reference 关联的 Resolved Structure Residue Axis。没有该证据时展示“尚无已发布序列证据”，不在浏览器根据 ATOM/CA 推断序列，不继承任意 parent 的序列。需要完整 FASTA 时流程应显式包含相应 residue-axis operation。结构本身始终可以查看和导出；manifest 单独列出尚无序列证据的项。
 
 Score 展示保留完整 subject、Metric、Method、Context、value、axis 和输出来源。等值关联键是 Candidate Data Reference 的三个字段；不同 Context 保持独立。多父谱系按全部 parent IDs 找到已发布的精确候选引用；无法解析或存在多个不同数据版本时显示实际引用列表，不任选一个。
 
-视图焦点、勾选、临时筛选与排序分别存储。切阶段或筛选不会清除已勾选引用；导出明确显示隐藏勾选数量。保存为流程操作使用 Selection 的当前科学合同，科学修改作为一个 Draft 保存。
+候选列表与详情／比较区域相邻显示，各自可滚动；点击候选名称更新查看焦点，复选框只改变导出和保存为流程的勾选。查看焦点、勾选、比较位置、临时筛选与排序分别维护。比较提供最多四个独立位置，替换或清空比较位置不改变勾选。焦点候选不在当前页或筛选结果中时，详情说明其来源并提供“在列表中显示”；此操作定位所属阶段及页码，并明确恢复未筛选的列表。
+
+切阶段或筛选不会清除已勾选引用。“查看已选”集中显示所有勾选项及来源，可逐项移除、清空或定位，持续说明隐藏及跨页勾选数量。保存为流程操作使用 Selection 的当前科学合同，科学修改作为一个 Draft 保存。
+
+筛选输入与已应用条件分开保存；条件完整后点击“应用筛选”才改变列表，未填完的草稿不清空当前结果，并可放弃修改或清除条件。Workflow 与 Results 往返时，在当前浏览器会话中按工作区 Project 和实际结果 Project/Run 恢复阶段、页码、焦点、勾选、比较位置、筛选及滚动位置；隐藏页面不覆盖已保存的滚动位置。保存为流程的对话框关闭后恢复发起按钮焦点；按钮已不可用时回到结果工作区。
 
 对齐叠加只消费已发布 Structure Alignment Evidence 的 subject/reference 和刚体变换；没有相应证据时只能并排比较，不自动对齐。导出包含实际值、完整来源、全部 parent refs 和科学定义，PDB 仅对应确有结构的项。
 
 对齐显示按证据合同使用行向量 `subject_coordinate × row_vector_rotation + translation`，把 subject 映射到 reference 坐标框架。变换只作用于 viewer 中的坐标，原始发布 PDB 和导出 PDB 保持不变；显示具体 Method、RMSD、coverage 和来源，不将镜头旋转计入科学变换。
 
-焦点和勾选保存输出位置及完整 Candidate Data Reference，每次投影刷新后从当前索引读取显示数据，因此后续发布的 residue-axis/sequence 证据会出现在现有勾选的详情和导出。导出 parents 列出每个 parent ID 对应的全部精确 Data References 及输出来源，分别标记 unresolved、resolved 或 multiple_data_versions，不能凭 ID 猜选内容版本。
+焦点和勾选保存输出位置及完整 Candidate Data Reference，每次投影刷新后从当前索引读取显示数据，因此后续发布的 residue-axis/sequence 证据会出现在现有勾选的详情和导出。一个纯关联索引集中精确引用、Observation 分组、parents、sequence 和 alignment 关联。未补齐分页时 parents 标记 incomplete，不能把未加载当作未发布；补齐后的导出列出每个 parent ID 对应的全部精确 Data References 及输出来源，分别标记 unresolved、resolved 或 multiple_data_versions，不能凭 ID 猜选内容版本。
 
 临时条件按精确观察组及 Candidate Data Reference 计算 AND/OR；缺失或非唯一观察显示无法判断，不通过布尔短路隐藏。保存条件生成同样括号结构的普通 Selection Node；原值临时排序若保存为排名操作，必须在预览里选择 Utility Transform 和 N，再按公开科学合同执行。所有新增 Node/Selector/Objective 先处于可编辑预览，确认后整体保存 Draft，不修改旧 Run。
 
@@ -34,8 +40,8 @@ WebUI 的 `PublishedResults` module 是当前 Run 阅读的唯一 owner：同一
 
 切换结果 Run 同步替换读取会话，旧会话的迟到成功或失败不能修改当前 snapshot，包括 A→B→A。相同 Run 的刷新保留已加载页面，并只读取新增或此前未成功读取的不可变输出；旧 projection 响应不能覆盖更新的请求。同 Run 刷新不作废候选分页请求。Commit 科学定义在会话内复用，读取不重新验证服务器响应或科学身份。
 
-每个集合只有一个进行中的分页请求，所有消费者共享。offset 由 owner 的已加载数量决定，每页成功立即保留；失败直接报告，下一次明确操作从未完成位置继续，不自动重试。原始候选与发布证据各存一处，snapshot 统一派生序列视图，因此后到的 residue-axis 证据更新所有已加载页面。
+每个集合只有一个进行中的分页请求，所有消费者共享。offset 由 owner 的已加载数量决定，每页成功立即保留；失败直接报告，下一次明确操作从未完成位置继续，不自动重试。结构、已知阅读值及原值的进行中请求和成功结果同样由 Session 共享，详情、对齐、PublishedOutputs、参数候选和导出不另建读取 owner。原始候选与发布证据各存一处，snapshot 统一派生序列视图，因此后到的 residue-axis 证据更新所有已加载页面。
 
 首屏按每集合 100 条读取，显示页保持 50 条。普通翻页只补足当前集合；搜索、筛选和排序由用户明确加载当前集合全部候选后启用。导出与 Selection 编辑补齐全部已发布集合：前者需要完整父引用索引，后者允许编辑期间切换任意候选来源。补齐返回完成时的同一份 snapshot；期间接纳的新来源纳入完整性判断，不主动轮询或等待未来发布。
 
-导出在点击时保留 checked keys，补齐后从返回 snapshot 重新取得候选、观察、序列及原 Commit 定义，不使用等待前的 Candidate 展示对象。旧会话的 Selection 打开请求直接结束；旧阶段的翻页完成不改变新阶段页码。读取阶段与输出是否存在分别表达，无输出的成功读取同样结束加载。
+`prepareExport` 在点击时保留 checked keys，补齐后从返回 snapshot 取得候选、观察、序列及原 Commit 定义，并共享不可变结构读取；等待结构期间不再混入另一份 snapshot 的科学事实。文件格式化是纯函数，浏览器下载负责 ZIP 与下载动作。旧会话的 Selection 打开请求直接结束；旧阶段的翻页完成不改变新阶段页码。读取阶段与输出是否存在分别表达，无输出的成功读取同样结束加载。从结果保存 Selection 的交接是生成编辑预览，再由 WorkspaceEditor 提交完整编辑，不在阅读 owner 内保存 Workflow。

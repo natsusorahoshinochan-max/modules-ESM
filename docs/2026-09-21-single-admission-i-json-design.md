@@ -152,7 +152,7 @@ JSON syntax parsing 仍负责重复键检测：解析后重复键事实已丢失
 | Port descriptor | 已准入 BehaviorReferences 与固定字段的纯投影、冻结和编码 |
 | Workflow document | 共享纯 freeze/thaw；原始输入另行完成 JSON 准入 |
 | 参数 | 保留 immutable defaults；submitted values 首次入口准入，随后只检查参数 schema |
-| declarations | ContractIdentity 模板分派与 JSON 叶子准入 |
+| declarations | ExactContractReference 模板分派与 JSON 叶子准入 |
 | Candidate / Score | constructor 纯 freeze；nominal owner 验证 JSON 字段 |
 | Prediction | 共享纯 `canonical_sha256`；自身 key 的角色/slot 由科学 owner 检查 |
 | protocol | 请求首次 JSON 准入与 schema 检查；下游只检查各自 schema |
@@ -164,7 +164,7 @@ JSON syntax parsing 仍负责重复键检测：解析后重复键事实已丢失
 - HTTP parser 只处理 JSON 语法与重复键。protocol 请求入口准入整个 JSON 一次，随后 schema-only 检查。Workflow 重建与 `admit_values` 只做表示/参数 schema，不再次 admit_i_json。
 - 绕过 public 的直接 Python/fixture 原始 Workflow/参数必须显式经过原始 JSON admission，再进入相同 compiler/参数 schema interface；不能让 compile 或纯 constructor 隐式补验。这个入口使用共享 admit_i_json，不另写递归 validator。
 - Catalog/YAML declaration admission 负责 `ParameterDeclaration.value_contract/default` 的 JSON 规则，和 HTTP submitted values 是不同真实来源；ParameterDeclaration、AdmittedParameterValues constructor 都只冻结。
-- declaration/template walker 的初次准入负责 ContractIdentity 分派与 JSON 叶子规则；已准入 CatalogContract/result_identity_contract 的投影冻结不再验证叶子。纯 freezer 不嵌入 validator。
+- declaration/template walker 的初次准入负责 ExactContractReference 分派与 JSON 叶子规则；已准入 CatalogContract/result_identity_contract 的投影冻结不再验证叶子。纯 freezer 不嵌入 validator。
 - BehaviorReference 的 parameters 初次准入后，descriptor 用纯投影；不要把该 descriptor 再当原始声明准入。
 
 错误翻译在 Catalog/Port/Protocol 各自对外 seam；I-JSON module 不导入这些异常类型。保留错误路径；不要求逐字保留历史错误文案。

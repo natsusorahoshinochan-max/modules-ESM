@@ -11,6 +11,7 @@ from tests.support.ledger import public_run_events, public_run_projection
 from protein_workbench_public.bootstrap import module_registrations
 
 from contextlib import nullcontext
+from datatypes.observation import CalibrationContextProfile
 from dataclasses import replace
 import hashlib
 import os
@@ -34,9 +35,8 @@ from core.catalog.builder import (
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.catalog.declarations import (
-    ContractIdentity,
-)
+
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.errors import CatalogBuildError
 from core.operation import (
     BindingEnvironment,
@@ -521,22 +521,19 @@ def test_scoring_metric_context_and_scope_mismatches_fail_catalog_build(
     if mismatch == "metric":
         invalid_produced = replace(
             produced,
-            metric=ContractIdentity(
+            metric=ExactContractReference(
                 "metric",
                 "proteinmpnn.undeclared_metric"),
         )
     elif mismatch == "context":
         invalid_produced = replace(
             produced,
-            context_profile={
-                "kind": "intrinsic",
-                "normalization": "dataset-relative",
-            },
+            context_profile=CalibrationContextProfile("population_score", 0.5, "dimensionless", "dataset-relative"),
         )
     else:
         invalid_produced = replace(
             produced,
-            subject_port="undeclared_subjects",
+            subject_input="undeclared_subjects",
         )
     invalid_binding = replace(
         scoring,

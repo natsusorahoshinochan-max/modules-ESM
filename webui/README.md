@@ -1,6 +1,6 @@
 # Protein Workbench WebUI
 
-Last updated: 2026-09-21.
+Last updated: 2026-09-29.
 
 Start the public v2 backend from the repository root:
 
@@ -28,7 +28,12 @@ the bundled evidence. New Runs use the configured real Providers.
 Use **添加来源** for a blank Prompt, FASTA, a PDB chain or an existing Prompt.
 Batch FASTA import creates one Candidate per record. The canvas supports adding
 operations, editing parameters and Selection rules, replacing connections,
-copying selected fragments and undo. Run confirmation shows the actual full or
+nested node groups, independent group copies, and undo/redo. See the
+[current frontend interaction contract](../docs/2026-09-29-frontend-interaction-contract.md)
+for matrix keys, 3D navigation and selection, group navigation, and the current
+stage acceptance record. Structure transforms currently use debounced backend
+previews; immediate local rendering remains a follow-up, not an implemented
+capability. The viewer uses 3Dmol.js directly. Run confirmation shows the actual full or
 partial scope. Continuation forces the selected Nodes and descendants to execute
 and refuses missing reusable upstream results.
 
@@ -62,7 +67,7 @@ Vite on port 5179. Real Provider journeys have a separate
 `playwright.real.config.ts`; they require an explicitly supervised built WebUI
 service and the prepared FASTA Project. See the
 [real FASTA journey specification](../docs/2026-09-19-webui-fasta-journey-spec.md)
-and the [latest complete acceptance record](../docs/2026-09-21-catalog-selection-run-acceptance.md).
+and the [latest complete acceptance record](../docs/2026-09-24-port-connections-acceptance.md).
 The [September 19 record](../docs/2026-09-19-webui-integration-progress.md)
 documents the earlier integration snapshot and the separately tracked
 source-field simplification.

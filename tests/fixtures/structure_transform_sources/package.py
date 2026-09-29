@@ -8,13 +8,13 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -466,8 +466,8 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.direct",
-        node_type=ContractIdentity("node_type", node_id),
-        method=ContractIdentity(
+        node_type=ExactContractReference("node_type", node_id),
+        method=ExactContractReference(
             "method",
             f"contract_test.structure_transform.{operation}.method"),
         binding_parameters={},
