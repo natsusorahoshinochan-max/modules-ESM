@@ -57,8 +57,9 @@ test('default 3GB1 workflow remains connected from authoring through a real run 
 
   await enterExampleStage(page, 1)
   await page.getByRole('button', { name: /打开 Prompt Studio/ }).click()
-  const beforePromptSave = await (await page.request.get(undoResponse.url())).json()
   await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).toBeVisible()
+  await expect(page.locator('[aria-label="布局保存状态"]')).toContainText('布局已保存')
+  const beforePromptSave = await (await page.request.get(undoResponse.url())).json()
   await expect(page.getByText('57 residues')).toBeVisible()
   await page.getByRole('button', { name: '显示轨道 / 状态', exact: true }).click()
   await expect(page.locator('.ps-state-legend').getByText('pending-delete', { exact: true })).toBeVisible()
@@ -474,7 +475,7 @@ test('a delayed real seed result cannot overwrite a personal project, new Run or
     await page.getByRole('button', { name: 'Results 3', exact: true }).click()
     await expect(page.locator('.results-explorer > aside')).toContainText(`Run ${personalRun.run_id}`)
     await expect(page.locator('.results-explorer > aside')).not.toContainText(seed.run_id)
-    await expect(page.getByRole('heading', { name: 'source / sequence_candidates', exact: true })).toBeVisible()
+    await expect(page.getByLabel('当前结果来源').locator('code')).toHaveText(JSON.stringify({ node_id: 'source', output_port: 'sequence_candidates', value_index: 0 }))
     await expect(page.locator('.result-table').getByRole('checkbox')).toHaveCount(3)
     expect(errors).toEqual([])
     await testInfo.attach('personal-run-after-delayed-seed', { body: await page.screenshot(), contentType: 'image/png' })
@@ -505,7 +506,7 @@ test('a delayed real previous Run result cannot replace a newer Run in the same 
     await page.getByRole('button', { name: 'Results 5', exact: true }).click()
     await expect(page.locator('.results-explorer > aside')).toContainText(`Run ${latest.run_id}`)
     await expect(page.locator('.results-explorer > aside')).not.toContainText(previous.run_id)
-    await page.locator('.results-explorer > aside nav').getByRole('button').filter({ hasText: 'prefix / candidates' }).click()
+    await page.locator('.results-explorer > aside nav').getByTestId('result-source-["prefix","candidates",0]').click()
     await expect(page.locator('.result-table').getByRole('checkbox')).toHaveCount(2)
   } finally {
     held.release()
@@ -801,27 +802,32 @@ test('clicking the Palette opens an explicit Binding choice and saves the select
 
 
 test('scientific edits become stale and reverting them restores current results; layout stays independent', async ({ page, request }) => {
+  const assertCurrency = async (text: string) => {
+    await page.getByRole('button', { name: /^Results/ }).click()
+    await expect(page.locator('.result-stages')).toContainText(text)
+    await page.getByRole('button', { name: '返回 Workflow' }).click()
+  }
   const { project, base } = await createRunWorkspace(request)
   await page.goto('/')
   await openRunWorkspace(page, project.name)
   await prepareScope(page, 'prefix', '运行到所选节点')
   await startPreparedScope(page, request, base)
-  await expect(page.locator('.old-result-note')).toContainText('与当前科学流程一致')
+  await assertCurrency('结果与当前科学流程一致')
   const node = page.getByTestId('rf__node-prefix')
   await node.getByLabel('编辑参数').click()
   const count = node.getByLabel('保留数量')
   await count.fill('1')
   await count.blur()
-  await expect(page.locator('.old-result-note')).toContainText('来自修改前的科学流程')
+  await assertCurrency('结果来自已修改的流程')
   await count.fill('2')
   await count.blur()
-  await expect(page.locator('.old-result-note')).toContainText('与当前科学流程一致')
+  await assertCurrency('结果与当前科学流程一致')
   await node.locator('.node-header .icon-button').click()
   await expect(page.getByLabel('布局保存状态')).toContainText('布局已保存')
-  await expect(page.locator('.old-result-note')).toContainText('与当前科学流程一致')
+  await assertCurrency('结果与当前科学流程一致')
   await page.reload()
   await openRunWorkspace(page, project.name)
-  await expect(page.locator('.old-result-note')).toContainText('与当前科学流程一致')
+  await assertCurrency('结果与当前科学流程一致')
 })
 
 test('canvas context search adds an ordinary node and keyboard undo restores the graph', async ({ page, request }) => {
@@ -865,9 +871,9 @@ test('a held candidate page cannot change another stage and revisiting reuses th
   await openRunWorkspace(page, project.name)
   await prepareScope(page, 'prefix', '运行到所选节点')
   const run = await startPreparedScope(page, request, base)
-  await page.getByRole('button', { name: '打开 Results Workbench' }).click()
+  await page.getByRole('button', { name: /^Results/ }).click()
   const navigation = page.locator('.results-explorer > aside nav')
-  await navigation.getByRole('button').filter({ hasText: 'source / sequence_candidates' }).click()
+  await navigation.getByTestId('result-source-["source","sequence_candidates",0]').click()
   await expect(page.locator('.result-table').getByRole('checkbox')).toHaveCount(50)
   let release!: () => void
   let received!: () => void
@@ -889,12 +895,12 @@ test('a held candidate page cannot change another stage and revisiting reuses th
     await expect(page.locator('.results-explorer footer').first()).toContainText('2 / 5')
     await page.getByRole('button', { name: '下一页', exact: true }).click()
     await held
-    await navigation.getByRole('button').filter({ hasText: 'prefix / candidates' }).click()
+    await navigation.getByTestId('result-source-["prefix","candidates",0]').click()
     await expect(page.locator('.result-table').getByRole('checkbox')).toHaveCount(2)
     release()
     await expect(page.getByRole('button', { name: '配置排序并取前 N 个' })).toBeEnabled()
     await expect(page.locator('.results-explorer footer').first()).toContainText('1 / 1')
-    await navigation.getByRole('button').filter({ hasText: 'source / sequence_candidates' }).click()
+    await navigation.getByTestId('result-source-["source","sequence_candidates",0]').click()
     await page.getByRole('button', { name: '下一页', exact: true }).click()
     await expect(page.locator('.results-explorer footer').first()).toContainText('2 / 5')
     await page.getByRole('button', { name: '下一页', exact: true }).click()

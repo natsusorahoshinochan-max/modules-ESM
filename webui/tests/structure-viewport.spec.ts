@@ -66,6 +66,7 @@ test('refreshing a model preserves the camera and cancelled late previews cannot
   await page.keyboard.press('g')
   await page.keyboard.press('x')
   await page.keyboard.press('2')
+  await page.keyboard.press('Enter')
   await expect(page.getByRole('button', { name: '完成预览响应' })).toBeEnabled()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '完成预览响应' }).click()

@@ -1,4 +1,7 @@
+import { matrixCell } from './fixtures/matrix-cell'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import type { ProjectMetadata, PromptPreview, PromptSnapshot, WorkflowDraft } from '../src/protocol/client'
+import type { ProjectWorkspace } from '../src/project-workspace'
 
 async function createWorkspace(request: APIRequestContext) {
   const name = `Workspace ${crypto.randomUUID().slice(0, 8)}`
@@ -25,6 +28,42 @@ async function openProject(page: Page, name: string) {
   await expect(dialog).not.toBeVisible()
   await expect(page.locator('.project-identity strong')).toHaveText(name)
 }
+
+test('API-copied example opens its flat-canvas Prompt and saves the exact preview', async ({ page, request }) => {
+  const projects = (await (await request.get('/api/v2/projects')).json()).projects as ProjectMetadata[]
+  const seed = projects.find(project => project.project_kind === 'default_example')!
+  const copied = await request.post(`/api/v2/projects/${seed.id}:copy`, { data: { name: `Flat Prompt ${crypto.randomUUID().slice(0, 8)}` } })
+  expect(copied.status()).toBe(201)
+  const project = await copied.json() as ProjectMetadata
+  const base = `/api/v2/projects/${project.id}`
+  const draft = await (await request.get(`${base}/workflow/draft`)).json() as WorkflowDraft
+  const author = draft.workflow.nodes.find(node => node.node_type_id === 'prompt_authoring.author')!
+  await page.goto('/')
+  await openProject(page, project.name)
+  await expect(page.getByRole('navigation', { name: '流程阶段', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '适合视图', exact: true }).click()
+  const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === author.node_id)
+  await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
+  const prompt = await (await opening).json() as PromptSnapshot
+  const masked = prompt.tracks.sequence.values.find(item => item.value === null && prompt.residues.some(residue => residue.residue_handle === item.residue_handle && residue.state !== 'pending-delete'))!
+  await (await matrixCell(page, masked.residue_handle, 'sequence')).click()
+  await page.getByLabel('指定氨基酸', { exact: true }).fill('G')
+  const previewing = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:preview') && response.request().postDataJSON().node_id === author.node_id)
+  await page.getByRole('button', { name: 'Specify', exact: true }).click()
+  const preview = await (await previewing).json() as PromptPreview
+  expect(preview.diagnostics).toEqual([])
+  expect(preview.tracks.sequence.values.find(item => item.residue_handle === masked.residue_handle)?.value).toBe('G')
+  await expect(page.locator('[aria-label="布局保存状态"]')).toContainText('布局已保存')
+  const before = await (await request.get(`${base}/workspace`)).json() as ProjectWorkspace
+  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`${base}/workspace`))
+  await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
+  const response = await saving
+  expect(response.status()).toBe(200)
+  const saved = await response.json() as ProjectWorkspace
+  expect(saved.workspace_revision).toBe(before.workspace_revision + 1)
+  expect(saved.draft!.workflow.nodes.find(node => node.node_id === author.node_id)!.node_parameters.document).toEqual(preview.normalized_document)
+  expect(saved.ui_state).toEqual(before.ui_state)
+})
 
 test('viewing a version is read-only and the first layout edit preserves a return point', async ({ page, request }) => {
   const { project, workflow, ui } = await createWorkspace(request)
@@ -108,8 +147,6 @@ test('new Prompt sources stay staged until confirmed and cancel leaves the saved
   expect((await (await request.get(`${prefix}/workflow/draft`)).json()).workflow).toEqual(workflow)
 
   await enterBlankPrompt()
-  await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '确认写回 Workflow', exact: true })).toBeVisible()
   expect((await (await request.get(`${prefix}/workflow/draft`)).json()).workflow).toEqual(workflow)
   const beforeConfirmation = await (await request.get(`${prefix}/workspace`)).json()
   const publications: unknown[] = []
@@ -117,7 +154,7 @@ test('new Prompt sources stay staged until confirmed and cancel leaves the saved
     if (outgoing.method() === 'PUT' && outgoing.url().endsWith(`${prefix}/workspace`)) publications.push(outgoing.postDataJSON())
   })
   const applying = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith('/workspace') && response.request().postDataJSON().workflow)
-  await page.getByRole('button', { name: '确认并写回 Workflow', exact: true }).click()
+  await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
   expect((await applying).status()).toBe(200)
   await expect(page.getByLabel('布局保存状态')).toContainText('布局已保存')
   const saved = await (await request.get(`${prefix}/workspace`)).json()

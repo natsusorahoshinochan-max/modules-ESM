@@ -82,3 +82,26 @@
   .result-list-scroll {max-height:300px;flex:none}
   .result-detail-pane {overflow:visible}
 }
+
+.result-source,
+.selection-saved {
+  padding: 12px 14px;
+  border: 1px solid #486653;
+  border-radius: 8px;
+  background: #1a2d21;
+  font-size: 12px;
+}
+.result-source > div,
+.selection-saved {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.result-source details,
+.selection-saved details { margin-top: 8px; overflow-wrap: anywhere; }
+.selection-saved p { margin: 5px 0 0; }
+.selection-saved details { flex-basis: 100%; }
+.selection-saved ul { margin-bottom: 0; padding-left: 18px; }
+.result-selection-summary { margin: 0; color: #adc9b5; font-size: 12px; line-height: 1.7; }
+.result-unpublished { padding: 16px; border: 1px dashed #8c855f; color: #e3d8a7; line-height: 1.7; }

@@ -4,7 +4,7 @@ import type { PromptPreview, PromptSnapshot } from '../src/protocol/client'
 async function openMatrix(page: Page) {
   await page.goto('/')
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === 'prompt-composition-webui-3gb1.source.author')
-  await page.getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
+  await page.getByRole('button', { name: '编辑 ProteinPrompt', exact: true }).click()
   const snapshot = await (await opening).json() as PromptSnapshot
   await page.locator('.ag-body-horizontal-scroll-viewport').evaluate(element => { element.scrollLeft = 0 })
   return snapshot

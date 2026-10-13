@@ -1,8 +1,9 @@
+import { matrixCell } from '../tests/fixtures/matrix-cell'
 import { expect, test, type APIRequestContext, type Page, type TestInfo } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { strFromU8, unzipSync } from 'fflate'
 import { PublicV2Client, type CandidateReference, type ProjectMetadata, type PromptPreview, type PromptSnapshot, type RunProjection, type WorkflowDraft } from '../src/protocol/client'
-import { candidateViewKey, observationKey, referenceKey, type CandidateView, type ResultCollection, type ResultIndex, type ScoreView } from '../src/result-explorer'
+import { candidateViewKey, locationKey, observationKey, referenceKey, type CandidateView, type ResultCollection, type ResultIndex, type ScoreView } from '../src/result-explorer'
 import { PublishedResults, type RunReference } from '../src/published-results'
 import type { ProjectWorkspace } from '../src/project-workspace'
 
@@ -66,7 +67,7 @@ async function startOnce(page: Page, request: APIRequestContext, project: Projec
   expect(starts).toBe(1)
   await expect(page.locator('.run-progress-bar')).toContainText('运行完成')
   const snapshot = await publishedResults(run!)
-  await page.getByRole('button', { name: '打开 Results Workbench' }).click()
+  await page.getByRole('button', { name: /^Results/ }).click()
   await expect(page.locator('.results-explorer > aside').getByRole('heading', { name: '已发布结果', exact: true })).toBeVisible()
   return { project, run: snapshot.run!, index: snapshot.index }
 }
@@ -78,8 +79,8 @@ function collection(index: ResultIndex, nodeId: string, outputPort?: string): Re
 }
 
 async function showCollection(page: Page, value: ResultCollection) {
-  await page.locator('.results-explorer > aside nav').getByRole('button').filter({ hasText: value.title }).click()
-  await expect(page.getByRole('heading', { name: value.title, exact: true })).toBeVisible()
+  await page.locator('.results-explorer > aside nav').getByTestId(`result-source-${locationKey(value.source)}`).click()
+  await expect(page.getByLabel('当前结果来源').locator('code')).toHaveText(JSON.stringify(value.source))
   await expect(page.locator('.result-table input[type=checkbox]')).toHaveCount(Math.min(50, value.items.length))
 }
 
@@ -284,25 +285,27 @@ async function preparePromptJourney(page: Page, request: APIRequestContext, info
   expect((await request.put(`${base}/workspace`, { data: { workflow: draft.workflow } })).status()).toBe(200)
   await openProject(page, project)
   const author = draft.workflow.nodes.find(node => node.node_type_id === 'prompt_authoring.author')!
+  // API copies retain stored layout; the seed-only stage preset is not applied.
+  await page.getByRole('button', { name: '适合视图', exact: true }).click()
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === author.node_id)
   await page.getByTestId(`rf__node-${author.node_id}`).getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
   const prompt = await (await opening).json() as PromptSnapshot
   const masked = prompt.tracks.sequence.values.find(item => item.value === null && prompt.residues.some(residue => residue.residue_handle === item.residue_handle && residue.state !== 'pending-delete'))!
   expect(masked).toBeDefined()
-  await page.locator(`[data-cell="${masked.residue_handle}:sequence"]`).click()
+  await (await matrixCell(page, masked.residue_handle, 'sequence')).click()
   await page.getByLabel('指定氨基酸', { exact: true }).fill('G')
   const editing = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:preview') && response.request().postDataJSON().node_id === author.node_id)
   await page.getByRole('button', { name: 'Specify', exact: true }).click()
   const edited = await (await editing).json() as PromptPreview
   expect(edited.diagnostics).toEqual([])
   expect(edited.tracks.sequence.values.find(item => item.residue_handle === masked.residue_handle)?.value).toBe('G')
-  await page.getByRole('button', { name: '应用操作', exact: true }).click()
+  await page.getByRole('button', { name: '条件详情', exact: true }).click()
   await expect(page.getByRole('region', { name: 'ESM3 有效条件' })).toContainText('SDK 可以表示当前条件')
   await screenshot(page, info, 'own-prompt-effective-conditioning')
-  await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
+  await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
   const beforePrompt = await (await request.get(`${base}/workspace`)).json() as ProjectWorkspace
   const applying = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`${base}/workspace`))
-  await page.getByRole('button', { name: '确认并写回 Workflow', exact: true }).click()
+  await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
   const response = await applying
   expect(response.status()).toBe(200)
   const savedPrompt = await response.json() as ProjectWorkspace
@@ -406,7 +409,7 @@ for (const action of ['cancel', 'cancel-delete', 'wait-delete'] as const) {
       await page.getByRole('button', { name: '取消整次运行', exact: true }).click()
       await expect.poll(async () => (await (await request.get(`${base}/runs/${receipt.run_id}`)).json()).status, { timeout: 60_000 }).toBe('cancelled')
       await expect(page.locator('.run-progress-bar')).toContainText('运行已取消')
-      await page.getByRole('button', { name: '打开 Results Workbench', exact: true }).click()
+      await page.getByRole('button', { name: /^Results/, exact: true }).click()
       await expect(page.locator('.results-explorer > aside nav button').first()).toBeVisible()
     } else {
       await page.getByRole('button', { name: '项目', exact: true }).click()

@@ -10,6 +10,7 @@ import { type CatalogSnapshot, type ResultLocation, type RunProjection, type Wor
 import { candidateViewKey, exportCandidates, locationKey, observationKey, referenceKey, scalarObservationChoices, uniqueScalarObservation, type CandidateView, type ResultIndex, type ScoreView } from './result-explorer'
 import type { PublishedResults } from './published-results'
 import type { WorkspaceEditSession } from './workspace-editor'
+import type { ProjectWorkspace } from './project-workspace'
 import { saveSelectionDraft, createSelectionDraft, newObservation, sourceKey, type Predicate, type SelectionOperation, type SelectionSource } from './selection-authoring'
 import './results.css'
 
@@ -48,9 +49,11 @@ function CandidateDetail({ candidate, results, scores, catalog }: { candidate: C
   </article>
 }
 
-export function ResultsWorkbench({ results, run, index, loading = false, loadError = '', catalog, authoringCatalog, scienceStatus, onBack, onBeginEdit, onSaveWorkflow, saveError, onRetrySave, viewStateStore, workspaceProjectId, runControls, active = true }: { results: PublishedResults; run: RunProjection; index: ResultIndex; loading?: boolean; loadError?: string; catalog: CatalogSnapshot; authoringCatalog: CatalogSnapshot; scienceStatus: 'current' | 'stale' | 'unknown'; onBack: () => void; onBeginEdit: () => Promise<WorkspaceEditSession | undefined>; onSaveWorkflow: (session: WorkspaceEditSession, workflow: Workflow) => Promise<unknown>; saveError: string; onRetrySave: () => Promise<unknown>; viewStateStore?: ResultsViewStateStore; workspaceProjectId?: string; runControls?: ReactNode; active?: boolean }) {
+export function ResultsWorkbench({ results, run, index, loading = false, loadError = '', catalog, authoringCatalog, scienceStatus, onBack, onBeginEdit, onSaveWorkflow, saveError, onRetrySave, viewStateStore, workspaceProjectId, runControls, active = true, requestedSource, onLocateNode, onLocateCreatedNodes, nodeLabels }: { results: PublishedResults; run: RunProjection; index: ResultIndex; loading?: boolean; loadError?: string; catalog: CatalogSnapshot; authoringCatalog: CatalogSnapshot; scienceStatus: 'current' | 'stale' | 'unknown'; onBack: () => void; onBeginEdit: () => Promise<WorkspaceEditSession | undefined>; onSaveWorkflow: (session: WorkspaceEditSession, workflow: Workflow) => Promise<ProjectWorkspace | undefined>; saveError: string; onRetrySave: () => Promise<ProjectWorkspace | undefined>; viewStateStore?: ResultsViewStateStore; workspaceProjectId?: string; runControls?: ReactNode; active?: boolean; requestedSource?: ResultLocation & { requestId: number }; onLocateNode: (nodeId: string) => void; onLocateCreatedNodes: (nodeIds: string[]) => void; nodeLabels: Record<string, string> }) {
   const collections = index.collections
   const stageRevision = useRef(0)
+  const handledSourceRequest = useRef<number | undefined>(undefined)
+  const [exactSource, setExactSource] = useState<ResultLocation>()
   const viewKey = JSON.stringify([workspaceProjectId ?? run.project_id, run.project_id, run.run_id])
   const [restored] = useState(() => viewStateStore?.get(viewKey))
   const [stageKey, setStageKey] = useState(restored?.stageKey ?? '')
@@ -72,7 +75,13 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
   const [preview, setPreview] = useState<SelectionPreview>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const collection = collections.find((entry) => locationKey(entry.source) === stageKey) ?? collections[0]
+  const [savedSelection, setSavedSelection] = useState<{ nodeIds: string[]; label: string }>()
+  const pendingSelectionSave = useRef<{ nodeIds: string[]; label: string } | undefined>(undefined)
+  const sourceTarget = requestedSource && handledSourceRequest.current !== requestedSource.requestId ? requestedSource : exactSource
+  const collection = sourceTarget ? collections.find(entry => locationKey(entry.source) === locationKey(sourceTarget)) : collections.find((entry) => locationKey(entry.source) === stageKey) ?? collections[0]
+  const displayedSource = collection?.source ?? sourceTarget
+  const sourceInCurrentGraph = displayedSource !== undefined && Object.hasOwn(nodeLabels, displayedSource.node_id)
+  const sourceTitle = (source: ResultLocation) => `${nodeLabels[source.node_id] ?? '历史节点'} · ${source.output_port} · 输出 ${source.value_index + 1}`
   const byKey = index.candidates
   const selected = useMemo(() => checked.flatMap((key) => byKey.has(key) ? [byKey.get(key)!] : []), [byKey, checked])
   const compared = useMemo(() => comparisonKeys.flatMap((key) => byKey.has(key) ? [byKey.get(key)!] : []), [byKey, comparisonKeys])
@@ -95,7 +104,7 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
   }, [collection, descending, filteredOutcomes, scoreLookup, search, sort])
   const visible = new Set(candidates.map(candidateViewKey))
   const hidden = selected.filter((candidate) => !visible.has(candidateViewKey(candidate))).length
-  const focusedCandidate = (focusedKey ? byKey.get(focusedKey) : undefined) ?? candidates[0]
+  const focusedCandidate = sourceTarget && !collection ? undefined : (focusedKey ? byKey.get(focusedKey) : undefined) ?? candidates[0]
   const pageCandidates = candidates.slice(page * 50, (page + 1) * 50)
   const onPage = new Set(pageCandidates.map(candidateViewKey))
   const offPageChecked = selected.filter((candidate) => !onPage.has(candidateViewKey(candidate))).length
@@ -105,6 +114,25 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
   const complete = collection !== undefined && collection.items.length === collection.total
   const filterPending = JSON.stringify(filterDraft) !== JSON.stringify(predicate)
   function clearFilter() { const empty = emptyFilter(); setPredicate(empty); setFilterDraft(empty); setPage(0) }
+  function selectStage(source: ResultLocation) {
+    stageRevision.current += 1
+    if (requestedSource) handledSourceRequest.current = requestedSource.requestId
+    setExactSource(source)
+    setStageKey(locationKey(source)); setFocusedKey(undefined); setPage(0); setSearch(''); setSort(''); clearFilter()
+    if (listRef.current) listRef.current.scrollTop = 0
+  }
+  useEffect(() => {
+    if (!requestedSource || handledSourceRequest.current === requestedSource.requestId) return
+    const source = collections.find(entry => locationKey(entry.source) === locationKey(requestedSource))?.source
+    if (!source) return
+    // A navigation request is consumed once, after its exact output arrives.
+    // Subsequent index refreshes must not reset the user's local view edits.
+    handledSourceRequest.current = requestedSource.requestId
+    stageRevision.current += 1
+    setExactSource(source); setStageKey(locationKey(source)); setFocusedKey(undefined)
+    setPage(0); setSearch(''); setSort(''); setPredicate(emptyFilter()); setFilterDraft(emptyFilter())
+    if (listRef.current) listRef.current.scrollTop = 0
+  }, [requestedSource, collections])
   function rememberView() {
     const previous = viewStateStore?.get(viewKey) ?? restored
     const recordScroll = active && scrollRestored.current
@@ -139,6 +167,8 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
   }
   function revealCandidate(candidate: CandidateView) {
     stageRevision.current += 1
+    if (requestedSource) handledSourceRequest.current = requestedSource.requestId
+    setExactSource(candidate.source)
     setStageKey(locationKey(candidate.source))
     setSearch(''); setSort(''); clearFilter(); setCompare(false)
     setPage(Math.floor(candidate.item_index / 50))
@@ -212,13 +242,33 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
   const preparedWorkflow = preview?.workflow
   const addedNodes = preparedWorkflow?.nodes.filter((node) => !preview!.originalWorkflow.nodes.some((entry) => entry.node_id === node.node_id)) ?? []
 
+  async function confirmSelection() {
+    if (!preview) return
+    const summary = { nodeIds: addedNodes.map(node => node.node_id), label: preview.label }
+    pendingSelectionSave.current = summary
+    const saved = await onSaveWorkflow(preview.session, preview.workflow)
+    if (!saved) return
+    setSavedSelection(summary); pendingSelectionSave.current = undefined; setPreview(undefined)
+  }
+  async function retrySelectionSave() {
+    const summary = pendingSelectionSave.current
+    const saved = await onRetrySave()
+    if (!saved) return
+    if (summary) setSavedSelection(summary)
+    pendingSelectionSave.current = undefined; setPreview(undefined)
+  }
+
   return <div className="results-explorer">
-    <aside className="result-stages"><button onClick={onBack}>返回 Workflow</button><h2>已发布结果</h2><p>{run.status}</p><p>{scienceStatus === 'current' ? '结果与当前科学流程一致' : scienceStatus === 'stale' ? '结果来自已修改的流程' : '结果一致性待确认'}</p><small>Run {run.run_id}<br />Commit {run.workflow_commit_id}</small><nav aria-label="结果阶段">{collections.map((entry) => <button className={collection === entry ? 'active' : ''} aria-current={collection === entry ? 'true' : undefined} key={locationKey(entry.source)} onClick={() => { stageRevision.current += 1; setStageKey(locationKey(entry.source)); setFocusedKey(undefined); setPage(0); setSearch(''); setSort(''); clearFilter(); if (listRef.current) listRef.current.scrollTop = 0 }}>{entry.title}<strong>{entry.total}</strong></button>)}</nav></aside>
+    <aside className="result-stages"><button onClick={onBack}>返回 Workflow</button><h2>已发布结果</h2><p>{run.status}</p><p>{scienceStatus === 'current' ? '结果与当前科学流程一致' : scienceStatus === 'stale' ? '结果来自已修改的流程' : '结果一致性待确认'}</p><small>Run {run.run_id}<br />Commit {run.workflow_commit_id}</small><nav aria-label="结果阶段">{collections.map((entry) => <button className={collection === entry ? 'active' : ''} aria-current={collection === entry ? 'true' : undefined} key={locationKey(entry.source)} data-testid={`result-source-${locationKey(entry.source)}`} onClick={() => selectStage(entry.source)}>{sourceTitle(entry.source)}<strong>{entry.total}</strong></button>)}</nav></aside>
     <main ref={mainRef} tabIndex={-1} aria-label="已发布结果工作区" onScroll={rememberView} aria-busy={loading && !loadError}>
       {runControls && <div className="result-run-controls">{runControls}</div>}
-      <header><h1>{collection?.title ?? (loadError ? '结果读取失败' : loading ? '已发布结果' : '尚无已发布候选')}</h1><div><button disabled={!byKey.size || busy} onClick={openComparison}>{compare ? '关闭比较' : `并排比较 (${comparisonKeys.filter(Boolean).length})`}</button><button aria-expanded={basketOpen} onClick={() => setBasketOpen(!basketOpen)}>查看已选 ({checked.length})</button><button disabled={!selected.length || busy} onClick={event => { previewTrigger.current = event.currentTarget; void action(() => prepareSelection('manual')) }}>勾选保存为流程</button><button disabled={!selected.length || busy} onClick={() => void action(exportSelected)}>导出所选 · ZIP</button></div></header>
+      <header><h1>{displayedSource ? sourceTitle(displayedSource) : collection?.title ?? (loadError ? '结果读取失败' : loading ? '已发布结果' : '尚无已发布候选')}</h1><div><button disabled={!byKey.size || busy} onClick={openComparison}>{compare ? '关闭比较' : `并排比较 (${comparisonKeys.filter(Boolean).length})`}</button><button aria-expanded={basketOpen} onClick={() => setBasketOpen(!basketOpen)}>查看已选 ({checked.length})</button><button disabled={!selected.length || busy} onClick={event => { previewTrigger.current = event.currentTarget; void action(() => prepareSelection('manual')) }}>勾选保存为流程</button><button disabled={!selected.length || busy} onClick={() => void action(exportSelected)}>导出所选 · ZIP</button></div></header>
+      {displayedSource && <section className="result-source" aria-label="当前结果来源"><div><span>来源：{sourceTitle(displayedSource)}</span>{<button disabled={!sourceInCurrentGraph} onClick={() => onLocateNode(displayedSource.node_id)}>在画布中定位</button>}{!sourceInCurrentGraph && <span>来源节点已不在当前图中</span>}</div><details><summary>精确输出位置</summary><code>{JSON.stringify(displayedSource)}</code></details></section>}
+      {sourceTarget && !collection && <p role="status" className="result-unpublished">{loading ? '正在读取此节点输出…' : loadError ? '此节点输出读取失败，请查看下方错误。' : '此 Run 尚未发布这个节点输出的候选集合。可以从左侧选择其他已发布输出。'}</p>}
+      {<p className="result-selection-summary" aria-label="结果交互状态">焦点：{focusedCandidate?.reference.candidate_id ?? '无'}（查看详情） · 比较：{comparisonKeys.filter(Boolean).length} 项（并排查看） · 勾选：{checked.length} 项（导出或保存流程）。三者独立，切换输出保留比较和勾选。</p>}
+      {savedSelection && <section className="selection-saved" role="status"><div><strong>{savedSelection.label}已保存到流程 · 新增 {savedSelection.nodeIds.length} 个节点</strong><p>当前结果与查看位置已保留。可以继续比较，也可以返回画布编辑新增节点。</p></div>{<button onClick={() => onLocateCreatedNodes(savedSelection.nodeIds)}>查看新增节点</button>}<details><summary>新增节点 ID</summary><ul>{savedSelection.nodeIds.map(nodeId => <li key={nodeId}><code>{nodeId}</code></li>)}</ul></details></section>}
       {error && <p role="alert">{error}</p>}
-      {saveError && <p role="alert">{saveError}<button onClick={() => void action(async () => { await onRetrySave(); setPreview(undefined) })}>重试保存</button></p>}
+      {saveError && <p role="alert">{saveError}<button disabled={busy} onClick={() => void action(retrySelectionSave)}>重试保存</button></p>}
       {loadError && <p role="alert">{loadError}</p>}
       {loading && !collection && !loadError && <p role="status">正在加载已发布结果…</p>}
       {busy && <p role="status">正在读取或准备所选操作…</p>}
@@ -249,9 +299,9 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
     </main>
     {active && preview && <InteractionDialog title="保存流程操作预览" className="result-selection-dialog" busy={busy} onRestoreFocus={restorePreviewFocus} onClose={() => setPreview(undefined)}><h2>{preview.label} · 将新增 {addedNodes.length} 个可编辑节点</h2><p>当前 Run {run.run_id} 的结果保持可查看。在此编辑新增节点，确认后整体保存到 Draft。</p>{preview.label === '排序并取前 N 个' && <p>流程排名使用明确选择的 Utility Transform 和 N；请确认它表达所需排名方向。临时原值排序不会代替此科学配置。</p>}
       <section aria-label="将新增的流程节点"><h3>新增节点及来源</h3><ul>{addedNodes.map((node) => <li key={node.node_id}><strong>{String(authoringCatalog.contracts.find((entry) => entry.reference.contract_kind === 'node_type' && entry.reference.contract_id === node.node_type_id)?.descriptor.title ?? node.node_type_id)}</strong> · {node.node_id}<ul>{preparedWorkflow!.edges.filter((edge) => edge.target_node_id === node.node_id).map((edge) => <li key={JSON.stringify(edge)}>{edge.source_node_id} / {edge.source_port} → {edge.target_port}</li>)}</ul></li>)}</ul></section>
-      {saveError && <p role="alert">{saveError}<button onClick={() => void action(async () => { await onRetrySave(); setPreview(undefined) })}>重试保存</button></p>}
+      {saveError && <p role="alert">{saveError}<button disabled={busy} onClick={() => void action(retrySelectionSave)}>重试保存</button></p>}
       <div inert={preview.session.submitted} style={{ display: 'contents' }}>{preview.nodeIds.map((nodeId) => <SelectionEditor key={nodeId} catalog={authoringCatalog} workflow={preview.workflow} nodeId={nodeId} candidateCollections={collections.map((entry) => ({ source: entry.source, items: entry.items }))} onChange={updatePreview} onDraftChange={updatePreview} />)}</div>
-      <footer><button disabled={busy || preview.session.submitted || !!saveError} onClick={() => void action(async () => { await onSaveWorkflow(preview.session, preparedWorkflow!); setPreview(undefined) })}>确认保存到流程</button><button disabled={busy} onClick={() => setPreview(undefined)}>取消</button></footer>
+      <footer><button disabled={busy || preview.session.submitted || !!saveError} onClick={() => void action(confirmSelection)}>确认保存到流程</button><button disabled={busy} onClick={() => setPreview(undefined)}>取消</button></footer>
     </InteractionDialog>}
   </div>
 }

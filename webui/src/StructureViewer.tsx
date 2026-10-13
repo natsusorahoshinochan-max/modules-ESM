@@ -32,6 +32,7 @@ type Modal = {
   mode: TransformMode; axis?: WorldAxis; origin: Vec3; ids: string[]
   basis: ReturnType<typeof viewBasis>; start: ViewportPoint; pointer: ViewportPoint
   numeric: string; direction?: Vec3; amount: number; message: string
+  atoms: Array<{ atom: $3Dmol.AtomSpec; position: Vec3 }>
   revision: number; valid: boolean; confirming: boolean
 }
 type Gesture = { kind: 'orbit' | 'pan' | 'box' | 'pick'; pointerId: number; start: ViewportPoint; last: ViewportPoint; shift: boolean; moved: boolean }
@@ -49,7 +50,7 @@ export function StructureViewer(props: ViewerProps) {
   const modal = useRef<Modal | undefined>(undefined)
   const gesture = useRef<Gesture | undefined>(undefined)
   const pointer = useRef<ViewportPoint | undefined>(undefined)
-  const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const previewFrame = useRef<number | undefined>(undefined)
   const [operation, setOperation] = useState<Modal>()
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('replace')
   const selectionModeRef = useRef(selectionMode)
@@ -71,8 +72,26 @@ export function StructureViewer(props: ViewerProps) {
     if (!selected.length) { setNotice('先选择残基，再聚焦选区。'); return }
     viewerRef.current?.zoomTo({ or: selected }); viewerRef.current?.render()
   }
+  const cancelPreviewFrame = () => {
+    if (previewFrame.current !== undefined) cancelAnimationFrame(previewFrame.current)
+    previewFrame.current = undefined
+  }
+  const drawTransform = () => {
+    previewFrame.current = undefined
+    const current = modal.current, viewer = viewerRef.current
+    if (!current?.valid || !current.direction || !viewer) return
+    const { rotation_matrix: matrix, origin, translation } = rigidTransform(current.mode, current.origin, current.direction, current.amount, current.ids)
+    for (const { atom, position } of current.atoms) {
+      const relative = position.map((value, axis) => value - origin[axis])
+      const transformed = matrix.map((row, axis) => row.reduce((sum, value, index) => sum + value * relative[index], 0) + origin[axis] + translation[axis])
+      ;[atom.x, atom.y, atom.z] = transformed
+    }
+    // Invalidate geometry and picking shapes while preserving atom styles.
+    viewer.addStyle({}, {})
+    viewer.render()
+  }
   const dispatchPreview = () => {
-    clearTimeout(previewTimer.current)
+    cancelPreviewFrame()
     const current = modal.current
     if (!current || !current.direction || !current.valid) return Promise.resolve(false)
     const revision = current.revision
@@ -109,9 +128,8 @@ export function StructureViewer(props: ViewerProps) {
       if (numeric === undefined && mouseAmount === undefined) { current.message = '当前角度无法由鼠标确定，请输入角度'; syncModal(); return }
       current.amount = numeric ?? mouseAmount!
     }
-    current.valid = true; current.message = '预览待更新'; syncModal()
-    clearTimeout(previewTimer.current)
-    previewTimer.current = setTimeout(() => { void dispatchPreview() }, 90)
+    current.valid = true; current.message = '本地预览 · Enter / 左键确认 · Esc / 右键取消'; syncModal()
+    if (previewFrame.current === undefined) previewFrame.current = requestAnimationFrame(drawTransform)
   }
   const cancel = () => {
     if (!modal.current) {
@@ -119,7 +137,10 @@ export function StructureViewer(props: ViewerProps) {
       if (drag && canvasHost.current?.hasPointerCapture(drag.pointerId)) canvasHost.current.releasePointerCapture(drag.pointerId)
       setBoxMode(false); setBox(undefined); return
     }
-    clearTimeout(previewTimer.current)
+    cancelPreviewFrame()
+    for (const { atom, position } of modal.current.atoms) [atom.x, atom.y, atom.z] = position
+    viewerRef.current?.addStyle({}, {})
+    viewerRef.current?.render()
     modal.current = undefined; syncModal()
     latest.current.viewportEdit?.onCancel()
     host.current?.focus()
@@ -127,7 +148,8 @@ export function StructureViewer(props: ViewerProps) {
   const confirm = async () => {
     const current = modal.current
     if (!current || !current.valid || current.confirming) return
-    clearTimeout(previewTimer.current)
+    cancelPreviewFrame()
+    drawTransform()
     current.confirming = true; syncModal()
     const valid = await dispatchPreview()
     if (modal.current !== current) return
@@ -145,7 +167,7 @@ export function StructureViewer(props: ViewerProps) {
     const start = pointer.current ?? { x: rect.left + window.scrollX + rect.width * 0.65, y: rect.top + window.scrollY + rect.height / 2 }
     cancel()
     edit.onBegin()
-    modal.current = { mode, origin: [...edit.origin], ids: [...edit.residueIds], basis: viewBasis(viewer.getView()), start, pointer: start, numeric: '', amount: 0, message: '移动鼠标，或输入数值 / X Y Z 选轴', revision: 0, valid: false, confirming: false }
+    modal.current = { atoms: viewer.selectedAtoms({ or: latest.current.selectedResidues ?? [] }).map(atom => ({ atom, position: [atom.x!, atom.y!, atom.z!] })), mode, origin: [...edit.origin], ids: [...edit.residueIds], basis: viewBasis(viewer.getView()), start, pointer: start, numeric: '', amount: 0, message: '移动鼠标，或输入数值 / X Y Z 选轴', revision: 0, valid: false, confirming: false }
     setBoxMode(false); setNotice(''); syncModal(); host.current?.focus()
   }
   useImperativeHandle(props.ref, () => ({ frameAll, frameSelection, startTransform }))
@@ -169,12 +191,13 @@ export function StructureViewer(props: ViewerProps) {
     container.addEventListener('wheel', wheel, { passive: false })
     const resize = new ResizeObserver(() => { if (container.clientWidth && container.clientHeight) { viewer.resize(); viewer.render(); revealMarkers() } })
     resize.observe(container)
-    return () => { clearTimeout(previewTimer.current); resize.disconnect(); container.removeEventListener('wheel', wheel); viewer.setViewChangeCallback(null); viewer.clear(); viewerRef.current = undefined; container.replaceChildren() }
+    return () => { if (previewFrame.current !== undefined) cancelAnimationFrame(previewFrame.current); resize.disconnect(); container.removeEventListener('wheel', wheel); viewer.setViewChangeCallback(null); viewer.clear(); viewerRef.current = undefined; container.replaceChildren() }
   }, [])
 
+  const transformActive = Boolean(operation)
   useEffect(() => {
     const viewer = viewerRef.current
-    if (!viewer) return
+    if (!viewer || transformActive) return
     if (!pdb) { viewer.clear(); return }
     const loaded = initializedView.current
     const view = viewer.getView(), slab = viewer.getSlab()
@@ -184,7 +207,7 @@ export function StructureViewer(props: ViewerProps) {
     if (loaded) { viewer.setView(view); viewer.setSlab(slab.near, slab.far) } else viewer.zoomTo()
     initializedView.current = true
     viewer.render()
-  }, [pdb])
+  }, [pdb, transformActive])
 
   useEffect(() => {
     const viewer = viewerRef.current

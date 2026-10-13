@@ -3,7 +3,7 @@ import type { PromptSnapshot } from '../src/protocol/client'
 
 async function openViewport(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: '打开 Prompt Studio', exact: true }).first().click()
+  await page.getByRole('button', { name: '编辑 ProteinPrompt', exact: true }).first().click()
   await page.locator('[data-cell$=":sequence"]').first().click()
   const viewport = page.getByLabel('三维结构视口', { exact: true })
   await expect(viewport.locator('canvas')).toBeVisible()
@@ -37,9 +37,7 @@ test('modal transform isolates undo and cancellation restores its entry state', 
   await viewport.focus()
   await viewport.press('g')
   await viewport.press('x')
-  const preview = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:preview'))
   await viewport.press('2')
-  expect((await preview).status()).toBe(200)
   await expect(viewport.locator('.sv-status')).toContainText('Enter / 左键确认')
   await viewport.press('Control+z')
   await expect(viewport.locator('.sv-status')).toContainText('G 移动')
@@ -54,7 +52,7 @@ test('modal transform isolates undo and cancellation restores its entry state', 
 test('hover preserves matrix focus; offscreen structure picks reveal without stealing G and cancel preserves the camera', async ({ page }) => {
   await page.goto('/')
   const opening = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:open') && response.request().postDataJSON().node_id === 'prompt-composition-webui-3gb1.source.author')
-  await page.getByRole('button', { name: '打开 Prompt Studio', exact: true }).first().click()
+  await page.getByRole('button', { name: '编辑 ProteinPrompt', exact: true }).first().click()
   const snapshot = await (await opening).json() as PromptSnapshot
   const first = snapshot.residues.find(residue => residue.state !== 'pending-delete')!
   const firstCell = page.locator(`[row-id="sequence"] [role="gridcell"][col-id="${first.residue_handle}"]`)
@@ -102,9 +100,7 @@ test('hover preserves matrix focus; offscreen structure picks reveal without ste
   await page.keyboard.press('g')
   await expect(viewport.locator('.sv-status')).toContainText('G 移动')
   await page.keyboard.press('x')
-  const previewing = page.waitForResponse(response => response.url().endsWith('/prompt-authoring:preview'))
   await page.keyboard.press('2')
-  expect((await previewing).status()).toBe(200)
   await expect(viewport.locator('.sv-status')).toContainText('Enter / 左键确认')
   await page.keyboard.press('Escape')
   await page.keyboard.press('b')

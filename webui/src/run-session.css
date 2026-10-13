@@ -1,4 +1,18 @@
-.run-scope-dialog{max-height:86vh;overflow:auto;width:min(800px,90vw)}
+.run-scope-dialog { max-height: 86vh; overflow: auto; width: min(800px, 90vw); padding: 20px; color: #e8ebe6; background: #1a1e19; font-size: 14px; line-height: 1.6; }
+.run-scope-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 16px; }
+.run-scope-dialog h2 { margin: 0; font-size: 20px; }
+.run-scope-dialog button { min-height: 36px; padding: 7px 14px; border: 1px solid #61725f; border-radius: 5px; background: #293728; color: #edf2e9; font: inherit; cursor: pointer; }
+.run-scope-dialog > header > button { flex: 0 0 auto; }
+.run-scope-dialog button:hover:not(:disabled) { background: #3a4c35; }
+.run-scope-dialog button:focus-visible { outline: 2px solid #e4b759; outline-offset: 3px; }
+.run-scope-dialog button:disabled { color: #c0c8bc; background: #30362e; border-color: #4b5747; cursor: not-allowed; }
+.run-scope-dialog button.primary-button { background: #e4b759; border-color: #e4b759; color: #201c10; font-weight: 600; }
+.run-scope-dialog button.primary-button:hover:not(:disabled) { background: #f0c873; }
+.run-scope-dialog button.primary-button:disabled { color: #c0c8bc; background: #30362e; border-color: #4b5747; }
+.run-scope-dialog code, .run-scope-dialog summary, .run-scope-dialog > p, .run-scope-dialog > pre { overflow-wrap: anywhere; }
+.run-scope-dialog > pre { white-space: pre-wrap; }
+.run-scope-dialog footer { padding: 16px 0 0; flex-wrap: wrap; }
+.run-scope-dialog input[type=radio] { accent-color: #e4b759; }
 .run-mode-choices,.scope-counts{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0}
 .run-mode-choices label{display:flex;align-items:center;gap:6px}
 .run-scope-preview{margin-top:18px}.run-scope-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}

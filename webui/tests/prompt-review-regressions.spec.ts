@@ -1,23 +1,9 @@
+import { matrixCell } from './fixtures/matrix-cell'
+import { enterExampleStage } from './fixtures/example-navigation'
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import type { PromptAuthoringDocument, PromptPreview, PromptSnapshot, WorkflowDraft } from '../src/protocol/client'
 
-async function matrixCell(page: Page, handle: string, track: string) {
-  const cell = page.locator(`[data-cell="${handle}:${track}"]`)
-  if (!await cell.count()) {
-    const scroller = page.locator('.ag-body-horizontal-scroll-viewport')
-    const { width, maximum } = await scroller.evaluate(element => ({ width: element.clientWidth, maximum: element.scrollWidth - element.clientWidth }))
-    for (let offset = 0; offset <= maximum + width; offset += Math.max(1, width / 2)) {
-      await scroller.evaluate((element, left) => { element.scrollLeft = left }, Math.min(offset, maximum))
-      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-      if (await cell.count()) break
-    }
-  }
-  await expect(cell).toBeAttached()
-  await cell.scrollIntoViewIfNeeded()
-  // Native editors replace the renderer; retain the domain row/column identity while editing.
-  return page.locator(`.residue-matrix [row-id="${track}"] [role="gridcell"][col-id="${handle}"]`)
-}
 
 async function matrixHandles(page: Page) {
   const columns = new Map<number, string>()
@@ -42,12 +28,14 @@ async function applyToolPreview(page: Page) {
 
 async function personalDraft(page: Page) {
   await page.goto('/')
+  await enterExampleStage(page, 2)
   const generation = page.getByTestId('rf__node-generate-paired')
   await generation.getByLabel('编辑参数').click()
   await generation.getByLabel('有效种子').fill('1704')
   const saving = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().endsWith('/workspace') && r.request().postDataJSON().workflow)
   await generation.getByLabel('有效种子').press('Tab')
   const saved = await saving
+  await enterExampleStage(page, 1)
   return { url: saved.url(), draft: (await saved.json()).draft as WorkflowDraft }
 }
 
@@ -59,6 +47,7 @@ async function reopenStoredDraft(page: Page, url: string, authorNodeId: string) 
   await manager.getByRole('button').filter({ has: page.getByText(name, { exact: true }) }).click()
   await manager.getByRole('button', { name: '打开项目', exact: true }).click()
   await expect(manager).not.toBeVisible()
+  await enterExampleStage(page, 1)
   const authorButton = page.getByTestId(`rf__node-${authorNodeId}`).getByRole('button', { name: '打开 Prompt Studio', exact: true })
   const geometry = async () => ({
     target: await authorButton.boundingBox(),

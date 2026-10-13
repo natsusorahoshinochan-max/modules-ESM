@@ -1,3 +1,4 @@
+import { enterExampleStage } from './fixtures/example-navigation'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import type { CatalogSnapshot, PromptPreview, PromptSnapshot, RunProjection, Workflow, WorkflowDraft } from '../src/protocol/client'
@@ -24,6 +25,7 @@ async function publish(request: APIRequestContext, base: string, filename: strin
 
 async function openPersonalSourceDialog(page: Page) {
   await page.goto('/')
+  await enterExampleStage(page, 2)
   const generation = page.getByTestId('rf__node-generate-paired')
   await generation.getByLabel('编辑参数').click()
   await generation.getByLabel('有效种子').fill('2709')
@@ -176,7 +178,7 @@ test('opening and cancelling tutorial source and merge dialogs does not create a
   await expect(source).toHaveCount(0)
   expect(copies).toEqual([])
   expect(writes).toEqual([])
-  await page.getByRole('button', { name: '打开 Prompt Studio', exact: true }).click()
+  await page.getByRole('button', { name: '编辑 ProteinPrompt', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '合并来源', exact: true }).click()
   await page.getByRole('button', { name: '添加合并来源', exact: true }).click()

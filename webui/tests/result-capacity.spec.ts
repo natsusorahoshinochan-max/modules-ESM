@@ -37,7 +37,7 @@ test('a real 1000-record import pages results without loading structures and ret
     await projects.getByRole('button').filter({ has: page.getByText(project.name, { exact: true }) }).click()
     await projects.getByRole('button', { name: '打开项目', exact: true }).click()
     await firstPageReady
-    await page.getByRole('button', { name: '打开 Results Workbench' }).click()
+    await page.getByRole('button', { name: /^Results/ }).click()
     await expect(page.getByText('正在加载已发布结果…', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: '尚无已发布候选', exact: true })).toHaveCount(0)
   } finally {
@@ -64,7 +64,7 @@ test('a real 1000-record import pages results without loading structures and ret
   await expect(page.locator('.result-detail h3')).toHaveText(firstCandidateName)
   await expect(page.getByText('此候选不在当前页或筛选结果中。')).toBeVisible()
   await page.getByRole('button', { name: '返回 Workflow', exact: true }).click()
-  await page.getByRole('button', { name: '打开 Results Workbench' }).click()
+  await page.getByRole('button', { name: /^Results/ }).click()
   await expect(page.getByLabel('搜索候选或序列')).toHaveValue(filterName!)
   await expect(page.locator('.result-controls')).toContainText('1 已勾选 · 1 项不在当前视图')
   await page.getByLabel('搜索候选或序列').fill('')
@@ -88,7 +88,7 @@ test('a real 1000-record import pages results without loading structures and ret
   await page.locator('.result-list-scroll').evaluate(element => { element.scrollTop = 220 })
   await expect.poll(() => page.locator('.result-list-scroll').evaluate(element => element.scrollTop)).toBe(220)
   await page.getByRole('button', { name: '返回 Workflow', exact: true }).click()
-  await page.getByRole('button', { name: '打开 Results Workbench' }).click()
+  await page.getByRole('button', { name: /^Results/ }).click()
   await expect(page.locator('.results-explorer footer').first()).toContainText('2 / 20 · 1000 候选')
   await expect(page.getByLabel('比较位置 1', { exact: true })).toHaveValue(replacementKey!)
   await expect(page.locator('.result-comparison .result-detail')).toHaveCount(4)
