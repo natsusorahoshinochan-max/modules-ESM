@@ -18,8 +18,10 @@ from core.operation import (
     OutputIdentitySource,
     ResolvedOutputIdentity,
 )
-from datatypes.candidate import CandidateDataReference
-from datatypes.residue import ModifiedResidueNormalizationCollection
+from datatypes.candidate import (
+    CandidateDataReference,
+    validate_candidate_data_reference,
+)
 from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
@@ -63,6 +65,7 @@ def _validate_structure_subject(value: object) -> CandidateDataReference:
             "Candidate association subject must be an exact protein.structure "
             "CandidateDataReference"
         )
+    validate_candidate_data_reference(value)
     return value
 
 
@@ -91,6 +94,7 @@ def validate_candidate_normalization_associations(value: object) -> None:
                 "Candidate normalization association has the wrong type"
             )
         subjects.append(_validate_structure_subject(entry.subject))
+        validate_normalizations(entry.normalizations, require_nonempty=False)
     _validate_unique_candidate_subjects(tuple(subjects))
 
 
@@ -110,14 +114,6 @@ def _candidate_normalizations_to_wire(
     }
 
 
-def _association_normalizations_from_wire(
-    value: object,
-) -> ModifiedResidueNormalizationCollection:
-    normalizations = normalizations_from_wire(value)
-    validate_normalizations(normalizations, require_nonempty=False)
-    return normalizations
-
-
 def _candidate_normalizations_from_wire(value: object) -> object:
     return CandidateModifiedResidueNormalizationAssociations(
         **{
@@ -129,7 +125,7 @@ def _candidate_normalizations_from_wire(value: object) -> object:
                         "subject": _candidate_data_reference_from_canonical(
                             item["subject"]
                         ),
-                        "normalizations": _association_normalizations_from_wire(
+                        "normalizations": normalizations_from_wire(
                             item["normalizations"]
                         ),
                     }
@@ -231,6 +227,22 @@ def _validate_normalization_facts(value: object) -> None:
     if type(value) is not CandidateNormalizationFactCollection:
         raise ValueError("candidate normalization facts have the wrong type")
 
+    entries = value.entries
+    if not entries:
+        raise ValueError("normalization facts must be a nonempty collection")
+    if any(
+        type(entry) is not CandidateNormalizationFact
+        or type(entry.normalization_key) is not str
+        or _NORMALIZATION_KEY.fullmatch(entry.normalization_key) is None
+        or type(entry.structure_content_digest) is not str
+        or _CONTENT_DIGEST.fullmatch(entry.structure_content_digest) is None
+        for entry in entries
+    ):
+        raise ValueError("candidate normalization fact identity is not canonical")
+    keys = tuple(entry.normalization_key for entry in entries)
+    if len(set(keys)) != len(keys):
+        raise ValueError("normalization facts contain a duplicate key")
+
 
 def _normalization_facts_to_wire(
     value: CandidateNormalizationFactCollection,
@@ -261,21 +273,6 @@ def _normalization_facts_from_wire(value: object) -> object:
         )
         for item in value["entries"]
     )
-    if not entries:
-        raise ValueError("normalization facts must be a nonempty collection")
-    if any(
-        _NORMALIZATION_KEY.fullmatch(entry.normalization_key) is None
-        or _CONTENT_DIGEST.fullmatch(entry.structure_content_digest) is None
-        for entry in entries
-    ):
-        raise ValueError("candidate normalization fact identity is not canonical")
-    keys = tuple(entry.normalization_key for entry in entries)
-    if len(set(keys)) != len(keys):
-        raise ValueError("normalization facts contain a duplicate key")
-    if keys != tuple(sorted(keys)):
-        raise ValueError(
-            "candidate normalization fact entries are not canonically ordered"
-        )
     return CandidateNormalizationFactCollection(**{**value, "entries": entries})
 
 
@@ -456,7 +453,7 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
         {
             "accepted_value_kind": "candidate_resolved_residue_axis_associations",
             "association_key": "exact-CandidateDataReference",
-            "entry_order": "canonical-only-not-correspondence",
+            "entry_order": "resolver-input-candidate-collection-order",
             "structure_binding": "subject-content-digest-equals-embedded-structure",
             "embedded_axis_contract": (
                 "structure_transform.resolved_residue_axis"
@@ -467,9 +464,7 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
         "structure_transform.candidate_resolved_residue_axis_associations/codec",
         {
             "canonicalization": "RFC 8785",
-            "association_order": (
-                "candidate-id-data-type-id-content-digest"
-            ),
+            "association_order": "preserved-entry-order",
         },
     ),
     content_identity=BehaviorReference(

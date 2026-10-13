@@ -5,11 +5,11 @@ from __future__ import annotations
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -34,11 +34,11 @@ def _available() -> AvailabilityResult:
 def _binding() -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id="residue_data.materialize_sequence.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "residue_data.materialize_sequence",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             "residue_data.materialize_sequence.method",
         ),

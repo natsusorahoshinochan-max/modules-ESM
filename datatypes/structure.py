@@ -22,38 +22,12 @@ class NamedAtomCoordinates:
     atoms: tuple[tuple[str, tuple[float, float, float]], ...]
 
     def __post_init__(self) -> None:
-        atoms = tuple(self.atoms)
-        normalized: list[tuple[str, tuple[float, float, float]]] = []
-        names: set[str] = set()
-        for atom_name, coordinate in atoms:
-            if (
-                type(atom_name) is not str
-                or not atom_name
-                or atom_name in names
-            ):
-                raise ValueError(
-                    "NamedAtomCoordinates atom names must be unique text"
-                )
-            if (
-                type(coordinate) not in (tuple, list)
-                or len(coordinate) != 3
-                or any(
-                    isinstance(item, bool)
-                    or not isinstance(item, (int, float))
-                    or not isfinite(item)
-                    for item in coordinate
-                )
-            ):
-                raise ValueError(
-                    "NamedAtomCoordinates coordinate must be one finite "
-                    "Cartesian 3-vector"
-                )
-            names.add(atom_name)
-            normalized.append(
-                (atom_name, tuple(float(item) for item in coordinate))
-            )
-        normalized.sort(key=lambda item: item[0])
-        object.__setattr__(self, "atoms", tuple(normalized))
+        object.__setattr__(self, "atoms", tuple(sorted(
+            ((name, tuple(float(item) if type(item) is int else item
+                          for item in coordinate))
+             for name, coordinate in self.atoms),
+            key=lambda item: item[0],
+        )))
 
     @property
     def atom_names(self) -> tuple[str, ...]:
@@ -267,8 +241,6 @@ class StructureAtomCoordinate:
 
     def __post_init__(self) -> None:
         coordinate = _tuple(self.coordinate, name="coordinate")
-        if len(coordinate) != 3:
-            raise ValueError("coordinate must contain exactly three values")
         object.__setattr__(self, "coordinate", coordinate)
 
 

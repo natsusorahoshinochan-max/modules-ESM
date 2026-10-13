@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from core.catalog.model import FrozenCatalog
 from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import ProjectManager
+from protein_workbench_public.published_results import PublishedResultReader
 from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.http.catalog_routes import (
@@ -25,7 +26,9 @@ from protein_workbench_public.http.errors import (
 from protein_workbench_public.http.project_routes import (
     register_project_routes,
 )
+from protein_workbench_public.http.input_routes import register_input_routes
 from protein_workbench_public.http.run_routes import register_run_routes
+from protein_workbench_public.http.result_routes import register_result_routes
 from protein_workbench_public.http.prompt_authoring_routes import (
     register_prompt_authoring_routes,
 )
@@ -110,7 +113,8 @@ def create_http_app(
         rest_operations,
         authoring_projection,
     )
-    register_project_routes(app, projects, authoring, rest_operations)
+    register_project_routes(app, projects, authoring, rest_operations, runtime)
+    register_input_routes(app, projects, rest_operations)
     register_workflow_routes(app, authoring, rest_operations)
     register_prompt_authoring_routes(
         app,
@@ -118,4 +122,5 @@ def create_http_app(
         rest_operations,
     )
     register_run_routes(app, runtime, rest_operations, run_event_stream)
+    register_result_routes(app, PublishedResultReader(runtime.published_value), rest_operations)
     return app

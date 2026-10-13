@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from core.execution.scope import RunExecutionScope
 from datatypes.exact_reference import ExactContractReference
 
 if TYPE_CHECKING:
@@ -59,6 +60,7 @@ class RunScopeBinding:
 
     workflow_commit_id: str
     derived_from: DerivedRunReference | None = None
+    execution_scope: RunExecutionScope | None = None
 
 
 @dataclass(frozen=True, slots=True)

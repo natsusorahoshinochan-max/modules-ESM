@@ -427,6 +427,7 @@ def pipeline_catalog(
     terminating_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
     cacheable: bool = False,
+    configurable_source: bool = False,
     candidate_digest_probe: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
@@ -505,7 +506,14 @@ def pipeline_catalog(
                 ),
             ],
             "parameter_groups": [],
-            "node_parameters": {},
+            "node_parameters": ({
+                "value": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Canonical source text",
+                    "value_contract": {"type": "string"},
+                    "default": "ready",
+                }
+            } if configurable_source else {}),
         },
     )
     sink = contract(
@@ -578,7 +586,8 @@ def pipeline_catalog(
                 ):
                     raise ExecutionTermination(terminating_source_nodes[self._node_id])
                 outputs: dict[str, Any] = {
-                    "text": 17 if invalid_source_output else "ready"
+                    "text": (17 if invalid_source_output else call.node_parameters["value"]
+                             if configurable_source else "ready")
                 }
                 if include_candidate_data:
                     outputs["candidates"] = CandidateCollection(

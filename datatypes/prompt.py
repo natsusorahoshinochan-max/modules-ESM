@@ -41,56 +41,11 @@ class ProteinPrompt:
     function_annotations: tuple[FunctionAnnotation, ...] = ()
 
     def __post_init__(self) -> None:
-        if type(self.layout) is not ResidueLayout:
-            raise ValueError("ProteinPrompt layout must be a ResidueLayout")
-        length = self.layout.length
-        object.__setattr__(
-            self,
-            "sequence",
-            FrozenList(self.sequence),
-        )
-        object.__setattr__(
-            self,
-            "coordinates",
-            FrozenList(self.coordinates),
-        )
-        object.__setattr__(
-            self,
-            "function_annotations",
-            FrozenList(self.function_annotations),
-        )
-        if len(self.sequence) != length:
-            raise ValueError(
-                "ProteinPrompt sequence length "
-                f"{len(self.sequence)} != layout length {length}"
-            )
-        if len(self.coordinates) != length:
-            raise ValueError(
-                "ProteinPrompt coordinates length "
-                f"{len(self.coordinates)} != layout length {length}"
-            )
-        if self.secondary_structure is not None:
-            if len(self.secondary_structure) != length:
-                raise ValueError(
-                    "ProteinPrompt secondary_structure length "
-                    f"{len(self.secondary_structure)} != layout length {length}"
-                )
-            object.__setattr__(
-                self,
-                "secondary_structure",
-                FrozenList(self.secondary_structure),
-            )
-        if self.sasa is not None:
-            if len(self.sasa) != length:
-                raise ValueError(
-                    "ProteinPrompt sasa length "
-                    f"{len(self.sasa)} != layout length {length}"
-                )
-            object.__setattr__(
-                self,
-                "sasa",
-                FrozenList(self.sasa),
-            )
+        for name in ("sequence", "coordinates", "function_annotations",
+                     "secondary_structure", "sasa"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, FrozenList(value))
 
     @property
     def num_residues(self) -> int:
@@ -110,16 +65,11 @@ class FunctionAnnotationTrack:
     annotations: tuple[FunctionAnnotation, ...]
 
     def __post_init__(self) -> None:
-        if type(self.layout) is not ResidueLayout:
-            raise ValueError(
-                "FunctionAnnotationTrack layout must be a ResidueLayout"
-            )
         object.__setattr__(
             self,
             "annotations",
             FrozenList(self.annotations),
         )
-        validate_canonical_function_annotations(self.layout, self.annotations)
 
 
 def validate_canonical_function_annotations(

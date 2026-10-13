@@ -8,7 +8,7 @@ import hashlib
 import struct
 from typing import Any, Literal, Protocol
 
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.operation import (
     OperationResources,
     EngineInvocationProvenance,
@@ -175,6 +175,10 @@ class ESM3GenerationAdapter(Protocol):
     ) -> ESM3PairResult: ...
 
 
+class ESM3ConditioningUnsupported(ValueError):
+    """Scientifically valid Prompt content the ESM SDK cannot represent."""
+
+
 def _provider_sequence(prompt: ProteinPrompt) -> str:
     symbols: list[str] = []
     for position, value in enumerate(prompt.sequence):
@@ -182,7 +186,7 @@ def _provider_sequence(prompt: ProteinPrompt) -> str:
             symbols.append("_")
             continue
         if value not in _PROVIDER_SEQUENCE_ALPHABET:
-            raise ValueError(
+            raise ESM3ConditioningUnsupported(
                 f"ESM-3 cannot represent sequence symbol {value!r} "
                 f"at residue {position}"
             )
@@ -276,7 +280,7 @@ class _ConditioningProjection:
     @classmethod
     def from_prompt(cls, prompt: ProteinPrompt) -> _ConditioningProjection:
         if len(prompt.layout.chain_ids) > 1:
-            raise ValueError(
+            raise ESM3ConditioningUnsupported(
                 "The ESM SDK cannot preserve multi-chain aligned tracks"
             )
         return cls(
@@ -371,6 +375,54 @@ class _ConditioningProjection:
             ),
             coordinates=coordinates,
         )
+
+
+def describe_conditioning(prompt: ProteinPrompt) -> dict[str, Any]:
+    """Describe this Adapter's actual SDK encoding without constructing SDK state."""
+    try:
+        projection = _ConditioningProjection.from_prompt(prompt)
+    except ESM3ConditioningUnsupported as error:
+        return {"status": "unsupported", "reason": str(error), "effective_input": None}
+    atom_names = tuple(_ATOM37_INDEX)
+    entries = [
+        {
+            "residue_id": prompt.layout.residue_ids[position],
+            "position": position + 1,
+            "atom_name": atom_names[atom_index],
+            "atom_index": atom_index,
+            "coordinates": [struct.unpack("!f", struct.pack("!f", value))[0] for value in coordinate],
+            "float32_bits": [struct.pack("!f", value).hex() for value in coordinate],
+        }
+        for position, atom_index, coordinate in projection.atom37_entries
+    ]
+    omitted_atoms = [
+        {"residue_id": prompt.layout.residue_ids[index], "atom_name": atom_name}
+        for index, residue in enumerate(prompt.coordinates) if residue is not None
+        for atom_name, _coordinate in residue.atoms if atom_name not in _ATOM37_INDEX
+    ]
+    return {
+        "status": "compatible",
+        "reason": None,
+        "effective_input": {
+            "functional_input_digest": projection.functional_input_digest(),
+            "sequence": projection.sequence,
+            "secondary_structure": projection.secondary_structure,
+            "sasa": None if projection.sasa is None else list(projection.sasa),
+            "function_annotations": [
+                {"label": label, "start": start, "end": end}
+                for label, start, end in projection.function_annotations
+            ],
+            "coordinates": {
+                "present": bool(projection.atom37_entries),
+                "shape": [len(projection.sequence), 37, 3] if projection.atom37_entries else None,
+                "dtype": "float32",
+                "unit": "angstrom",
+                "missing_atom_representation": "NaN",
+                "entries": entries,
+                "omitted_named_atoms": omitted_atoms,
+            },
+        },
+    }
 
 
 def generation_config(

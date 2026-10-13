@@ -14,108 +14,8 @@ from core.scoring.observation_admission import (
     ObservationAdmissionError,
     admit_produced_observations,
 )
-from core.scoring.observation_plan import (
-    ObservationPropagationFilter,
-    ObservationPropagationPlan,
-    ProducedObservationPlan,
-    ResolvedProducedObservation,
-    resolve_metric_facts,
-)
-from tests.support.output_admission import (
-    admit_fixture_port,
-    resolved_context_profile_fixture,
-)
-from datatypes.exact_reference import ExactContractReference
+from tests.support.output_admission import admit_fixture_port
 from datatypes.observation import ScoreCollection
-
-
-def _resolved_observations(binding: Any) -> tuple[ResolvedProducedObservation, ...]:
-    return tuple(
-        ResolvedProducedObservation(
-            output_port=declaration["output_port"],
-            output_partition=declaration["output_partition"],
-            metric=ExactContractReference(**declaration["metric"]),
-            context_profile=resolved_context_profile_fixture(
-                declaration["context_profile"]
-            ),
-            subject_grain=declaration["subject_grain"],
-            source_role=declaration["source_role"],
-            subject_direction=declaration["subject_direction"],
-            subject_port=declaration["subject_port"],
-            guaranteed_multiplicity=declaration["guaranteed_multiplicity"],
-            reference_direction=declaration.get("reference_direction"),
-            reference_port=declaration.get("reference_port"),
-            pairing_direction=declaration.get("pairing_direction"),
-            pairing_port=declaration.get("pairing_port"),
-            axis_direction=declaration.get("axis_direction"),
-            axis_port=declaration.get("axis_port"),
-            method_direction=declaration.get("method_direction"),
-            method_port=declaration.get("method_port"),
-        )
-        for declaration in binding.descriptor.get("produced_observations", ())
-    )
-
-
-def _resolved_propagation(binding: Any) -> ObservationPropagationPlan | None:
-    descriptor = binding.descriptor.get("observation_propagation")
-    if descriptor is None:
-        return None
-    filter_descriptor = descriptor.get("filter")
-    propagation_filter = (
-        None
-        if filter_descriptor is None
-        else ObservationPropagationFilter(
-            source_partition=filter_descriptor.get("source_partition"),
-            metric=(
-                ExactContractReference(**filter_descriptor["metric"])
-                if filter_descriptor.get("metric") is not None
-                else None
-            ),
-            method=(
-                ExactContractReference(**filter_descriptor["method"])
-                if filter_descriptor.get("method") is not None
-                else None
-            ),
-            context_profile=(
-                resolved_context_profile_fixture(
-                    filter_descriptor["context_profile"]
-                )
-                if filter_descriptor.get("context_profile") is not None
-                else None
-            ),
-        )
-    )
-    return ObservationPropagationPlan(
-        mode=descriptor["mode"],
-        output_port=descriptor["output_port"],
-        input_ports=tuple(descriptor["input_ports"]),
-        filter=propagation_filter,
-        absent_input_policy=descriptor.get("absent_input_policy", "reject"),
-    )
-
-
-def compiled_observation_plan_for_test(
-    catalog: FrozenCatalog,
-    binding: Any,
-) -> ProducedObservationPlan:
-    """Build the same typed facts a real Workflow Compiler supplies."""
-    observations = _resolved_observations(binding)
-    metric_facts = {}
-    for observation in observations:
-        metric = catalog.require_contract(
-            observation.metric.contract_kind,
-            observation.metric.contract_id,
-        )
-        metric_facts[observation.metric] = resolve_metric_facts(
-            observation.metric,
-            metric.definition,
-        )
-    return ProducedObservationPlan(
-        binding_method=ExactContractReference(**binding.descriptor["method"]),
-        observations=observations,
-        metric_facts=metric_facts,
-        propagation=_resolved_propagation(binding),
-    )
 
 
 def _admit_test_ports(
@@ -188,7 +88,7 @@ def admit_test_produced_score_collection(
         supplied_values=supplied_outputs,
     )
     admit_produced_observations(
-        plan=compiled_observation_plan_for_test(catalog, binding),
+        plan=catalog.produced_observation_plan(binding.contract_id),
         output_port=output_port,
         collection=collection,
         inputs=admitted_inputs,

@@ -3,11 +3,6 @@ title: Observe secondary-structure agreement
 summary: Observes exact SS8 agreement for one identified subject against one identified reference on one identical residue layout.
 category: structure_annotation
 inputs:
-  - name: subjects
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Exactly one Candidate whose annotation agreement is being observed.
   - name: references
     port_type_id: candidate.collection
     required: true
@@ -27,7 +22,7 @@ inputs:
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Exactly one authoritative resolved residue axis associated by the complete admitted subject ProteinStructure Candidate reference; its exact scalar axis identity and layout are attached to the emitted Observation.
+    scientific_meaning: Exactly one authoritative resolved residue axis whose exact subject reference identifies the observed subject Candidate; its exact scalar axis identity and layout are attached to the emitted Observation. A different entry count fails before the engine is invoked.
 outputs:
   - name: scores
     port_type_id: score.collection

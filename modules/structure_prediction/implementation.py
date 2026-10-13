@@ -10,7 +10,7 @@ from typing import Any
 from core.operation import (
     OperationCall,
 )
-from core.scoring.observation_plan import ResolvedProducedObservation
+from core.catalog.observation import ProducedObservation
 from datatypes.candidate import (
     Candidate,
     CandidateDataReference,
@@ -39,7 +39,7 @@ class MaterializeConfidenceImplementation:
     def __init__(
         self,
         *,
-        produced_observations: Sequence[ResolvedProducedObservation],
+        produced_observations: Sequence[ProducedObservation],
     ) -> None:
         observations = tuple(produced_observations)
         self._produced_by_metric = {

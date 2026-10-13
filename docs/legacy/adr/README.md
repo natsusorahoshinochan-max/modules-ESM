@@ -1,17 +1,10 @@
-# Architecture Decisions
+# Historical architecture decisions
 
-This directory contains only the current normative architecture decisions for
-Protein Workbench. Git is the sole record of earlier decisions.
+These ADRs preserve historical rationale. They do not define current contracts or
+restrict architecture changes.
 
-Every ADR in this directory:
-
-- has `status: accepted`;
-- states the current contract in present tense;
-- explains only rationale and consequences that are needed to interpret that
-  contract; and
-- uses `CONTEXT.md` vocabulary.
-
-When a decision changes, update the current producers, consumers, tests,
-examples, and documentation together, then delete any obsolete ADR. Do not keep
-replacement narratives, transition instructions, compatibility obligations, or
-inactive contracts in this directory.
+Use [CONTEXT.md](../../../CONTEXT.md) for scientific vocabulary and the
+[scientific data-flow specification](../../2026-09-02-clean-scientific-data-flow-refactor-spec.md)
+for current scientific boundaries. The
+[WebUI delivery scope](../../2026-09-17-webui-full-integration-plan.md)
+links current product specifications.

@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+from datatypes.observation import PairwiseContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from collections.abc import Callable
 from typing import Any
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -71,7 +75,7 @@ def _build_inserted_loop(
 
 INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     binding_id="structure_comparison.evaluate_inserted_loop.direct",
-    node_type=ContractIdentity(
+    node_type=ExactContractReference(
         "node_type",
         "structure_comparison.evaluate_inserted_loop",
     ),
@@ -100,7 +104,7 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
 
 THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     binding_id="structure_comparison.classify_three_way_consistency.direct",
-    node_type=ContractIdentity(
+    node_type=ExactContractReference(
         "node_type",
         "structure_comparison.classify_three_way_consistency",
     ),
@@ -131,7 +135,7 @@ def _tm_score_utility() -> UtilityTransformDefinition:
     return UtilityTransformDefinition(
         transform_id="structure_comparison.tm_score.explicit_relation.identity",
         compatible_input_contract={
-            "metric": ContractIdentity(
+            "metric": ExactContractReference(
                 "metric",
                 "structure_comparison.tm_score",
             ),
@@ -162,7 +166,7 @@ def _binding(
 ) -> ExecutionBindingDefinition:
     node_id = f"structure_comparison.{node_name}"
     binding_id = f"{node_id}.{suffix}"
-    produced: tuple[ProducedObservationDefinition, ...] = ()
+    produced: tuple[ProducedObservation, ...] = ()
     if operation in {"rmsd", "tm_score"}:
         normalization = (
             _RMSD_NORMALIZATION
@@ -170,36 +174,30 @@ def _binding(
             else _TM_NORMALIZATION
         )
         produced = (
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="scores",
                 output_partition=(
                     f"structure_comparison.{operation}.explicit_relation"
                 ),
-                metric=ContractIdentity(
+                metric=ExactContractReference(
                     "metric",
                     f"structure_comparison.{operation}",
                 ),
-                context_profile={
-                    "kind": "pairwise",
-                    "subject_role": "subject",
-                    "reference_role": "reference",
-                    "pairing_mode": "explicit_relation",
-                    "normalization": normalization,
-                },
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="subjects",
-                reference_direction="input",
-                reference_port="references",
-                pairing_direction="input",
-                pairing_port="relation",
+                context_profile=PairwiseContextProfile(
+                    subject_role="subject",
+                    reference_role="reference",
+                    pairing_mode="explicit_relation",
+                    normalization=normalization,
+                ),
+                subject_input="subjects",
+                reference_source=ObservationPortSource("input", "references"),
+                pairing_source=ObservationPortSource("input", "relation"),
                 guaranteed_multiplicity="one",
             ),
         )
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        node_type=ContractIdentity("node_type", node_id,),
+        node_type=ExactContractReference("node_type", node_id,),
         method=method.identity,
         binding_parameters={},
         execution_route="direct",

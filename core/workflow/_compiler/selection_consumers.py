@@ -73,54 +73,71 @@ def _compile_selection_consumers(
         selector_consumption = binding.observation_selector_consumption
         if selector_consumption is not None:
             parameters = admitted_node_parameters[node_id]
-            parameter_name = selector_consumption.selector_id_parameter
-            selector_id = parameters[parameter_name]
-            selector = selectors.get(selector_id)
-            if selector is None:
+            parameter_name = selector_consumption.selector_ids_parameter
+            selector_ids = parameters[parameter_name]
+            selected_selectors = tuple(
+                selectors[selector_id]
+                for selector_id in selector_ids
+                if selector_id in selectors
+            )
+            if len(selected_selectors) != len(selector_ids):
                 raise WorkflowCompileError(
                     "unsatisfied_selector",
                     "Selection selector does not resolve one Workflow "
-                    "Observation Selector",
+                    "Observation Selector for every declared ID",
                     node_id=node_id,
                     field_path=(
-                        "nodes",
-                        node_index,
-                        "node_parameters",
-                        parameter_name,
+                        "nodes", node_index, "node_parameters", parameter_name,
                     ),
                 )
-            for label, port_name, reference in (
-                (
-                    "Candidate",
-                    selector_consumption.candidate_input_port,
-                    selector.candidate_input,
-                ),
-                (
-                    "Score Collection",
-                    selector_consumption.score_collection_input_port,
-                    selector.score_collection_input,
-                ),
-            ):
-                connected = _connected_source(
-                    graph,
-                    node_id=node_id,
-                    input_port=port_name,
-                )
-                if connected != reference:
+            connected_candidate = _connected_source(
+                graph,
+                node_id=node_id,
+                input_port=selector_consumption.candidate_input_port,
+            )
+            for selector in selected_selectors:
+                if connected_candidate != selector.candidate_input:
                     raise WorkflowCompileError(
                         "unsatisfied_selector",
-                        f"Selection {label} input does not match the exact "
+                        "Selection Candidate input does not match the exact "
                         "Workflow Observation Selector source",
                         node_id=node_id,
                         field_path=_connected_source_field_path(
                             graph,
                             node_id=node_id,
-                            input_port=port_name,
-                            expected_node_id=reference.node_id,
+                            input_port=selector_consumption.candidate_input_port,
+                            expected_node_id=selector.candidate_input.node_id,
                         ),
                     )
-            selectors_by_node[node_id] = (selector,)
-            selector_consumers[selector.selector_id].append(node_id)
+            connected_scores = {
+                source for _, source in graph.input_sources[node_id][
+                    selector_consumption.score_collection_input_port
+                ]
+            }
+            expected_scores = {
+                selector.score_collection_input for selector in selected_selectors
+            }
+            if connected_scores != expected_scores:
+                field_path = (
+                    _connected_source_field_path(
+                        graph,
+                        node_id=node_id,
+                        input_port=selector_consumption.score_collection_input_port,
+                        expected_node_id=next(iter(expected_scores)).node_id,
+                    )
+                    if len(expected_scores) == 1 and len(connected_scores) == 1
+                    else ("nodes", node_index, "node_parameters", parameter_name)
+                )
+                raise WorkflowCompileError(
+                    "unsatisfied_selector",
+                    "Selection Score Collection input does not match the exact "
+                    "Workflow Observation Selector sources",
+                    node_id=node_id,
+                    field_path=field_path,
+                )
+            selectors_by_node[node_id] = selected_selectors
+            for selector in selected_selectors:
+                selector_consumers[selector.selector_id].append(node_id)
             continue
         consumption = binding.selection_objective_consumption
         if consumption is None:

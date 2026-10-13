@@ -52,9 +52,19 @@ _Avoid_: Slot, pin, socket
 **Port Type Definition**:
 The nominal scientific contract for values crossing a Port, including their
 scientific admission, canonical scientific representation, and content identity.
+Its validator owns scientific admission; encoding, hashing and published-value
+restoration only convert representations and do not repeat admission.
 _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
 ## Authoring Language
+
+**Project Workspace**:
+One exact pairing of an immutable Workflow Draft revision and an opaque UI
+revision, made current by one workspace publication. Workflow and layout from
+the same edit become current together; ordinary layout-only edits do not create
+a scientific Draft. An editor's pending desired changes are distinct from the
+acknowledged workspace.
+_Avoid_: Workflow Commit, transaction across all storage, mutable scientific Draft
 
 **Authoring Capability Projection**:
 A startup-frozen, non-scientific projection over exact contracts in the same
@@ -130,7 +140,8 @@ _Avoid_: Import side effect, per-node registration call, recursive discovery
 **FrozenCatalog**:
 The immutable admitted startup result containing the current stable-ID
 registrations, scientific relationships, and diagnostic Binding Availability
-observations used by authoring and compilation.
+observations used by authoring and compilation. It owns immutable per-Binding
+Observation plans; compilation adds Workflow-specific sources and relationships.
 _Avoid_: Mutable Registry, discovery workspace, runtime plugin manager
 
 **Availability**:
@@ -185,9 +196,11 @@ _Avoid_: Batch, result list, candidate set
 
 **Candidate Data Reference**:
 The exact association key comprising a Candidate identity, its nominal data
-type, and the canonical content digest of that Candidate's data. Derived
-scientific values use it to name their subject without relying on collection
-position.
+type, and the canonical content digest of that Candidate's data; admitted
+references establish scientific subjects and parent identity without requiring
+the complete Candidate value or relying on collection position. A reference
+does not carry the complete Candidate content, lineage, or metadata required
+for unchanged Candidate pass-through.
 _Avoid_: Candidate, list index, Node Instance locator
 
 **Candidate Relation**:
@@ -213,6 +226,13 @@ _Avoid_: Metric, provider, arbitrary implementation
 The typed scientific context required to interpret a Score Observation, such as
 an intrinsic measurement or role-labelled reference Candidate.
 _Avoid_: Score ID suffix, free-form details, Method
+
+**Observation Context Profile**:
+The fixed scientific conditions shared by a family of Observation Contexts.
+For a pairwise measurement these are the participant roles, pairing mode, and
+normalization, without the particular Candidate pair or its realized evidence.
+A Profile does not replace the complete Context of a measured Observation.
+_Avoid_: Complete Observation Context, display grouping key, Candidate relation
 
 **Score Observation**:
 A value that binds one Candidate to one Metric Definition, one Method, and one
@@ -247,6 +267,13 @@ including its parent residue sequence, identity-complete layout, segment
 topology, selected named-atom coordinates, masks, component dispositions, and
 modified-residue normalization provenance.
 _Avoid_: ATOM-only view, reparsed CA list, implicit chain sequence
+
+**Candidate-associated Resolved Residue Axes**:
+An ordered, nonempty collection binding each exact structure Candidate Data
+Reference to its Resolved Structure Residue Axis, preserving the source Candidate
+Collection order. It supplies structure subjects and their axes without carrying
+the complete Candidates' lineage or metadata.
+_Avoid_: Position-paired sidecar, unordered capability set, complete Candidate Collection
 
 **Prediction Residue Axis**:
 The exact residue population used by one structure prediction, binding its exact

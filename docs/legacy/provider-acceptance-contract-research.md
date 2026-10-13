@@ -8,7 +8,7 @@
 不得按下文恢复 monkeypatch observer、digest-heavy gate、Provider cross-check
 或旧修复顺序。SoluProt 当前明确是 project-maintained port，不声称与官方
 release 等价。已经吸收进当前 Method、Adapter 与科学测试的结论仍有效；当前
-权威状态以 `protein_workbench_architecture.md` 和 `backend-verification.md` 为准。
+权威状态以 `protein_workbench_architecture.md` 和 [backend verification](../backend-verification.md) 为准。
 
 ## 2026-08-26 当前裁决补记
 

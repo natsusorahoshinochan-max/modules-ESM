@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
@@ -9,16 +13,16 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     EffectiveRandomnessResolver,
     EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -260,20 +264,16 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     produced_observations = (
         (
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="scores",
                 output_partition="default",
-                metric=ContractIdentity(
+                metric=ExactContractReference(
                     "metric",
                     "proteinmpnn.native_sequence_nll",
                 ),
-                context_profile={"kind": "intrinsic"},
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="sequence_candidates",
-                axis_direction="input",
-                axis_port="structure_residue_axes",
+                context_profile=IntrinsicContextProfile(),
+                subject_input="sequence_candidates",
+                axis_source=ObservationPortSource("input", "structure_residue_axes"),
                 guaranteed_multiplicity="one",
             ),
         )
@@ -282,11 +282,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"proteinmpnn.{operation}.local",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"proteinmpnn.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),

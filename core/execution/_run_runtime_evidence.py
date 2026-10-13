@@ -8,11 +8,19 @@ from core.execution.ledger import (
     PlanRequiredInputEvidence,
     PlanValueSourceEvidence,
 )
+from core.execution.scope import RunExecutionScope
 from core.workflow.plan import ExecutionPlan
 
 
-def plan_evidence(plan: ExecutionPlan) -> tuple[PlanNodeEvidence, ...]:
+def plan_evidence(
+    plan: ExecutionPlan,
+    scope: RunExecutionScope | None = None,
+) -> tuple[PlanNodeEvidence, ...]:
     """Project the plan facts needed for scientific evidence and causality."""
+    active = (
+        set(scope.execution_node_ids) | set(scope.reused_node_ids)
+        if scope is not None else {node.node_id for node in plan.nodes}
+    )
     return tuple(
         PlanNodeEvidence(
             node_id=node.node_id,
@@ -55,9 +63,10 @@ def plan_evidence(plan: ExecutionPlan) -> tuple[PlanNodeEvidence, ...]:
                 for output in node._runtime.artifact_outputs
             ),
             selection_consumer=bool(
-                node._runtime.selection_objectives
-                or node._runtime.observation_selectors
+                node._runtime.selection_candidate_output_port is not None
+                and (scope is None or node.node_id in scope.execution_node_ids)
             ),
         )
         for node in plan.nodes
+        if node.node_id in active
     )

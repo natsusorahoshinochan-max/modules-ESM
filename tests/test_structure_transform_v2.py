@@ -18,7 +18,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.errors import PortValueError
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.operation import (
     OperationCall,
 )
@@ -330,9 +330,10 @@ def test_standard_parent_component_is_polymer_independent_of_pdb_record_type(
     assert axis.component_dispositions[0].record_type == "HETATM"
     axis_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.resolved_residue_axis")
+    axis_type.validate(axis)
     assert axis_type.decode(axis_type.encode(axis)) == axis
     with pytest.raises(PortValueError, match="contradicts its sequence letter"):
-        axis_type.encode(
+        axis_type.validate(
             replace(axis, sequence="X", residue_names=("UNK",))
         )
 
@@ -409,12 +410,6 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     ).execute(
         OperationCall(
             inputs={
-                "structure_candidates": admitted_port_fixture(
-                    structure_candidates,
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("e" * 64),),
-                    candidate_data=(subject,),
-                ),
                 "residue_axes": admitted_port_fixture(
                     residue_axes,
                     port_type_id="structure_transform.residue_axes",
@@ -452,41 +447,52 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     assert selected_axis.sequence == "AMG"
     assert selected_axis.modified_residue_normalizations.entries
 
-    mismatched_axes = CandidateResolvedResidueAxisAssociations(
+    # Entry order is the only owner of the extraction output order and of each
+    # child's exact parent lineage.
+    second_subject = replace(subject, candidate_id="second-subject")
+    ordered_axes = CandidateResolvedResidueAxisAssociations(
         entries=(
             CandidateResolvedResidueAxisAssociation(
-                subject=replace(subject, candidate_id="other-subject"),
+                subject=second_subject,
+                residue_axis=residue_axes.entries[0].residue_axis,
+            ),
+            CandidateResolvedResidueAxisAssociation(
+                subject=subject,
                 residue_axis=residue_axes.entries[0].residue_axis,
             ),
         )
     )
-    with pytest.raises(ValueError, match="complete exact Candidate references"):
-        ExtractSequenceCandidatesImplementation(_RunResources()).execute(
-            OperationCall(
-                inputs={
-                    "structure_candidates": admitted_port_fixture(
-                        structure_candidates,
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("e" * 64),),
-                        candidate_data=(subject,),
-                    ),
-                    "residue_axes": admitted_port_fixture(
-                        mismatched_axes,
-                        port_type_id="structure_transform.residue_axes",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                    ),
-                },
-                node_parameters={},
-                binding_parameters={},
-                effective_randomness={},
-            )
+    ordered_output = ExtractSequenceCandidatesImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={
+                "residue_axes": admitted_port_fixture(
+                    ordered_axes,
+                    port_type_id="structure_transform.residue_axes",
+                    value_content_digests=("sha256:" + ("f" * 64),),
+                ),
+            },
+            node_parameters={},
+            binding_parameters={},
+            effective_randomness={},
         )
+    )["sequence_candidates"]
+
+    assert [candidate.parent_ids for candidate in ordered_output.items] == [
+        ("second-subject",),
+        ("subject",),
+    ]
+    assert [
+        candidate.metadata["parent_index"] for candidate in ordered_output.items
+    ] == [0, 1]
 
 
 def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> None:
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.backbone_structure")
 
+    port_type.validate(_BACKBONE)
     encoded = port_type.encode(_BACKBONE)
     assert b'"source"' not in encoded
     legacy_wire = canonical_json_bytes({
@@ -505,6 +511,7 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.resolved_residue_axis")
 
+    port_type.validate(_RESOLVED_AXIS)
     encoded = port_type.encode(_RESOLVED_AXIS)
     decoded = port_type.decode(encoded)
     assert decoded == _RESOLVED_AXIS
@@ -519,7 +526,7 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
     with pytest.raises(PortValueError, match="could not decode"):
         port_type.decode(canonical_json_bytes(source_bearing))
     with pytest.raises(PortValueError, match="coordinate masks"):
-        port_type.encode(
+        port_type.validate(
             replace(
                 _RESOLVED_AXIS,
                 complete_backbone_mask=(False,),
@@ -540,6 +547,7 @@ def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
         ),
     ))
 
+    port_type.validate(valid)
     assert port_type.decode(port_type.encode(valid)) == valid
     duplicate_target = ModifiedResidueNormalizationCollection(entries=(
         replace(
@@ -557,9 +565,9 @@ def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
         ),
     ))
     with pytest.raises(PortValueError, match="atom mapping"):
-        port_type.encode(duplicate_target)
+        port_type.validate(duplicate_target)
     with pytest.raises(PortValueError, match="normalization entry"):
-        port_type.encode(non_string)
+        port_type.validate(non_string)
 
 
 def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None:
@@ -679,14 +687,13 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
     assert candidate_residue_axes["outputs"][0]["port_type"][
         "contract_id"
     ] == "structure_transform.candidate_resolved_residue_axis_associations"
-    assert candidate_sequence["inputs"][0]["name"] == "structure_candidates"
+    assert candidate_sequence["inputs"][0]["name"] == "residue_axes"
     assert candidate_sequence["inputs"][0]["port_type"][
         "contract_id"
-    ] == "candidate.collection"
-    assert candidate_sequence["inputs"][1]["name"] == "residue_axes"
-    assert candidate_sequence["inputs"][1]["port_type"][
-        "contract_id"
     ] == "structure_transform.candidate_resolved_residue_axis_associations"
+    assert [port["name"] for port in candidate_sequence["inputs"]] == [
+        "residue_axes"
+    ]
     normalize_binding = catalog.require_contract(
         "binding",
         "structure_transform.normalize_csh_parent_span.direct").descriptor
@@ -945,12 +952,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                 WorkflowEdge(
                     "source",
                     "structure_candidates",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "structure_candidates",
                     "resolve-candidate-axes",
                     "structure_candidates",
                 ),
@@ -1083,12 +1084,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                     "structure_candidates",
                 ),
                 WorkflowEdge(
-                    "source",
-                    "structure_candidates",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
                     "resolve-candidate-axes",
                     "residue_axes",
                     "contract-test-node",
@@ -1207,6 +1202,8 @@ def test_all_nodes_pass_the_shared_contract_test_kit_ports(port_index: int) -> N
             ),
         ),
     )[port_index]
+    if port_case.type_id == "structure_transform.candidate_normalization_facts":
+        MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.validate(_CSH_NORMALIZATIONS)
     verify_module_package_port(
         MODULE_PACKAGE, port_case, supporting_registrations=(SOURCE_PACKAGE,)
     )

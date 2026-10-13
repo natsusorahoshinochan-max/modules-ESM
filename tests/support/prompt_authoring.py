@@ -3,8 +3,7 @@
 Prompt Studio edits one ordinary ``prompt_authoring.author`` Node Instance in
 the project's Workflow Draft (spec 2026-09-02 §9.1/§12.3): ``open`` reads the
 node's ``document`` parameter, ``preview`` applies the document through the
-single recipe implementation, and ``apply`` writes the confirmed document
-back onto the same node.
+single recipe implementation, and confirmed documents are submitted as complete Workspace edits.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ def install_prompt_authoring_workflow(
 ) -> None:
     """Place the complete workflow (author Nodes included) into the draft."""
     response = client.put(
-        f"/api/v2/projects/{project_id}/workflow/draft",
+        f"/api/v2/projects/{project_id}/workspace",
         json={"workflow": workflow},
     )
     response.raise_for_status()
@@ -66,19 +65,17 @@ def preview_prompt_document(
     return response.json()
 
 
-def apply_prompt_document(
-    client: Any,
-    project_id: str,
+def workflow_with_prompt_document(
+    workflow: Mapping[str, Any],
     node_id: str,
-    preview: Mapping[str, Any],
+    document: Mapping[str, Any],
 ) -> dict[str, Any]:
-    response = client.post(
-        f"/api/v2/projects/{project_id}/prompt-authoring:apply",
-        json={
-            "node_id": node_id,
-            "document": preview["normalized_document"],
-            "preview_digest": preview["preview_digest"],
-        },
-    )
-    response.raise_for_status()
-    return response.json()
+    """Prepare a complete prospective Workflow without writing any state."""
+    return {
+        **workflow,
+        "nodes": [
+            {**node, "node_parameters": {**node["node_parameters"], "document": dict(document)}}
+            if node["node_id"] == node_id else node
+            for node in workflow["nodes"]
+        ],
+    }

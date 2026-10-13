@@ -7,13 +7,13 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -168,10 +168,10 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     contract_id = f"contract_test.structure_annotation_{operation}"
     return ExecutionBindingDefinition(
         binding_id=f"{contract_id}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             contract_id),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"{contract_id}.method"),
         binding_parameters={},

@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from datatypes.candidate import CandidateDataReference
+from datatypes.candidate import CandidateDataReference, validate_candidate_data_reference
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
     _candidate_data_reference_to_canonical,
@@ -62,7 +62,7 @@ def test_candidate_data_reference_rejects_noncanonical_fields(
     fields[field_name] = invalid_value
 
     with pytest.raises(ValueError, match=field_name):
-        CandidateDataReference(**fields)  # type: ignore[arg-type]
+        validate_candidate_data_reference(CandidateDataReference(**fields))  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,8 @@ from typing import Any
 from core.execution._run_runtime_registry import _RunRegistry
 from core.execution.ledger import DerivedRunReference, V2RunError
 from core.workflow.plan import ExecutionPlan
+from core.workflow.authoring import WorkflowAuthoringService
+from core.execution.scope import RunScopeRequest
 
 
 class _DerivedRunStarter:
@@ -17,9 +19,11 @@ class _DerivedRunStarter:
         self,
         *,
         registry: _RunRegistry,
+        authoring: WorkflowAuthoringService,
         start_background: Callable[..., dict[str, Any]],
     ) -> None:
         self._registry = registry
+        self._authoring = authoring
         self._start_background = start_background
 
     @staticmethod
@@ -63,25 +67,9 @@ class _DerivedRunStarter:
                 "Start Derived Run requires a terminal source Run",
                 details={"field_path": ["source_run_id"]},
             )
-        compiled = source.compiled
-        if compiled is None:
-            raise V2RunError(
-                "compile_rejected",
-                "Derived Run source Execution Plan is unavailable",
-                details={
-                    "issues": [
-                        {
-                            "code": "source_execution_plan_unavailable",
-                            "severity": "error",
-                            "message": (
-                                "Derived Run requires the exact in-memory "
-                                "Execution Plan retained by its source Run"
-                            ),
-                            "field_path": ["source_run_id"],
-                        }
-                    ]
-                },
-            )
+        compiled = self._authoring.require_verified_commit(
+            project_id, workflow_commit_id=source_projection.workflow_commit_id
+        )
         plan = compiled.execution_plan
         plan_node_ids = tuple(node.node_id for node in plan.nodes)
         selected = frozenset(node_ids)
@@ -154,5 +142,8 @@ class _DerivedRunStarter:
                 forced_node_ids=tuple(forced_in_plan_order),
             ),
             _cache_bypass_nodes=forced,
-            _retained_compiled=compiled,
+            scope=(
+                RunScopeRequest("from_node", tuple(selected_in_plan_order), source_run_id)
+                if policy == "force_selected" else RunScopeRequest()
+            ),
         )

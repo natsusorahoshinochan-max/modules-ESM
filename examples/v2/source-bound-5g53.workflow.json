@@ -5150,12 +5150,6 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "select-chain-a",
-      "source_port": "structure_candidates",
-      "target_node_id": "project-reference-axis",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "resolve-reference",
       "source_port": "residue_axes",
       "target_node_id": "project-reference-axis",
@@ -5204,22 +5198,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-shorter-8",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-core-shorter-8",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds-shorter-8",
       "source_port": "residue_axes",
       "target_node_id": "align-core-shorter-8",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "select-chain-a",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-core-shorter-8",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-reference",
@@ -5282,22 +5264,10 @@
       "target_port": "right_relation"
     },
     {
-      "source_node_id": "fold-shorter-8",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-counterpart-shorter-8",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds-shorter-8",
       "source_port": "residue_axes",
       "target_node_id": "align-counterpart-shorter-8",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-counterpart-shorter-8",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-counterparts-shorter-8",
@@ -5474,22 +5444,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-numbering-implied-12",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-core-numbering-implied-12",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds-numbering-implied-12",
       "source_port": "residue_axes",
       "target_node_id": "align-core-numbering-implied-12",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "select-chain-a",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-core-numbering-implied-12",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-reference",
@@ -5552,22 +5510,10 @@
       "target_port": "right_relation"
     },
     {
-      "source_node_id": "fold-numbering-implied-12",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-counterpart-numbering-implied-12",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds-numbering-implied-12",
       "source_port": "residue_axes",
       "target_node_id": "align-counterpart-numbering-implied-12",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-counterpart-numbering-implied-12",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-counterparts-numbering-implied-12",
@@ -5744,22 +5690,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-longer-16",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-core-longer-16",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds-longer-16",
       "source_port": "residue_axes",
       "target_node_id": "align-core-longer-16",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "select-chain-a",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-core-longer-16",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-reference",
@@ -5822,22 +5756,10 @@
       "target_port": "right_relation"
     },
     {
-      "source_node_id": "fold-longer-16",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-counterpart-longer-16",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds-longer-16",
       "source_port": "residue_axes",
       "target_node_id": "align-counterpart-longer-16",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "generate-longer-16",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-counterpart-longer-16",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-counterparts-longer-16",

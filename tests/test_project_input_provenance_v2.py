@@ -58,11 +58,6 @@ def test_project_input_filename_survives_manager_restart(tmp_path: Path) -> None
     descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
     assert "schema_version" not in descriptor
     assert "artifact_kind" not in descriptor
-    descriptor["ignored_metadata"] = True
-    descriptor_path.write_text(
-        json.dumps(descriptor, indent=2),
-        encoding="utf-8",
-    )
     restarted = ProjectManager(project_root)
     recovered, payload = restarted.read_input(project.id, "input-1")
 

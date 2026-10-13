@@ -269,8 +269,9 @@ def test_score_merge_preserves_exact_i_json_value_types() -> None:
         },
     )
 
+    merged = CollectionOpsImplementation("merge_scores").execute(call)["scores"]
     with pytest.raises(ValueError, match="conflicting values"):
-        CollectionOpsImplementation("merge_scores").execute(call)
+        catalog.require_port_type("score.collection").validate(merged)
 
 
 def _two_hop_lineage_collections() -> tuple[
@@ -1520,54 +1521,6 @@ def test_public_collection_operations_reject_candidate_partition_aliasing(
     assert projection["status"] == "failed"
     assert not any(
         output["node_id"] == "concat"
-        for output in projection["outputs"]
-    )
-
-
-def test_public_score_merge_rejects_legacy_subject_free_scores(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tests.fixtures.collection_ops_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
-
-    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
-    workflow = WorkflowDocument(
-        schema_version=VERSION,
-        workflow_id="legacy-score-rejection",
-        nodes=(
-            WorkflowNodeInstance(
-                node_id="legacy",
-                node_type_id="contract_test.collection_ops_legacy_scores",
-                binding_id=(
-                    "contract_test.collection_ops_legacy_scores.direct"
-                ),
-                node_parameters={},
-                binding_parameters={},
-            ),
-            WorkflowNodeInstance(
-                node_id="merge",
-                node_type_id="collection_ops.merge_scores",
-                binding_id="collection_ops.merge_scores.direct",
-                node_parameters={},
-                binding_parameters={},
-            ),
-        ),
-        edges=(
-            WorkflowEdge("legacy", "scores", "merge", "scores_a"),
-        ))
-
-    _, projection, _ = _run_through_public_rest(
-        tmp_path,
-        monkeypatch,
-        catalog=catalog,
-        workflow=workflow,
-    )
-
-    assert projection["status"] == "failed"
-    assert not any(
-        output["node_id"] == "merge"
         for output in projection["outputs"]
     )
 

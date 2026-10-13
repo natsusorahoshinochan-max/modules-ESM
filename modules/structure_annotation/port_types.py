@@ -15,7 +15,7 @@ from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
 )
-from datatypes.candidate import CandidateDataReference
+from datatypes.candidate import CandidateDataReference, validate_candidate_data_reference
 from datatypes.residue import (
     CandidateResidueTrack,
     ResidueTrack,
@@ -43,43 +43,30 @@ def _sasa_observed_from_wire(value: Any) -> Any:
     return track
 
 
-def _validate_subject(subject: object) -> None:
-    if type(subject) is not CandidateDataReference:
-        raise ValueError(
-            "observed annotation subject must be a CandidateDataReference"
-        )
-    if subject.data_type_id != "protein.structure":
-        raise ValueError(
-            "observed annotation subject must reference protein.structure"
-        )
+def _validate_observed_track(value: object) -> ResidueTrack:
+    if type(value) is not CandidateResidueTrack:
+        raise ValueError("observed annotation must be a CandidateResidueTrack")
+    validate_candidate_data_reference(value.subject)
+    if value.subject.data_type_id != "protein.structure":
+        raise ValueError("observed annotation subject must reference protein.structure")
+    if type(value.track) is not ResidueTrack:
+        raise ValueError("observed annotation track must be a ResidueTrack")
+    validate_residue_layout(value.track.layout, subject="observed annotation layout")
+    if len(value.track.values) != value.track.layout.length:
+        raise ValueError("observed annotation values length must equal layout length")
+    return value.track
 
 
 def _validate_observed_secondary(value: object) -> None:
-    if type(value) is not CandidateResidueTrack:
-        raise ValueError(
-            "secondary-structure observed value must be a CandidateResidueTrack"
-        )
-    _validate_subject(value.subject)
-    validate_residue_layout(
-        value.track.layout,
-        subject="observed secondary-structure layout",
-    )
+    track = _validate_observed_track(value)
     validate_secondary_structure_elements(
-        value.track.values, subject="secondary-structure observed values",
+        track.values, subject="secondary-structure observed values",
     )
 
 
 def _validate_observed_sasa(value: object) -> None:
-    if type(value) is not CandidateResidueTrack:
-        raise ValueError(
-            "SASA observed value must be a CandidateResidueTrack"
-        )
-    _validate_subject(value.subject)
-    validate_residue_layout(
-        value.track.layout,
-        subject="observed SASA layout",
-    )
-    validate_sasa_elements(value.track.values, subject="SASA observed values")
+    track = _validate_observed_track(value)
+    validate_sasa_elements(track.values, subject="SASA observed values")
 
 
 def _candidate_data_references(

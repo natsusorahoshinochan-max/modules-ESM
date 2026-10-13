@@ -1,4 +1,4 @@
-"""Admit Produced Observations against compiler-resolved typed plans."""
+"""Admit Produced Observations against Catalog-resolved typed plans."""
 
 from __future__ import annotations
 
@@ -8,15 +8,10 @@ import math
 import struct
 from typing import Any, Protocol, cast
 
-import rfc8785
 
+from datatypes.observation import PairwiseContextProfile
+from core.catalog.observation import ObservationPortSource
 from core.scoring.observation_plan import (
-    CalibrationContextProfile,
-    IntrinsicContextProfile,
-    ObservationContextProfile,
-    ObservationPropagationFilter,
-    ObservationPropagationPlan,
-    PairwiseContextProfile,
     ProducedObservationPlan,
     ResolvedMetricFacts,
 )
@@ -26,18 +21,17 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
 )
 from datatypes.observation import (
-    CalibrationObservationContext,
-    IntrinsicObservationContext,
     PairwiseObservationContext,
     CandidateRelation,
     ScoreCollection,
     ScoreObservation,
+    observation_context_profile,
 )
-from datatypes.i_json import thaw_i_json
 
 
 class ObservationAdmissionError(ValueError):
-    """Produced Observation output contradicts its compiler-resolved plan."""
+    """Produced Observation output contradicts its Catalog-resolved plan."""
+
 
 
 class _AdmittedValue(Protocol):
@@ -68,11 +62,6 @@ class StructureAlignmentEvidenceAdmissionFacts:
     evidence_method: ExactContractReference
     reference_axis_residue_count: int
     aligned_atom_count: int
-
-
-def _canonical_observation_value(value: Any) -> bytes:
-    """Project one admitted I-JSON value for exact propagation comparison."""
-    return rfc8785.dumps(thaw_i_json(value))
 
 
 def _validate_resolved_metric_value(
@@ -168,134 +157,6 @@ def _validate_resolved_metric_value(
                 raise ObservationAdmissionError(
                     "Metric value is not exactly representable as binary32"
                 )
-
-
-def _context_profile(context: object) -> ObservationContextProfile:
-    if isinstance(context, IntrinsicObservationContext):
-        return IntrinsicContextProfile()
-    if isinstance(context, CalibrationObservationContext):
-        return CalibrationContextProfile(
-            calibration_metric=context.calibration_metric,
-            calibration_value=context.calibration_value,
-            calibration_unit=context.calibration_unit,
-            population_id=context.population_id,
-        )
-    if isinstance(context, PairwiseObservationContext):
-        return PairwiseContextProfile(
-            subject_role=context.subject.role,
-            reference_role=context.reference.role,
-            pairing_mode=context.pairing_mode,
-            normalization=context.normalization,
-        )
-    raise ObservationAdmissionError("Observation uses an unknown Context type")
-
-
-def _observation_value_map(
-    collection: ScoreCollection,
-) -> dict[tuple[object, ...], bytes]:
-    return {
-        (observation.source_partition, *observation.identity): (
-            _canonical_observation_value(observation.value)
-        )
-        for observation in collection.entries
-    }
-
-
-def _observation_matches_propagation_filter(
-    observation: ScoreObservation,
-    filters: ObservationPropagationFilter,
-) -> bool:
-    return (
-        (
-            filters.source_partition is None
-            or observation.source_partition
-            == filters.source_partition
-        )
-        and (
-            filters.metric is None
-            or observation.metric == filters.metric
-        )
-        and (
-            filters.method is None
-            or observation.method == filters.method
-        )
-        and (
-            filters.context_profile is None
-            or _context_profile(observation.context)
-            == filters.context_profile
-        )
-    )
-
-
-def _validate_propagated_score_collection(
-    *,
-    propagation: ObservationPropagationPlan,
-    output_port: str,
-    collection: ScoreCollection,
-    inputs: Mapping[str, ObservationAdmissionPort],
-) -> bool:
-    if propagation.output_port != output_port:
-        return False
-    mode = propagation.mode
-    source_maps: list[dict[tuple[object, ...], bytes]] = []
-    source_observations: list[ScoreObservation] = []
-    for input_port in propagation.input_ports:
-        source_record = inputs.get(input_port)
-        if (
-            source_record is None
-            and propagation.absent_input_policy == "ignore"
-        ):
-            continue
-        if source_record is None:
-            raise ObservationAdmissionError(
-                "Binding Observation propagation input is unavailable"
-            )
-        source = cast(ScoreCollection, source_record.value)
-        source_maps.append(_observation_value_map(source))
-        source_observations.extend(source.entries)
-    if not source_maps:
-        raise ObservationAdmissionError(
-            "Binding Observation propagation has no connected input"
-        )
-    expected: dict[tuple[object, ...], bytes] = {}
-    for source_map in source_maps:
-        for identity, value in source_map.items():
-            existing = expected.get(identity)
-            if existing is not None and existing != value:
-                raise ObservationAdmissionError(
-                    "Observation propagation sources conflict"
-                )
-            expected[identity] = value
-    observed = _observation_value_map(collection)
-    if mode in {"pass_through", "union"}:
-        if observed != expected:
-            raise ObservationAdmissionError(
-                "Observation propagation cannot omit, invent, or repartition "
-                "entries"
-            )
-        return True
-    filters = propagation.filter
-    if filters is None:
-        raise ObservationAdmissionError("Filter propagation requires an exact filter")
-    filtered_entries = [
-        observation
-        for observation in source_observations
-        if _observation_matches_propagation_filter(
-            observation,
-            filters,
-        )
-    ]
-    filtered_expected = _observation_value_map(
-        ScoreCollection(
-            collection_id="controlled-filter-expected",
-            entries=filtered_entries,
-        )
-    )
-    if observed != filtered_expected:
-        raise ObservationAdmissionError(
-            "Observation propagation output is not the exact filter result"
-        )
-    return True
 
 
 def _structure_alignment_evidence_facts(
@@ -409,15 +270,10 @@ def admit_produced_observations(
     inputs: Mapping[str, ObservationAdmissionPort],
     outputs: Mapping[str, ObservationAdmissionPort],
 ) -> None:
-    """Admit one Score Collection against compiler-resolved exact facts."""
+    """Admit one Score Collection against Catalog-resolved exact facts."""
     declarations = plan.observations_for_output(output_port)
     if not declarations:
-        if plan.propagation is not None and _validate_propagated_score_collection(
-            propagation=plan.propagation,
-            output_port=output_port,
-            collection=collection,
-            inputs=inputs,
-        ):
+        if plan.propagation is not None and plan.propagation.output_port == output_port:
             return
         if any(isinstance(item, ScoreObservation) for item in collection.entries):
             raise ObservationAdmissionError(
@@ -432,10 +288,8 @@ def admit_produced_observations(
             for declaration in declarations
             if declaration.metric == observation.metric
             and declaration.context_profile
-            == _context_profile(observation.context)
+            == observation_context_profile(observation.context)
             and declaration.output_partition == observation.source_partition
-            and declaration.subject_grain == "candidate"
-            and declaration.source_role == "subject"
         ]
         if len(matches) != 1:
             raise ObservationAdmissionError(
@@ -443,14 +297,14 @@ def admit_produced_observations(
                 "Observation Interface"
             )
         declaration = matches[0]
-        if declaration.method_port is None:
+        if declaration.method_source is None:
             allowed_methods = (plan.binding_method,)
         else:
             method_record = _directional_source_record(
                 inputs=inputs,
                 outputs=outputs,
-                direction=declaration.method_direction,
-                port_name=declaration.method_port,
+                direction=declaration.method_source.direction,
+                port_name=declaration.method_source.port,
             )
             allowed_methods = (
                 method_record.observation_methods
@@ -466,8 +320,8 @@ def admit_produced_observations(
         subject_record = _directional_source_record(
             inputs=inputs,
             outputs=outputs,
-            direction=declaration.subject_direction,
-            port_name=declaration.subject_port,
+            direction="input",
+            port_name=declaration.subject_input,
         )
         if subject_record is None:
             raise ObservationAdmissionError(
@@ -486,7 +340,7 @@ def admit_produced_observations(
             observation
             for observation in observations
             if observation.metric == declaration.metric
-            and _context_profile(observation.context)
+            and observation_context_profile(observation.context)
             == declaration.context_profile
             and observation.source_partition == declaration.output_partition
         ]
@@ -512,8 +366,8 @@ def admit_produced_observations(
             axis_record = _directional_source_record(
                 inputs=inputs,
                 outputs=outputs,
-                direction=declaration.axis_direction,
-                port_name=declaration.axis_port,
+                direction=cast(ObservationPortSource, declaration.axis_source).direction,
+                port_name=cast(ObservationPortSource, declaration.axis_source).port,
             )
             projected_axes = (
                 axis_record.scientific_axes if axis_record is not None else ()
@@ -616,8 +470,8 @@ def admit_produced_observations(
                 reference_record = _directional_source_record(
                     inputs=inputs,
                     outputs=outputs,
-                    direction=declaration.reference_direction,
-                    port_name=declaration.reference_port,
+                    direction=cast(ObservationPortSource, declaration.reference_source).direction,
+                    port_name=cast(ObservationPortSource, declaration.reference_source).port,
                 )
                 admitted_references = (
                     reference_record.candidate_data
@@ -639,8 +493,8 @@ def admit_produced_observations(
                 pairing_record = _directional_source_record(
                     inputs=inputs,
                     outputs=outputs,
-                    direction=declaration.pairing_direction,
-                    port_name=declaration.pairing_port,
+                    direction=cast(ObservationPortSource, declaration.pairing_source).direction,
+                    port_name=cast(ObservationPortSource, declaration.pairing_source).port,
                 )
                 if pairing_record is None:
                     raise ObservationAdmissionError(

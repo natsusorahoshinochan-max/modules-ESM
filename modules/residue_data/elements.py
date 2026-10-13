@@ -47,6 +47,19 @@ def validate_coordinate_elements(
     for index, item in enumerate(values):
         if item is not None and type(item) is not NamedAtomCoordinates:
             raise ValueError(f"{subject}[{index}] must be NamedAtomCoordinates")
+        if item is None:
+            continue
+        names: set[str] = set()
+        for name, coordinate in item.atoms:
+            if type(name) is not str or not name or name in names:
+                raise ValueError(f"{subject}[{index}] atom names must be unique text")
+            names.add(name)
+            if len(coordinate) != 3 or any(
+                type(number) not in (int, float) or not math.isfinite(number)
+                for number in coordinate
+            ):
+                raise ValueError(f"{subject}[{index}] coordinate must be one finite Cartesian 3-vector")
+
 
 
 def validate_secondary_structure_elements(

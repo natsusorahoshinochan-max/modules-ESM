@@ -217,12 +217,6 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "import-input",
-      "source_port": "structure_candidates",
-      "target_node_id": "extract-sequence",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "resolve-input",
       "source_port": "residue_axes",
       "target_node_id": "extract-sequence",
@@ -253,22 +247,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-esmfold2",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-esmfold2-input",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-esmfold2",
       "source_port": "residue_axes",
       "target_node_id": "align-esmfold2-input",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "import-input",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-esmfold2-input",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-input",
@@ -337,22 +319,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-simplefold",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-simplefold-input",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-simplefold",
       "source_port": "residue_axes",
       "target_node_id": "align-simplefold-input",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "import-input",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-simplefold-input",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-input",
@@ -409,22 +379,10 @@
       "target_port": "subjects"
     },
     {
-      "source_node_id": "fold-esmfold2",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-methods",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-esmfold2",
       "source_port": "residue_axes",
       "target_node_id": "align-methods",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "fold-simplefold",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-methods",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-simplefold",
@@ -485,12 +443,6 @@
       "source_port": "relation",
       "target_node_id": "rmsd-methods",
       "target_port": "relation"
-    },
-    {
-      "source_node_id": "import-input",
-      "source_port": "structure_candidates",
-      "target_node_id": "classify-consistency",
-      "target_port": "input_structures"
     },
     {
       "source_node_id": "extract-sequence",

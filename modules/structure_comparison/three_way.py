@@ -25,6 +25,9 @@ from datatypes.observation import (
 )
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
+from modules.structure_transform.candidate_axes import (
+    join_candidate_residue_axes,
+)
 from .contracts import (
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
@@ -73,26 +76,25 @@ def _value_digest(call: OperationCall, port: str) -> str:
     return call.inputs[port].content_digest
 
 
-def _axis(
+def _singleton_axis(
     call: OperationCall,
     port: str,
-    subject: CandidateDataReference,
-) -> tuple[ResolvedStructureResidueAxis, ResidueAxisReference]:
+) -> tuple[CandidateDataReference, ResolvedStructureResidueAxis, ResidueAxisReference]:
+    """Read the only entry of one admitted resolved-axis value as source identity."""
+    axis_input = call.inputs[port]
     associations = cast(
         _ResolvedAxisAssociations,
-        call.inputs[port].value,
+        axis_input.value,
     )
-    matches = tuple(
-        item for item in associations.entries if item.subject == subject
-    )
-    if len(matches) != 1 or len(associations.entries) != 1:
+    if len(associations.entries) != 1:
         raise ValueError(f"{port} must bind one exact residue axis")
+    entry = associations.entries[0]
     admitted_axis = next(
         axis
-        for axis in call.inputs[port].scientific_axes
-        if axis.source == subject
+        for axis in axis_input.scientific_axes
+        if axis.source == entry.subject
     )
-    return matches[0].residue_axis, admitted_axis
+    return entry.subject, entry.residue_axis, admitted_axis
 
 
 def _observation(
@@ -220,9 +222,8 @@ class ThreeWayConsistencyImplementation:
         self._classification_method = classification_method
 
     def execute(self, call: OperationCall) -> Mapping[str, object]:
-        input_candidate, input_reference = _candidate_scope(
-            call,
-            "input_structures",
+        input_reference, input_residue_axis, input_axis_reference = (
+            _singleton_axis(call, "input_residue_axes")
         )
         sequence_candidate, sequence_reference = _candidate_scope(
             call,
@@ -237,7 +238,7 @@ class ThreeWayConsistencyImplementation:
             "simplefold_structures",
         )
         if (
-            sequence_candidate.parent_ids != (input_candidate.candidate_id,)
+            sequence_candidate.parent_ids != (input_reference.candidate_id,)
             or esmfold2_candidate.parent_ids != (sequence_candidate.candidate_id,)
             or simplefold_candidate.parent_ids != (sequence_candidate.candidate_id,)
         ):
@@ -245,10 +246,18 @@ class ThreeWayConsistencyImplementation:
 
         sequence = cast(ProteinSequence, sequence_candidate.data).sequence
         residue_count = len(sequence)
+        esmfold2_entry = join_candidate_residue_axes(
+            call.inputs["esmfold2_structures"],
+            call.inputs["esmfold2_residue_axes"],
+        )[esmfold2_reference]
+        simplefold_entry = join_candidate_residue_axes(
+            call.inputs["simplefold_structures"],
+            call.inputs["simplefold_residue_axes"],
+        )[simplefold_reference]
         axis_records = (
-            _axis(call, "input_residue_axes", input_reference),
-            _axis(call, "esmfold2_residue_axes", esmfold2_reference),
-            _axis(call, "simplefold_residue_axes", simplefold_reference),
+            (input_residue_axis, input_axis_reference),
+            (esmfold2_entry.residue_axis, esmfold2_entry.axis_reference),
+            (simplefold_entry.residue_axis, simplefold_entry.axis_reference),
         )
         axes = tuple(axis for axis, _ in axis_records)
         if any(

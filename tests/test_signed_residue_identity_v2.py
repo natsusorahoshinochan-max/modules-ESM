@@ -84,4 +84,4 @@ def test_signed_residue_id_round_trips_layout_codec() -> None:
 
     invalid = ResidueLayout(("A:-1234",))
     with pytest.raises(PortValueError, match="residue identity"):
-        layout_type.encode(invalid)
+        layout_type.validate(invalid)

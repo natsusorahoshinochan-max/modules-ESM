@@ -8,7 +8,9 @@ import re
 import shutil
 import tempfile
 import uuid
-from dataclasses import dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -35,6 +37,10 @@ class ProtectedProjectError(PermissionError):
     """An ordinary write targeted the protected canonical project."""
 
 
+class ProjectStateError(RuntimeError):
+    """A Project lifecycle action cannot apply to the current state."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectMeta:
     """Metadata for one Project scope."""
@@ -45,6 +51,8 @@ class ProjectMeta:
     modified_at: str = ""
     seed: bool = False
     copied_from_project_id: str | None = None
+    reference_results_project_id: str | None = None
+    deleted_at: str | None = None
 
     def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -203,53 +211,22 @@ class ProjectManager:
             filename=filename,
         )
 
+    def read_input_descriptor(
+        self, project_id: str, input_reference: str,
+    ) -> ProjectInputDescriptor:
+        """Read the descriptor admitted when the immutable Input was published."""
+        reference = validate_identifier(input_reference, "project_input_ref")
+        path = self._project_storage_root(project_id) / "inputs" / reference
+        raw = json.loads((path / "descriptor.json").read_text(encoding="utf-8"))
+        return ProjectInputDescriptor(**raw)
+
     def read_input(
-        self,
-        project_id: str,
-        input_reference: str,
+        self, project_id: str, input_reference: str,
     ) -> tuple[ProjectInputDescriptor, bytes]:
         """Read one admitted immutable Project Input snapshot."""
-        safe_reference = validate_identifier(
-            input_reference,
-            "project_input_ref",
-        )
-        input_dir = (
-            self._project_storage_root(project_id) / "inputs" / safe_reference
-        )
-        raw = json.loads(
-            (input_dir / "descriptor.json").read_text(encoding="utf-8")
-        )
-        if (
-            not isinstance(raw, dict)
-            or not {
-                "project_input_ref",
-                "filename",
-                "size",
-                "content_digest",
-            } <= raw.keys()
-            or raw["project_input_ref"] != safe_reference
-            or type(raw["size"]) is not int
-            or not 0 <= raw["size"] <= MAX_PROJECT_INPUT_BYTES
-            or not isinstance(raw["content_digest"], str)
-            or re.fullmatch(r"sha256:[0-9a-f]{64}", raw["content_digest"])
-            is None
-        ):
-            raise ValueError("Project input descriptor is invalid")
-        descriptor = ProjectInputDescriptor(
-            project_input_ref=safe_reference,
-            filename=self._validate_input_filename(raw["filename"]),
-            size=raw["size"],
-            content_digest=raw["content_digest"],
-        )
-        payload_path = input_dir / "payload"
-        payload = payload_path.read_bytes()
-        if (
-            len(payload) != descriptor.size
-            or "sha256:" + hashlib.sha256(payload).hexdigest()
-            != descriptor.content_digest
-        ):
-            raise ValueError("Project input content identity is invalid")
-        return descriptor, payload
+        descriptor = self.read_input_descriptor(project_id, input_reference)
+        path = self._project_storage_root(project_id) / "inputs" / descriptor.project_input_ref
+        return descriptor, (path / "payload").read_bytes()
 
     def result_cache_storage_root(self, project_id: str) -> Path:
         """Return the Project scope assigned to the Result replay owner."""
@@ -314,12 +291,15 @@ class ProjectManager:
             stored.append(validate_identifier(path.name, "project_id"))
         return tuple(stored)
 
-    def list_projects(self, *, name: str | None = None) -> tuple[ProjectMeta, ...]:
+    def list_projects(
+        self, *, name: str | None = None, deleted: bool = False,
+    ) -> tuple[ProjectMeta, ...]:
         """List Projects, optionally matching a case-insensitive name fragment."""
         projects = tuple(
             meta
             for project_id in self.stored_project_ids()
-            if (meta := self.load_meta(project_id)) is not None
+            if (meta := self.load_meta(project_id, include_deleted=True)) is not None
+            and (meta.deleted_at is not None) == deleted
         )
         if name is None:
             return projects
@@ -365,6 +345,27 @@ class ProjectManager:
         self._save_meta(meta)
         return meta
 
+    @contextmanager
+    def copy_destination(
+        self, name: str, *, copied_from_project_id: str,
+        reference_results_project_id: str | None = None,
+    ) -> Iterator[ProjectMeta]:
+        """Publish copy metadata only after its entire workspace is written."""
+        meta = ProjectMeta(
+            id=str(uuid.uuid4()), name=name,
+            copied_from_project_id=copied_from_project_id,
+            reference_results_project_id=reference_results_project_id,
+        )
+        directory = self._ensure_dir(meta.id)
+        published = False
+        try:
+            yield meta
+            self._save_meta(meta)
+            published = True
+        finally:
+            if not published:
+                shutil.rmtree(directory)
+
     def assert_writable(self, project_id: str) -> None:
         """Reject ordinary content or metadata writes to the canonical ID."""
         if project_id in {
@@ -374,6 +375,65 @@ class ProjectManager:
             raise ProtectedProjectError(
                 "Protected example Projects are read-only"
             )
+
+    def rename(self, project_id: str, name: str) -> ProjectMeta:
+        """Rename an active Project without changing its identity."""
+        self.assert_writable(project_id)
+        meta = self.require_meta(project_id)
+        updated = replace(meta, name=name, modified_at=self._now())
+        self._save_meta(updated)
+        return updated
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def require_meta(
+        self, project_id: str, *, include_deleted: bool = False,
+    ) -> ProjectMeta:
+        meta = self.load_meta(project_id, include_deleted=include_deleted)
+        if meta is None:
+            raise FileNotFoundError(project_id)
+        return meta
+
+    def touch(self, project_id: str) -> None:
+        meta = self.require_meta(project_id)
+        self._save_meta(replace(meta, modified_at=self._now()))
+
+    def trash(self, project_id: str) -> ProjectMeta:
+        """Persist trash metadata; Run Runtime owns the complete idle operation."""
+        self.assert_writable(project_id)
+        meta = self.require_meta(project_id)
+        now = self._now()
+        updated = replace(meta, deleted_at=now, modified_at=now)
+        self._save_meta(updated)
+        return updated
+
+    def restore(self, project_id: str) -> ProjectMeta:
+        """Restore the same Project identity and all retained content."""
+        self.assert_writable(project_id)
+        meta = self.require_meta(project_id, include_deleted=True)
+        if meta.deleted_at is None:
+            raise ProjectStateError("Project is not in recently deleted")
+        updated = replace(meta, deleted_at=None, modified_at=self._now())
+        self._save_meta(updated)
+        return updated
+
+    def permanently_delete(self, project_id: str) -> None:
+        """Delete storage; Run Runtime owns the idle lease and cache eviction."""
+        self.assert_writable(project_id)
+        meta = self.require_meta(project_id, include_deleted=True)
+        if meta.deleted_at is None:
+            raise ProjectStateError("Project must be trashed before permanent deletion")
+        roots = (
+            self.result_cache_storage_root(project_id),
+            self._result_storage_root(project_id),
+            self.run_storage_root(project_id),
+            self._project_storage_root(project_id),
+        )
+        for root in dict.fromkeys(roots):
+            if root.exists():
+                shutil.rmtree(root)
 
     def ensure_seed_project_v2(
         self,
@@ -473,7 +533,7 @@ class ProjectManager:
     def ensure_webui_example_project(
         self,
         *,
-        input_sources: Mapping[str, str | Path],
+        inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]],
         name: str = "3GB1 Local Redesign Example",
     ) -> ProjectMeta | None:
         """Install the distinct immutable WebUI example Project and inputs."""
@@ -484,16 +544,6 @@ class ProjectManager:
                 return None
             meta = self.load_meta(WEBUI_3GB1_PROJECT_ID)
             return meta if meta is not None and meta.seed else None
-
-        input_payloads: dict[str, tuple[str, bytes]] = {}
-        for reference, source_value in input_sources.items():
-            safe_reference = validate_identifier(reference, "webui_example_input")
-            source = Path(source_value)
-            if not source.is_file():
-                raise CanonicalSeedError(
-                    f"WebUI example input source is unavailable: {reference}"
-                )
-            input_payloads[safe_reference] = (source.name, source.read_bytes())
 
         meta = ProjectMeta(
             id=WEBUI_3GB1_PROJECT_ID,
@@ -517,13 +567,10 @@ class ProjectManager:
                     allow_nan=False,
                 ).encode("utf-8"),
             )
-            for reference, (filename, payload) in input_payloads.items():
-                self._publish_input_snapshot(
-                    staging_dir,
-                    reference,
-                    payload,
-                    filename=filename,
-                )
+            for reference, (descriptor, payload) in inputs.items():
+                write_new_file(staging_dir, ("inputs", reference, "descriptor.json"),
+                               self._input_descriptor_bytes(descriptor))
+                write_new_file(staging_dir, ("inputs", reference, "payload"), payload)
             staging_dir.rename(project_dir)
         except (OSError, StoragePathError, ValueError) as error:
             raise CanonicalSeedError(
@@ -534,7 +581,9 @@ class ProjectManager:
                 shutil.rmtree(staging_dir)
         return meta
 
-    def load_meta(self, project_id: str) -> ProjectMeta | None:
+    def load_meta(
+        self, project_id: str, *, include_deleted: bool = False,
+    ) -> ProjectMeta | None:
         """Load one Project metadata document."""
         path = self._project_storage_root(project_id) / "project.json"
         if not path.exists():
@@ -565,14 +614,17 @@ class ProjectManager:
             )
         ):
             raise ValueError("Project metadata is invalid")
-        return ProjectMeta(
+        meta = ProjectMeta(
             id=raw["id"],
             name=raw["name"],
             created_at=raw["created_at"],
             modified_at=raw["modified_at"],
             seed=raw["seed"],
             copied_from_project_id=raw.get("copied_from_project_id"),
+            reference_results_project_id=raw["reference_results_project_id"],
+            deleted_at=raw["deleted_at"],
         )
+        return meta if include_deleted or meta.deleted_at is None else None
 
     @staticmethod
     def _meta_data(meta: ProjectMeta) -> dict[str, Any]:
@@ -583,6 +635,8 @@ class ProjectManager:
             "modified_at": meta.modified_at,
             "seed": meta.seed,
             "copied_from_project_id": meta.copied_from_project_id,
+            "reference_results_project_id": meta.reference_results_project_id,
+            "deleted_at": meta.deleted_at,
         }
 
     def _save_meta(self, meta: ProjectMeta) -> None:

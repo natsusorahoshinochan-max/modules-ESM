@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.observation import ObservationPortSource
+
 from dataclasses import replace
 
 import pytest
@@ -12,10 +14,9 @@ from core.catalog.builder import (
 from core.operation import (
     OperationCall,
 )
-from core.scoring.observation_plan import (
-    IntrinsicContextProfile,
-    ResolvedProducedObservation,
-)
+
+from core.catalog.observation import ProducedObservation
+from datatypes.observation import IntrinsicContextProfile
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -81,11 +82,11 @@ def test_prediction_residue_axis_requires_exact_sequence_layout_identity() -> No
 
     assert axis.sequence.residue_ids == axis.layout.residue_ids
     with pytest.raises(ValueError, match="residue identities"):
-        PredictionResidueAxis(
+        PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(PredictionResidueAxis(
             source=source,
             layout=layout,
             sequence=ProteinSequence("AC", ("A:1", "A:3")),
-        )
+        ))
 
 
 def test_prediction_key_is_canonical_over_the_exact_output_join_fields() -> None:
@@ -149,15 +150,19 @@ def test_confidence_fact_is_exactly_aligned_and_keeps_explicit_nulls() -> None:
     )
 
     assert fact.plddt_per_residue == (91.5, None)
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
     with pytest.raises(ValueError, match="axis length"):
-        ConfidenceFact(
+        CONFIDENCE_FACTS_PORT_TYPE.validate(ConfidenceFactCollection(
+            ExactContractReference("method", "folding.example.method"),
+            (ConfidenceFact(
             prediction_key="prediction-" + "4" * 64,
             structure_content_digest="sha256:" + "5" * 64,
             prediction_axis=axis,
             plddt_per_residue=(91.5,),
             ptm=None,
             pae=None,
-        )
+            ),),
+        ))
 
 
 def test_confidence_fact_collection_has_one_method_and_canonical_unique_keys() -> None:
@@ -188,12 +193,14 @@ def test_confidence_fact_collection_has_one_method_and_canonical_unique_keys() -
         entries=(second, first),
     )
 
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
+    CONFIDENCE_FACTS_PORT_TYPE.validate(collection)
     assert collection.entries == (first, second)
     with pytest.raises(ValueError, match="duplicate prediction_key"):
-        ConfidenceFactCollection(
+        CONFIDENCE_FACTS_PORT_TYPE.validate(ConfidenceFactCollection(
             observation_method=method,
             entries=(first, first),
-        )
+        ))
 
 
 def test_prediction_residue_axis_port_round_trips() -> None:
@@ -207,6 +214,7 @@ def test_prediction_residue_axis_port_round_trips() -> None:
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
 
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
     encoded = PREDICTION_RESIDUE_AXIS_PORT_TYPE.encode(axis)
 
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.type_id == (
@@ -226,6 +234,7 @@ def test_prediction_residue_axis_allows_exact_prompt_port_source() -> None:
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
 
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.decode(
         PREDICTION_RESIDUE_AXIS_PORT_TYPE.encode(axis)
     ) == axis
@@ -282,6 +291,8 @@ def test_confidence_facts_port_round_trips_and_projects_unique_axis_and_method()
             first,
         ),
     )
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
+    CONFIDENCE_FACTS_PORT_TYPE.validate(facts)
     encoded = CONFIDENCE_FACTS_PORT_TYPE.encode(facts)
     axes = CONFIDENCE_FACTS_PORT_TYPE.scientific_axis_references(facts)
 
@@ -303,23 +314,18 @@ def _produced_observation(
     *,
     has_axis: bool,
     multiplicity: str = "one",
-) -> ResolvedProducedObservation:
-    return ResolvedProducedObservation(
+) -> ProducedObservation:
+    return ProducedObservation(
         output_port="observations",
         output_partition="prediction_confidence",
         metric=ExactContractReference(
             "metric",
             metric_id),
         context_profile=IntrinsicContextProfile(),
-        subject_grain="candidate",
-        source_role="subject",
-        subject_direction="input",
-        subject_port="structure_candidates",
+        subject_input="structure_candidates",
         guaranteed_multiplicity=multiplicity,
-        axis_direction="input" if has_axis else None,
-        axis_port="confidence_facts" if has_axis else None,
-        method_direction="input",
-        method_port="confidence_facts",
+        axis_source=(ObservationPortSource("input", "confidence_facts") if has_axis else None),
+        method_source=ObservationPortSource("input", "confidence_facts"),
     )
 
 
@@ -333,6 +339,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
     structure_digest = "sha256:" + "b" * 64
     trusted_axis_digest = "sha256:" + "c" * 64
     key = prediction_key(
@@ -482,6 +489,7 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
         layout=ResidueLayout(("A:1",)),
         sequence=ProteinSequence("A", ("A:1",)),
     )
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
     structure_digest = "sha256:" + "b" * 64
     derived_key = prediction_key(
         output_role="structure_candidates",
@@ -635,3 +643,28 @@ def test_module_package_registers_the_exact_materializer_and_metric_contracts() 
     assert mean_metric.descriptor["aggregation_semantics"][
         "included_values"
     ] == "non_null_per_residue_values_on_exact_axis"
+
+
+@pytest.mark.parametrize(
+    "metric_value",
+    [True, "91.5", float("nan"), float("inf"), -0.0, -1.0, 100.1],
+)
+def test_confidence_owner_rejects_invalid_numeric_values(metric_value: object) -> None:
+    axis = PredictionResidueAxis(
+        source=CandidateDataReference("sequence-1", "protein.sequence", _DIGEST),
+        layout=ResidueLayout(("A:1",)),
+        sequence=ProteinSequence("A", ("A:1",)),
+    )
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
+    fact = ConfidenceFact(
+        prediction_key="prediction-" + "4" * 64,
+        structure_content_digest="sha256:" + "5" * 64,
+        prediction_axis=axis,
+        plddt_per_residue=(metric_value,),
+        ptm=None,
+        pae=None,
+    )
+    with pytest.raises(ValueError, match="finite value"):
+        CONFIDENCE_FACTS_PORT_TYPE.validate(ConfidenceFactCollection(
+            ExactContractReference("method", "folding.example.method"), (fact,)
+        ))

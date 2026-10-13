@@ -6,16 +6,15 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
+from core.catalog.observation import ObservationPropagation
+from core.catalog.observation import ProducedObservation
 from .builtins import builtin_port_types as repository_builtin_port_types
 from .declarations import (
     CatalogDefinition,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MetricDefinition,
     NodeTypeDefinition,
     ModulePackageRegistration,
-    ObservationPropagationDefinition,
-    ProducedObservationDefinition,
     UtilityTransformDefinition,
     _require_identifier,
 )
@@ -24,7 +23,11 @@ from .definition_resource import (
 )
 from .model import CatalogAvailabilityProjection, CatalogContract, FrozenCatalog
 from core.catalog.errors import CatalogBuildError
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes, validate_i_json
+from datatypes.observation import (
+    ObservationContextProfile, PairwiseContextProfile,
+    observation_context_profile_descriptor,
+)
 from .port_contract import (
     PortTypeDefinition,
 )
@@ -32,7 +35,7 @@ from datatypes.exact_reference import ExactContractReference
 
 
 def _template_json(value: Any) -> Any:
-    if isinstance(value, ContractIdentity):
+    if isinstance(value, ExactContractReference):
         return {
             "$contract_reference": {
                 "contract_kind": value.contract_kind,
@@ -48,7 +51,7 @@ def _template_json(value: Any) -> Any:
 
 def _definition_identity(
     definition: CatalogDefinition,
-) -> ContractIdentity:
+) -> ExactContractReference:
     return definition.identity
 
 
@@ -85,11 +88,12 @@ def _matches_context_constraint(value: Any, constraint: Any) -> bool:
 
 
 def _validate_observation_context_profile(
-    profile: Mapping[str, Any],
+    context: ObservationContextProfile,
     schema: Mapping[str, Any],
     *,
     binding_id: str,
 ) -> None:
+    profile = observation_context_profile_descriptor(context)
     if (
         schema.get("type") == "object"
         and isinstance(schema.get("properties"), Mapping)
@@ -156,12 +160,16 @@ def _validate_binding_relationships(
         raise CatalogBuildError(
             "fixed Produced Observations and propagation are mutually exclusive"
         )
+    for observation in binding.produced_observations:
+        _validate_produced_observation_relationships(observation)
     identities = {
         (
             item.output_port,
             item.output_partition,
             item.metric.key,
-            canonical_json_bytes(_template_json(item.context_profile)),
+            canonical_json_bytes(
+                observation_context_profile_descriptor(item.context_profile)
+            ),
         )
         for item in binding.produced_observations
     }
@@ -170,7 +178,7 @@ def _validate_binding_relationships(
 
 
 def _validate_produced_observation_relationships(
-    observation: ProducedObservationDefinition,
+    observation: ProducedObservation,
 ) -> None:
     _require_identifier(observation.output_partition, "output_partition")
     if observation.guaranteed_multiplicity not in {
@@ -180,39 +188,40 @@ def _validate_produced_observation_relationships(
     }:
         raise CatalogBuildError("unknown Produced Observation multiplicity")
     sources = (
-        (observation.reference_direction, observation.reference_port),
-        (observation.pairing_direction, observation.pairing_port),
-        (observation.axis_direction, observation.axis_port),
-        (observation.method_direction, observation.method_port),
+        observation.reference_source, observation.pairing_source,
+        observation.axis_source, observation.method_source,
     )
     if any(
-        (direction is None) != (port is None)
-        or direction not in {None, "input", "output"}
-        for direction, port in sources
+        source.direction not in {"input", "output"}
+        for source in sources if source is not None
     ):
-        raise CatalogBuildError(
-            "Produced Observation source direction and Port must be paired"
+        raise CatalogBuildError("Produced Observation source direction is invalid")
+    try:
+        validate_i_json(
+            observation_context_profile_descriptor(observation.context_profile)
         )
-    context_kind = observation.context_profile.get("kind")
+    except ValueError as error:
+        raise CatalogBuildError(str(error)) from error
+    context_kind = observation.context_profile.kind
     if (context_kind == "pairwise") != (
-        observation.reference_port is not None
+        observation.reference_source is not None
     ):
         raise CatalogBuildError(
             "Produced Observation reference contradicts its Context"
         )
     explicit_relation = (
-        context_kind == "pairwise"
-        and observation.context_profile.get("pairing_mode")
+        isinstance(observation.context_profile, PairwiseContextProfile)
+        and observation.context_profile.pairing_mode
         == "explicit_relation"
     )
-    if explicit_relation != (observation.pairing_port is not None):
+    if explicit_relation != (observation.pairing_source is not None):
         raise CatalogBuildError(
             "Produced Observation pairing contradicts its Context"
         )
 
 
 def _validate_propagation_relationships(
-    propagation: ObservationPropagationDefinition,
+    propagation: ObservationPropagation,
 ) -> None:
     inputs = propagation.input_ports
     valid_count = (
@@ -232,30 +241,28 @@ def _validate_propagation_relationships(
         if filter_definition is not None:
             raise CatalogBuildError("only filter propagation accepts a filter")
         return
-    if not filter_definition or set(filter_definition) - {
-        "source_partition",
-        "metric",
-        "method",
-        "context_profile",
-    }:
-        raise CatalogBuildError("Observation propagation filter is not closed")
-    source_partition = filter_definition.get("source_partition")
-    if source_partition is not None:
-        _require_identifier(source_partition, "filter source_partition")
-    for name, contract_kind in (("metric", "metric"), ("method", "method")):
-        reference = filter_definition.get(name)
-        if reference is not None and (
-            not isinstance(reference, ContractIdentity)
-            or reference.contract_kind != contract_kind
-        ):
-            raise CatalogBuildError(
-                f"Observation propagation filter {name} must be exact"
-            )
-    context = filter_definition.get("context_profile")
-    if context is not None and not isinstance(context, Mapping):
-        raise CatalogBuildError(
-            "Observation propagation Context filter must be an object"
+    if filter_definition is None or all(
+        value is None for value in (
+            filter_definition.source_partition, filter_definition.metric,
+            filter_definition.method, filter_definition.context_profile,
         )
+    ):
+        raise CatalogBuildError("Observation propagation filter must select a fact")
+    if filter_definition.source_partition is not None:
+        _require_identifier(filter_definition.source_partition, "filter source_partition")
+    for name, contract_kind in (("metric", "metric"), ("method", "method")):
+        reference = getattr(filter_definition, name)
+        if reference is not None and reference.contract_kind != contract_kind:
+            raise CatalogBuildError(f"Observation propagation filter {name} must be exact")
+    if filter_definition.context_profile is not None:
+        try:
+            validate_i_json(
+                observation_context_profile_descriptor(
+                    filter_definition.context_profile
+                )
+            )
+        except ValueError as error:
+            raise CatalogBuildError(str(error)) from error
 
 
 def build_frozen_catalog(
@@ -513,7 +520,7 @@ def build_frozen_catalog(
                             else "one"
                         )
                         if (
-                            not isinstance(reference, ContractIdentity)
+                            not isinstance(reference, ExactContractReference)
                         or reference.key
                         != (
                             "port_type",
@@ -532,7 +539,7 @@ def build_frozen_catalog(
                 )
                 output_reference = output.port_type if output is not None else None
                 if (
-                    not isinstance(output_reference, ContractIdentity)
+                    not isinstance(output_reference, ExactContractReference)
                     or output_reference.key
                     != (
                         "port_type",
@@ -547,23 +554,17 @@ def build_frozen_catalog(
                         "candidate.collection output Port"
                     )
             for observation in binding.produced_observations:
-                _validate_produced_observation_relationships(observation)
                 if observation.output_port not in output_names:
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
                         f"references unknown Node output Port "
                         f"{observation.output_port!r}"
                     )
-                if observation.subject_direction != "input":
-                    raise CatalogBuildError(
-                        f"Binding {binding.binding_id} Produced Observation "
-                        "must use an admitted input Candidate source"
-                    )
                 output_reference = outputs_by_name[
                     observation.output_port
                 ].port_type
                 if (
-                    not isinstance(output_reference, ContractIdentity)
+                    not isinstance(output_reference, ExactContractReference)
                     or output_reference.key
                     != (
                         "port_type",
@@ -574,36 +575,38 @@ def build_frozen_catalog(
                         f"Binding {binding.binding_id} Produced Observation "
                         "output must use score.collection"
                     )
-                subject_ports = (
-                    input_names
-                    if observation.subject_direction == "input"
-                    else output_names
-                )
-                if observation.subject_port not in subject_ports:
+                if observation.subject_input not in input_names:
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        f"references unknown subject {observation.subject_direction} "
-                        f"Port {observation.subject_port!r}"
+                        f"references unknown subject input Port {observation.subject_input!r}"
                     )
-                subject_declaration = (
-                    inputs_by_name
-                    if observation.subject_direction == "input"
-                    else outputs_by_name
-                )[observation.subject_port]
+                subject_declaration = inputs_by_name[observation.subject_input]
                 subject_reference = subject_declaration.port_type
+                subject_entry = (
+                    entry_by_key.get(subject_reference.key)
+                    if isinstance(subject_reference, ExactContractReference)
+                    else None
+                )
+                subject_definition = (
+                    subject_entry[1] if subject_entry is not None else None
+                )
+                # The declared subject source is the complete Candidate
+                # population projected by exactly this Port. It is not a guess
+                # at some field of an arbitrary value: a multi-role projection
+                # declared here means its whole projected population, never one
+                # role silently selected out of it. Runtime admission still
+                # requires the projected Candidate IDs to be unique.
                 if (
-                    observation.subject_grain != "candidate"
-                    or observation.source_role != "subject"
-                    or not isinstance(subject_reference, ContractIdentity)
-                    or subject_reference.key
-                    != (
-                        "port_type",
-                        "candidate.collection",
-                    )
+                    not isinstance(subject_reference, ExactContractReference)
+                    or subject_reference.contract_kind != "port_type"
+                    or not isinstance(subject_definition, PortTypeDefinition)
+                    or subject_definition.candidate_data_projection is None
+                    or subject_definition.runtime_candidate_data_projection
+                    is None
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        "subject must use candidate.collection "
+                        "subject must use one exact Candidate-projecting Port "
                         "with candidate subject grain"
                     )
                 metric_entry = entry_by_key.get(observation.metric.key)
@@ -620,7 +623,7 @@ def build_frozen_catalog(
                     metric_definition.observation_context_schema,
                     binding_id=binding.binding_id,
                 )
-                has_axis_source = observation.axis_port is not None
+                has_axis_source = observation.axis_source is not None
                 if metric_definition.requires_residue_axis != has_axis_source:
                     requirement = (
                         "requires"
@@ -632,13 +635,13 @@ def build_frozen_catalog(
                         f"{metric_definition.metric_id} {requirement} an exact "
                         "Produced Observation axis source"
                     )
-                if observation.axis_port is not None:
+                if observation.axis_source is not None:
                     axis_ports = (
                         inputs_by_name
-                        if observation.axis_direction == "input"
+                        if observation.axis_source.direction == "input"
                         else outputs_by_name
                     )
-                    axis_declaration = axis_ports.get(observation.axis_port)
+                    axis_declaration = axis_ports.get(observation.axis_source.port)
                     axis_type = (
                         axis_declaration.port_type
                         if axis_declaration is not None
@@ -646,14 +649,14 @@ def build_frozen_catalog(
                     )
                     axis_entry = (
                         entry_by_key.get(axis_type.key)
-                        if isinstance(axis_type, ContractIdentity)
+                        if isinstance(axis_type, ExactContractReference)
                         else None
                     )
                     axis_definition = (
                         axis_entry[1] if axis_entry is not None else None
                     )
                     if (
-                        not isinstance(axis_type, ContractIdentity)
+                        not isinstance(axis_type, ExactContractReference)
                         or axis_type.contract_kind != "port_type"
                         or not isinstance(axis_definition, PortTypeDefinition)
                         or axis_definition.scientific_axis_projection is None
@@ -664,14 +667,14 @@ def build_frozen_catalog(
                             f"Binding {binding.binding_id} Produced Observation "
                             "axis source must use one exact scientific axis Port"
                         )
-                if observation.method_port is not None:
+                if observation.method_source is not None:
                     method_ports = (
                         inputs_by_name
-                        if observation.method_direction == "input"
+                        if observation.method_source.direction == "input"
                         else outputs_by_name
                     )
                     method_declaration = method_ports.get(
-                        observation.method_port
+                        observation.method_source.port
                     )
                     method_type = (
                         method_declaration.port_type
@@ -680,14 +683,14 @@ def build_frozen_catalog(
                     )
                     method_entry = (
                         entry_by_key.get(method_type.key)
-                        if isinstance(method_type, ContractIdentity)
+                        if isinstance(method_type, ExactContractReference)
                         else None
                     )
                     method_definition = (
                         method_entry[1] if method_entry is not None else None
                     )
                     if (
-                        not isinstance(method_type, ContractIdentity)
+                        not isinstance(method_type, ExactContractReference)
                         or method_type.contract_kind != "port_type"
                         or not isinstance(
                             method_definition, PortTypeDefinition
@@ -702,14 +705,14 @@ def build_frozen_catalog(
                             "Method source must use one exact Method-projecting "
                             "Port"
                         )
-                if observation.reference_port is not None:
+                if observation.reference_source is not None:
                     reference_ports = (
                         inputs_by_name
-                        if observation.reference_direction == "input"
+                        if observation.reference_source.direction == "input"
                         else outputs_by_name
                     )
                     reference_declaration = reference_ports.get(
-                        observation.reference_port
+                        observation.reference_source.port
                     )
                     reference_type = (
                         reference_declaration.port_type
@@ -717,7 +720,7 @@ def build_frozen_catalog(
                         else None
                     )
                     if (
-                        not isinstance(reference_type, ContractIdentity)
+                        not isinstance(reference_type, ExactContractReference)
                         or reference_type.key
                         != (
                             "port_type",
@@ -729,14 +732,14 @@ def build_frozen_catalog(
                             "Observation reference source must use "
                             "candidate.collection"
                         )
-                if observation.pairing_port is not None:
+                if observation.pairing_source is not None:
                     pairing_ports = (
                         inputs_by_name
-                        if observation.pairing_direction == "input"
+                        if observation.pairing_source.direction == "input"
                         else outputs_by_name
                     )
                     pairing_declaration = pairing_ports.get(
-                        observation.pairing_port
+                        observation.pairing_source.port
                     )
                     pairing_type = (
                         pairing_declaration.port_type
@@ -744,7 +747,7 @@ def build_frozen_catalog(
                         else None
                     )
                     if (
-                        not isinstance(pairing_type, ContractIdentity)
+                        not isinstance(pairing_type, ExactContractReference)
                         or pairing_type.key
                         != (
                             "port_type",
@@ -754,7 +757,7 @@ def build_frozen_catalog(
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
                             "Observation pairing source must use "
-                            f"{expected_pairing_type}"
+                            "candidate.relation"
                         )
             propagation = binding.observation_propagation
             if propagation is not None:
@@ -768,7 +771,7 @@ def build_frozen_catalog(
                     else None
                 )
                 if (
-                    not isinstance(output_type, ContractIdentity)
+                    not isinstance(output_type, ExactContractReference)
                     or output_type.key
                     != (
                         "port_type",
@@ -792,7 +795,7 @@ def build_frozen_catalog(
                         else None
                     )
                     if (
-                        not isinstance(input_type, ContractIdentity)
+                        not isinstance(input_type, ExactContractReference)
                         or input_type.key
                         != (
                             "port_type",
@@ -848,7 +851,7 @@ def build_frozen_catalog(
         ] = {}
 
         def resolve_value(value: Any) -> Any:
-            if isinstance(value, ContractIdentity):
+            if isinstance(value, ExactContractReference):
                 target = resolve(value.key)
                 reference = (
                     target.reference()

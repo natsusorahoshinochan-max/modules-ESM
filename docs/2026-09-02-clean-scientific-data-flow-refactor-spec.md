@@ -3,8 +3,7 @@
 - **状态**：已确认
 - **日期**：2026-09-02
 - **性质**：当前重构的工程规格
-- **适用阶段**：Phase 1–3
-- **暂挂阶段**：Phase 4 closed resolved-structure transport
+- **适用阶段**：Phase 1–4，均已实现；Phase 4 的最终契约见[精确关联设计](2026-09-21-exact-resolved-axis-design.md)
 - **领域词汇**：`CONTEXT.md`
 - **历史材料**：`docs/legacy/` 下的设计文档与 ADR 只解释历史，不约束本规格
 
@@ -370,13 +369,14 @@ Interface 规则：
 - `project_input_ref`；
 - `composition_id`；
 - embedded merge source；
-- `confirmed`、conflict、diagnostics 或 preview digest；
+- `confirmed`、conflict 或 diagnostics；
 - UI-only residue handles；
 - materialized Node IDs、role endpoints 或 internal edges。
 
 ### 9.2 唯一 Prompt authoring implementation
 
-Preview 与 execution 必须调用同一个 pure implementation：
+Preview 与 execution 共享同一个 recipe 求值实现。Preview 同时取得 trace 与 merge targets；
+execution 通过以下公开入口取得 ProteinPrompt：
 
 ```python
 apply_prompt_recipe(
@@ -390,6 +390,8 @@ apply_prompt_recipe(
 ```
 
 不得保留直接 `_evaluate()` 与 workflow `_materialize()` 两套 scientific implementation。
+Recipe 只求值；Preview 发布入口与 runtime 输出准入各自调用同一个 Prompt 科学 owner，
+constructor、codec 与摘要不重复科学准入。
 
 Open、Preview 和 execution 的 provider-free 来源解析复用同一值合同 owner；FASTA parser 只解析，
 来源 ProteinSequence 必须完成 admission 后才能应用下游 edits。上游 Node 参数使用当前 Catalog 的
@@ -397,13 +399,16 @@ Open、Preview 和 execution 的 provider-free 来源解析复用同一值合同
 
 Preview 对以下来源科学错误返回 HTTP 400 structured error：上游 assembly 的轨道 Layout
 不一致，以及 FASTA 来源包含非法序列字符。下游 edits 不得覆盖来源错误并使其通过 admission。
-错误须定位对应来源契约；Apply 不写入 Document，实际 Run 在对应 source / assemble Node 失败。
+错误须定位对应来源契约；Preview 不写入 Draft，UI 不允许确认无效预览；实际 Run 在对应 source / assemble Node 失败。
 该分类不扩展到 Provider 操作故障，也不改变合法来源上不可求值 baseline 的处理。
 
 Open/Preview 的 `baseline_diagnostics` 单独说明已保存 document 对当前合法来源无法求值的原因。
 此时 Open 保留可编辑 document，Preview 可独立计算候选；候选有效即可 Apply，且 `changes` 为空，
-UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误仍
-阻止 Apply。Apply 必须针对当前来源重算并验证 preview digest，失败后 editor 保留编辑并允许重新预览。
+UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误
+阻止 UI 确认。Apply 信任已确认的 normalized preview，一次保存 document 和对应 Workflow，
+不重新解析来源、求值或计算预览摘要。普通保存由持久化 owner 比较一次 Draft revision，冲突时保留编辑。
+旧版本首次修改通过 `fork_version` 一次发布工作区并保留返回点，替代普通保存；
+具体保存合同见 [Prompt 编辑规格](2026-09-17-prompt-editing-spec.md)。
 
 Preview 显示轴以候选 layout 顺序为准，共同 residue ID 只出现一次。删除 residue 的 tombstone 按旧
 顺序放在同链下一个存活 residue 前；无后继放在该链末尾，整链删除放在显示轴末尾。过滤 tombstones
@@ -505,13 +510,9 @@ length 重建 `A:1...N`。
 
 ### 10.2 裸 `residue.layout` Port
 
-执行分两步：
-
-1. Phase 1 立即删除 Prompt 与 track 旁边的平行 `residue.layout` outputs；
-2. ProteinMPNN constraints 改为消费 resolved structure/design intent 后，重新检查生产 consumers；若已无
-   consumer，则删除裸 `residue.layout` Port Type。
-
-`ResidueLayout` 数据类型不删除。
+生产 Port 不包含裸 `residue.layout`。ProteinMPNN constraints 消费
+`structure_transform.resolved_residue_axis`，Prompt 与 residue tracks 各自携带 authoritative layout。
+`ResidueLayout` 仍是共享数据类型。
 
 ### 10.3 ResidueMap
 
@@ -575,62 +576,15 @@ modified-residue normalization 或 backbone masks。
 Prompt Studio 不输出 ProteinMPNN design mask。ProteinMPNN 无 constraints 时按其 own interface 执行；
 有 constraints 时由 ProteinMPNN-owned design intent 提供。
 
-## 12. 删除要求
+## 12. 当前 authoring 边界
 
-### 12.1 数据与 Port
+Prompt Studio 编辑普通 `prompt_authoring.author` Node 的 `document` parameter。
+布局、轨道、随机操作与合并由私有 recipe 实现，外部连线使用真实 typed Ports。
+不建立 managed composition、隐藏 Node/Edge 重写或兼容路径。
 
-删除：
-
-- `ResidueTrack.sentinel`；
-- `AlignedResidueTrack`；
-- `StructureAnnotationTrack`；
-- `TrackKind`；
-- `modules/prompt_authoring/track_types.py`；
-- generic built-in `residue.track*` Port Types；
-- four `prompt_authoring.track.*` Port Types；
-- public `residue.map` Port；
-- duplicate layout/track codecs；
-- `FunctionAnnotation.start`、`end`、`chain_id`；
-- Prompt Authoring 的 `overlap_policy` parameter、公开 schema/type 字段及重叠拒绝分支；同步更新 tests、fixtures 和 examples，不保留兼容解析；
-- three families of track copy/rebuild helpers。
-
-### 12.2 Prompt micro Nodes
-
-由 `prompt_authoring.author` 的 private implementation 吸收并删除：
-
-- `prompt_authoring.assemble_protein_prompt`；
-- `prompt_authoring.build_residue_layout`；
-- `prompt_authoring.edit_protein_prompt_layout`；
-- `prompt_authoring.merge_protein_prompt_source`；
-- `prompt_authoring.override_protein_prompt_track`；
-- `prompt_authoring.prompt_from_structure`；
-- `prompt_authoring.random_insert_masked`；
-- `prompt_authoring.random_mask`；
-- `prompt_authoring.replace_protein_prompt_annotations`；
-- `prompt_authoring.update_prompt_sequence`。
-
-新 `prompt_authoring.assemble` 是五个 public conditioning Ports→ProteinPrompt 的明确 Adapter Node，
-不是旧逐轨 managed assembly Node 的兼容版本。
-
-### 12.3 Specialized Composition machinery
-
-删除：
-
-- `ManagedCompositionRecord`；
-- `ManagedRoleEndpoint`；
-- `WorkflowDraft.authoring_compositions`；
-- Specialized Authoring Capability Projection；
-- managed ownership admission；
-- managed/materialized Node Type lists；
-- `_materialize_base_source()`；
-- `_materialize_merge_source()`；
-- `_materialize()`；
-- managed Node ID generation；
-- replace 时的 external Edge rewiring；
-- WebUI composition folding、fake Node 和 hidden Edge rewriting；
-- 依赖 managed UUID、Node order 或 internal membership 的 mechanics tests。
-
-Prompt Studio 保留为专用 editor，但只编辑普通 `prompt_authoring.author` Node 的 document parameter。
+`prompt_authoring.assemble` 是五个 public conditioning Ports 到 ProteinPrompt 的明确 Node。
+ResidueTrack 和 ProteinPrompt 自带 authoritative layout，nominal Ports 区分科学语义；
+不额外发布平行 layout 或通用 residue-map 输出。
 
 ## 13. 最小 admission 与检查
 
@@ -655,9 +609,9 @@ Prompt Studio 保留为专用 editor，但只编辑普通 `prompt_authoring.auth
 ESM3 atom37 projection 对非 atom37 atoms 的忽略是已确认 Provider translation，不属于 silent schema
 repair 或错误数据丢弃。
 
-## 14. 实施阶段
+## 14. 当前实现归属
 
-### Phase 1：Residue data ownership
+### Phase 1：Residue data ownership（已实现）
 
 主要文件：
 
@@ -666,14 +620,13 @@ repair 或错误数据丢弃。
 - `modules/prompt_authoring/domain.py`；
 - `modules/prompt_authoring/prompts.py`；
 - `modules/prompt_authoring/prompt_types.py`；
-- `modules/structure_annotation/domain.py`；
 - `modules/structure_annotation/port_types.py`；
 - `modules/esm3/adapter.py`；
 - `core/catalog/builtins.py`；
 - `core/catalog/_port_value_codec.py`；
 - corresponding tests、fixtures、examples 与 `CONTEXT.md`。
 
-Phase 完成条件：
+实现约束：
 
 - 生产代码不再出现 `AlignedResidueTrack`、`StructureAnnotationTrack`、`TrackKind` 或 track sentinel；
 - generic `residue.track*` Port 不再存在；
@@ -682,32 +635,31 @@ Phase 完成条件：
 - SS8 与 missing semantics 符合第 6 节；
 - ESM3 atom37 projection 符合第 7 节。
 
-### Phase 2：显式跨 Module Nodes
+### Phase 2：显式跨 Module Nodes（已实现）
 
 实现：
 
 - `prompt_authoring.decompose`；
-- new `prompt_authoring.assemble`；
+- `prompt_authoring.assemble`；
 - `residue_data.materialize_sequence`；
 - DSSP direct observed outputs；
 - observed→conditioning Node。
 
-同步更新 ESM3、ProteinMPNN、ESMFold2 examples 和 workflow fixtures，并删除旧 extraction、apply-to-
-Prompt 和 public residue-map paths。
+ESM3、ProteinMPNN、ESMFold2 examples 和 workflow fixtures 使用上述 Nodes。
 
-Phase 完成条件：
+实现约束：
 
 - 三个第 11 节 Workflow 可由 exact nominal Ports 直接表达；
 - 没有 Prompt→ProteinMPNN 或 Prompt→ESMFold2 pairwise converter；
 - ProteinMPNN structure input 仍来自 authoritative resolved structure；
 - ESMFold2 路径显式 materialize complete sequence Candidate。
 
-### Phase 3：Prompt Studio 单深 Node
+### Phase 3：Prompt Studio 单深 Node（已实现）
 
-实现 `prompt_authoring.author`，让 preview 和 execution 调用同一个 `apply_prompt_recipe()`。同步迁移
-public protocol 与 WebUI，随后删除第 12.2、12.3 节全部 superseded implementation。
+`prompt_authoring.author` 的 Preview 与 execution 共享 recipe 求值实现；
+public protocol 与 WebUI 使用普通 author Node。
 
-Phase 完成条件：
+实现约束：
 
 - Workflow 与 protocol 不再出现 `authoring_compositions`；
 - Prompt Studio 只编辑一个普通 Node Instance；
@@ -715,40 +667,35 @@ Phase 完成条件：
 - preview 与 execution 没有平行 scientific implementation；
 - 十个 micro Node Type 及其 Method、Binding、YAML 与 mechanics tests 已删除。
 
-### Phase 4：暂挂
+### Phase 4：有序精确关联（已实现）
 
-Closed resolved-structure transport 暂时挂起，等待 Phase 1–3 完成后再设计。
+Resolver 输出按输入 Candidate Collection 顺序排列的 `subject + residue_axis`。
+完整 Candidate Data Reference 是关联键；entry 顺序决定普通消费者的 parent slot、
+派生 seed 与输出顺序。ProteinMPNN、DSSP、SimpleFold confidence 与结构配对对齐消费
+有序 axis，不再重复输入同一结构 population 的完整 Candidate Collection。
 
-届时才决定：
+原样透传 Candidate 或读取 lineage 的消费者保留完整 Candidate，并复用
+`join_candidate_residue_axes` 检查两侧完整引用集合相等；此处只检查新形成的跨输入关系，
+不重新准入 Candidate 或 axis。Structure wire 由 axis 携带一次，没有通用 capability bundle。
 
-- Candidate、CandidateDataReference 与 ResolvedStructureResidueAxis 的最终 aggregate ownership；
-- structure wire representation 的唯一 owner；
-- ProteinMPNN、DSSP、folding confidence 与 structure comparison 的 closed transport interface。
-
-已固定的限制：
-
-- 只服务 resolved structures；
-- structure wire 只序列化一次；
-- 不扩展为 `Candidate + arbitrary capabilities` mega-bundle；
-- Phase 1–3 不预建 placeholder、registry 或 compatibility field。
+最终契约与完整验收分别见[精确关联设计](2026-09-21-exact-resolved-axis-design.md)和
+[验收记录](2026-09-21-exact-resolved-axis-acceptance.md)。
 
 ## 15. 明确推迟或排除
 
 本规格不包含：
 
 - Prompt Studio ProteinMPNN design-mask authoring；
-- atomic Candidate-associated Output Admission；
-- confidence/normalization materializer 重构；
 - broad lineage、provenance 或 evidence redesign；
 - Catalog single-source Node declaration；
 - generic Node Group framework；
-- closed resolved-structure transport implementation；
 - ProteinSequence 全局 ownership 重构；
 - performance、cache compatibility 或 legacy artifact replay。
 
-## 16. 规格关闭条件
+## 16. 当前实现约束
 
-Phase 1–3 全部完成且满足以下条件后，本规格关闭：
+实现遵循以下约束。测试覆盖见[科学回归测试覆盖位置](2026-09-07-scientific-regression-test-migration.md)，
+最新完整验收见[端口展示与连线编辑验收记录](2026-09-24-port-connections-acceptance.md)：
 
 1. 所有逐 residue Port value 都自带 authoritative layout；
 2. aggregate 不再与平行 layout outputs 分叉；
@@ -757,4 +704,4 @@ Phase 1–3 全部完成且满足以下条件后，本规格关闭：
 5. Prompt Studio 只有一个深 authoring Node；
 6. managed composition、micro Node chain 和重复 carrier 已删除；
 7. 没有 legacy、shim、dual path 或 speculative framework；
-8. Phase 4 仍保持显式暂挂，不因前三阶段 implementation 偷渡新 abstraction。
+8. 普通 resolved-axis 消费者仅依赖有序精确引用；完整 Candidate 只用于透传或读取其额外科学事实。

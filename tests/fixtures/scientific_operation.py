@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 import math
 from typing import Any, cast
 
+from datatypes.i_json import admit_i_json
 from core.catalog.declarations import ExecutionBindingDefinition
 from core.catalog.model import (
     FrozenCatalog,
@@ -17,14 +18,9 @@ from core.operation import (
     OperationCall,
     OperationContext,
 )
-from core.scoring.observation_plan import ResolvedProducedObservation
-from tests.support.output_admission import (
-    admit_fixture_port,
-    resolved_context_profile_fixture,
-)
+from tests.support.output_admission import admit_fixture_port
 from core.scoring.selection import (
     ObservationSelector,
-    ResolvedObservationSelector,
     ResolvedSelectionObjective,
     ResolvedUtilityTransform,
     rank_candidates_by_weighted_utility,
@@ -32,7 +28,6 @@ from core.scoring.selection import (
     SelectionResult,
     SelectionInput,
     SelectionObjective,
-    UtilityParameterFacts,
 )
 from core.parameters.contract import admit_values
 from datatypes.candidate import (
@@ -65,11 +60,9 @@ def _resolved_objective(
         context_selector=objective.context_selector,
         utility=ResolvedUtilityTransform(
             reference=objective.utility_transform,
-            parameters=UtilityParameterFacts(
-                admit_values(
-                    utility_contract.definition.parameter_contract,
-                    objective.utility_parameters,
-                )
+            parameters=admit_values(
+                utility_contract.definition.parameter_contract,
+                admit_i_json(objective.utility_parameters),
             ),
             apply=utility_contract.definition.transform,
         ),
@@ -92,22 +85,6 @@ def _resolved_objectives(
             objective.weight / declared_total,
         )
         for objective in objectives
-    )
-
-
-def _resolved_selector(
-    selector: ObservationSelector,
-) -> ResolvedObservationSelector:
-    return ResolvedObservationSelector(
-        selector_id=selector.selector_id,
-        candidate_input=selector.candidate_input,
-        score_collection_input=selector.score_collection_input,
-        source_partition=selector.source_partition,
-        metric=selector.metric,
-        method=selector.method,
-        context_selector=selector.context_selector,
-        match_cardinality=selector.match_cardinality,
-        missing_policy=selector.missing_policy,
     )
 
 
@@ -171,13 +148,6 @@ def select_admitted_candidates(
     )
 
 
-def _reference(value: Mapping[str, Any]) -> ExactContractReference:
-    return ExactContractReference(
-        contract_kind=value["contract_kind"],
-        contract_id=value["contract_id"],
-    )
-
-
 def operation_context(
     catalog: FrozenCatalog,
     binding_id: str,
@@ -188,47 +158,16 @@ def operation_context(
     observation_selectors: Sequence[ObservationSelector] = (),
 ) -> OperationContext:
     """Resolve one exact Binding into the public factory input contract."""
-    binding = catalog.require_contract(
-        "binding",
-        binding_id,
-    )
-    descriptor = binding.descriptor
-    produced_observations = tuple(
-        ResolvedProducedObservation(
-            output_port=declaration["output_port"],
-            output_partition=declaration["output_partition"],
-            metric=_reference(declaration["metric"]),
-            context_profile=resolved_context_profile_fixture(
-                declaration["context_profile"]
-            ),
-            subject_grain=declaration["subject_grain"],
-            source_role=declaration["source_role"],
-            subject_direction=declaration["subject_direction"],
-            subject_port=declaration["subject_port"],
-            guaranteed_multiplicity=declaration["guaranteed_multiplicity"],
-            reference_direction=declaration.get("reference_direction"),
-            reference_port=declaration.get("reference_port"),
-            pairing_direction=declaration.get("pairing_direction"),
-            pairing_port=declaration.get("pairing_port"),
-            axis_direction=declaration.get("axis_direction"),
-            axis_port=declaration.get("axis_port"),
-            method_direction=declaration.get("method_direction"),
-            method_port=declaration.get("method_port"),
-        )
-        for declaration in descriptor.get("produced_observations", ())
-    )
+    plan = catalog.produced_observation_plan(binding_id)
 
     return OperationContext(
-        method=_reference(descriptor["method"]),
-        produced_observations=produced_observations,
+        method=plan.binding_method,
+        produced_observations=plan.observations,
         selection_objectives=_resolved_objectives(
             selection_objectives,
             catalog,
         ),
-        observation_selectors=tuple(
-            _resolved_selector(selector)
-            for selector in observation_selectors
-        ),
+        observation_selectors=tuple(observation_selectors),
         environment=BindingEnvironment(
             {} if environment is None else environment
         ),
@@ -290,11 +229,11 @@ def operation_call(
             )
     return OperationCall(
         inputs=admitted_inputs,
-        node_parameters={} if node_parameters is None else node_parameters,
-        binding_parameters=(
+        node_parameters=admit_i_json({} if node_parameters is None else node_parameters),
+        binding_parameters=admit_i_json(
             {} if binding_parameters is None else binding_parameters
         ),
-        effective_randomness=(
+        effective_randomness=admit_i_json(
             {} if effective_randomness is None else effective_randomness
         ),
     )

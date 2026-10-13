@@ -11,36 +11,8 @@ from core.execution.output_admission.candidate_identity import (
 )
 from core.execution.output_admission.port_values import _admit_fresh_port
 from core.operation import AdmittedPort, PortMultiplicity
-from core.scoring.observation_plan import (
-    CalibrationContextProfile,
-    IntrinsicContextProfile,
-    ObservationContextProfile,
-    ObservationPropagationPlan,
-    PairwiseContextProfile,
-)
+from core.catalog.observation import ObservationPropagation
 from datatypes.candidate import Candidate
-
-
-def resolved_context_profile_fixture(
-    profile: Mapping[str, Any],
-) -> ObservationContextProfile:
-    """Translate a Catalog descriptor for fixtures that stand in for Compiler."""
-    kind = profile["kind"]
-    if kind == "intrinsic":
-        return IntrinsicContextProfile()
-    if kind == "calibration":
-        return CalibrationContextProfile(
-            calibration_metric=profile["calibration_metric"],
-            calibration_value=profile["calibration_value"],
-            calibration_unit=profile["calibration_unit"],
-            population_id=profile["population_id"],
-        )
-    return PairwiseContextProfile(
-        subject_role=profile["subject_role"],
-        reference_role=profile["reference_role"],
-        pairing_mode=profile["pairing_mode"],
-        normalization=profile["normalization"],
-    )
 
 
 def admit_fixture_port(
@@ -66,7 +38,7 @@ def normalize_fixture_outputs(
     inputs: Mapping[str, AdmittedPort],
     outputs: Mapping[str, Any],
     candidate_content_digest: Callable[[Candidate], str],
-    observation_propagation: ObservationPropagationPlan | None = None,
+    observation_propagation: ObservationPropagation | None = None,
 ) -> Mapping[str, Any]:
     """Exercise the identity partition without inventing a production seam."""
     del node_id

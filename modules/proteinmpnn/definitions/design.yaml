@@ -3,16 +3,11 @@ title: Design sequences with ProteinMPNN
 summary: Designs an exact complete number of child sequences for each selected structure parent through one fixed ProteinMPNN Method.
 category: protein_design
 inputs:
-  - name: structure_candidates
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Ordered complete protein-structure parent Candidates whose exact identities become the parent of every designed child.
   - name: structure_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Complete exact-reference-associated resolved residue axes for every structure Candidate; collection position has no correspondence meaning.
+    scientific_meaning: Nonempty exact-reference-associated resolved residue axes whose entry order is the sole owner of every parent slot, of each parent's derived effective call seed, and of the output parent order.
   - name: sequence
     port_type_id: protein.sequence
     required: false

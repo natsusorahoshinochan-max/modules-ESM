@@ -2,13 +2,13 @@
 
 ## Priorities
 
-This is scientific software in development. Scientific correctness and interpretability outrank compatibility and implementation concerns. Preserve semantics for Node Types, Methods, Metric Definitions, units, shapes, residue mappings, masking, randomness, lineage, provenance, and evidence. Use `CONTEXT.md` vocabulary. Resolve ambiguity in a specification or ADR; never infer science from code, SDK shapes, or UI behavior.
+This is scientific software in development. Scientific correctness and interpretability outrank compatibility and implementation concerns. Preserve semantics for Node Types, Methods, Metric Definitions, units, shapes, residue mappings, masking, randomness, lineage, provenance, and evidence. Use `CONTEXT.md` vocabulary. Resolve scientific ambiguity in the current specification; ADRs are historical background, not authority. Never infer science from code, SDK shapes, or UI behavior.
 
 There is no historical compatibility obligation. Do not add shims, aliases, legacy parsers, dual paths, deprecation layers, or speculative abstractions. Change all current producers, consumers, tests, examples, and documentation together; delete superseded code. Development artifacts may be invalidated.
 
 ## Architecture
 
-`core/` owns runtime and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/`; provider translation belongs in Adapters. `protein_workbench_public/` owns the current protocol. Treat `repositories/` as pinned upstream, except for the project-owned SoluProt-next Provider source identified by ADR-0005.
+`core/` owns runtime and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/`; provider translation belongs in Adapters. `protein_workbench_public/` owns the current protocol. Treat `repositories/` as pinned upstream, except for the project-owned SoluProt-next Provider source.
 
 ## Trust Model
 
@@ -20,7 +20,7 @@ Fail fast on local invariant violations. Avoid broad catches, silent coercion, g
 
 ## Verification
 
-Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. No frontend implementation is part of the current verification gate.
+Run tests, type checks, builds, and Providers only on the remote verification host. Follow the fixed-snapshot, batch-diagnosis and Provider polling rules in [backend verification](docs/backend-verification.md#execution-policy). Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. The backend verification gate is independent of the WebUI. For WebUI changes, use the verification entry points in [webui/README.md](webui/README.md).
 
 Run focused tests plus:
 

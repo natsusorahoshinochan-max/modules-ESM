@@ -139,7 +139,7 @@ def test_mse_axis_preserves_raw_structure_and_excludes_nonpolymer() -> None:
         PortValueError,
         match="normalized component dispositions and mappings are not closed",
     ):
-        RESOLVED_AXIS_PORT_TYPE.encode(
+        RESOLVED_AXIS_PORT_TYPE.validate(
             replace(
                 axis,
                 modified_residue_normalizations=type(

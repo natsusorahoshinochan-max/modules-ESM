@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
-from types import MappingProxyType
 from typing import Any, TypeAlias
+
+from datatypes.observation import CalibrationContextProfile
+from datatypes.observation import IntrinsicContextProfile
+from datatypes.observation import ObservationContextProfile
+from core.operation import OperationDiagnosticError
+from core.parameters.model import AdmittedParameterValues
 
 from datatypes.candidate import (
     CandidateCollection,
@@ -23,7 +28,7 @@ from datatypes.observation import (
 )
 
 
-class SelectionError(ValueError):
+class SelectionError(OperationDiagnosticError):
     """A Selection Objective is scientifically unsatisfied."""
 
 
@@ -146,34 +151,11 @@ class SelectionObjective:
 
 
 @dataclass(frozen=True, slots=True)
-class UtilityParameterFacts(Mapping[str, Any]):
-    """Compiler-resolved snapshot of already-admitted Utility parameters."""
-
-    _values: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "_values",
-            MappingProxyType(dict(self._values)),
-        )
-
-    def __getitem__(self, name: str) -> Any:
-        return self._values[name]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._values)
-
-    def __len__(self) -> int:
-        return len(self._values)
-
-
-@dataclass(frozen=True, slots=True)
 class ResolvedUtilityTransform:
     """One compiler-resolved exact Utility Transform and admitted parameters."""
 
     reference: ExactContractReference
-    parameters: UtilityParameterFacts
+    parameters: AdmittedParameterValues
     apply: Callable[[Any, Mapping[str, Any]], Any] = field(
         repr=False,
         compare=False,
@@ -199,21 +181,6 @@ class ResolvedSelectionObjective:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedObservationSelector:
-    """Raw Observation facts resolved once by the Workflow Compiler."""
-
-    selector_id: str
-    candidate_input: SelectionInput
-    score_collection_input: SelectionInput
-    source_partition: str
-    metric: ExactContractReference
-    method: ExactContractReference
-    context_selector: ContextSelector
-    match_cardinality: str
-    missing_policy: str
-
-
-@dataclass(frozen=True, slots=True)
 class SelectionObjectiveProvenance:
     """Typed scientific provenance for one effective objective."""
 
@@ -225,24 +192,9 @@ class SelectionObjectiveProvenance:
     method: ExactContractReference
     context_selector: ContextSelector
     utility_transform: ExactContractReference
-    utility_parameters: UtilityParameterFacts
+    utility_parameters: AdmittedParameterValues
     declared_weight: float
     effective_weight: float
-    match_cardinality: str
-    missing_policy: str
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationSelectorProvenance:
-    """Typed scientific provenance for one raw Observation selector."""
-
-    selector_id: str
-    candidate_input: SelectionInput
-    score_collection_input: SelectionInput
-    source_partition: str
-    metric: ExactContractReference
-    method: ExactContractReference
-    context_selector: ContextSelector
     match_cardinality: str
     missing_policy: str
 
@@ -265,7 +217,7 @@ class SelectionObjectiveIdentityFacts:
     method: ExactContractReference
     context_selector: ContextSelector
     utility_transform: ExactContractReference
-    utility_parameters: UtilityParameterFacts
+    utility_parameters: AdmittedParameterValues
     declared_weight: float
     effective_weight: float
     match_cardinality: str
@@ -308,10 +260,10 @@ def selection_input_canonical(value: SelectionInput) -> dict[str, str]:
     return {"node_id": value.node_id, "output_port": value.output_port}
 
 
-def context_selector_canonical(value: ContextSelector) -> dict[str, Any]:
-    if isinstance(value, IntrinsicObservationContext):
+def context_selector_canonical(value: ContextSelector | ObservationContextProfile) -> dict[str, Any]:
+    if isinstance(value, (IntrinsicObservationContext, IntrinsicContextProfile)):
         return {"kind": value.kind}
-    if isinstance(value, CalibrationObservationContext):
+    if isinstance(value, (CalibrationObservationContext, CalibrationContextProfile)):
         return {
             "kind": value.kind,
             "calibration_metric": value.calibration_metric,
@@ -329,7 +281,7 @@ def context_selector_canonical(value: ContextSelector) -> dict[str, Any]:
 
 
 def observation_selector_canonical(
-    value: ObservationSelector | ObservationSelectorProvenance,
+    value: ObservationSelector,
 ) -> dict[str, Any]:
     return {
         "selector_id": value.selector_id,
@@ -479,7 +431,7 @@ def _context_matches_selector(context: object, selector: ContextSelector) -> boo
     )
 
 
-SelectionSource: TypeAlias = ResolvedSelectionObjective | ResolvedObservationSelector
+SelectionSource: TypeAlias = ResolvedSelectionObjective | ObservationSelector
 
 
 def resolve_objective_observations(
@@ -558,26 +510,6 @@ def selection_objective_provenance_from_facts(
     )
 
 
-def observation_selector_provenance_from_facts(
-    selectors: Sequence[ResolvedObservationSelector],
-) -> tuple[ObservationSelectorProvenance, ...]:
-    """Return typed provenance from compile-resolved selectors."""
-    return tuple(
-        ObservationSelectorProvenance(
-            selector_id=item.selector_id,
-            candidate_input=item.candidate_input,
-            score_collection_input=item.score_collection_input,
-            source_partition=item.source_partition,
-            metric=item.metric,
-            method=item.method,
-            context_selector=item.context_selector,
-            match_cardinality=item.match_cardinality,
-            missing_policy=item.missing_policy,
-        )
-        for item in selectors
-    )
-
-
 def selection_objective_identity_facts_from_facts(
     objectives: Sequence[ResolvedSelectionObjective],
     *,
@@ -605,7 +537,7 @@ def selection_objective_identity_facts_from_facts(
 
 
 def observation_selector_identity_facts_from_facts(
-    selectors: Sequence[ResolvedObservationSelector],
+    selectors: Sequence[ObservationSelector],
     *,
     candidate_input_port: str,
     score_collection_input_port: str,
@@ -632,6 +564,7 @@ def resolve_candidate_utilities_from_facts(
     score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
     objectives: Sequence[ResolvedSelectionObjective],
     candidate_data_references: Mapping[str, CandidateDataReference],
+    out_of_scope_policy: str = "ignore",
 ) -> CandidateUtilityProfile:
     """Compute Utilities from compiler-resolved scientific facts only."""
     resolved = tuple(objectives)
@@ -645,7 +578,7 @@ def resolve_candidate_utilities_from_facts(
             candidates=candidates,
             collection=collection,
             objective=item,
-            out_of_scope_policy="ignore",
+            out_of_scope_policy=out_of_scope_policy,
         )
         for candidate_id in candidate_ids:
             observation = observations[candidate_id]

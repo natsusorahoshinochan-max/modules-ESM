@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from collections.abc import Mapping
 from typing import Any
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     EffectiveRandomnessResolver,
     EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -106,11 +110,11 @@ ESMFOLD2_MEAN_PLDDT_UTILITY = UtilityTransformDefinition(
         "esmfold2_fast_biohub_2026_05.percent_to_unit"
     ),
     compatible_input_contract={
-        "metric": ContractIdentity(
+        "metric": ExactContractReference(
             "metric",
             "structure.plddt.mean_residue",
         ),
-        "method": ContractIdentity(
+        "method": ExactContractReference(
             "method",
             "folding.fold.esmfold2_fast_biohub_2026_05",
         ),
@@ -352,11 +356,11 @@ def _binding(route: str) -> ExecutionBindingDefinition:
         seed_scope = "scientific-input-content-and-parent-sample-slot"
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "folding.fold",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),
@@ -409,11 +413,11 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
     closure = simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
     return ExecutionBindingDefinition(
         binding_id="folding.fold.simplefold_local",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "folding.fold",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),
@@ -510,11 +514,11 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
     closure = simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
     return ExecutionBindingDefinition(
         binding_id="folding.simplefold_confidence.simplefold_local",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             "folding.simplefold_confidence",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             method_id,
         ),
@@ -578,19 +582,15 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         deterministic=True,
         cacheable=True,
         produced_observations=tuple(
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="confidence_observations",
-                metric=ContractIdentity(
+                metric=ExactContractReference(
                     "metric",
                     metric,
                 ),
-                context_profile={"kind": "intrinsic"},
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="structure_candidates",
-                axis_direction="input",
-                axis_port="structure_residue_axes",
+                context_profile=IntrinsicContextProfile(),
+                subject_input="structure_residue_axes",
+                axis_source=ObservationPortSource("input", "structure_residue_axes"),
                 guaranteed_multiplicity="one",
                 output_partition="existing_structure_confidence",
             )

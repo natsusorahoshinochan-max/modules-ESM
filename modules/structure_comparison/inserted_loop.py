@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
-from core.operation import (
-    AdmittedPort,
-    OperationCall,
-)
+from core.operation import OperationCall
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -16,7 +13,6 @@ from datatypes.candidate import (
 )
 from datatypes.exact_reference import (
     ExactContractReference,
-    ResidueAxisReference,
 )
 from datatypes.observation import (
     IntrinsicObservationContext,
@@ -25,7 +21,9 @@ from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.structure import ResolvedStructureResidueAxis
+from modules.structure_transform.candidate_axes import (
+    join_candidate_residue_axes,
+)
 from .contracts import (
     ESMFOLD2_FOLD_METHOD_REFERENCES,
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
@@ -40,19 +38,6 @@ from .domain import (
     ResidueIdentityCorrespondence,
     StructureAlignmentEvidence,
 )
-
-
-class _ResolvedAxisAssociation(Protocol):
-    """Structural view of one admitted resolved-axis association."""
-
-    subject: CandidateDataReference
-    residue_axis: ResolvedStructureResidueAxis
-
-
-class _ResolvedAxisAssociations(Protocol):
-    """Structural view of the resolved-axis capability collection."""
-
-    entries: tuple[_ResolvedAxisAssociation, ...]
 
 
 def _candidate_scope(
@@ -70,27 +55,6 @@ def _candidate_scope(
         reference.candidate_id: reference for reference in admitted.candidate_data
     }
     return collection, references
-
-
-def _axes_by_subject(
-    admitted: AdmittedPort,
-    references: dict[str, CandidateDataReference],
-) -> dict[
-    CandidateDataReference,
-    tuple[ResolvedStructureResidueAxis, ResidueAxisReference],
-]:
-    associations = cast(
-        _ResolvedAxisAssociations,
-        admitted.value,
-    )
-    axes = {entry.subject: entry.residue_axis for entry in associations.entries}
-    if set(axes) != set(references.values()):
-        raise ValueError("subject residue axes do not cover exact subjects")
-    admitted_axes = {axis.source: axis for axis in admitted.scientific_axes}
-    return {
-        subject: (axis, admitted_axes[subject])
-        for subject, axis in axes.items()
-    }
 
 
 def _alignment_values(
@@ -244,9 +208,9 @@ class EvaluateInsertedLoopImplementation:
         if len(references.items) != 1:
             raise ValueError("inserted-loop evaluation requires one fixed reference")
         reference = next(iter(reference_references.values()))
-        axes = _axes_by_subject(
+        axes = join_candidate_residue_axes(
+            call.inputs["subjects"],
             call.inputs["subject_residue_axes"],
-            subject_references,
         )
         paired = _paired_counterparts(
             call.inputs["counterpart_pairing"].value,
@@ -349,7 +313,9 @@ class EvaluateInsertedLoopImplementation:
         passing: list[Candidate] = []
         for candidate in subjects.items:
             subject = subject_references[candidate.candidate_id]
-            subject_axis, subject_axis_reference = axes[subject]
+            joined_axis = axes[subject]
+            subject_axis = joined_axis.residue_axis
+            subject_axis_reference = joined_axis.axis_reference
             confidence_observation = confidence[subject]
             prediction_axis = confidence_observation.residue_axis
             values = confidence_observation.value

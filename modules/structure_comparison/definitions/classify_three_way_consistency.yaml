@@ -3,11 +3,6 @@ title: Classify three-way structural consistency
 summary: Classifies one input, one ESMFold2 prediction, and one SimpleFold prediction from complete exact lineage, confidence, sibling-pairing, alignment, TM-score, and RMSD evidence.
 category: structure_comparison
 inputs:
-  - name: input_structures
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Exactly one source structure Candidate whose coordinate B-factor field remains uninterpreted.
   - name: sequence_parents
     port_type_id: candidate.collection
     required: true
@@ -27,12 +22,12 @@ inputs:
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Exact Candidate-associated source structure axis.
+    scientific_meaning: Exactly one source structure axis whose exact subject reference identifies the input structure that the sequence parent descends from. A different entry count fails before the engine is invoked.
   - name: esmfold2_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Exact Candidate-associated ESMFold2 structure axis.
+    scientific_meaning: Exact Candidate-associated ESMFold2 structure axis, joined to the ESMFold2 structure Candidates by complete exact reference.
   - name: simplefold_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true

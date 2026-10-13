@@ -109,12 +109,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
                 "structure_candidates",
             ),
             WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "confidence",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
                 "axis",
                 "residue_axes",
                 "confidence",

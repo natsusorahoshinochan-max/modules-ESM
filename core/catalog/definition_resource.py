@@ -8,16 +8,17 @@ from typing import Any, Literal
 
 import yaml
 
+from datatypes.exact_reference import ExactContractReference
+from datatypes.i_json import freeze_i_json, validate_i_json
+
 from .declarations import (
     CatalogDefinition,
-    ContractIdentity,
     MethodDefinition,
     MetricDefinition,
     ModulePackageRegistration,
     NodePortDefinition,
     NodeTypeDefinition,
     _admit_parameter_declarations,
-    _freeze_declaration,
     _require_identifier,
 )
 from core.catalog.errors import CatalogBuildError
@@ -95,7 +96,7 @@ def _parse_port(
         },
     )
     _require_identifier(port["name"], f"{resource_name}.name")
-    reference = ContractIdentity(
+    reference = ExactContractReference(
         "port_type",
         port["port_type_id"],
     )
@@ -210,8 +211,8 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
         inputs=inputs,
         outputs=outputs,
         input_constraints=tuple(input_constraints),
-        parameter_groups=_freeze_declaration(node["parameter_groups"]),
-        node_parameters=_freeze_declaration(node["node_parameters"]),
+        parameter_groups=freeze_i_json(node["parameter_groups"]),
+        node_parameters=freeze_i_json(node["node_parameters"]),
         parameter_contract=parameter_contract,
     )
 
@@ -304,15 +305,15 @@ def _parse_metric_definition(raw: Any, resource_name: str) -> MetricDefinition:
         value_shape=metric["value_shape"],
         unit=metric["unit"],
         direction=metric["direction"],
-        canonical_range=_freeze_declaration(metric["canonical_range"]),
+        canonical_range=freeze_i_json(metric["canonical_range"]),
         granularity=metric["granularity"],
-        aggregation_semantics=_freeze_declaration(
+        aggregation_semantics=freeze_i_json(
             metric["aggregation_semantics"]
         ),
-        observation_context_schema=_freeze_declaration(
+        observation_context_schema=freeze_i_json(
             metric["observation_context_schema"]
         ),
-        validation_contract=_freeze_declaration(
+        validation_contract=freeze_i_json(
             metric["validation_contract"]
         ),
     )
@@ -339,6 +340,10 @@ def _load_definition_resource(
     resource_name = (
         f"{registration.package_id}:{resource_reference.resource}"
     )
+    try:
+        validate_i_json(raw, path=resource_name)
+    except ValueError as error:
+        raise CatalogBuildError(str(error)) from error
     if kind == "node_type":
         return _parse_node_definition(raw, resource_name)
     return _parse_metric_definition(raw, resource_name)

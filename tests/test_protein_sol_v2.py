@@ -378,13 +378,13 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
 
 
 def test_calibration_context_is_an_exact_selection_selector() -> None:
+    from core.parameters.model import AdmittedParameterValues
     from core.scoring.selection import (
         SelectionInput,
         SelectionObjective,
         resolve_objective_observations,
         ResolvedSelectionObjective,
         ResolvedUtilityTransform,
-        UtilityParameterFacts,
     )
     from tests.support.output_admission import admit_fixture_port
     from datatypes.candidate import (
@@ -495,7 +495,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         context_selector=objective.context_selector,
         utility=ResolvedUtilityTransform(
             reference=objective.utility_transform,
-            parameters=UtilityParameterFacts({}),
+            parameters=AdmittedParameterValues({}),
             apply=lambda value, _parameters: value,
         ),
         declared_weight=objective.weight,

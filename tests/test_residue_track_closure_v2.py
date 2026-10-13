@@ -7,6 +7,11 @@ identity addressing resolved through the layout.
 
 from __future__ import annotations
 
+import pytest
+
+from core.catalog.errors import PortValueError
+from modules.residue_data.port_types import RESIDUE_CONDITION_PORT_TYPES
+
 from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotationTrack,
@@ -30,12 +35,10 @@ def test_residue_track_length_must_match_layout() -> None:
 
 def test_residue_track_rejects_length_mismatch() -> None:
     layout = ResidueLayout(("A:1", "A:2"))
-    try:
-        ResidueTrack(layout, ("M", None, "K"))
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("length mismatch must raise ValueError")
+    port = next(port for port in RESIDUE_CONDITION_PORT_TYPES
+                if port.type_id == "residue.condition.sequence")
+    with pytest.raises(PortValueError, match="length"):
+        port.validate(ResidueTrack(layout, ("M", None, "K")))
 
 
 def test_reindex_preserves_shared_identities_and_fills_missing() -> None:
@@ -98,21 +101,13 @@ def test_function_annotation_addresses_layout_identities() -> None:
 
 def test_function_annotation_track_rejects_out_of_layout_identity() -> None:
     layout = ResidueLayout(("A:1", "A:2"))
-    try:
-        FunctionAnnotationTrack(
-            layout,
-            (
-                FunctionAnnotation(
-                    label="bad",
-                    start_residue_id="A:9",
-                    end_residue_id="A:2",
-                ),
-            ),
-        )
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("out-of-layout annotation must raise ValueError")
+    track = FunctionAnnotationTrack(layout, (
+        FunctionAnnotation("bad", "A:9", "A:2"),
+    ))
+    port = next(port for port in RESIDUE_CONDITION_PORT_TYPES
+                if port.type_id == "residue.condition.function_annotations")
+    with pytest.raises(PortValueError, match="do not correspond"):
+        port.validate(track)
 
 
 def test_named_atom_coordinates_expose_atom_names_and_lookup() -> None:

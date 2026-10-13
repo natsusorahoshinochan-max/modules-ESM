@@ -4,12 +4,13 @@
     baseline: one-of-sequence-source-structure-source-prompt-source-or-blank-chains
     structure_layout: authoritative-resolved-axis-layout
     identity_reindex: insert-delete-preserving-shared-residue-identities
+    target_chain_scope: initial-primary-source-or-explicit-blank-chains-retained-through-all-stages
     track_edits: identity-addressed-clear-preserve-replace
     secondary_structure_admission: dash-to-C-underscore-and-P-invalid
-    rigid_transforms: proper-rotation-application-per-residue
-    function_annotations: replace-with-overlap-policy
+    rigid_transforms: sequential-world-frame-proper-rotation-after-track-edits
+    function_annotations: exact-final-tuples-with-overlaps-allowed-and-duplicates-rejected
     random: seed-and-layout-derived-deterministic-selection
-    merges: per-track-adopt-or-preserve-through-confirmed-correspondence
+    merges: explicit-residue-track-mask-and-annotation-adoption-through-manual-correspondence
     final_validation: validate_protein_prompt
   model_identity:
     kind: none

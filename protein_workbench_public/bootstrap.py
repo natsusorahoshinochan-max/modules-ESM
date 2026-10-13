@@ -50,6 +50,9 @@ from protein_workbench_public.provider_environment import (
     provider_environment_configuration,
 )
 from protein_workbench_public.workflow_codec import decode_workflow_document
+from protein_workbench_public.example_results import (
+    install_bundled_example_results,
+)
 
 
 _MODULE_REGISTRATIONS = (
@@ -79,6 +82,7 @@ def create_application(
     v2_environment_configuration: (
         Mapping[str, Mapping[str, Any]] | None
     ) = None,
+    load_example_results: bool = True,
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
     catalog = build_frozen_catalog(module_registrations())
@@ -135,10 +139,13 @@ def create_application(
         webui_example = json.loads(
             webui_example_path.read_text(encoding="utf-8")
         )
-        authoring.install_webui_example_commit(
-            workflow=decode_workflow_document(webui_example["workflow"]),
-            input_sources={"3GB1.pdb": canonical_structure},
-        )
+        if load_example_results:
+            install_bundled_example_results(projects=projects, authoring=authoring)
+        else:
+            authoring.install_webui_example_commit(
+                workflow=decode_workflow_document(webui_example["workflow"]),
+                input_sources={"3GB1.pdb": canonical_structure},
+            )
     environment = admit_environment_configuration(
         catalog,
         (

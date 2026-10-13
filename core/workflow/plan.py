@@ -6,17 +6,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from datatypes.i_json import thaw_i_json
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.observation_plan import ProducedObservationPlan
 from core.scoring.selection import (
     ObservationSelector,
-    ResolvedObservationSelector,
     ResolvedSelectionObjective,
     SelectionObjective,
+    SelectionInput,
 )
 from core.workflow.document import (
     WorkflowEdge,
-    _thaw_json,
 )
 from datatypes.exact_reference import ExactContractReference
 
@@ -59,7 +59,7 @@ class ResultIdentityPlanFacts:
 
     def identity_projection(self) -> dict[str, Any]:
         """Return one isolated canonical projection shared by runtime users."""
-        return _thaw_json(self.identity_facts)
+        return thaw_i_json(self.identity_facts)
 
     def canonical_projection(self) -> dict[str, Any]:
         """Return the complete compiler-owned scientific plan facts."""
@@ -103,15 +103,15 @@ class ResultIdentityPlanFacts:
                 }
                 for port_name in sorted(input_value_content_digests)
             ],
-            "node_parameters": _thaw_json(node_parameters),
-            "binding_parameters": _thaw_json(binding_parameters),
+            "node_parameters": thaw_i_json(node_parameters),
+            "binding_parameters": thaw_i_json(binding_parameters),
             "determinism": {
                 "deterministic": deterministic,
-                "effective_randomness": _thaw_json(effective_randomness),
+                "effective_randomness": thaw_i_json(effective_randomness),
             },
         }
         if resolved_resource_inputs:
-            descriptor["resolved_resource_inputs"] = _thaw_json(
+            descriptor["resolved_resource_inputs"] = thaw_i_json(
                 resolved_resource_inputs
             )
         return descriptor
@@ -156,11 +156,12 @@ class _ExecutionPlanNodeRuntime:
         repr=False,
         compare=False,
     )
-    observation_selectors: tuple[ResolvedObservationSelector, ...] = field(
+    observation_selectors: tuple[ObservationSelector, ...] = field(
         repr=False,
         compare=False,
     )
     selection_candidate_output_port: str | None
+    selection_candidate_input: SelectionInput | None
     artifact_outputs: tuple[ArtifactOutputPlan, ...]
 
 @dataclass(frozen=True, slots=True)

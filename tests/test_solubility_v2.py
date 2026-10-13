@@ -36,7 +36,7 @@ from core.workflow.document import (
     WorkflowNodeInstance,
 )
 from core.workflow.document import WorkflowEdge
-from core.scoring.observation_plan import IntrinsicContextProfile
+from datatypes.observation import IntrinsicContextProfile
 
 
 def _prepare_soluprot_fixture(**kwargs: Any) -> tuple[tuple[str, ...], Path]:
@@ -573,7 +573,7 @@ def test_soluprot_operation_consumes_identity_associated_predictions(
     from core.operation import (
         OperationCall,
     )
-    from core.scoring.observation_plan import ResolvedProducedObservation
+    from core.catalog.observation import ProducedObservation
     from datatypes.candidate import (
         Candidate,
         CandidateCollection,
@@ -632,15 +632,12 @@ def test_soluprot_operation_consumes_identity_associated_predictions(
     implementation = SoluProtImplementation(
         adapter=AlignedAdapter(),
         method=method,
-        produced_observation=ResolvedProducedObservation(
+        produced_observation=ProducedObservation(
             output_port="scores",
             output_partition="soluprot_full",
             metric=metric,
             context_profile=IntrinsicContextProfile(),
-            subject_grain="candidate",
-            source_role="subject",
-            subject_direction="input",
-            subject_port="sequence_candidates",
+            subject_input="sequence_candidates",
             guaranteed_multiplicity="one",
         ),
     )

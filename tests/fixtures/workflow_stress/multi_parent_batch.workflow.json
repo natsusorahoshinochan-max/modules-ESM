@@ -54,12 +54,6 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "structure-parents",
-      "source_port": "structure_candidates",
-      "target_node_id": "design-children",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "resolve-parent-axes",
       "source_port": "residue_axes",
       "target_node_id": "design-children",

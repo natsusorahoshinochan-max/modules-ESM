@@ -7,7 +7,7 @@ import json
 import re
 from typing import cast
 
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.project.manager import ProjectManager
 from core.project.objects import StoredObject
 from core.project.storage import (

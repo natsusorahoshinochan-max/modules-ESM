@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.observation import ObservationPortSource
+
 from tests.support.public_runs import PublicRunClient
 
 from dataclasses import FrozenInstanceError, replace
@@ -43,11 +45,11 @@ from core.scoring.observation_admission import (
     admit_produced_observations,
 )
 from core.scoring.observation_plan import (
-    IntrinsicContextProfile,
     ProducedObservationPlan,
     ResolvedMetricFacts,
-    ResolvedProducedObservation,
 )
+from core.catalog.observation import ProducedObservation
+from datatypes.observation import IntrinsicContextProfile
 from core.scoring.selection import (
     SelectionError,
     SelectionInput,
@@ -833,22 +835,22 @@ def test_score_collection_canonicalizes_equal_observations_and_fails_closed() ->
     assert decoded.entries == (observation,)
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "scores",
             [observation, replace(observation, value=10)],
-        )
+        ))
 
     with pytest.raises(ValueError, match="partition collision"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "scores",
             [
                 observation,
                 replace(observation, source_partition="other"),
             ],
-        )
+        ))
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "scores",
             [
                 observation,
@@ -858,7 +860,7 @@ def test_score_collection_canonicalizes_equal_observations_and_fails_closed() ->
                     value=10,
                 ),
             ],
-        )
+        ))
 
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
@@ -870,7 +872,7 @@ def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> 
     )
 
     with pytest.raises(PortValueError, match="metric reference"):
-        score_type.encode(ScoreCollection("scores", [malformed]))
+        score_type.validate(ScoreCollection("scores", [malformed]))
 
 
 def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> None:
@@ -1272,17 +1274,13 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
         plan=ProducedObservationPlan(
             binding_method=method,
             observations=(
-                ResolvedProducedObservation(
+                ProducedObservation(
                     output_port="scores",
                     output_partition="default",
                     metric=metric,
                     context_profile=IntrinsicContextProfile(),
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="structures",
-                    axis_direction="input",
-                    axis_port="axes",
+                    subject_input="structures",
+                    axis_source=ObservationPortSource("input", "axes"),
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -1769,11 +1767,9 @@ def _dynamic_observation_method_payload(
             "node_type_id": "selection.filter",
             "binding_id": "selection.filter.direct",
             "node_parameters": {
-                "selector_id": "quality-selector",
-                "operator": ">=",
-                "threshold": 0.5,
+                "selector_ids": ["quality-selector"],
+                "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
                 "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
             },
             "binding_parameters": {},
         }

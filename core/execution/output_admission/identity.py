@@ -47,6 +47,7 @@ class _FreshOutputIdentityEncoder:
         encoded = self._encoded.get(cache_key)
         if encoded is not None:
             return encoded
+        port_type.validate(value)
         canonical_bytes = port_type.encode(value)
         encoded = _EncodedSource(
             port_type=exact_port_type,

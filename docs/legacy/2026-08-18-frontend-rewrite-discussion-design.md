@@ -4,7 +4,7 @@
 - **文档版本**：0.2
 - **日期**：2026-08-18
 - **适用范围**：下一代本机 Protein Workbench UI，以及为其提供能力所需的有限后端修改
-- **领域词汇**：当前仍以 [`CONTEXT.md`](../CONTEXT.md) 为准；本文新增词汇均为待讨论候选
+- **领域词汇**：当前仍以 [`CONTEXT.md`](../../CONTEXT.md) 为准；本文新增词汇均为待讨论候选
 - **前置调研**：[`前后端契约分离调研`](research/2026-08-18-frontend-backend-contract-separation.md)
 
 > **功能决策已迁移**：截至 2026-08-29 已确认的用户功能以
@@ -14,9 +14,8 @@
 > **Prompt authoring 工程设计已迁移**：本文关于 Prompt authoring capability、public document、
 > preview/materialize、Composition Manifest、Materialization Receipt、managed-subgraph digest、
 > managed graph fallback、ResidueIdentity public address 和 named-atom XYZ 编辑的旧方案已废弃。
-> 当前唯一工程合同是
-> [`Prompt Authoring Layer and Parameter Ownership Spec`](2026-08-31-prompt-authoring-layer-and-parameter-ownership-spec.md)
-> 及当前 `protein-workbench-public/v2` protocol。
+> 当前工程合同见[科学 authoring 边界](../2026-09-02-clean-scientific-data-flow-refactor-spec.md#12-当前-authoring-边界)
+> 和[Prompt 编辑规格](../2026-09-17-prompt-editing-spec.md)。
 
 ## 1. 文档定位
 

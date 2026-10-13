@@ -15,7 +15,6 @@ from core.execution._node_attempt_errors import (
 from core.execution._node_attempt_identity import (
     _exact_reference,
     _node_output_plan,
-    _resolve_effective_randomness,
     _result_identity,
 )
 from core.execution._node_attempt_invocation import (
@@ -30,6 +29,7 @@ from core.execution._node_attempt_models import (
     _PreparedNodeExecution,
 )
 from core.execution._node_attempt_publication import _AttemptPublication
+from core.execution._node_preparation import prepare_node
 from core.execution.environment import EnvironmentConfiguration
 from core.execution.ledger import (
     Ledger,
@@ -40,17 +40,15 @@ from core.execution.ledger import (
     run_timestamp,
 )
 from core.execution.output_admission.admission import admit_node_output
-from core.execution.output_admission.port_values import combine_admitted_port
 from core.execution.resources import LocalProviderMemory, RunResources
 from core.execution.results.cache import ResultIndexError
 from core.execution.results.store import ResultIntegrityError, ResultStore
 from core.operation import (
-    AdmittedPort,
     OperationCall,
     OperationContext,
     retain_secondary_cleanup_exception,
 )
-from core.project.manager import ProjectInputDescriptor, ProjectManager
+from core.project.manager import ProjectManager
 from core.workflow.plan import ExecutionPlanNode
 
 
@@ -150,38 +148,10 @@ class _NodeAttempt:
                 },
             )
 
-    def _resolve_project_inputs(
-        self,
-        project_id: str,
-        node: ExecutionPlanNode,
-    ) -> tuple[
-        dict[str, tuple[ProjectInputDescriptor, bytes]],
-        tuple[Mapping[str, Any], ...],
-    ]:
-        """Resolve declared Project resources before Result Identity lookup."""
-        resolved: dict[str, tuple[ProjectInputDescriptor, bytes]] = {}
-        identities: list[Mapping[str, Any]] = []
-        for parameter_name in node._runtime.project_input_parameters:
-            reference = node.node_parameters[parameter_name]
-            descriptor, payload = self._projects.read_input(
-                project_id,
-                reference,
-            )
-            resolved[reference] = (descriptor, payload)
-            identities.append(
-                {
-                    "resource_kind": "project_input",
-                    "parameter_name": parameter_name,
-                    "content_digest": descriptor.content_digest,
-                    "size": descriptor.size,
-                }
-            )
-        return resolved, tuple(identities)
-
     @staticmethod
     def _new_state(
         spec: AttemptSpec,
-        prepared: _PreparedNodeExecution,
+        prepared: _PreparedNodeExecution | None,
     ) -> _NodeExecutionAttemptState:
         return _NodeExecutionAttemptState(
             project_id=spec.project_id,
@@ -191,74 +161,15 @@ class _NodeAttempt:
             cancellation=spec.cancellation,
             node_attempt_id=f"node-attempt-{uuid.uuid4().hex}",
             operation_attempt_id=f"operation-{uuid.uuid4().hex}",
-            inputs=prepared.inputs,
-            project_inputs=prepared.project_inputs,
-            resource_identities=prepared.resource_identities,
-            cache_eligible=prepared.cache_eligible,
+            inputs=prepared.inputs if prepared is not None else {},
+            project_inputs=prepared.project_inputs if prepared is not None else {},
+            resource_identities=prepared.resource_identities if prepared is not None else (),
+            cache_eligible=prepared.cache_eligible if prepared is not None else False,
         )
-
-    @staticmethod
-    def _admitted_inputs_for(
-        node: ExecutionPlanNode,
-        values: Mapping[tuple[str, str], AdmittedPort],
-    ) -> Mapping[str, AdmittedPort]:
-        """Combine committed upstream values under the compiled Port plan."""
-        admitted_inputs: dict[str, list[Any]] = {}
-        for port_name, sources in node._runtime.input_sources.items():
-            for source_reference in sources:
-                source = values.get(
-                    (
-                        source_reference.node_id,
-                        source_reference.output_port,
-                    )
-                )
-                if source is None or not source.values:
-                    continue
-                admitted_inputs.setdefault(port_name, []).extend(source.values)
-
-        inputs: dict[str, AdmittedPort] = {}
-        for port_name, admitted in admitted_inputs.items():
-            declaration = node._runtime.input_ports[port_name]
-            inputs[port_name] = combine_admitted_port(
-                port_type=_exact_reference(declaration.reference),
-                multiplicity=declaration.multiplicity,
-                values=tuple(admitted),
-            )
-        return inputs
 
     def _prepare(self, spec: AttemptSpec) -> _PreparedNodeExecution:
-        inputs = self._admitted_inputs_for(
-            spec.node,
-            spec.committed_values,
-        )
-        project_inputs, resource_identities = (
-            self._resolve_project_inputs(spec.project_id, spec.node)
-        )
-        effective_randomness = _resolve_effective_randomness(
-            spec.node,
-            inputs,
-        )
-        cache_eligible = (
-            spec.node._runtime.cacheable
-            and spec.node._runtime.deterministic
-        )
-        result_identity = (
-            _result_identity(
-                spec.node,
-                inputs,
-                resolved_resource_inputs=resource_identities,
-                effective_randomness_snapshot=effective_randomness,
-            )
-            if cache_eligible
-            else None
-        )
-        return _PreparedNodeExecution(
-            inputs=inputs,
-            project_inputs=project_inputs,
-            resource_identities=resource_identities,
-            effective_randomness=effective_randomness,
-            cache_eligible=cache_eligible,
-            result_identity=result_identity,
+        return prepare_node(
+            self._projects, spec.project_id, spec.node, spec.committed_values
         )
 
     def _cache_outcome(
@@ -561,7 +472,7 @@ class _NodeAttempt:
         spec: AttemptSpec,
     ) -> AttemptOutcome:
         """Execute one schedulable Node Execution Attempt lifecycle."""
-        prepared = self._prepare(spec)
+        prepared = self._prepare(spec) if spec.reused_result is None else None
         state = self._new_state(spec, prepared)
         cancellation = self._begin_attempt(state)
         if cancellation is not None:
@@ -570,14 +481,22 @@ class _NodeAttempt:
                 outcome=cancellation,
             )
         try:
-            effective_randomness = prepared.effective_randomness
-            result_identity = prepared.result_identity
             if self._ledger.cancellation_requested:
                 return self._publication.commit_termination(
                     state,
                     status=self._pending_cancellation_outcome(state),
                     public_error=None,
                 )
+            if spec.reused_result is not None:
+                state.resolution = "cache_replayed"
+                return self._publication.commit_success(
+                    state,
+                    admitted_output=spec.reused_result.admitted_output,
+                    stored_result=spec.reused_result,
+                )
+            assert prepared is not None
+            effective_randomness = prepared.effective_randomness
+            result_identity = prepared.result_identity
             replayed = self._cache_outcome(
                 state,
                 result_identity=result_identity,

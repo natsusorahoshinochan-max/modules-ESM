@@ -7,11 +7,11 @@ from collections.abc import Mapping
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.authoring import (
     AuthoringCapabilityDefinition,
     AuthoringRoleEndpoint,
@@ -200,8 +200,8 @@ def _binding(
 ) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"{operation_id}.direct",
-        node_type=ContractIdentity("node_type", operation_id),
-        method=ContractIdentity("method", f"{operation_id}.method"),
+        node_type=ExactContractReference("node_type", operation_id),
+        method=ExactContractReference("method", f"{operation_id}.method"),
         binding_parameters={},
         execution_route="direct",
         factory=_build(operation_id),

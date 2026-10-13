@@ -8,7 +8,7 @@ so there is exactly one implementation of the authoring semantics.
 
 The recipe owns no UI, projection, or graph-materialization concerns: it
 takes resolved Python values (sources + an authoring document) and returns
-one validated :class:`~datatypes.prompt.ProteinPrompt`. Determinism is the
+one :class:`~datatypes.prompt.ProteinPrompt`. Determinism is the
 invariant — every random section is derived from an explicit seed carried
 in the document plus the layout/inputs, never from a process-global RNG.
 """
@@ -16,11 +16,12 @@ in the document plus the layout/inputs, never from a process-global RNG.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 import hashlib
 import math
 from typing import Any
 
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from datatypes.prompt import (
     FunctionAnnotation,
     ProteinPrompt,
@@ -41,7 +42,6 @@ from .domain import (
     build_layout,
     override_values,
 )
-from .prompts import validate_protein_prompt
 
 
 _TRACK_FIELDS: dict[str, str] = {
@@ -175,8 +175,9 @@ def _reindex_to_target(
     target_residues: Sequence[Mapping[str, Any]] | None,
     *,
     replace_annotations: bool,
+    declared_chains: frozenset[str],
 ) -> ProteinPrompt:
-    """Reindex the Prompt onto the document's ordered target identities."""
+    """Reindex within the initial recipe's explicitly declared chain scope."""
     if target_residues is None:
         return prompt
     baseline_ids = set(prompt.layout.residue_ids)
@@ -184,7 +185,6 @@ def _reindex_to_target(
         residue_id: index
         for index, residue_id in enumerate(prompt.layout.residue_ids)
     }
-    baseline_chains = set(prompt.layout.chain_ids)
     target_ids: list[str] = []
     source_positions: list[int] = []
     for item in target_residues:
@@ -202,7 +202,7 @@ def _reindex_to_target(
                     f"inserted residue {residue_id!r} collides with a source "
                     "residue"
                 )
-            if residue_identity_chain(residue_id) not in baseline_chains:
+            if residue_identity_chain(residue_id) not in declared_chains:
                 raise ValueError(
                     f"inserted residue {residue_id!r} is outside declared chains"
                 )
@@ -227,35 +227,37 @@ def _reindex_to_target(
             for residue_id in target_ids
         )
 
-    if replace_annotations:
-        annotations: tuple[FunctionAnnotation, ...] = ()
-    else:
-        target_index = {
-            residue_id: index for index, residue_id in enumerate(target_ids)
-        }
-        for annotation in prompt.function_annotations:
-            start = baseline_index[annotation.start_residue_id]
-            end = baseline_index[annotation.end_residue_id]
-            interval = prompt.layout.residue_ids[start : end + 1]
-            if any(residue_id not in target_index for residue_id in interval):
-                raise ValueError(
-                    "target layout would truncate an inherited function "
-                    "annotation interval"
-                )
-            positions = tuple(target_index[residue_id] for residue_id in interval)
-            if positions != tuple(range(positions[0], positions[0] + len(positions))):
-                raise ValueError(
-                    "target layout would split an inherited function "
-                    "annotation interval"
-                )
-        annotations = tuple(prompt.function_annotations)
+    target_index = {
+        residue_id: index for index, residue_id in enumerate(target_ids)
+    }
+    annotations: list[FunctionAnnotation] = []
+    for annotation in prompt.function_annotations:
+        start = baseline_index[annotation.start_residue_id]
+        end = baseline_index[annotation.end_residue_id]
+        interval = prompt.layout.residue_ids[start : end + 1]
+        if any(residue_id not in target_index for residue_id in interval):
+            if replace_annotations:
+                continue
+            raise ValueError(
+                "target layout would truncate an inherited function "
+                "annotation interval"
+            )
+        positions = tuple(target_index[residue_id] for residue_id in interval)
+        if positions != tuple(range(positions[0], positions[0] + len(positions))):
+            if replace_annotations:
+                continue
+            raise ValueError(
+                "target layout would split an inherited function "
+                "annotation interval"
+            )
+        annotations.append(annotation)
     return ProteinPrompt(
         layout=layout,
         sequence=remap(prompt.sequence),  # type: ignore[arg-type]
         coordinates=remap(prompt.coordinates),  # type: ignore[arg-type]
         secondary_structure=remap(prompt.secondary_structure),
         sasa=remap(prompt.sasa),
-        function_annotations=annotations,
+        function_annotations=tuple(annotations),
     )
 
 
@@ -346,9 +348,7 @@ def _apply_rigid(
 # Track overrides (sparse edits + rigid transforms)
 # --------------------------------------------------------------------------- #
 def _collect_overrides(
-    prompt: ProteinPrompt,
     track_edits: Sequence[Mapping[str, Any]] | None,
-    rigid_transforms: Sequence[Mapping[str, Any]] | None,
 ) -> dict[str, list[dict[str, Any]]]:
     overrides: dict[str, list[dict[str, Any]]] = {
         track: [] for track in _TRACK_FIELDS
@@ -383,22 +383,6 @@ def _collect_overrides(
             )
         else:
             raise ValueError(f"unknown track edit action {action!r}")
-    for transform in rigid_transforms or ():
-        _validate_rigid(transform)
-        for residue_id in transform["residue_ids"]:
-            index = prompt.layout.residue_ids.index(residue_id)
-            coordinates = prompt.coordinates[index]
-            if coordinates is None:
-                raise ValueError(
-                    f"rigid transform residue {residue_id!r} has no coordinates"
-                )
-            overrides["coordinates"].append(
-                {
-                    "action": "replace",
-                    "residue_id": residue_id,
-                    "value": _apply_rigid(coordinates, transform),
-                }
-            )
     return overrides
 
 
@@ -433,6 +417,24 @@ def _apply_track_overrides(
         sasa=fields["sasa"],  # type: ignore[arg-type]
         function_annotations=prompt.function_annotations,
     )
+
+
+def _apply_rigid_transforms(
+    prompt: ProteinPrompt,
+    transforms: Sequence[Mapping[str, Any]],
+) -> ProteinPrompt:
+    coordinates = list(prompt.coordinates)
+    for transform in transforms:
+        _validate_rigid(transform)
+        for residue_id in transform["residue_ids"]:
+            index = prompt.layout.residue_ids.index(residue_id)
+            current = coordinates[index]
+            if current is None:
+                raise ValueError(
+                    f"rigid transform residue {residue_id!r} has no coordinates"
+                )
+            coordinates[index] = _apply_rigid(current, transform)
+    return replace(prompt, coordinates=tuple(coordinates))
 
 
 # --------------------------------------------------------------------------- #
@@ -774,140 +776,114 @@ def _apply_function_annotations(
 
 
 # --------------------------------------------------------------------------- #
-# Source merges (adopt / preserve per track)
+# Source merges (explicit residue × track adoption)
 # --------------------------------------------------------------------------- #
+def _annotation_intent(value: Mapping[str, Any]) -> FunctionAnnotation:
+    return FunctionAnnotation(
+        label=value["label"],
+        start_residue_id=value["start_residue_id"],
+        end_residue_id=value["end_residue_id"],
+    )
+
+
 def _merge_one(
     target: ProteinPrompt,
     source: ProteinPrompt,
     merge: Mapping[str, Any],
+    *,
+    declared_chains: frozenset[str],
 ) -> ProteinPrompt:
-    track_decisions = merge["track_decisions"]
-    correspondence = merge.get("correspondence") or ()
     matched: list[tuple[str, str]] = []
     ordered_source_ids: list[str] = []
     ordered_target_ids: list[str] = []
-    for row_index, row in enumerate(correspondence):
+    expanded_targets: list[dict[str, str]] = []
+    for row in merge["correspondence"]:
         disposition = row["disposition"]
-        if disposition == "match":
-            source_residue_id = row["source_residue_id"]
-            target_residue_id = row["target_residue_id"]
-            matched.append(
-                (source_residue_id, target_residue_id)
-            )
-            ordered_source_ids.append(source_residue_id)
-            ordered_target_ids.append(target_residue_id)
+        if disposition in {"match", "insert"}:
+            source_id, target_id = row["source_residue_id"], row["target_residue_id"]
+            matched.append((source_id, target_id))
+            ordered_source_ids.append(source_id)
+            if disposition == "match":
+                ordered_target_ids.append(target_id)
+            expanded_targets.append({
+                "residue_id": target_id,
+                "origin": "inserted" if disposition == "insert" else "source",
+            })
         elif disposition == "source_gap":
             ordered_source_ids.append(row["source_residue_id"])
-        elif disposition == "target_gap":
-            ordered_target_ids.append(row["target_residue_id"])
-        else:
-            raise ValueError(
-                f"merge correspondence row {row_index} has an unknown disposition"
-            )
-    if tuple(ordered_source_ids) != tuple(source.layout.residue_ids):
-        raise ValueError(
-            "merge correspondence must cover source residues exactly once in order"
-        )
-    if tuple(ordered_target_ids) != tuple(target.layout.residue_ids):
-        raise ValueError(
-            "merge correspondence must cover target residues exactly once in order"
-        )
-    source_index = {
-        residue_id: index
-        for index, residue_id in enumerate(source.layout.residue_ids)
-    }
-    target_index = {
-        residue_id: index
-        for index, residue_id in enumerate(target.layout.residue_ids)
-    }
-    source_to_target = {source_id: target_id for source_id, target_id in matched}
+        else:  # target_gap, admitted by the document contract
+            target_id = row["target_residue_id"]
+            ordered_target_ids.append(target_id)
+            expanded_targets.append({"residue_id": target_id, "origin": "source"})
+    if tuple(ordered_source_ids) != source.layout.residue_ids:
+        raise ValueError("merge correspondence must cover source residues exactly once in order")
+    if tuple(ordered_target_ids) != target.layout.residue_ids:
+        raise ValueError("merge correspondence must cover target residues exactly once in order")
 
-    def merged_track(field: str, decision: str) -> Any:
-        target_values = getattr(target, field)
-        source_values = getattr(source, field)
-        if decision == "preserve":
-            return target_values
-        if decision != "adopt":
-            raise ValueError(f"unknown merge track decision {decision!r}")
-        if source_values is None:
-            raise ValueError(
-                f"cannot adopt absent source track {field!r}; preserve it instead"
-            )
-        base: list[Any] = (
-            list(target_values)
-            if target_values is not None
-            else [None] * target.layout.length
-        )
-        for source_id, target_id in matched:
-            base[target_index[target_id]] = source_values[source_index[source_id]]
-        return tuple(base)
-
-    sequence = merged_track("sequence", track_decisions["sequence"])
-    coordinates = merged_track("coordinates", track_decisions["coordinates"])
-    secondary_structure = merged_track(
-        "secondary_structure", track_decisions["secondary_structure"]
+    retained_annotations = list(target.function_annotations)
+    for intent in merge["remove_annotations"]:
+        annotation = _annotation_intent(intent)
+        if annotation not in retained_annotations:
+            raise ValueError("merge removal must reference an exact current target annotation")
+        retained_annotations.remove(annotation)
+    target = _reindex_to_target(
+        replace(target, function_annotations=tuple(retained_annotations)),
+        expanded_targets,
+        replace_annotations=False,
+        declared_chains=declared_chains,
     )
-    sasa = merged_track("sasa", track_decisions["sasa"])
+    source_index = {value: index for index, value in enumerate(source.layout.residue_ids)}
+    target_index = {value: index for index, value in enumerate(target.layout.residue_ids)}
+    source_to_target = dict(matched)
+    fields = {field: getattr(target, field) for field in _TRACK_FIELDS}
+    adopted_tracks: set[str] = set()
+    for adoption in merge["track_adoptions"]:
+        field = adoption["track"]
+        if field in adopted_tracks:
+            raise ValueError(f"merge track {field!r} must have one adoption selection")
+        adopted_tracks.add(field)
+        source_values = getattr(source, field)
+        if source_values is None:
+            raise ValueError(f"cannot adopt absent source track {field!r}")
+        current = fields[field]
+        values = list(current) if current is not None else None
+        for source_id in adoption["source_residue_ids"]:
+            if source_id not in source_to_target:
+                raise ValueError(f"adopted source residue {source_id!r} has no target correspondence")
+            value = source_values[source_index[source_id]]
+            if value is not None or adoption["mask_policy"] == "adopt":
+                if values is None:
+                    values = [None] * target.layout.length
+                values[target_index[source_to_target[source_id]]] = value
+        fields[field] = tuple(values) if values is not None else None
 
-    if track_decisions["function_annotations"] == "preserve":
-        annotations = target.function_annotations
-    elif track_decisions["function_annotations"] == "adopt":
-        mapped: list[FunctionAnnotation] = []
-        for annotation in source.function_annotations:
-            source_start = source_index[annotation.start_residue_id]
-            source_end = source_index[annotation.end_residue_id]
-            source_interval = source.layout.residue_ids[
-                source_start : source_end + 1
-            ]
-            if any(
-                residue_id not in source_to_target
-                for residue_id in source_interval
-            ):
-                raise ValueError(
-                    "merge would lose a function annotation interval"
-                )
-            target_interval = tuple(
-                source_to_target[residue_id] for residue_id in source_interval
-            )
-            target_positions = tuple(
-                target_index[residue_id] for residue_id in target_interval
-            )
-            if target_positions != tuple(
-                range(
-                    target_positions[0],
-                    target_positions[0] + len(target_positions),
-                )
-            ):
-                raise ValueError(
-                    "merge function annotation must map to one contiguous interval"
-                )
-            if len(
-                {
-                    residue_identity_chain(residue_id)
-                    for residue_id in target_interval
-                }
-            ) != 1:
-                raise ValueError(
-                    "merge function annotation must map within one target chain"
-                )
-            mapped.append(
-                FunctionAnnotation(
-                    label=annotation.label,
-                    start_residue_id=target_interval[0],
-                    end_residue_id=target_interval[-1],
-                )
-            )
-        annotations = tuple(mapped)
-    else:
-        raise ValueError("unknown merge function_annotations decision")
-
+    annotations = list(target.function_annotations)
+    for intent in merge["adopt_annotations"]:
+        annotation = _annotation_intent(intent)
+        if annotation not in source.function_annotations:
+            raise ValueError("merge adoption must reference an exact source annotation")
+        interval = source.layout.residue_ids[
+            source_index[annotation.start_residue_id] : source_index[annotation.end_residue_id] + 1
+        ]
+        if any(value not in source_to_target for value in interval):
+            raise ValueError("merge would lose a function annotation interval")
+        mapped = tuple(source_to_target[value] for value in interval)
+        positions = tuple(target_index[value] for value in mapped)
+        if positions != tuple(range(positions[0], positions[0] + len(positions))):
+            raise ValueError("merge function annotation must map to one contiguous interval")
+        if len({residue_identity_chain(value) for value in mapped}) != 1:
+            raise ValueError("merge function annotation must map within one target chain")
+        annotations.append(FunctionAnnotation(annotation.label, mapped[0], mapped[-1]))
     return ProteinPrompt(
         layout=target.layout,
-        sequence=sequence,  # type: ignore[arg-type]
-        coordinates=coordinates,  # type: ignore[arg-type]
-        secondary_structure=secondary_structure,  # type: ignore[arg-type]
-        sasa=sasa,  # type: ignore[arg-type]
-        function_annotations=annotations,
+        sequence=fields["sequence"],
+        coordinates=fields["coordinates"],
+        secondary_structure=fields["secondary_structure"],
+        sasa=fields["sasa"],
+        function_annotations=replace_function_annotations(target.layout, tuple(
+            {"label": item.label, "start_residue_id": item.start_residue_id, "end_residue_id": item.end_residue_id}
+            for item in annotations
+        )),
     )
 
 
@@ -915,13 +891,18 @@ def _apply_merges(
     prompt: ProteinPrompt,
     merge_sources: Sequence[ProteinPrompt],
     document: Mapping[str, Any],
-) -> ProteinPrompt:
+    *,
+    declared_chains: frozenset[str],
+) -> tuple[ProteinPrompt, tuple[ProteinPrompt, ...]]:
+    targets: list[ProteinPrompt] = []
     for merge in document.get("source_merges") or ():
         source_index = merge["source_index"]
         if source_index < 0 or source_index >= len(merge_sources):
             raise ValueError(f"merge source index {source_index} out of range")
-        prompt = _merge_one(prompt, merge_sources[source_index], merge)
-    return prompt
+        targets.append(prompt)
+        prompt = _merge_one(prompt, merge_sources[source_index], merge, declared_chains=declared_chains)
+    targets.append(prompt)
+    return prompt, tuple(targets)
 
 
 # --------------------------------------------------------------------------- #
@@ -934,7 +915,7 @@ def _evaluate_prompt_recipe(
     prompt_source: ProteinPrompt | None,
     merge_sources: Sequence[ProteinPrompt],
     document: Mapping[str, Any],
-) -> tuple[ProteinPrompt, tuple[Mapping[str, Any], ...]]:
+) -> tuple[ProteinPrompt, tuple[Mapping[str, Any], ...], tuple[ProteinPrompt, ...]]:
     """Apply one document and retain the random choices made by that run.
 
     The document holds the editing intent only; sources are resolved by the
@@ -949,10 +930,12 @@ def _evaluate_prompt_recipe(
         prompt_source=prompt_source,
         document=document,
     )
+    declared_chains = frozenset(prompt.layout.chain_ids)
     prompt = _reindex_to_target(
         prompt,
         document.get("target_residues"),
         replace_annotations="function_annotations" in document,
+        declared_chains=declared_chains,
     )
     operations = tuple(document.get("random_operations") or ())
     for operation in operations:
@@ -973,12 +956,10 @@ def _evaluate_prompt_recipe(
                 "kind": "insert",
                 "residue_ids": residue_ids,
             }
-    overrides = _collect_overrides(
-        prompt,
-        document.get("track_edits"),
-        document.get("rigid_transforms"),
-    )
+    prompt, merge_targets = _apply_merges(prompt, merge_sources or (), document, declared_chains=declared_chains)
+    overrides = _collect_overrides(document.get("track_edits"))
     prompt = _apply_track_overrides(prompt, overrides)
+    prompt = _apply_rigid_transforms(prompt, document.get("rigid_transforms") or ())
     for operation_index, operation in enumerate(operations):
         if operation["kind"] == "mask":
             prompt, residue_ids = _apply_random_mask(
@@ -991,10 +972,9 @@ def _evaluate_prompt_recipe(
                 "residue_ids": residue_ids,
             }
     prompt = _apply_function_annotations(prompt, document)
-    prompt = _apply_merges(prompt, merge_sources or (), document)
-    return validate_protein_prompt(prompt), tuple(
+    return prompt, tuple(
         traces[index] for index in sorted(traces)
-    )
+    ), merge_targets
 
 
 def apply_prompt_recipe(
@@ -1006,7 +986,7 @@ def apply_prompt_recipe(
     document: Mapping[str, Any],
 ) -> ProteinPrompt:
     """Apply one authoring document through the sole scientific path."""
-    prompt, _trace = _evaluate_prompt_recipe(
+    prompt, _trace, _merge_targets = _evaluate_prompt_recipe(
         sequence_source=sequence_source,
         structure_source=structure_source,
         prompt_source=prompt_source,

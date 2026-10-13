@@ -9,13 +9,13 @@ from typing import Any
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
@@ -308,10 +308,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.prompt_authoring_values.direct",
-            node_type=ContractIdentity(
+            node_type=ExactContractReference(
                 "node_type",
                 "contract_test.prompt_authoring_values"),
-            method=ContractIdentity(
+            method=ExactContractReference(
                 "method",
                 "contract_test.prompt_authoring_values.method"),
             binding_parameters={},

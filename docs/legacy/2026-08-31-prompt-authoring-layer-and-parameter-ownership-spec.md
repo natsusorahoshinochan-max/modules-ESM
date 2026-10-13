@@ -1,9 +1,9 @@
 # ProteinPrompt Authoring 层级与参数所有权规格
 
-- **状态**：已确认
+- **状态**：历史设计，已被替代
 - **日期**：2026-08-31
-- **性质**：当前实现必须满足的工程规格
-- **上位功能规格**：`docs/2026-08-29-webui-functional-spec.md`
+- **现行规格**：[科学 authoring 边界](../2026-09-02-clean-scientific-data-flow-refactor-spec.md#12-当前-authoring-边界)与[Prompt 编辑规格](../2026-09-17-prompt-editing-spec.md)。本文不定义当前实现要求。
+- **上位功能规格**：[历史功能规格](2026-08-29-webui-functional-spec.md)
 - **领域词汇**：`CONTEXT.md`
 
 ## 1. 目的

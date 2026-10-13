@@ -632,12 +632,6 @@ def _run_confidence(
                 "structure_candidates",
             ),
             WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "confidence",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
                 "axis",
                 "residue_axes",
                 "confidence",
@@ -815,16 +809,11 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         "folding.simplefold_confidence",
     )
     assert [item["name"] for item in node.descriptor["inputs"]] == [
-        "structure_candidates",
         "structure_residue_axes",
     ]
     inputs = {
         item["name"]: item["port_type"]
         for item in node.descriptor["inputs"]
-    }
-    assert inputs["structure_candidates"] == {
-        "contract_kind": "port_type",
-        "contract_id": "candidate.collection",
     }
     assert inputs["structure_residue_axes"] == {
         "contract_kind": "port_type",
@@ -1157,11 +1146,6 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
         catalog=catalog,
         binding_id="folding.simplefold_confidence.simplefold_local",
         inputs={
-            "structure_candidates": CandidateCollection(
-                "structures",
-                "protein.structure",
-                [parent],
-            ),
             "structure_residue_axes": associations,
         },
         node_parameters={},
@@ -1291,8 +1275,8 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
         )
     )
     assert [entry.subject for entry in associations.entries] == [
-        two_subject,
         mse_subject,
+        two_subject,
     ]
 
     outputs = operation.execute(
@@ -1302,11 +1286,6 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
                 "folding.simplefold_confidence.simplefold_local"
             ),
             inputs={
-                "structure_candidates": CandidateCollection(
-                    "structures",
-                    "protein.structure",
-                    [mse_candidate, two_candidate],
-                ),
                 "structure_residue_axes": associations,
             },
         )
@@ -1331,16 +1310,17 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
     ]
 
 
-def test_confidence_validates_complete_axis_join_before_provider() -> None:
+def test_confidence_requires_the_axis_value_to_be_nonempty_before_provider() -> None:
     from modules.folding.implementation import (
         SimpleFoldConfidenceImplementation,
     )
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_transform.domain import (
-        CandidateResolvedResidueAxisAssociation,
         CandidateResolvedResidueAxisAssociations,
     )
-    from modules.structure_transform.residue_axis import resolve_residue_axis
+    from modules.structure_transform.port_types import (
+        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
+    )
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
@@ -1371,42 +1351,13 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
         method=context.method,
         produced_observations=context.produced_observations,
     )
-    first_structure = ProteinStructure(_two_residue_pdb())
-    second_structure = ProteinStructure(_two_chain_pdb())
-    first = Candidate("first", first_structure, [], {})
-    second = Candidate("second", second_structure, [], {})
-    structure_port = catalog.require_port_type("protein.structure")
-    first_subject = CandidateDataReference(
-        first.candidate_id,
-        "protein.structure",
-        structure_port.content_digest(first_structure),
-    )
-    incomplete_associations = CandidateResolvedResidueAxisAssociations(
-        entries=(
-            CandidateResolvedResidueAxisAssociation(
-                subject=first_subject,
-                residue_axis=resolve_residue_axis(first_structure),
-            ),
+    # An empty resolved-axis population can never be admitted: the ordered
+    # value owns its own non-emptiness, so no parallel Candidate Port has to
+    # supply it any more.
+    with pytest.raises(ValueError, match="must be nonempty"):
+        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.validate(
+            CandidateResolvedResidueAxisAssociations(entries=())
         )
-    )
-    call = operation_call(
-        catalog=catalog,
-        binding_id="folding.simplefold_confidence.simplefold_local",
-        inputs={
-            "structure_candidates": CandidateCollection(
-                "structures",
-                "protein.structure",
-                [first, second],
-            ),
-            "structure_residue_axes": incomplete_associations,
-        },
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="resolved axes must cover exact structure references",
-    ):
-        operation.execute(call)
     assert adapter.calls == 0
 
 
@@ -1486,11 +1437,6 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
                     "folding.simplefold_confidence.simplefold_local"
                 ),
                 inputs={
-                    "structure_candidates": CandidateCollection(
-                        "structures",
-                        "protein.structure",
-                        [valid, no_ca],
-                    ),
                     "structure_residue_axes": associations,
                 },
             )

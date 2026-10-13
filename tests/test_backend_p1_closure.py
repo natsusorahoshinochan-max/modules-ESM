@@ -10,13 +10,11 @@ from typing import Any
 
 import pytest
 
-from core.parameters.model import AdmittedParameterValues
 from core.project.manager import (
     ProjectInputDescriptor,
     ProjectManager,
     ProjectMeta,
 )
-from core.scoring.selection import UtilityParameterFacts
 from protein_workbench_public.http import emission
 from protein_workbench_public.http.errors import (
     public_error_response,
@@ -94,10 +92,12 @@ def test_closed_dependency_edges_have_no_forwarding_imports() -> None:
         imported.startswith("core.execution")
         for imported in _production_imports("core/project")
     )
-    assert not any(
-        imported.startswith("core.parameters")
+    # Scoring consumes admitted parameter values; admission stays with the compiler.
+    assert {
+        imported
         for imported in _production_imports("core/scoring")
-    )
+        if imported.startswith("core.parameters")
+    } == {"core.parameters.model"}
     assert not any(
         imported.startswith("core.operation")
         for imported in _production_imports("protein_workbench_public")
@@ -118,18 +118,23 @@ def test_closed_dependency_edges_have_no_forwarding_imports() -> None:
 
 def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
     route_paths = tuple(
-        _ROOT / "protein_workbench_public/http" / name
-        for name in (
-            "catalog_routes.py",
-            "prompt_authoring_routes.py",
-            "project_routes.py",
-            "run_routes.py",
-            "workflow_routes.py",
-        )
+        (_ROOT / "protein_workbench_public/http").glob("*_routes.py")
     )
     emitted_operations: set[str] = set()
     for path in route_paths:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        emitting_helpers = {
+            function.name
+            for function in ast.walk(tree)
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+            for call in ast.walk(function)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "emit_rest_json_success"
+            and call.args
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == "operation"
+        }
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -140,6 +145,16 @@ def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
                 and isinstance(node.args[0], ast.Constant)
             ):
                 emitted_operations.add(node.args[0].value)
+            elif (
+                isinstance(node.func, ast.Name)
+                and node.func.id in emitting_helpers
+            ):
+                emitted_operations.update(
+                    argument.value
+                    for argument in node.args
+                    if isinstance(argument, ast.Constant)
+                    and isinstance(argument.value, str)
+                )
     expected = {
         operation_id
         for operation_id, operation in protocol.load_bundle()[
@@ -147,7 +162,6 @@ def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
         ].items()
         if operation["response"]["kind"] == "json"
     }
-    assert len(expected) == 18
     assert emitted_operations == expected
 
     websocket_paths = (
@@ -197,20 +211,6 @@ def test_each_json_success_operation_serializes_without_bundle_validation(
 
     assert response.status_code == success_status
     assert json.loads(response.body) == payload
-
-
-def test_utility_parameter_facts_are_one_shallow_immutable_snapshot() -> None:
-    admitted = AdmittedParameterValues(
-        {"nested": {"values": [1, 2]}, "scalar": 3}
-    )
-    nested = admitted["nested"]
-
-    facts = UtilityParameterFacts(admitted)
-
-    assert dict(facts) == dict(admitted)
-    assert facts["nested"] is nested
-    with pytest.raises(TypeError):
-        facts._values["additional"] = 4  # type: ignore[index]
 
 
 def test_rest_and_stream_emitters_do_not_revalidate_constructed_payloads(

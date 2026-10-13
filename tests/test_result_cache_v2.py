@@ -538,8 +538,6 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
     assert [item for item in calls if item.startswith("validate:")] == [
         "validate:'ready'",
         "validate:'ready'",
-        "validate:'ready'",
-        "validate:'ready'",
     ]
 
 

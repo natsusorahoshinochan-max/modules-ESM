@@ -1,9 +1,11 @@
-# 模块化蛋白质设计与评价工作台：当前架构
+# 模块化蛋白质设计与评价工作台：历史架构
+
+本文记录 2026-08-20 的设计，不定义当前合同。当前边界见[科学规格](../2026-09-02-clean-scientific-data-flow-refactor-spec.md)。
 
 - **文档版本**：1.2
 - **日期**：2026-08-20
 - **使用场景**：可信、单用户、仅本机使用
-- **规范词汇**：以 [`CONTEXT.md`](../CONTEXT.md) 为准
+- **规范词汇**：以 [`CONTEXT.md`](../../CONTEXT.md) 为准
 - **核心决策**：ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038、ADR-0039、ADR-0041、ADR-0042、ADR-0043、ADR-0044、ADR-0045
 
 ## 1. 目标与优先级
@@ -898,7 +900,7 @@ Campaign 集中验证 tier identity、required run labels、lifecycle receipt �
 retained location，但不解释或重复科学断言。`passed` 当且仅当全部 19 个 tier 按顺序产生
 完整 Acceptance Result；失败或 interrupted diagnostic output 不计入完成度。详见 ADR-0043。
 
-完整命令和 tier 定义见 [`backend-verification.md`](backend-verification.md)。
+完整命令和 tier 定义见 [`backend-verification.md`](../backend-verification.md)。
 
 ## 18. 当前核心 Workflow
 
@@ -951,7 +953,7 @@ Workflow。它仍保留以下不可省略的科学关联：
   invocation 进入同一 Run Evidence Ledger。
 
 精确当前实例由可编译的
-[`examples/v2/canonical-3gb1.workflow.json`](../examples/v2/canonical-3gb1.workflow.json)
+[`examples/v2/canonical-3gb1.workflow.json`](../../examples/v2/canonical-3gb1.workflow.json)
 拥有。架构图不能建立该 Workflow、active Catalog 或 compiler 不拥有的第二套连接合同。
 
 ## 19. 明确拒绝的设计

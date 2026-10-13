@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from datatypes.observation import IntrinsicContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -39,36 +43,31 @@ def _build(context: OperationContext) -> ScientificOperation:
 
 def _produced_observation(
     metric_id: str,
-) -> ProducedObservationDefinition:
+) -> ProducedObservation:
     has_axis = metric_id != "structure.ptm"
     optional = metric_id in {"structure.ptm", "structure.pae"}
-    return ProducedObservationDefinition(
+    return ProducedObservation(
         output_port="observations",
         output_partition="prediction_confidence",
-        metric=ContractIdentity(
+        metric=ExactContractReference(
             "metric",
             metric_id,
         ),
-        context_profile={"kind": "intrinsic"},
-        subject_grain="candidate",
-        source_role="subject",
-        subject_direction="input",
-        subject_port="structure_candidates",
+        context_profile=IntrinsicContextProfile(),
+        subject_input="structure_candidates",
         guaranteed_multiplicity=("zero_or_more" if optional else "one"),
-        axis_direction="input" if has_axis else None,
-        axis_port="confidence_facts" if has_axis else None,
-        method_direction="input",
-        method_port="confidence_facts",
+        axis_source=(ObservationPortSource("input", "confidence_facts") if has_axis else None),
+        method_source=ObservationPortSource("input", "confidence_facts"),
     )
 
 
 MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
     binding_id="structure_prediction.materialize_confidence.direct",
-    node_type=ContractIdentity(
+    node_type=ExactContractReference(
         "node_type",
         "structure_prediction.materialize_confidence",
     ),
-    method=ContractIdentity(
+    method=ExactContractReference(
         "method",
         "structure_prediction.materialize_confidence.exact_reference_join",
     ),

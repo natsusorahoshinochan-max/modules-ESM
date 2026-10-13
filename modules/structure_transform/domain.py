@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.residue import ModifiedResidueNormalizationCollection
@@ -126,30 +126,18 @@ class CandidateResolvedResidueAxisAssociation:
 
 @dataclass(frozen=True, slots=True)
 class CandidateResolvedResidueAxisAssociations:
-    """Canonical reference-addressed collection of resolved residue axes."""
+    """Ordered reference-addressed collection of resolved residue axes.
+
+    The entry order is the order of the Candidate Collection the resolver
+    received, and it is a scientific fact: it owns the parent slot of every
+    downstream per-parent operation and the output order of that operation.
+    The constructor therefore freezes the given order instead of sorting.
+    """
 
     entries: tuple[CandidateResolvedResidueAxisAssociation, ...] = ()
 
     def __post_init__(self) -> None:
-        entries = tuple(self.entries)
-        object.__setattr__(
-            self,
-            "entries",
-            tuple(sorted(entries, key=lambda entry: _association_key(entry.subject))),
-        )
-
-    def axis_for(
-        self,
-        subject: CandidateDataReference,
-    ) -> ResolvedStructureResidueAxis:
-        """Return the axis bound to one exact Candidate data reference."""
-        for entry in self.entries:
-            if entry.subject == subject:
-                return entry.residue_axis
-        raise KeyError(
-            "resolved residue-axis associations contain no exact Candidate "
-            f"reference {subject.candidate_id}"
-        )
+        object.__setattr__(self, "entries", tuple(self.entries))
 
 
 @dataclass(frozen=True, slots=True)

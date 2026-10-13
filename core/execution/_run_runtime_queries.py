@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from datatypes.candidate import CandidateDataReference
 
 from core.execution._run_runtime_registry import _RunRegistry
 from core.execution.ledger import (
@@ -64,7 +65,7 @@ class _RunQueries:
         node_id: str,
         output_port: str,
         value_index: int,
-    ) -> tuple[dict[str, Any], bytes]:
+    ) -> tuple[dict[str, Any], bytes, tuple[CandidateDataReference, ...]]:
         """Resolve one exact canonical value through committed evidence."""
         record = self._registry.require_record(project_id, run_id)
         descriptor = next(
@@ -91,7 +92,7 @@ class _RunQueries:
                 },
             )
         try:
-            value_bytes, value_reference = self._result_store.read_typed_value(
+            value_bytes, value_reference, candidate_data = self._result_store.read_typed_value(
                 project_id,
                 descriptor,
                 value_index,
@@ -122,7 +123,7 @@ class _RunQueries:
                 "size": value_reference.size,
             }
         }
-        return metadata, value_bytes
+        return metadata, value_bytes, candidate_data
 
     def artifact(
         self,

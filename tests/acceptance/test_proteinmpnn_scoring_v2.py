@@ -217,12 +217,6 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
             "structure_candidates",
         ),
         WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "score",
-            "structure_candidates",
-        ),
-        WorkflowEdge(
             "resolve-axes",
             "residue_axes",
             "score",
@@ -315,12 +309,6 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
             "source",
             "structure_candidates",
             "resolve-axes",
-            "structure_candidates",
-        ),
-        WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "design",
             "structure_candidates",
         ),
         WorkflowEdge(

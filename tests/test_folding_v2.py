@@ -32,7 +32,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.catalog.declarations import ExecutionBindingDefinition
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.execution._node_attempt_identity import (
     _resolve_effective_randomness,
     _result_identity_descriptor,
@@ -1880,12 +1880,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             environment_values=confidence_environment,
             workflow_nodes=(structure_source_node, structure_axis_node),
             workflow_edges=(
-                WorkflowEdge(
-                    "structure-source",
-                    "structure_candidates",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
                 WorkflowEdge(
                     "structure-source",
                     "structure_candidates",

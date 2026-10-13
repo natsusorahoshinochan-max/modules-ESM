@@ -37,10 +37,6 @@ class ProteinSequence:
                 "residue_ids",
                 _ordered_list(self.residue_ids, field_name="residue_ids"),
             )
-        if self.residue_ids is not None and len(self.residue_ids) != len(self.sequence):
-            raise ValueError(
-                f"residue_ids length {len(self.residue_ids)} != sequence length {len(self.sequence)}"
-            )
 
     def __len__(self) -> int:
         return len(self.sequence)
@@ -71,6 +67,8 @@ def validate_protein_sequence(
             f"{subject} must use the exact uppercase amino-acid alphabet"
         )
     residue_ids = value.residue_ids
+    if residue_ids is not None and len(residue_ids) != len(sequence):
+        raise ValueError(f"{subject} residue_ids length must equal sequence length")
     seen_residue_ids: set[str] = set()
     for index, residue_id in enumerate(residue_ids or ()):
         residue_identity_chain(

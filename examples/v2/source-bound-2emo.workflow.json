@@ -158,11 +158,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "tm-reference-normalized",
-        "operator": ">=",
-        "threshold": 0.8,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "tm-reference-normalized"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 0.8
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -171,11 +177,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "ca-rmsd",
-        "operator": "<=",
-        "threshold": 2.5,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "ca-rmsd"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": "<=",
+            "threshold": 2.5
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -184,11 +196,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "mean-plddt",
-        "operator": ">=",
-        "threshold": 70,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "mean-plddt"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 70
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -197,11 +215,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "protein-sol-scaled",
-        "operator": ">=",
-        "threshold": 0.446,
-        "out_of_scope_policy": "ignore",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "protein-sol-scaled"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 0.446
+          }
+        ],
+        "out_of_scope_policy": "ignore"
       },
       "binding_parameters": {}
     },
@@ -323,12 +347,6 @@
       "target_port": "modified_residue_normalizations"
     },
     {
-      "source_node_id": "normalize-reference",
-      "source_port": "structure_candidates",
-      "target_node_id": "project-reference-axis",
-      "target_port": "structure_candidates"
-    },
-    {
       "source_node_id": "resolve-reference",
       "source_port": "residue_axes",
       "target_node_id": "project-reference-axis",
@@ -351,12 +369,6 @@
       "source_port": "constraints",
       "target_node_id": "design-sequences",
       "target_port": "constraints"
-    },
-    {
-      "source_node_id": "normalize-reference",
-      "source_port": "structure_candidates",
-      "target_node_id": "design-sequences",
-      "target_port": "structure_candidates"
     },
     {
       "source_node_id": "resolve-reference",
@@ -395,22 +407,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-esmfold2",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-folds",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folds",
       "source_port": "residue_axes",
       "target_node_id": "align-folds",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "normalize-reference",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-folds",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-reference",

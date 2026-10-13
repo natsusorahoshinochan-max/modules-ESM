@@ -13,6 +13,8 @@ from core.catalog.port_contract import is_valid_artifact_media_type
 from core.operation import EngineInvocationProvenance
 from core.scoring.selection import SelectionInput
 from core.execution.ledger.transitions import PlanNodeEvidence
+from core.execution.scope import RunExecutionScope
+from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json
 
@@ -195,6 +197,7 @@ class SelectionResult:
     selected_candidate_ids: tuple[str, ...]
     objectives: tuple[SelectionObjectiveEvidence, ...] = ()
     observation_selectors: tuple[ObservationSelectorEvidence, ...] = ()
+    selected_candidate_references: tuple[CandidateDataReference, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +208,7 @@ class RunScopeBound:
     plan_nodes: tuple[PlanNodeEvidence, ...]
     selection_terminal_keys: tuple[str, ...]
     derived_from: DerivedRunReference | None = None
+    execution_scope: RunExecutionScope | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,11 +591,18 @@ def _validate_selection_result(value: SelectionResult) -> None:
         )
         or value.selected_candidate_ids
         != tuple(dict.fromkeys(value.selected_candidate_ids))
-        or bool(value.objectives) == bool(value.observation_selectors)
+        or sum((bool(value.objectives), bool(value.observation_selectors), value.selected_candidate_references is not None)) != 1
     ):
         raise ValueError("Selection result is invalid")
     _require_reference_kind(value.selection_method, expected_kind="method")
     _validate_selection_input(value.candidate_input)
+    if value.selected_candidate_references is not None:
+        if (
+            any(type(item) is not CandidateDataReference for item in value.selected_candidate_references)
+            or tuple(item.candidate_id for item in value.selected_candidate_references) != value.selected_candidate_ids
+        ):
+            raise ValueError("Manual Selection references do not match selected Candidates")
+        return
     if value.objectives:
         for objective in value.objectives:
             _validate_selection_objective(objective)

@@ -61,7 +61,7 @@ from modules.structure_transform.domain import (
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from tests.support.public_request import encode_project_input_content
 from tests.support.prompt_authoring import (
-    apply_prompt_document,
+    workflow_with_prompt_document,
     install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
@@ -562,14 +562,14 @@ def test_source_bound_2emo_is_compilable() -> None:
     }
     assert nodes["fold-esmfold2"].binding_id == "folding.fold.esmfold2_remote"
     filters = {
-        node.node_id: (node.node_parameters["operator"], node.node_parameters["threshold"])
+        node.node_id: node.node_parameters["expression"]
         for node in workflow.nodes if node.node_id.startswith("filter-")
     }
     assert filters == {
-        "filter-tm": (">=", 0.8),
-        "filter-rmsd": ("<=", 2.5),
-        "filter-plddt": (">=", 70),
-        "filter-protein-sol": (">=", 0.446),
+        "filter-tm": ({"selector_index": 0, "operator": ">=", "threshold": 0.8},),
+        "filter-rmsd": ({"selector_index": 0, "operator": "<=", "threshold": 2.5},),
+        "filter-plddt": ({"selector_index": 0, "operator": ">=", "threshold": 70},),
+        "filter-protein-sol": ({"selector_index": 0, "operator": ">=", "threshold": 0.446},),
     }
     broken = replace(
         workflow,
@@ -689,17 +689,19 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             project_id,
             author_node_id,
         )
-        apply_prompt_document(
-            client,
-            project_id,
-            author_node_id,
-            preview_prompt_document(
-                client,
-                project_id,
-                author_node_id,
-                opened_prompt["document"],
-            ),
+        workspace = client.get(f"/api/v2/projects/{project_id}/workspace").json()
+        confirmed = preview_prompt_document(
+                        client,
+                        project_id,
+                        author_node_id,
+                        opened_prompt["document"],
+                    )
+        response = client.put(
+            f"/api/v2/projects/{project_id}/workspace",
+            json={"workflow": workflow_with_prompt_document(workspace["draft"]["workflow"], author_node_id, confirmed["normalized_document"]),
+                  "expected_draft_revision": workspace["draft"]["draft_revision"]},
         )
+        response.raise_for_status()
         committed = PublicRunClient(client).commit_workflow(project_id, payload)
         started = PublicRunClient(client).start_run(
             project_id,

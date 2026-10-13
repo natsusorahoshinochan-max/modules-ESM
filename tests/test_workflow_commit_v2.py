@@ -183,10 +183,10 @@ def test_invalid_draft_can_be_saved_and_loaded(tmp_path) -> None:
     authoring = WorkflowAuthoringService(projects, _catalog())
     workflow = _workflow(project.id, invalid_edge=True)
 
-    saved = authoring.save_draft(
+    saved = authoring.save_workspace(
         project.id,
         workflow=workflow,
-    )
+    ).draft
 
     assert encode_workflow_draft(saved) == {
         "project_id": project.id,
@@ -373,7 +373,7 @@ def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters
     payload["nodes"][0]["node_parameters"] = {"undeclared": 1}
 
     workflow = decode_workflow_document(payload)
-    draft = authoring.save_draft(project.id, workflow=workflow)
+    draft = authoring.save_workspace(project.id, workflow=workflow).draft
 
     assert draft.workflow == workflow
     with pytest.raises(WorkflowAuthoringError) as captured:
@@ -629,3 +629,63 @@ def test_example_compile_failure_does_not_install_a_project(
         install(workflow=_workflow(project_id, invalid_edge=True), input_sources={})
     assert raised.value.code == "compile_rejected"
     assert projects.load_meta(project_id) is None
+
+
+def test_commit_snapshot_remains_readable_when_current_catalog_science_changed(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "projects"
+    projects = ProjectManager(root)
+    project = projects.create("immutable scientific interpretation")
+    original = WorkflowAuthoringService(projects, _catalog("original science"))
+    committed = original.commit(project.id, workflow=_workflow(project.id))
+    restarted = WorkflowAuthoringService(ProjectManager(root), _catalog("changed science"))
+
+    snapshot = restarted.load_commit(project.id, workflow_commit_id=committed.workflow_commit_id)
+    assert snapshot == committed
+    assert restarted.compare_commit_science(
+        project.id, workflow_commit_id=committed.workflow_commit_id,
+        workflow_project_id=project.id, workflow=committed.workflow,
+    )["status"] == "stale"
+    with pytest.raises(WorkflowAuthoringError) as rejected:
+        restarted.require_verified_commit(project.id, workflow_commit_id=committed.workflow_commit_id)
+    assert rejected.value.code == "workflow_commit_identity_mismatch"
+
+
+def test_science_comparison_clears_after_revert_and_reports_invalid_draft_unknown(
+    tmp_path: Path,
+) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    project = projects.create("science currency")
+    authoring = WorkflowAuthoringService(projects, _catalog())
+    committed = authoring.commit(project.id, workflow=_workflow(project.id))
+    compare = lambda workflow: authoring.compare_commit_science(
+        project.id, workflow_commit_id=committed.workflow_commit_id, workflow_project_id=project.id, workflow=workflow,
+    )
+    assert compare(_workflow(project.id, node_id="other-source"))["status"] == "stale"
+    authoring.save_workspace(project.id, ui_state={"positions": {"source": {"x": 900, "y": -300}}})
+    assert compare(committed.workflow)["status"] == "current"
+    invalid = compare(_workflow(project.id, invalid_edge=True))
+    assert invalid["status"] == "unknown"
+    assert invalid["issues"]
+    assert authoring.load_draft(project.id).workflow == committed.workflow
+
+
+def test_scientific_snapshot_and_comparison_public_operations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.support.protocol import validate_response
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    app = create_application(frozen_catalog_override=_catalog())
+    with TestClient(app) as http:
+        project = http.post("/api/v2/projects", json={"name": "snapshot"}).json()
+        workflow = _workflow(project["id"]).canonical_projection()
+        commit = http.post(f"/api/v2/projects/{project['id']}/workflow:commit", json={"workflow": workflow}).json()
+        route = f"/api/v2/projects/{project['id']}/workflow/commits/{commit['workflow_commit_id']}"
+        snapshot = http.get(route)
+        validate_response("workflow_commit_snapshot", 200, snapshot.json())
+        assert snapshot.json()["scientific_definitions"] == commit["scientific_definitions"]
+        comparison = http.post(f"{route}:compare", json={"workflow_project_id": project["id"], "workflow": workflow})
+        validate_response("compare_workflow_commit_science", 200, comparison.json())
+        assert comparison.json()["status"] == "current"

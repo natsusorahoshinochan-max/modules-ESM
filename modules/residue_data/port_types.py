@@ -9,7 +9,7 @@ from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
 )
-from datatypes.prompt import FunctionAnnotationTrack
+from datatypes.prompt import FunctionAnnotationTrack, validate_canonical_function_annotations
 from datatypes.residue import (
     CandidateResidueTrack,
     ResidueTrack,
@@ -49,6 +49,8 @@ def _validate_track(value: object, *, subject: str) -> ResidueTrack[Any]:
     if type(value) is not ResidueTrack:
         raise ValueError(f"{subject} must be a ResidueTrack")
     validate_residue_layout(value.layout, subject=f"{subject} layout")
+    if len(value.values) != value.layout.length:
+        raise ValueError(f"{subject} values length must equal layout length")
     return value
 
 
@@ -89,6 +91,7 @@ def _validate_function_annotations(value: object) -> None:
         value.layout,
         subject="function annotation conditioning layout",
     )
+    validate_canonical_function_annotations(value.layout, value.annotations)
 
 
 def _conditioning_port_type(

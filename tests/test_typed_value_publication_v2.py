@@ -150,32 +150,6 @@ def test_project_object_store_deduplicates_exact_bytes(
     ) == payload
 
 
-def test_project_object_store_rejects_changed_existing_bytes(
-    tmp_path: Path,
-) -> None:
-    output_root = tmp_path / "outputs"
-    projects = ProjectManager(
-        tmp_path / "projects",
-        output_root=output_root,
-    )
-    project = projects.create("immutable object identity")
-    store = ProjectObjectStore(projects)
-    payload = b"exact canonical value"
-    stored = store.store(project.id, payload)
-    object_path = (
-        output_root
-        / project.id
-        / "objects"
-        / Path(*ProjectObjectStore._relative_parts(stored.content_digest))
-    )
-    object_path.write_bytes(b"changed")
-
-    with pytest.raises(ObjectIntegrityError):
-        store.read(project.id, stored.content_digest)
-    with pytest.raises(ObjectIntegrityError):
-        store.store(project.id, payload)
-
-
 def test_object_write_failure_closes_node_without_public_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

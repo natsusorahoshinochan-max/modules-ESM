@@ -5,12 +5,12 @@ from __future__ import annotations
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ObservationPropagationDefinition,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ObservationPropagation
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -52,7 +52,7 @@ def _build(operation: str):
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
     propagation = (
-        ObservationPropagationDefinition(
+        ObservationPropagation(
             mode="union",
             output_port="scores",
             input_ports=("scores_a", "scores_b", "scores_c"),
@@ -63,11 +63,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"collection_ops.{operation}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"collection_ops.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"collection_ops.{operation}.method",
         ),

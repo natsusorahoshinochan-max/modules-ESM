@@ -3,13 +3,11 @@ title: Align related structure Candidates
 summary: Aligns every subject-reference entry from one explicit Candidate relation using exact Candidate-associated residue axes.
 category: structure_comparison
 inputs:
-  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Nonempty subject structure Candidate scope.}
-  - {name: subject_residue_axes, port_type_id: structure_transform.candidate_resolved_residue_axis_associations, required: true, multiplicity: one, scientific_meaning: Exact-reference-associated subject axes.}
-  - {name: references, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Nonempty reference structure Candidate scope.}
-  - {name: reference_residue_axes, port_type_id: structure_transform.candidate_resolved_residue_axis_associations, required: true, multiplicity: one, scientific_meaning: Exact-reference-associated reference axes.}
-  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Ordered exact subject-to-reference relation; references may be shared.}
+  - {name: subject_residue_axes, port_type_id: structure_transform.candidate_resolved_residue_axis_associations, required: true, multiplicity: one, scientific_meaning: Nonempty exact-reference-associated subject axes whose subject set is the complete subject scope of the relation.}
+  - {name: reference_residue_axes, port_type_id: structure_transform.candidate_resolved_residue_axis_associations, required: true, multiplicity: one, scientific_meaning: Nonempty exact-reference-associated reference axes whose subject set is the complete reference scope of the relation.}
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Ordered exact subject-to-reference relation; references may be shared, the relation must cover both axis scopes exactly, and its order is the order of the emitted alignment evidence.}
 outputs:
-  - {name: alignments, port_type_id: structure_comparison.alignment_evidence, required: true, multiplicity: many, scientific_meaning: One alignment evidence value per relation entry.}
+  - {name: alignments, port_type_id: structure_comparison.alignment_evidence, required: true, multiplicity: many, scientific_meaning: One alignment evidence value per relation entry, in relation order.}
 parameter_groups: []
 node_parameters:
   pin_matching_chain_ids:

@@ -52,7 +52,15 @@ def _schema_example(schema: dict[str, Any]) -> Any:
     if "oneOf" in schema:
         return _schema_example(schema["oneOf"][0])
     if "anyOf" in schema:
-        return _schema_example(schema["anyOf"][0])
+        alternative = schema["anyOf"][0]
+        if schema.get("type") == "object":
+            # Presence alternatives add required fields to the shared object.
+            properties = {**schema.get("properties", {}), **alternative.get("properties", {})}
+            required = dict.fromkeys([
+                *schema.get("required", []), *alternative.get("required", []),
+            ])
+            return {name: _schema_example(properties[name]) for name in required}
+        return _schema_example(alternative)
 
     value_type = schema.get("type")
     if value_type == "object":

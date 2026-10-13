@@ -5,13 +5,14 @@ from __future__ import annotations
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
+    CandidateSelectionConsumptionDefinition,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ObservationSelectorConsumptionDefinition,
     ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -31,6 +32,7 @@ OPERATIONS = (
     "weighted_rank",
     "pareto",
     "diversity",
+    "manual",
 )
 MULTI_OBJECTIVE_OPERATIONS = frozenset(
     {"weighted_rank", "pareto", "diversity"}
@@ -55,11 +57,11 @@ def _factory(operation: str):
 def _binding(operation: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"selection.{operation}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"selection.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"selection.{operation}.method",
         ),
@@ -84,7 +86,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         cacheable=True,
         selection_objective_consumption=(
             None
-            if operation == "filter"
+            if operation in {"filter", "manual"}
             else SelectionObjectiveConsumptionDefinition(
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
@@ -101,9 +103,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
                 candidate_output_port="candidates",
-                selector_id_parameter="selector_id",
+                selector_ids_parameter="selector_ids",
             )
             if operation == "filter"
+            else None
+        ),
+        candidate_selection_consumption=(
+            CandidateSelectionConsumptionDefinition(
+                candidate_input_port="candidates",
+                candidate_output_port="candidates",
+            )
+            if operation == "manual"
             else None
         ),
     )

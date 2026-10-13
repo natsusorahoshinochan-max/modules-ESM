@@ -143,7 +143,9 @@ def test_user_can_compare_selection_strategies_and_change_only_top_k(
     locked_nodes = {
         node["node_id"]: node for node in locked_payload["nodes"]
     }
-    assert locked_nodes["select-filter"]["node_parameters"]["threshold"] == 0.95
+    assert locked_nodes["select-filter"]["node_parameters"]["expression"] == [
+        {"selector_index": 0, "operator": ">=", "threshold": 0.95}
+    ]
     assert all(
         locked_nodes[node_id]["node_parameters"]["out_of_scope_policy"]
         == "ignore"

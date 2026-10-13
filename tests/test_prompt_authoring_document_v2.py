@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from datatypes.i_json import admit_i_json
 from core.catalog.builder import build_frozen_catalog
 from core.parameters.contract import ParameterValueAdmissionError, admit_values
 from core.parameters.model import ParameterContract
@@ -26,16 +27,6 @@ def authoring_parameter_contract() -> ParameterContract:
 def test_public_and_catalog_authoring_documents_share_nested_contracts(
     authoring_parameter_contract: ParameterContract,
 ) -> None:
-    preserve_tracks = {
-        track: "preserve"
-        for track in (
-            "sequence",
-            "coordinates",
-            "secondary_structure",
-            "sasa",
-            "function_annotations",
-        )
-    }
     valid = {
         "chains": [{"chain_id": "A", "length": 2}],
         "target_residues": [
@@ -100,7 +91,9 @@ def test_public_and_catalog_authoring_documents_share_nested_contracts(
                         "target_residue_id": "A:new",
                     },
                 ],
-                "track_decisions": preserve_tracks,
+                "track_adoptions": [],
+                "adopt_annotations": [],
+                "remove_annotations": [],
             }
         ],
     }
@@ -162,16 +155,18 @@ def test_public_and_catalog_authoring_documents_share_nested_contracts(
                 {
                     "source_index": 0,
                     "correspondence": [{"disposition": "match"}],
-                    "track_decisions": preserve_tracks,
+                    "track_adoptions": [],
+                "adopt_annotations": [],
+                "remove_annotations": [],
                 }
             ]
         },
     )
 
-    admit_values(authoring_parameter_contract, {"document": valid})
+    admit_values(authoring_parameter_contract, admit_i_json({"document": valid}))
     validate_schema("#/$defs/PromptAuthoringDocument", valid)
     for document in invalid:
         with pytest.raises(ParameterValueAdmissionError):
-            admit_values(authoring_parameter_contract, {"document": document})
+            admit_values(authoring_parameter_contract, admit_i_json({"document": document}))
         with pytest.raises(ProtocolValidationError):
             validate_schema("#/$defs/PromptAuthoringDocument", document)

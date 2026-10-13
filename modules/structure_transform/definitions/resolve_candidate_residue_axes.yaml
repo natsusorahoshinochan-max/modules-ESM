@@ -1,13 +1,13 @@
 node_type_id: structure_transform.resolve_candidate_residue_axes
 title: Resolve Candidate structure residue axes
-summary: Resolves every structure Candidate into an exact-reference-associated residue axis without using collection position as correspondence.
+summary: Resolves every structure Candidate into an exact-reference-associated residue axis, preserving the input Candidate Collection order as the output entry order.
 category: structure_transform
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
     required: true
     multiplicity: one
-    scientific_meaning: Nonempty structure Candidates whose admitted CandidateDataReference values are the sole association keys.
+    scientific_meaning: Nonempty structure Candidates whose admitted CandidateDataReference values are the sole association keys and whose collection order becomes the output entry order.
   - name: modified_residue_normalizations
     port_type_id: structure_transform.candidate_modified_residue_normalization_associations
     required: false
@@ -18,6 +18,6 @@ outputs:
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: One resolved axis per exact structure Candidate reference, canonically ordered only for serialization.
+    scientific_meaning: One resolved axis per exact structure Candidate reference, ordered exactly as the input structure Candidate Collection; that entry order is the sole owner of every downstream parent slot and per-parent output order.
 parameter_groups: []
 node_parameters: {}

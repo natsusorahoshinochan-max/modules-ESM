@@ -234,23 +234,7 @@ def _workflow_catalog(
                     "required": True,
                 }
             },
-            "produced_observations": [
-                {
-                    "output_port": "text",
-                    "output_partition": "default",
-                    "metric": metric.reference(),
-                    "context_profile": {"kind": "intrinsic"},
-                    "subject_grain": "candidate",
-                    "source_role": "subject",
-                    "subject_direction": "output",
-                    "subject_port": "text",
-                    "guaranteed_multiplicity": (
-                        "one"
-                        if source_output_multiplicity == "one"
-                        else "one_or_more"
-                    ),
-                }
-            ],
+            "produced_observations": [],
         },
     )
     sink_binding = _catalog_contract(
@@ -1186,7 +1170,7 @@ def test_public_draft_commit_journey_uses_the_stable_commit_id(
         workflow_payload["workflow_id"] = project_id
 
         saved_response = client.put(
-            f"/api/v2/projects/{project_id}/workflow/draft",
+            f"/api/v2/projects/{project_id}/workspace",
             json={
                 "workflow": workflow_payload,
             },
@@ -1210,9 +1194,9 @@ def test_public_draft_commit_journey_uses_the_stable_commit_id(
 
     assert saved_response.status_code == 200
     saved = saved_response.json()
-    validate_response("save_project_workflow_draft", 200, saved)
-    assert saved["draft_revision"] == 1
-    assert loaded_response.json() == saved
+    validate_response("save_project_workspace", 200, saved)
+    assert saved["draft"]["draft_revision"] == 1
+    assert loaded_response.json() == saved["draft"]
     validate_response(
         "project_workflow_draft",
         200,

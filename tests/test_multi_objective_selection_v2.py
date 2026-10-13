@@ -22,7 +22,7 @@ from core.catalog.builder import (
 from core.catalog.model import (
     FrozenCatalog,
 )
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from tests.support.contract_test_kit import ModulePackageContractCase, execute_module_package_case
 from core.workflow.compiler import (
     CompilationRequest,
@@ -573,11 +573,9 @@ def test_compiler_rejects_observation_selector_with_multiple_consumers(
             node_type_id="selection.filter",
             binding_id="selection.filter.direct",
             node_parameters={
-                "selector_id": "fixed-3gb1-raw",
-                "operator": ">=",
-                "threshold": threshold,
+                "selector_ids": ["fixed-3gb1-raw"],
+                "expression": [{"selector_index": 0, "operator": ">=", "threshold": threshold}],
                 "out_of_scope_policy": "ignore",
-                "tie_policy": "candidate_id_ascending",
             },
             binding_parameters={},
         )
@@ -651,7 +649,7 @@ def test_compiler_rejects_each_unconsumed_objective_in_mixed_workflow(
             "objective_ids",
             ["fixed-3gb1", "paired-esm3"],
         ),
-        ("filter", "selector_id", "fixed-3gb1-raw"),
+        ("filter", "selector_ids", ["fixed-3gb1-raw"]),
     ),
 )
 def test_compiler_resolves_selection_consumers_from_normalized_defaults(
@@ -667,8 +665,7 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
     node_parameters: dict[str, object]
     if operation == "filter":
         node_parameters = {
-            "operator": ">=",
-            "threshold": 0.5,
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
         }
     else:
         node_parameters = {}
@@ -710,6 +707,7 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
     expected = tuple(default) if isinstance(default, list) else default
     assert plan_node.node_parameters[parameter_name] == expected
     if operation == "filter":
+        assert plan_node._runtime.observation_selectors[0] is workflow.observation_selectors[0]
         assert [
             item.selector_id
             for item in plan_node._runtime.observation_selectors
@@ -864,7 +862,7 @@ def test_multi_objective_nodes_reject_implicit_or_incomplete_selection() -> None
 
 @pytest.mark.parametrize(
     ("operation", "parameter_name"),
-    (("sort", "objective_id"), ("filter", "selector_id")),
+    (("sort", "objective_id"), ("filter", "selector_ids")),
 )
 def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
     operation: str,
@@ -879,11 +877,9 @@ def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
         }
         if operation == "sort"
         else {
-            "selector_id": "absent-selector",
-            "operator": ">=",
-            "threshold": 0.5,
+            "selector_ids": ["absent-selector"],
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
             "out_of_scope_policy": "error",
-            "tie_policy": "candidate_id_ascending",
         }
     )
     selection = WorkflowNodeInstance(
@@ -957,11 +953,9 @@ def test_selection_source_mismatch_points_to_the_implicated_edge(
             node_type_id="selection.filter",
             binding_id="selection.filter.direct",
             node_parameters={
-                "selector_id": "fixed-3gb1-raw",
-                "operator": ">=",
-                "threshold": 0.5,
+                "selector_ids": ["fixed-3gb1-raw"],
+                "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
                 "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
             },
             binding_parameters={},
         )
@@ -1077,13 +1071,13 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         ))
 
     with pytest.raises(ValueError, match="conflicting values"):
-        ScoreCollection(
+        catalog.require_port_type("score.collection").validate(ScoreCollection(
             "conflicting-fixed-observation",
             [
                 *values["scores"].entries,
                 replace(values["scores"].entries[0], value=0.99),
             ],
-        )
+        ))
 
     cross_scope = ScoreCollection(
         "cross-scope-observation",
@@ -1123,11 +1117,9 @@ def test_all_three_nodes_pass_contract_test_kit(
     catalog = _catalog()
     single_objective_parameters = {
         "filter": {
-            "selector_id": "fixed-3gb1-raw",
-            "operator": ">=",
-            "threshold": 0.5,
+            "selector_ids": ["fixed-3gb1-raw"],
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
             "out_of_scope_policy": "ignore",
-            "tie_policy": "candidate_id_ascending",
         },
         "sort": {
             "objective_id": "fixed-3gb1",
@@ -1319,7 +1311,9 @@ def test_result_identity_ignores_node_renames(
     }
 
 
-def test_selection_result_identity_ignores_objective_label_renames(
+@pytest.mark.parametrize("kind", ["objective", "selector"])
+def test_selection_result_identity_ignores_label_renames(
+    kind: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1357,6 +1351,40 @@ def test_selection_result_identity_ignores_objective_label_renames(
             )
         ),
     )
+
+    if kind == "selector":
+        selector = _selectors(catalog)[0]
+        original = replace(
+            original,
+            nodes=(
+                *original.nodes[:2],
+                WorkflowNodeInstance(
+                    node_id="select",
+                    node_type_id="selection.filter",
+                    binding_id="selection.filter.direct",
+                    node_parameters={
+                        "selector_ids": [selector.selector_id],
+                        "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
+                        "out_of_scope_policy": "ignore",
+                    },
+                    binding_parameters={},
+                ),
+            ),
+            selection_objectives=(),
+            observation_selectors=(selector,),
+        )
+        renamed_id = f"renamed-{selector.selector_id}"
+        renamed = replace(
+            original,
+            nodes=(
+                *original.nodes[:2],
+                replace(original.nodes[2], node_parameters={
+                    **dict(original.nodes[2].node_parameters),
+                    "selector_ids": [renamed_id],
+                }),
+            ),
+            observation_selectors=(replace(selector, selector_id=renamed_id),),
+        )
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
         first_committed = PublicRunClient(client).commit_workflow(
@@ -1399,10 +1427,11 @@ def test_selection_result_identity_ignores_objective_label_renames(
         for disposition in second["node_dispositions"]
         if disposition["node_id"] == "select"
     )["resolution"] == "cache_replayed"
-    assert [
-        objective["objective_id"]
-        for objective in second["selection_results"][0]["objectives"]
-    ] == list(renamed_objective_ids)
+    evidence = second["selection_results"][0]
+    if kind == "selector":
+        assert [item["selector_id"] for item in evidence["observation_selectors"]] == [renamed_id]
+    else:
+        assert [item["objective_id"] for item in evidence["objectives"]] == list(renamed_objective_ids)
 
 
 def test_consumed_objective_weight_invalidates_only_the_selection_result(
@@ -1536,6 +1565,42 @@ def test_upstream_result_identity_ignores_unrelated_downstream_utility(
     assert source_disposition["resolution"] == "cache_replayed"
 
 
+def test_catalog_observation_plans_are_shared_by_compiler_and_editor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.catalog._observation as observation_projection
+    from core.workflow.compiler import observation_options
+
+    catalog = _catalog()
+    workflow = _workflow(catalog, "weighted_rank")
+    workflow = replace(
+        workflow,
+        nodes=(*workflow.nodes, replace(_scorer(), node_id="other-scores")),
+        edges=(
+            *workflow.edges,
+            *(replace(edge, target_node_id="other-scores") for edge in _scorer_edges()),
+        ),
+    )
+    fixed = catalog.produced_observation_plan(_scorer().binding_id)
+    assert fixed.metric_facts
+    with pytest.raises(TypeError):
+        fixed.metric_facts[next(iter(fixed.metric_facts))] = None  # type: ignore[index]
+
+    def forbid_projection(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("fixed Observation facts must be resolved only at startup")
+
+    binding = catalog.require_contract("binding", _scorer().binding_id).definition
+    assert fixed.observations is binding.produced_observations
+    assert fixed.propagation is binding.observation_propagation
+    monkeypatch.setattr(observation_projection, "resolve_metric_facts", forbid_projection)
+    for _ in range(2):
+        plan = compile(CompilationRequest(workflow), catalog)
+        for node in plan.nodes:
+            if node.node_id in {"canonical-scores", "other-scores"}:
+                assert node._runtime.produced_observation_plan is fixed
+        assert observation_options(workflow, catalog, ranking=True)
+
+
 def test_resolved_plan_executes_observations_objectives_and_selectors_without_catalog_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1550,11 +1615,9 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
         node_type_id="selection.filter",
         binding_id="selection.filter.direct",
         node_parameters={
-            "selector_id": "fixed-3gb1-raw",
-            "operator": ">=",
-            "threshold": 0.5,
+            "selector_ids": ["fixed-3gb1-raw"],
+            "expression": [{"selector_index": 0, "operator": ">=", "threshold": 0.5}],
             "out_of_scope_policy": "ignore",
-            "tie_policy": "candidate_id_ascending",
         },
         binding_parameters={},
     )

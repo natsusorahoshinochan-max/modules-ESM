@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+from datatypes.observation import PairwiseContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import DefinitionResource, load_method_definitions
 from core.catalog.port_contract import BehaviorReference
 from core.operation import (
@@ -122,35 +126,29 @@ STATIC_METHODS = load_method_definitions(
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    method = ContractIdentity(
+    method = ExactContractReference(
         "method",
         f"structure_annotation.{operation}.method",
     )
     produced = ()
     if operation == "secondary_structure_agreement":
         produced = (
-            ProducedObservationDefinition(
+            ProducedObservation(
                 output_port="scores",
                 output_partition="default",
-                metric=ContractIdentity(
+                metric=ExactContractReference(
                     "metric",
                     "structure_annotation.secondary_structure_agreement",
                 ),
-                context_profile={
-                    "kind": "pairwise",
-                    "subject_role": "subject",
-                    "reference_role": "reference",
-                    "pairing_mode": "fixed_reference",
-                    "normalization": "exact-SS8-present-residue",
-                },
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="input",
-                subject_port="subjects",
-                reference_direction="input",
-                reference_port="references",
-                axis_direction="input",
-                axis_port="subject_residue_axes",
+                context_profile=PairwiseContextProfile(
+                    subject_role="subject",
+                    reference_role="reference",
+                    pairing_mode="fixed_reference",
+                    normalization="exact-SS8-present-residue",
+                ),
+                subject_input="subject_residue_axes",
+                reference_source=ObservationPortSource("input", "references"),
+                axis_source=ObservationPortSource("input", "subject_residue_axes"),
                 guaranteed_multiplicity="one",
             ),
         )
@@ -159,7 +157,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     execution_route = "adapter" if is_dssp else "direct"
     return ExecutionBindingDefinition(
         binding_id=f"structure_annotation.{operation}.{route}",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"structure_annotation.{operation}",
         ),

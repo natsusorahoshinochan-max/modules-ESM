@@ -160,11 +160,6 @@ Pytest 最终报告为 `26 passed, 32 warnings in 2095.02s`，无 failure、erro
 也不能替代一个新 Git tree 自己的 fresh official regression。旧的 partial run、单独 profile 或
 精确重跑都不能组合成 `completion_eligible=true` 的发布证据。
 
-提交 `816f31b` 的 `run_20260720_171825_18288` 曾在其自身 tree 上取得 local-open `12 + 1`、
-Biohub `26/26` 与 `completion_eligible=true`；它现在只是不同行为基线的历史证据。当前实现
-提交 `1972d38` 已取得直接 Biohub-only `26/26`，项目负责人也已接受现有离线、local、
-local-open 与 Biohub 证据，并决定不再运行长时间的组合 `all`。这是一项项目收尾判定，不会把
-不同根目录拼装为发布证据，也不声称存在新的 current-identity
-`completion_eligible=true` summary；该治理决定显式覆盖已退休项目书的单一 fresh-root
-项目完成门，不表示历史门本身已经通过。当前验证状态和严格发布规则见
-[`backend-verification.md`](../backend-verification.md)。
+当前门禁与 Campaign 定义见 [verification.backend](../../verification/backend.py) 和
+[acceptance_campaign.py](../../verification/acceptance_campaign.py)；已完成验收的范围与证据见
+[集成交付与验收记录](../2026-09-19-webui-integration-progress.md)。

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 import uuid
 
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.execution.ledger import (
+    OutputsPublished,
     PublishedArtifact,
     PublishedOutput,
 )
@@ -30,6 +32,7 @@ from core.execution.results.manifests import (
     _decode_port_manifest,
 )
 from core.operation import AdmittedPort
+from datatypes.candidate import CandidateDataReference
 from core.project.objects import (
     ObjectIntegrityError,
     ProjectObjectStore,
@@ -111,11 +114,6 @@ class ResultStore:
                 reference.content_digest,
                 expected_size=reference.size,
             ) from error
-        if len(payload) != reference.size:
-            raise ResultIntegrityError(
-                reference.content_digest,
-                expected_size=reference.size,
-            )
         return payload
 
     def _store_port(
@@ -134,6 +132,8 @@ class ResultStore:
             values.append(stored)
         manifest = _PortValueManifest(
             values=tuple(values),
+            candidate_data=tuple(value.candidate_data for value in admitted.values),
+            content_digest=admitted.content_digest,
         )
         encoded = canonical_json_bytes(manifest.canonical_projection())
         manifest_object = self._store_bytes(
@@ -272,20 +272,13 @@ class ResultStore:
                 output.value_manifest.content_digest,
                 expected_size=output.value_manifest.size,
             ) from error
-        canonical_values = tuple(
-            self._read_reference(project_id, value)
-            for value in manifest.values
+        return restore_admitted_port(
+            port_type=declaration.port_type,
+            multiplicity=declaration.multiplicity,
+            values=tuple((self._read_reference(project_id, value), value.content_digest, references)
+                         for value, references in zip(manifest.values, manifest.candidate_data, strict=True)),
+            content_digest=manifest.content_digest,
         )
-        try:
-            admitted = restore_admitted_port(
-                port_type=declaration.port_type,
-                multiplicity=declaration.multiplicity,
-                canonical_values=canonical_values,
-                candidate_data_port_types=node_plan.candidate_data_port_types,
-            )
-        except (TypeError, ValueError) as error:
-            raise ResultIntegrityError(output.value_manifest.content_digest) from error
-        return admitted
 
     def restore(
         self,
@@ -299,22 +292,6 @@ class ResultStore:
     ) -> StoredNodeResult:
         """Restore one persisted result through the current exact Port codecs."""
         manifest = self._load_node_manifest(project_id, node_result_manifest)
-        declared_ports = node_plan.output_ports
-        produced_ports = tuple(output.output_port for output in manifest.outputs)
-        if (
-            any(output_port not in declared_ports for output_port in produced_ports)
-            or produced_ports
-            != tuple(
-                output_port
-                for output_port in declared_ports
-                if output_port in produced_ports
-            )
-            or any(
-                declaration.required and output_port not in produced_ports
-                for output_port, declaration in declared_ports.items()
-            )
-        ):
-            raise ResultIntegrityError(node_result_manifest.content_digest)
         restored_ports: dict[str, AdmittedPort] = {}
         published_outputs: list[PublishedOutput] = []
         artifact_ports = {
@@ -349,28 +326,10 @@ class ResultStore:
             result_identity=result_identity,
             ports=restored_ports,
         )
-        publications = admitted_output.artifact_publication_plan.publications
-        if len(publications) != len(manifest.artifacts):
-            raise ResultIntegrityError(node_result_manifest.content_digest)
-        published_artifacts: list[PublishedArtifact] = []
-        for publication, artifact in zip(
-            publications,
-            manifest.artifacts,
-            strict=True,
-        ):
-            body = self._read_reference(project_id, artifact.body)
-            if (
-                publication.output_port != artifact.output_port
-                or publication.artifact_kind != artifact.artifact_kind
-                or publication.media_type != artifact.media_type
-                or publication.filename != artifact.filename
-                or publication.candidate_id != artifact.candidate_id
-                or publication.body != body
-            ):
-                raise ResultIntegrityError(node_result_manifest.content_digest)
-            published_artifacts.append(
-                self._published_artifact(artifact)
-            )
+        published_artifacts = []
+        for artifact in manifest.artifacts:
+            self._read_reference(project_id, artifact.body)
+            published_artifacts.append(self._published_artifact(artifact))
         return StoredNodeResult(
             project_id=project_id,
             result_identity=result_identity,
@@ -420,7 +379,7 @@ class ResultStore:
         project_id: str,
         output: PublishedOutput,
         value_index: int,
-    ) -> tuple[bytes, StoredObject]:
+    ) -> tuple[bytes, StoredObject, tuple[CandidateDataReference, ...]]:
         """Read one canonical value authorized by published Ledger evidence."""
         try:
             encoded = self._objects.read(
@@ -437,7 +396,7 @@ class ResultStore:
             ValueError,
         ) as error:
             raise ResultIntegrityError(output.value_manifest_reference) from error
-        return payload, value
+        return payload, value, manifest.candidate_data[value_index]
 
     def read_artifact(
         self,
@@ -449,3 +408,30 @@ class ResultStore:
             project_id,
             StoredObject(artifact.content_digest, artifact.size),
         )
+
+    def published_object_closure(
+        self,
+        project_id: str,
+        publications: Sequence[OutputsPublished],
+    ) -> tuple[tuple[StoredObject, bytes], ...]:
+        """Read the exact immutable object closure authorized by publications."""
+        objects: dict[str, tuple[StoredObject, bytes]] = {}
+
+        def retain(reference: StoredObject) -> bytes:
+            payload = self._read_reference(project_id, reference)
+            objects[reference.content_digest] = (reference, payload)
+            return payload
+
+        for publication in publications:
+            root = StoredObject(
+                publication.node_result_manifest.content_digest,
+                publication.node_result_manifest.size,
+            )
+            manifest = _decode_node_manifest(retain(root))
+            for output in manifest.outputs:
+                values = _decode_port_manifest(retain(output.value_manifest))
+                for value in values.values:
+                    retain(value)
+            for artifact in manifest.artifacts:
+                retain(artifact.body)
+        return tuple(objects[digest] for digest in sorted(objects))

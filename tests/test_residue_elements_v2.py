@@ -10,7 +10,7 @@ import pytest
 
 from core.catalog.errors import PortValueError
 from datatypes.candidate import CandidateDataReference
-from datatypes.prompt import ProteinPrompt
+from datatypes.prompt import FunctionAnnotation, ProteinPrompt
 from datatypes.residue import CandidateResidueTrack, ResidueLayout, ResidueTrack
 from datatypes.structure import NamedAtomCoordinates
 from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
@@ -129,7 +129,7 @@ def test_scientific_value_owners_admit_shared_elements(
     with pytest.raises(ValueError, match=rf"\[1\].*{diagnostic}"):
         validate_protein_prompt(invalid_prompt)
     with pytest.raises(PortValueError, match=rf"\[1\].*{diagnostic}"):
-        PROTEIN_PROMPT_PORT_TYPE.encode(invalid_prompt)
+        PROTEIN_PROMPT_PORT_TYPE.validate(invalid_prompt)
 
     conditioning = next(
         port for port in RESIDUE_CONDITION_PORT_TYPES
@@ -138,7 +138,7 @@ def test_scientific_value_owners_admit_shared_elements(
     track = ResidueTrack(layout, (None, valid))
     assert conditioning.decode(conditioning.encode(track)) == track
     with pytest.raises(PortValueError, match=rf"values\[1\].*{diagnostic}"):
-        conditioning.encode(ResidueTrack(layout, (None, invalid)))
+        conditioning.validate(ResidueTrack(layout, (None, invalid)))
 
     if kind in ("secondary_structure", "sasa"):
         observed = next(
@@ -154,4 +154,36 @@ def test_scientific_value_owners_admit_shared_elements(
             # Canonical JSON encodes 0.0 as 0; the nominal decoder restores float.
             assert type(decoded.track.values[1]) is float
         with pytest.raises(PortValueError, match=rf"values\[1\].*{diagnostic}"):
-            observed.encode(CandidateResidueTrack(subject, ResidueTrack(layout, (None, invalid))))
+            observed.validate(CandidateResidueTrack(subject, ResidueTrack(layout, (None, invalid))))
+
+
+@pytest.mark.parametrize("coordinate", [(True, 0.0, 0.0), ("1", 0.0, 0.0)])
+def test_prompt_owner_rejects_uncoerced_coordinates(coordinate: tuple[object, ...]) -> None:
+    atoms = NamedAtomCoordinates((("CA", coordinate),))
+    assert type(atoms.atoms[0][1][0]) is type(coordinate[0])
+    prompt = ProteinPrompt(ResidueLayout(("A:1",)), (None,), (atoms,))
+    with pytest.raises(PortValueError, match="finite Cartesian 3-vector"):
+        PROTEIN_PROMPT_PORT_TYPE.validate(prompt)
+
+
+@pytest.mark.parametrize("field", ["sequence", "coordinates", "secondary_structure", "sasa"])
+def test_prompt_owner_rejects_track_length_mismatch(field: str) -> None:
+    prompt = replace(
+        ProteinPrompt(ResidueLayout(("A:1", "A:2")), (None, None), (None, None)),
+        **{field: (None,)},
+    )
+    with pytest.raises(PortValueError, match="length"):
+        PROTEIN_PROMPT_PORT_TYPE.validate(prompt)
+
+
+@pytest.mark.parametrize("annotations", [
+    (FunctionAnnotation("late", "A:2", "A:2"), FunctionAnnotation("early", "A:1", "A:1")),
+    (FunctionAnnotation("site", "A:1", "A:2"), FunctionAnnotation("site", "A:1", "A:2")),
+])
+def test_prompt_owner_rejects_noncanonical_annotation_order(annotations: tuple[FunctionAnnotation, ...]) -> None:
+    prompt = ProteinPrompt(
+        ResidueLayout(("A:1", "A:2")), (None, None), (None, None),
+        function_annotations=annotations,
+    )
+    with pytest.raises(PortValueError, match="unique canonical ordering"):
+        PROTEIN_PROMPT_PORT_TYPE.validate(prompt)

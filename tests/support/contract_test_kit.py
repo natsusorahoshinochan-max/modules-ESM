@@ -27,11 +27,13 @@ from core.execution.ledger import (
     RunProjection,
 )
 from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.output_admission.port_values import _admit_fresh_port
 from core.execution.runtime import V2RunService
 from core.project.manager import ProjectManager
 from core.scoring.selection import ObservationSelector, SelectionObjective
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import WorkflowDocument, WorkflowEdge, WorkflowNodeInstance
+from datatypes.i_json import validate_i_json
 from protein_workbench_public.ledger_codec import encode_event, encode_run_projection
 from tests.support.result_store import result_store
 
@@ -107,8 +109,16 @@ def verify_module_package_port(
             f"Port case references a type not owned by {registration.package_id}"
         )
     port_type = catalog.require_port_type(case.type_id)
+    data_types = {
+        item.type_id: item for item in catalog.port_types
+        if item.type_id in {"protein.sequence", "protein.structure"}
+    }
     try:
-        encoded = port_type.encode(case.valid_value)
+        admitted = _admit_fresh_port(
+            port_type=port_type, multiplicity="one", values=(case.valid_value,),
+            candidate_data_port_types=data_types,
+        )
+        encoded = admitted.values[0].canonical_bytes
         decoded = port_type.decode(encoded)
         if decoded != case.valid_value or port_type.encode(decoded) != encoded:
             raise ModulePackageConformanceError(
@@ -120,7 +130,10 @@ def verify_module_package_port(
         ) from error
     for invalid in case.invalid_values:
         try:
-            port_type.encode(invalid)
+            _admit_fresh_port(
+                port_type=port_type, multiplicity="one", values=(invalid,),
+                candidate_data_port_types=data_types,
+            )
         except PortValueError:
             continue
         raise ModulePackageConformanceError(f"{case.type_id} accepted an invalid value")
@@ -220,6 +233,7 @@ def _execute_case(
         observation_selectors=case.observation_selectors,
         selection_objectives=case.selection_objectives,
     )
+    validate_i_json(workflow.canonical_projection())
     committed = authoring.commit(
         project.id,
         workflow=workflow,

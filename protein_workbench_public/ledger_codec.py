@@ -56,7 +56,7 @@ def _error(value: StructuredError) -> dict[str, Any]:
     _, projected = project_structured_error(
         value.code,
         value.message,
-        thaw_i_json(value.details),
+        value.details,
         value.correlation_id,
     )
     return projected
@@ -181,6 +181,15 @@ def _selection(value: SelectionResult) -> dict[str, Any]:
             _observation_selector(selector)
             for selector in value.observation_selectors
         ]
+    if value.selected_candidate_references is not None:
+        result["selected_candidate_references"] = [
+            {
+                "candidate_id": item.candidate_id,
+                "data_type_id": item.data_type_id,
+                "content_digest": item.content_digest,
+            }
+            for item in value.selected_candidate_references
+        ]
     return result
 
 
@@ -274,6 +283,8 @@ def encode_run_projection(projection: RunProjection) -> dict[str, Any]:
             for artifact in publication.artifacts
         ],
     }
+    if projection.execution_scope is not None:
+        result["scope"] = projection.execution_scope.projection()
     if projection.selection_results is not None:
         result["selection_results"] = [
             _selection(selection) for selection in projection.selection_results

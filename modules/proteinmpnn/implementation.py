@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from core.operation import (
     OperationResources,
@@ -26,6 +26,9 @@ from datatypes.observation import (
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
 from modules.proteinmpnn.domain import ProteinMPNNConstraints
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociations,
+)
 
 from .adapter import LocalProteinMPNNAdapter
 from .domain import (
@@ -48,78 +51,36 @@ def _require_sequence_axis(
         raise ValueError(f"{subject} sequence must use the exact resolved residue axis")
 
 
-class _ResolvedAxisAssociations(Protocol):
-    """Structural view of the admitted resolved-axis capability value."""
-
-    def axis_for(
-        self,
-        subject: CandidateDataReference,
-    ) -> ResolvedStructureResidueAxis: ...
-
-
-def _reference_key(
-    reference: CandidateDataReference,
-) -> tuple[str, str, str]:
-    return (
-        reference.candidate_id,
-        reference.data_type_id,
-        reference.content_digest,
-    )
-
-
-def _structure_candidates_with_axes(
+def _resolved_axis_entries(
     call: OperationCall,
 ) -> tuple[
     tuple[
-        Candidate,
         CandidateDataReference,
         ResolvedStructureResidueAxis,
         ResidueAxisReference,
     ],
     ...,
 ]:
-    admitted = call.inputs["structure_candidates"]
+    """Read the ordered resolved-axis value without re-validating it.
+
+    The admitted value already binds every exact structure subject to its axis,
+    and its entry order is the owner of every parent slot. The scientific-axis
+    projection is the same value's own projection, so its references line up
+    with the entries and are used directly.
+    """
     axis_input = call.inputs["structure_residue_axes"]
-    collection = cast(CandidateCollection, admitted.value)
     associations = cast(
-        _ResolvedAxisAssociations,
+        CandidateResolvedResidueAxisAssociations,
         axis_input.value,
     )
-    if collection.item_type != "protein.structure" or not collection.items:
-        raise ValueError(
-            "ProteinMPNN requires exact structure Candidates and resolved axes"
+    return tuple(
+        (entry.subject, entry.residue_axis, axis_reference)
+        for entry, axis_reference in zip(
+            associations.entries,
+            axis_input.scientific_axes,
+            strict=True,
         )
-
-    references = admitted.candidate_data
-    canonical_references = tuple(
-        sorted(references, key=_reference_key)
     )
-    if axis_input.candidate_data != canonical_references:
-        raise ValueError(
-            "ProteinMPNN resolved axes must cover exact structure references"
-        )
-
-    result = []
-    for candidate, reference in zip(
-        collection.items,
-        references,
-        strict=True,
-    ):
-        residue_axis = associations.axis_for(reference)
-        axis_reference = next(
-            axis
-            for axis in axis_input.scientific_axes
-            if axis.source == reference
-        )
-        result.append(
-            (
-                candidate,
-                reference,
-                residue_axis,
-                axis_reference,
-            )
-        )
-    return tuple(result)
 
 
 class ProteinMPNNConstraintsImplementation:
@@ -180,7 +141,7 @@ class ProteinMPNNDesignImplementation:
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        parents = _structure_candidates_with_axes(call)
+        parents = _resolved_axis_entries(call)
         seed = call.node_parameters["effective_seed"]
         count = call.node_parameters["num_sequences"]
         temperature = call.node_parameters["temperature"]
@@ -203,7 +164,6 @@ class ProteinMPNNDesignImplementation:
         )
         candidates: list[Candidate] = []
         for parent_index, (
-            parent_candidate,
             parent_reference,
             residue_axis,
             _axis_reference,
@@ -217,7 +177,7 @@ class ProteinMPNNDesignImplementation:
                 raise ValueError(
                     "constraints must use the exact resolved residue axis"
                 )
-            parent_ids = (parent_candidate.candidate_id,)
+            parent_ids = (parent_reference.candidate_id,)
             call_seed = self._call_seed(
                 seed,
                 parent_reference.content_digest,
@@ -282,13 +242,12 @@ class ProteinMPNNScoreImplementation:
         call: OperationCall,
     ) -> tuple[
         Candidate,
-        Candidate,
         CandidateDataReference,
         CandidateDataReference,
         ResolvedStructureResidueAxis,
         ResidueAxisReference,
     ]:
-        parents = _structure_candidates_with_axes(call)
+        parents = _resolved_axis_entries(call)
         admitted_sequences = call.inputs["sequence_candidates"]
         sequences = cast(CandidateCollection, admitted_sequences.value)
         if (
@@ -300,16 +259,15 @@ class ProteinMPNNScoreImplementation:
                 "ProteinMPNN scoring requires one structure Candidate and "
                 "one sequence Candidate"
             )
-        structure, structure_reference, residue_axis, axis_reference = parents[0]
+        structure_reference, residue_axis, axis_reference = parents[0]
         sequence = sequences.items[0]
-        if sequence.parent_ids != (structure.candidate_id,):
+        if sequence.parent_ids != (structure_reference.candidate_id,):
             raise ValueError(
                 "ProteinMPNN scoring inputs do not identify one sequence "
                 "Candidate and its exact parent structure"
             )
         sequence_reference = admitted_sequences.candidate_data[0]
         return (
-            structure,
             sequence,
             structure_reference,
             sequence_reference,
@@ -319,7 +277,6 @@ class ProteinMPNNScoreImplementation:
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         (
-            _structure_candidate,
             sequence_candidate,
             _structure_reference,
             sequence_reference,

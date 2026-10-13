@@ -200,8 +200,6 @@ class ResidueTrack(Generic[T]):
     values: tuple[T | None, ...]
 
     def __post_init__(self) -> None:
-        if type(self.layout) is not ResidueLayout:
-            raise ValueError("ResidueTrack layout must be a ResidueLayout")
         object.__setattr__(
             self,
             "values",
@@ -213,11 +211,6 @@ class ResidueTrack(Generic[T]):
                 )
             ),
         )
-        if len(self.values) != self.layout.length:
-            raise ValueError(
-                "ResidueTrack values length "
-                f"{len(self.values)} != layout length {self.layout.length}"
-            )
 
     def __len__(self) -> int:
         return len(self.values)
@@ -229,16 +222,6 @@ class CandidateResidueTrack(Generic[T]):
 
     subject: CandidateDataReference
     track: ResidueTrack[T]
-
-    def __post_init__(self) -> None:
-        if type(self.subject) is not CandidateDataReference:
-            raise ValueError(
-                "CandidateResidueTrack subject must be a CandidateDataReference"
-            )
-        if type(self.track) is not ResidueTrack:
-            raise ValueError(
-                "CandidateResidueTrack track must be a ResidueTrack"
-            )
 
 
 def reindex_residue_track(

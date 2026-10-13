@@ -6,6 +6,7 @@
 .workbuddy/
 skills-lock.json
 .local/
+/.scratch/
 keys/
 *.egg-info/
 build/

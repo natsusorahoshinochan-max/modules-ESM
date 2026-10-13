@@ -9,7 +9,7 @@ from typing import Any
 from core.catalog.builder import build_frozen_catalog
 from core.project.manager import WEBUI_3GB1_PROJECT_ID
 from core.workflow.compiler import CompilationRequest, compile
-from core.workflow.document import workflow_document_from_canonical
+from protein_workbench_public.workflow_codec import decode_workflow_document
 from protein_workbench_public.bootstrap import module_registrations
 
 
@@ -177,9 +177,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         e("select-paired-sequences", "relation", "relation-stage-one", "right_relation"),
         e("fold-stage-one", "structure_candidates", "axes-stage-one", "structure_candidates"),
         e("take-top-four", "candidates", "axes-generated-top-four", "structure_candidates"),
-        e("fold-stage-one", "structure_candidates", "align-stage-one", "subjects"),
         e("axes-stage-one", "residue_axes", "align-stage-one", "subject_residue_axes"),
-        e("take-top-four", "candidates", "align-stage-one", "references"),
         e("axes-generated-top-four", "residue_axes", "align-stage-one", "reference_residue_axes"),
         e("relation-stage-one", "relation", "align-stage-one", "relation"),
         e("align-stage-one", "alignments", "tm-stage-one", "alignments"),
@@ -192,7 +190,6 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         e("scores-stage-one", "scores", "rank-stage-one", "scores"),
         e("rank-stage-one", "candidates", "take-top-two", "candidates"),
         e("take-top-two", "candidates", "axes-top-two", "structure_candidates"),
-        e("take-top-two", "candidates", "design-children", "structure_candidates"),
         e("axes-top-two", "residue_axes", "design-children", "structure_residue_axes"),
         e("design-children", "sequence_candidates", "fold-final", "sequence_candidates"),
         e("fold-final", "structure_candidates", "confidence-final", "structure_candidates"),
@@ -204,9 +201,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         e("relation-final-fold-parent", "relation", "relation-final", "left_relation"),
         e("relation-design-parent", "relation", "relation-final", "right_relation"),
         e("fold-final", "structure_candidates", "axes-final", "structure_candidates"),
-        e("fold-final", "structure_candidates", "align-final", "subjects"),
         e("axes-final", "residue_axes", "align-final", "subject_residue_axes"),
-        e("take-top-two", "candidates", "align-final", "references"),
         e("axes-top-two", "residue_axes", "align-final", "reference_residue_axes"),
         e("relation-final", "relation", "align-final", "relation"),
         e("align-final", "alignments", "tm-final", "alignments"),
@@ -294,7 +289,7 @@ def main() -> None:
             _objective("final-parent-tm", candidates="fold-final", scores="scores-final", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
         ],
     }
-    admitted = workflow_document_from_canonical(workflow)
+    admitted = decode_workflow_document(workflow)
     compile(CompilationRequest(admitted), catalog)
     OUTPUT.write_text(
         json.dumps(

@@ -8,11 +8,10 @@ from typing import Any, cast
 from core.operation import (
     OperationCall,
 )
-from core.scoring.observation_plan import (
-    CalibrationContextProfile,
-    IntrinsicContextProfile,
-    ResolvedProducedObservation,
-)
+
+from core.catalog.observation import ProducedObservation
+from datatypes.observation import IntrinsicContextProfile
+from datatypes.observation import CalibrationContextProfile
 from datatypes.candidate import CandidateCollection
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
@@ -71,7 +70,7 @@ class SoluProtImplementation:
         *,
         adapter: LocalSoluProtAdapter,
         method: ExactContractReference,
-        produced_observation: ResolvedProducedObservation,
+        produced_observation: ProducedObservation,
     ) -> None:
         self._adapter = adapter
         self._method = method
@@ -116,7 +115,7 @@ class ProteinSolImplementation:
         *,
         adapter: LocalProteinSolAdapter,
         method: ExactContractReference,
-        produced_observations: tuple[ResolvedProducedObservation, ...],
+        produced_observations: tuple[ProducedObservation, ...],
     ) -> None:
         self._adapter = adapter
         self._method = method
@@ -124,7 +123,7 @@ class ProteinSolImplementation:
 
     def _observation_definitions(
         self,
-    ) -> Mapping[str, ResolvedProducedObservation]:
+    ) -> Mapping[str, ProducedObservation]:
         return {
             observation.output_partition: observation
             for observation in self._produced_observations
@@ -133,7 +132,7 @@ class ProteinSolImplementation:
 
     @staticmethod
     def _observation_context(
-        produced: ResolvedProducedObservation,
+        produced: ProducedObservation,
     ) -> IntrinsicObservationContext | CalibrationObservationContext:
         profile = produced.context_profile
         if isinstance(profile, IntrinsicContextProfile):

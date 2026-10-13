@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from datatypes.i_json import admit_i_json
+
 from core.parameters.contract import (
     ParameterContractDefinitionError,
     ParameterValueAdmissionError,
@@ -15,7 +17,7 @@ from core.parameters.model import AdmittedParameterValues, ParameterContract
 
 def test_parameter_contract_admits_defaults_and_submitted_values_once() -> None:
     contract = admit_declarations(
-        {
+        admit_i_json({
             "count": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": "Number of returned scientific samples.",
@@ -29,11 +31,11 @@ def test_parameter_contract_admits_defaults_and_submitted_values_once() -> None:
                 "required": True,
                 "value_contract": {"type": "string", "minLength": 1},
             },
-        },
+        }),
         path="fixture.parameters",
     )
 
-    admitted = admit_values(contract, {"label": "population-a"})
+    admitted = admit_values(contract, admit_i_json({"label": "population-a"}))
 
     assert isinstance(contract, ParameterContract)
     assert isinstance(admitted, AdmittedParameterValues)
@@ -42,19 +44,19 @@ def test_parameter_contract_admits_defaults_and_submitted_values_once() -> None:
 
 def test_parameter_value_admission_reports_the_exact_contract_path() -> None:
     contract = admit_declarations(
-        {
+        admit_i_json({
             "count": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": "Number of returned scientific samples.",
                 "required": True,
                 "value_contract": {"type": "integer", "minimum": 1},
             },
-        },
+        }),
         path="fixture.parameters",
     )
 
     with pytest.raises(ParameterValueAdmissionError) as raised:
-        admit_values(contract, {"count": 0})
+        admit_values(contract, admit_i_json({"count": 0}))
 
     assert raised.value.code == "invalid_parameter"
     assert raised.value.path == ("count",)
@@ -62,19 +64,19 @@ def test_parameter_value_admission_reports_the_exact_contract_path() -> None:
 
 def test_value_admission_is_the_only_owner_of_default_value_semantics() -> None:
     contract = admit_declarations(
-        {
+        admit_i_json({
             "count": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": "Number of returned scientific samples.",
                 "default": 0,
                 "value_contract": {"type": "integer", "minimum": 1},
             },
-        },
+        }),
         path="fixture.parameters",
     )
 
     with pytest.raises(ParameterValueAdmissionError) as raised:
-        admit_values(contract, {})
+        admit_values(contract, admit_i_json({}))
 
     assert raised.value.code == "invalid_parameter"
     assert raised.value.path == ("count",)
@@ -119,19 +121,19 @@ def test_value_admission_owns_range_enum_and_shape_semantics(
     expected_path: tuple[str | int, ...],
 ) -> None:
     contract = admit_declarations(
-        {
+        admit_i_json({
             "value": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": "Scientific fixture value.",
                 "required": True,
                 "value_contract": value_contract,
             },
-        },
+        }),
         path="fixture.parameters",
     )
 
     with pytest.raises(ParameterValueAdmissionError) as raised:
-        admit_values(contract, {"value": submitted})
+        admit_values(contract, admit_i_json({"value": submitted}))
 
     assert raised.value.code == "invalid_parameter"
     assert raised.value.path == expected_path
@@ -150,19 +152,19 @@ def test_value_admission_owns_required_and_field_closure(
     expected_path: tuple[str | int, ...],
 ) -> None:
     contract = admit_declarations(
-        {
+        admit_i_json({
             "value": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": "Required scientific fixture value.",
                 "required": True,
                 "value_contract": {"type": "integer"},
             },
-        },
+        }),
         path="fixture.parameters",
     )
 
     with pytest.raises(ParameterValueAdmissionError) as raised:
-        admit_values(contract, submitted)
+        admit_values(contract, admit_i_json(submitted))
 
     assert raised.value.code == expected_code
     assert raised.value.path == expected_path
@@ -170,7 +172,7 @@ def test_value_admission_owns_required_and_field_closure(
 
 def test_value_admission_returns_canonical_immutable_values() -> None:
     contract = admit_declarations(
-        {
+        admit_i_json({
             "values": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": "Ordered scientific fixture values.",
@@ -180,12 +182,12 @@ def test_value_admission_returns_canonical_immutable_values() -> None:
                     "items": {"type": "integer"},
                 },
             },
-        },
+        }),
         path="fixture.parameters",
     )
 
     submitted = [1, 2]
-    admitted = admit_values(contract, {"values": submitted})
+    admitted = admit_values(contract, admit_i_json({"values": submitted}))
     submitted.append(3)
 
     assert admitted["values"] == (1, 2)

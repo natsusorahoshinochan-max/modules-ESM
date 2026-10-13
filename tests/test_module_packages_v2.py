@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from datatypes.observation import CalibrationContextProfile, PairwiseContextProfile
+
+from datatypes.observation import IntrinsicContextProfile
+
+from core.catalog.observation import ObservationPortSource
+
 from dataclasses import FrozenInstanceError, replace
 import importlib
 from pathlib import Path
@@ -16,15 +22,15 @@ from core.catalog.builder import (
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    ObservationPropagationDefinition,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
+from core.catalog.observation import ObservationPropagation
 from core.catalog.model import CatalogAvailabilityProjection
 from core.catalog.errors import CatalogBuildError
 from core.catalog.port_contract import BehaviorReference
@@ -93,19 +99,20 @@ validation_contract:
 
 PACKAGE_REGISTRATION = """\
 import os
+from datatypes.observation import IntrinsicContextProfile
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ScientificOperationFactory,
     MethodDefinition,
     ModulePackageRegistration,
-    ProducedObservationDefinition,
     ReadinessDeclaration,
     UtilityTransformDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.observation import ProducedObservation
 from core.catalog.definition_resource import DefinitionResource
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 
@@ -123,8 +130,8 @@ def _validate_text(value):
 def _identity(value, parameters):
     return float(value)
 
-_METRIC = ContractIdentity("metric", "synthetic.identity")
-_METHOD = ContractIdentity("method", "synthetic.echo")
+_METRIC = ExactContractReference("metric", "synthetic.identity")
+_METHOD = ExactContractReference("method", "synthetic.echo")
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
@@ -179,7 +186,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="synthetic.echo.direct",
-            node_type=ContractIdentity("node_type", "synthetic.echo"),
+            node_type=ExactContractReference("node_type", "synthetic.echo"),
             method=_METHOD,
             binding_parameters={},
             execution_route="direct",
@@ -209,15 +216,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
             deterministic=True,
             cacheable=True,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="scores",
                     output_partition="default",
                     metric=_METRIC,
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="candidate_subjects",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="candidate_subjects",
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -568,6 +572,76 @@ def test_backend_publishes_the_same_explicit_catalog_snapshot(
     assert payload["availability"][0]["available"] is True
 
 
+def test_binding_catalog_descriptor_preserves_observation_science_and_dependency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+    binding = catalog.require_contract("binding", "synthetic.echo.direct")
+    expected = {
+        "output_port": "scores",
+        "output_partition": "default",
+        "metric": {"contract_kind": "metric", "contract_id": "synthetic.identity"},
+        "context_profile": {"kind": "intrinsic"},
+        "subject_grain": "candidate",
+        "source_role": "subject",
+        "subject_direction": "input",
+        "subject_port": "candidate_subjects",
+        "guaranteed_multiplicity": "one",
+        "reference_direction": None,
+        "reference_port": None,
+        "pairing_direction": None,
+        "pairing_port": None,
+        "axis_direction": None,
+        "axis_port": None,
+        "method_direction": None,
+        "method_port": None,
+    }
+    assert tuple(binding.descriptor["produced_observations"]) == (expected,)
+    assert tuple(binding.result_identity_descriptor["descriptor"]["produced_observations"]) == (expected,)
+    assert ExactContractReference("metric", "synthetic.identity") in binding.dependencies
+
+
+@pytest.mark.parametrize(
+    ("calibration_value", "population_id", "message"),
+    [
+        pytest.param(float("nan"), "population", "finite I-JSON", id="nan"),
+        pytest.param(float("inf"), "population", "finite I-JSON", id="positive-infinity"),
+        pytest.param(float("-inf"), "population", "finite I-JSON", id="negative-infinity"),
+        pytest.param(0.5, "\ud800", "valid Unicode I-JSON", id="surrogate"),
+    ],
+)
+def test_catalog_builder_admits_observation_profile_before_canonical_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    calibration_value: float,
+    population_id: str,
+    message: str,
+) -> None:
+    root_name = _write_registration_package(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        registration = _load_registration(root_name)
+        binding = registration.bindings[0]
+        profile = CalibrationContextProfile(
+            calibration_metric="population_score",
+            calibration_value=calibration_value,
+            calibration_unit="dimensionless",
+            population_id=population_id,
+        )
+        invalid_binding = replace(
+            binding,
+            produced_observations=(
+                replace(binding.produced_observations[0], context_profile=profile),
+            ),
+        )
+        with pytest.raises(CatalogBuildError, match=message):
+            build_frozen_catalog((replace(registration, bindings=(invalid_binding,)),))
+    finally:
+        _forget_package(root_name)
+
+
 def test_binding_rejects_an_observation_for_an_unknown_output_port(
     tmp_path: Path,
     monkeypatch,
@@ -582,15 +656,12 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
         invalid_binding = replace(
             binding,
             produced_observations=(
-                ProducedObservationDefinition(
+                ProducedObservation(
                     output_port="missing",
                     output_partition="default",
                     metric=binding.produced_observations[0].metric,
-                    context_profile={"kind": "intrinsic"},
-                    subject_grain="candidate",
-                    source_role="subject",
-                    subject_direction="input",
-                    subject_port="candidate_subjects",
+                    context_profile=IntrinsicContextProfile(),
+                    subject_input="candidate_subjects",
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -606,7 +677,7 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
         _forget_package(root_name)
 
 
-def test_binding_rejects_a_same_operation_output_candidate_subject(
+def test_binding_rejects_an_output_only_port_as_subject_input(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -622,14 +693,13 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
             produced_observations=(
                 replace(
                     binding.produced_observations[0],
-                    subject_direction="output",
-                    subject_port="candidates",
+                    subject_input="candidates",
                 ),
             ),
         )
         with pytest.raises(
             CatalogBuildError,
-            match="must use an admitted input Candidate source",
+            match="unknown subject input Port",
         ):
             build_frozen_catalog(
                 (replace(registration, bindings=(invalid_binding,)),)
@@ -646,32 +716,29 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
                 "output must use score.collection",
         ),
         (
-                {"subject_port": "value"},
-                "subject must use candidate.collection",
+                {"subject_input": "value"},
+                "subject must use one exact Candidate-projecting Port",
         ),
         (
             {
-                "context_profile": {
-                    "kind": "pairwise",
-                    "subject_role": "subject",
-                    "reference_role": "reference",
-                    "pairing_mode": "fixed_reference",
-                    "normalization": "none",
-                },
+                "context_profile": PairwiseContextProfile(
+                    subject_role="subject",
+                    reference_role="reference",
+                    pairing_mode="fixed_reference",
+                    normalization="none",
+                ),
             },
             "reference contradicts its Context",
         ),
         (
             {
-                "context_profile": {
-                    "kind": "pairwise",
-                    "subject_role": "subject",
-                    "reference_role": "reference",
-                    "pairing_mode": "explicit_relation",
-                    "normalization": "none",
-                },
-                "reference_direction": "input",
-                "reference_port": "candidate_subjects",
+                "context_profile": PairwiseContextProfile(
+                    subject_role="subject",
+                    reference_role="reference",
+                    pairing_mode="explicit_relation",
+                    normalization="none",
+                ),
+                "reference_source": ObservationPortSource("input", "candidate_subjects"),
             },
             "pairing contradicts its Context",
         ),
@@ -734,7 +801,7 @@ def test_binding_rejects_invalid_observation_propagation_inputs(
         invalid_binding = replace(
             binding,
             produced_observations=(),
-            observation_propagation=ObservationPropagationDefinition(
+            observation_propagation=ObservationPropagation(
                 mode="pass_through",
                 output_port="scores",
                 input_ports=("value",),
@@ -750,7 +817,7 @@ def test_binding_rejects_invalid_observation_propagation_inputs(
             )
         invalid_binding = replace(
             invalid_binding,
-            observation_propagation=ObservationPropagationDefinition(
+            observation_propagation=ObservationPropagation(
                 mode="union",
                 output_port="scores",
                 input_ports=("value",),
@@ -783,15 +850,13 @@ def test_binding_rejects_a_context_profile_outside_the_metric_schema(
             produced_observations=(
                     replace(
                         binding.produced_observations[0],
-                        context_profile={
-                            "kind": "pairwise",
-                            "subject_role": "subject",
-                            "reference_role": "reference",
-                            "pairing_mode": "fixed_reference",
-                            "normalization": "none",
-                        },
-                        reference_direction="output",
-                        reference_port="candidates",
+                        context_profile=PairwiseContextProfile(
+                            subject_role="subject",
+                            reference_role="reference",
+                            pairing_mode="fixed_reference",
+                            normalization="none",
+                        ),
+                        reference_source=ObservationPortSource("output", "candidates"),
                     ),
             ),
         )
@@ -846,7 +911,7 @@ def test_dangling_contract_reference_fails_closed() -> None:
     dangling = _method(
         "synthetic.dangling",
         algorithm_identity={
-            "dependency": ContractIdentity(
+            "dependency": ExactContractReference(
                 "method",
                 "synthetic.missing",)
         },
@@ -861,7 +926,7 @@ def test_cyclic_contract_reference_graph_fails_closed() -> None:
     first = _method(
         "synthetic.cycle.first",
         algorithm_identity={
-            "dependency": ContractIdentity(
+            "dependency": ExactContractReference(
                 "method",
                 "synthetic.cycle.second",)
         },
@@ -869,7 +934,7 @@ def test_cyclic_contract_reference_graph_fails_closed() -> None:
     second = _method(
         "synthetic.cycle.second",
         algorithm_identity={
-            "dependency": ContractIdentity(
+            "dependency": ExactContractReference(
                 "method",
                 "synthetic.cycle.first",)
         },
@@ -893,7 +958,7 @@ def test_failed_candidate_never_mutates_an_already_published_catalog() -> None:
     malformed = _method(
         "synthetic.malformed",
         algorithm_identity={
-            "dependency": ContractIdentity(
+            "dependency": ExactContractReference(
                 "method",
                 "synthetic.unknown",)
         },
@@ -1042,7 +1107,7 @@ def test_cross_package_exact_reference_is_order_independent() -> None:
     consumer = _method(
         "synthetic.consumer",
         algorithm_identity={
-            "dependency": ContractIdentity(
+            "dependency": ExactContractReference(
                 "method",
                 "synthetic.shared",)
         },

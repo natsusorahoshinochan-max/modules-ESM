@@ -11,7 +11,6 @@ from core.parameters.model import (
     ParameterContract,
     ParameterDeclaration,
 )
-from datatypes.i_json import thaw_i_json
 
 
 class ParameterContractDefinitionError(ValueError):
@@ -556,7 +555,7 @@ def admit_declarations(
     *,
     path: str,
 ) -> ParameterContract:
-    """Admit one complete parameter declaration mapping."""
+    """Check schema vocabulary of JSON-admitted declaration values."""
     _validate_parameter_declarations(declarations, path=path)
     return ParameterContract(
         tuple(
@@ -577,7 +576,7 @@ def admit_values(
     contract: ParameterContract,
     submitted_values: Mapping[str, Any],
 ) -> AdmittedParameterValues:
-    """Admit defaults and submitted values once against one exact contract."""
+    """Check admitted JSON values against one exact parameter schema."""
     unknown = sorted(set(submitted_values) - set(contract))
     if unknown:
         raise ParameterValueAdmissionError(
@@ -586,11 +585,11 @@ def admit_values(
             f"contains undeclared parameters: {unknown}",
         )
     resolved = {
-        entry.name: thaw_i_json(entry.default)
+        entry.name: entry.default
         for entry in contract.entries
         if entry.has_default
     }
-    resolved.update(thaw_i_json(submitted_values))
+    resolved.update(submitted_values)
     for declaration in contract.entries:
         if (
             declaration.required

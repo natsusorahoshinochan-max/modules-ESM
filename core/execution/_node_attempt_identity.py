@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
-from core.catalog.canonical import canonical_sha256
+from datatypes.i_json import canonical_sha256
 from core.execution.output_admission.admission import (
     NodeOutputPlan,
     OutputPortPlan,
@@ -18,7 +18,7 @@ from core.execution._node_attempt_models import _EffectiveRandomnessSnapshot
 from core.operation import AdmittedPort
 from core.workflow.plan import ExecutionPlanNode
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.i_json import admit_i_json, thaw_i_json
 
 def _resolve_effective_randomness(
     node: ExecutionPlanNode,
@@ -49,7 +49,7 @@ def _resolve_effective_randomness(
                 )
         effective_randomness = {}
         for parameter_name in declared_randomness:
-            resolved_value = freeze_i_json(
+            resolved_value = admit_i_json(
                 resolved_randomness[parameter_name],
                 path=f"effective_randomness.{parameter_name}",
             )

@@ -77,7 +77,7 @@ def test_structure_v4_rejects_invalid_required_pdb80_fields(
     malformed = line[:start] + replacement + line[end:]
 
     with pytest.raises(PortValueError, match="coordinate record"):
-        _STRUCTURE_TYPE.encode(ProteinStructure(f"{malformed}\nEND\n"))
+        _STRUCTURE_TYPE.validate(ProteinStructure(f"{malformed}\nEND\n"))
 
 
 @pytest.mark.parametrize("index", (11, 20, 27, 28, 29, 66, 70, 75))
@@ -88,7 +88,7 @@ def test_structure_v4_rejects_nonblank_unassigned_coordinate_columns(
     line[index] = "X"
 
     with pytest.raises(PortValueError, match="coordinate record"):
-        _STRUCTURE_TYPE.encode(
+        _STRUCTURE_TYPE.validate(
             ProteinStructure("".join(line) + "\nEND\n")
         )
 
@@ -110,7 +110,7 @@ def test_structure_v4_rejects_invalid_coordinate_identity_fields(
     line[index] = replacement
 
     with pytest.raises(PortValueError, match="coordinate record"):
-        _STRUCTURE_TYPE.encode(
+        _STRUCTURE_TYPE.validate(
             ProteinStructure("".join(line) + "\nEND\n")
         )
 
@@ -118,7 +118,7 @@ def test_structure_v4_rejects_invalid_coordinate_identity_fields(
 @pytest.mark.parametrize("line", (_coordinate_line()[:-1], _coordinate_line() + " "))
 def test_structure_v4_requires_exactly_80_coordinate_columns(line: str) -> None:
     with pytest.raises(PortValueError, match="coordinate record"):
-        _STRUCTURE_TYPE.encode(ProteinStructure(f"{line}\nEND\n"))
+        _STRUCTURE_TYPE.validate(ProteinStructure(f"{line}\nEND\n"))
 
 
 @pytest.mark.parametrize(

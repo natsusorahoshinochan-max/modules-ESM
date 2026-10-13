@@ -516,7 +516,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                 ],
                 "selection_objectives": []}
             saved = client.request(
-                "save_project_workflow_draft",
+                "save_project_workspace",
                 {
                     "project_id": project_id,
                     "workflow": workflow,
@@ -526,7 +526,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                 "project_workflow_draft",
                 {"project_id": project_id},
             )
-            assert draft == saved
+            assert draft == saved["draft"]
             committed = client.commit_workflow(project_id, workflow)
             active = client.request(
                 "project_active_workflow_commit",
@@ -864,7 +864,7 @@ def _start_installed_esmc_run(
         ],
         "selection_objectives": []}
     saved = client.request(
-        "save_project_workflow_draft",
+        "save_project_workspace",
         {
             "project_id": project_id,
             "workflow": workflow,

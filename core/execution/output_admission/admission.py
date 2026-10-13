@@ -124,6 +124,10 @@ def _resolve_identity_intents(
         materialized_values: list[Any] = []
         for value_index, value in enumerate(values):
             if type(value) is not OutputIdentityIntent:
+                if declaration.port_type.runtime_output_identity_materializer is not None:
+                    raise PortValueError(
+                        f"Output Port {output_port!r} requires an OutputIdentityIntent"
+                    )
                 materialized_values.append(value)
                 continue
             identities = identity_encoder.encode_intent_sources(

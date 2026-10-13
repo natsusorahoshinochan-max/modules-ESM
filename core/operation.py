@@ -20,11 +20,12 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
 )
 from datatypes.residue import residue_identity_chain
+from datatypes.i_json import admit_i_json
 
 if TYPE_CHECKING:
-    from core.scoring.observation_plan import ResolvedProducedObservation
+    from core.catalog.observation import ProducedObservation
     from core.scoring.selection import (
-        ResolvedObservationSelector,
+        ObservationSelector,
         ResolvedSelectionObjective,
     )
 
@@ -55,6 +56,21 @@ def secondary_cleanup_exception_types(
 ) -> tuple[str, ...]:
     """Return ordered cleanup causality retained on one primary exception."""
     return getattr(error, _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE, ())
+
+
+class OperationDiagnosticError(ValueError):
+    """An operation-owned scientific diagnostic intended for the Run UI.
+
+    Only deliberate user-input/Selection diagnostics use this type. Provider
+    exceptions and invariant violations keep their generic execution message.
+    """
+
+    def __init__(self, message: str, *, diagnostic: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic = (
+            admit_i_json(diagnostic, path="operation_diagnostic")
+            if diagnostic is not None else None
+        )
 
 
 class ExecutionTermination(RuntimeError):
@@ -461,9 +477,9 @@ class OperationContext:
     """Resolved facts available while constructing one scientific operation."""
 
     method: ExactContractReference
-    produced_observations: tuple[ResolvedProducedObservation, ...]
+    produced_observations: tuple[ProducedObservation, ...]
     selection_objectives: tuple[ResolvedSelectionObjective, ...]
-    observation_selectors: tuple[ResolvedObservationSelector, ...]
+    observation_selectors: tuple[ObservationSelector, ...]
     environment: BindingEnvironment
     resources: OperationResources
 

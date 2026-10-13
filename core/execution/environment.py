@@ -13,7 +13,7 @@ from core.catalog.declarations import (
 )
 from core.catalog.model import FrozenCatalog
 from core.operation import BindingEnvironment
-from datatypes.i_json import freeze_i_json
+from datatypes.i_json import admit_i_json
 
 
 class EnvironmentConfigurationError(ValueError):
@@ -44,7 +44,7 @@ def _admit_field_value(
 ) -> Any:
     if declaration.value_category == "json_value":
         try:
-            return freeze_i_json(value, path=path)
+            return admit_i_json(value, path=path)
         except ValueError as error:
             raise EnvironmentConfigurationError(
                 f"{path} must be a canonical I-JSON value"

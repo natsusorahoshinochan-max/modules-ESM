@@ -11,6 +11,7 @@ from tests.support.ledger import public_run_events, public_run_projection
 from protein_workbench_public.bootstrap import module_registrations
 
 from contextlib import nullcontext
+from datatypes.observation import CalibrationContextProfile
 from dataclasses import replace
 import hashlib
 import os
@@ -34,9 +35,8 @@ from core.catalog.builder import (
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.catalog.declarations import (
-    ContractIdentity,
-)
+
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.errors import CatalogBuildError
 from core.operation import (
     BindingEnvironment,
@@ -62,7 +62,7 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from core.catalog.canonical import canonical_json_bytes
+from datatypes.i_json import canonical_json_bytes
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
@@ -290,21 +290,12 @@ def _admitted_structure_axis_inputs(
     candidates: tuple[Candidate, ...],
     associations: CandidateResolvedResidueAxisAssociations,
 ) -> dict[str, Any]:
-    references = _structure_candidate_references(candidates)
+    """Admit one ordered resolved-axis value for the given structure Candidates."""
+    del candidates
     axis_contract = ExactContractReference(
         contract_kind="port_type",
         contract_id=RESOLVED_AXIS_PORT_TYPE.type_id)
     return {
-        "structure_candidates": admitted_port_fixture(
-            CandidateCollection(
-                "admitted-structure-candidates",
-                "protein.structure",
-                candidates,
-            ),
-            port_type_id="candidate.collection",
-            value_content_digests=("sha256:" + "1" * 64,),
-            candidate_data=references,
-        ),
         "structure_residue_axes": admitted_port_fixture(
             associations,
             port_type_id=(
@@ -331,6 +322,9 @@ def _admitted_structure_axis_inputs(
             ),
         ),
     }
+
+
+
 def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
@@ -527,22 +521,19 @@ def test_scoring_metric_context_and_scope_mismatches_fail_catalog_build(
     if mismatch == "metric":
         invalid_produced = replace(
             produced,
-            metric=ContractIdentity(
+            metric=ExactContractReference(
                 "metric",
                 "proteinmpnn.undeclared_metric"),
         )
     elif mismatch == "context":
         invalid_produced = replace(
             produced,
-            context_profile={
-                "kind": "intrinsic",
-                "normalization": "dataset-relative",
-            },
+            context_profile=CalibrationContextProfile("population_score", 0.5, "dimensionless", "dataset-relative"),
         )
     else:
         invalid_produced = replace(
             produced,
-            subject_port="undeclared_subjects",
+            subject_input="undeclared_subjects",
         )
     invalid_binding = replace(
         scoring,
@@ -1189,8 +1180,7 @@ def _controlled_adapter(
     )
 
 
-def test_design_operation_joins_axes_by_full_reference_not_collection_order(
-) -> None:
+def test_design_operation_takes_parent_slots_from_axis_entry_order() -> None:
     from modules.proteinmpnn.implementation import (
         ProteinMPNNDesignImplementation,
     )
@@ -1203,6 +1193,8 @@ def test_design_operation_joins_axes_by_full_reference_not_collection_order(
         Candidate("a-parent", structures[1]),
     )
     references = _structure_candidate_references(candidates)
+    # Entry order is deliberately the reverse of the Candidate tuple order:
+    # the ordered resolved-axis value alone owns the parent slots.
     associations = CandidateResolvedResidueAxisAssociations(
         (
             CandidateResolvedResidueAxisAssociation(
@@ -1215,6 +1207,7 @@ def test_design_operation_joins_axes_by_full_reference_not_collection_order(
             ),
         )
     )
+
     def call(
         supplied: CandidateResolvedResidueAxisAssociations,
     ) -> OperationCall:
@@ -1250,33 +1243,51 @@ def test_design_operation_joins_axes_by_full_reference_not_collection_order(
             )
 
     adapter = RecordingAdapter()
-    operation = ProteinMPNNDesignImplementation(adapter=adapter)
-    output = operation.execute(call(associations))["sequence_candidates"]
+    output = ProteinMPNNDesignImplementation(
+        adapter=adapter
+    ).execute(call(associations))["sequence_candidates"]
 
-    assert adapter.structures == list(structures)
+    assert adapter.structures == [structures[1], structures[0]]
     assert [candidate.parent_ids for candidate in output.items] == [
-        ("z-parent",),
         ("a-parent",),
+        ("z-parent",),
     ]
-    mismatched_reference = CandidateDataReference(
-        candidate_id=references[0].candidate_id,
-        data_type_id=references[0].data_type_id,
-        content_digest="sha256:" + "0" * 64,
+    assert [
+        candidate.metadata["parent_index"] for candidate in output.items
+    ] == [0, 1]
+    # Reusing one entry order, seed, structure, and parameters reproduces every
+    # parent's derived effective call seed and output order.
+    repeated_adapter = RecordingAdapter()
+    repeated_output = ProteinMPNNDesignImplementation(
+        adapter=repeated_adapter
+    ).execute(call(associations))["sequence_candidates"]
+    assert repeated_adapter.structures == [structures[1], structures[0]]
+    assert [
+        candidate.metadata["effective_call_seed"]
+        for candidate in repeated_output.items
+    ] == [
+        candidate.metadata["effective_call_seed"]
+        for candidate in output.items
+    ]
+    # Reversing the entries swaps each subject's parent slot, so its derived
+    # call seed changes even though its structure content does not. The parent
+    # slot and call seed belong to the ordered value alone.
+    reordered = CandidateResolvedResidueAxisAssociations(
+        tuple(reversed(associations.entries))
     )
-    with pytest.raises(ValueError, match="cover exact structure references"):
-        operation.execute(
-            call(
-                CandidateResolvedResidueAxisAssociations(
-                    (
-                        CandidateResolvedResidueAxisAssociation(
-                            mismatched_reference,
-                            resolve_residue_axis(structures[0]),
-                        ),
-                        associations.entries[0],
-                    )
-                )
-            )
-        )
+    reordered_adapter = RecordingAdapter()
+    reordered_output = ProteinMPNNDesignImplementation(
+        adapter=reordered_adapter
+    ).execute(call(reordered))["sequence_candidates"]
+    assert reordered_adapter.structures == [structures[0], structures[1]]
+    assert [
+        candidate.metadata["parent_index"] for candidate in reordered_output.items
+    ] == [0, 1]
+    assert reordered_output.items[0].parent_ids == output.items[1].parent_ids
+    assert (
+        reordered_output.items[0].metadata["effective_call_seed"]
+        != output.items[1].metadata["effective_call_seed"]
+    )
 
 
 def _install_test_provider(
@@ -1409,12 +1420,6 @@ def _score_workflow() -> tuple[
                 "source",
                 "structure_candidates",
                 "resolve-axes",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "score",
                 "structure_candidates",
             ),
             WorkflowEdge(
@@ -2729,12 +2734,6 @@ def _design_workflow() -> tuple[
             "structure_candidates",
         ),
         WorkflowEdge(
-            "source",
-            "structure_candidates",
-            "design",
-            "structure_candidates",
-        ),
-        WorkflowEdge(
             "resolve-axes",
             "residue_axes",
             "design",
@@ -3126,12 +3125,6 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
                     "structure_candidates",
                 ),
                 WorkflowEdge(
-                    final_parent_node,
-                    "structure_candidates",
-                    "design",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
                     "resolve-axes",
                     "residue_axes",
                     "design",
@@ -3332,12 +3325,6 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
                 "candidateize",
                 "structure_candidates",
                 "resolve-candidate-axis",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
-                "candidateize",
-                "structure_candidates",
-                "design",
                 "structure_candidates",
             ),
             WorkflowEdge(
@@ -3812,12 +3799,6 @@ def test_design_requires_one_candidate_parent_and_preserves_its_lineage(
                 "structure_candidates",
             ),
             WorkflowEdge(
-                "source",
-                "structure_candidates",
-                "design",
-                "structure_candidates",
-            ),
-            WorkflowEdge(
                 "resolve-axes",
                 "residue_axes",
                 "design",
@@ -3901,12 +3882,6 @@ def test_candidate_design_seed_and_result_ignore_node_instance_rename(
                     "source",
                     "structure_candidates",
                     "resolve-axes",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "structure_candidates",
-                    design_node_id,
                     "structure_candidates",
                 ),
                 WorkflowEdge(
@@ -4179,12 +4154,6 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             },
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "structure_candidates",
-                    "contract-test-node",
-                    "structure_candidates",
-                ),
                 WorkflowEdge("source", "sequence", "contract-test-node", "sequence"),
                 WorkflowEdge(
                     "source",
@@ -4215,12 +4184,6 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                     "score-source",
                     "structure_candidates",
                     "sequence-source",
-                    "structure_candidates",
-                ),
-                WorkflowEdge(
-                    "score-source",
-                    "structure_candidates",
-                    "contract-test-node",
                     "structure_candidates",
                 ),
                 WorkflowEdge(
@@ -4447,3 +4410,18 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     second_warm_design = warm_provider.design(Request())
 
     assert cold_design == first_warm_design == second_warm_design
+
+
+@pytest.mark.parametrize("bias", [-0.0, 2**53, float("inf"), True])
+def test_constraints_nominal_owner_rejects_noncanonical_bias(bias: object) -> None:
+    from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN_PACKAGE
+
+    constraints = ProteinMPNNConstraints(
+        layout=TARGET_LAYOUT,
+        bias_by_residue={"B:3": {"A": bias}},
+    )
+    port_type = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    ).require_port_type("proteinmpnn.constraints")
+    with pytest.raises(ValueError):
+        port_type.validate(constraints)

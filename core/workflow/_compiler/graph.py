@@ -42,6 +42,7 @@ def _connected_source(
 def _admit_workflow_graph(
     workflow: WorkflowDocument,
     plan_nodes: _PlanNodes,
+    *, require_complete: bool = True,
 ) -> _AdmittedWorkflowGraph:
     nodes_by_id: dict[str, WorkflowNodeInstance] = {}
     for index, node in enumerate(workflow.nodes):
@@ -135,6 +136,8 @@ def _admit_workflow_graph(
                 node_id=node.node_id,
                 field_path=("nodes", index, "binding_id"),
             )
+        if not require_complete:
+            continue
         for port in node_definition.inputs:
             if port.required and not input_sources[node.node_id].get(port.name):
                 raise WorkflowCompileError(

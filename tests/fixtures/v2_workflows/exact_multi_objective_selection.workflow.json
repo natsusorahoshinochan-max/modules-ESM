@@ -21,11 +21,17 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_id": "fixed-3gb1-raw",
-        "operator": ">=",
-        "threshold": 0.5,
-        "out_of_scope_policy": "error",
-        "tie_policy": "candidate_id_ascending"
+        "selector_ids": [
+          "fixed-3gb1-raw"
+        ],
+        "expression": [
+          {
+            "selector_index": 0,
+            "operator": ">=",
+            "threshold": 0.5
+          }
+        ],
+        "out_of_scope_policy": "error"
       },
       "binding_parameters": {}
     },

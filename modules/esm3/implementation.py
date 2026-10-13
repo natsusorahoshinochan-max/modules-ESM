@@ -491,3 +491,20 @@ class ESM3GenerationOperation:
                 pending_facts=tuple(reconstruction_facts),
             )
         return outputs
+
+
+def describe_generation_compatibility(prompt: ProteinPrompt) -> dict[str, Any]:
+    """Expose the same scientific prerequisites applied by each Operation."""
+    result: dict[str, Any] = {}
+    for operation, require in (
+        ("generate_sequence", ESM3GenerationOperation._require_sequence_mask),
+        ("generate_structure", ESM3GenerationOperation._require_assigned_prompt_sequence),
+        ("generate_paired", ESM3GenerationOperation._require_sequence_mask),
+    ):
+        try:
+            require(prompt)
+        except ValueError as error:
+            result[operation] = {"compatible": False, "reason": str(error)}
+        else:
+            result[operation] = {"compatible": True, "reason": None}
+    return result

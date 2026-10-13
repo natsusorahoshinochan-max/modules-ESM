@@ -27,7 +27,9 @@ def _multi_selection() -> dict[str, Any]:
     payload = json.loads(SELECTION_CAPABILITIES.read_text(encoding="utf-8"))
     payload["workflow_id"] = "stress-multi-selection"
     nodes = {node["node_id"]: node for node in payload["nodes"]}
-    nodes["select-filter"]["node_parameters"]["threshold"] = 0.95
+    # `selection.filter` declares exactly `selector_ids` and `expression`; the
+    # scalar comparison threshold lives inside the grouped condition.
+    nodes["select-filter"]["node_parameters"]["expression"][0]["threshold"] = 0.95
     for node_id in ("select-filter", "select-sort", "select-top_k"):
         nodes[node_id]["node_parameters"]["out_of_scope_policy"] = "ignore"
     nodes["select-top_k"]["node_parameters"]["k"] = 2
@@ -218,12 +220,6 @@ def _multi_parent_batch() -> dict[str, Any]:
                 "source_node_id": "structure-parents",
                 "source_port": "structure_candidates",
                 "target_node_id": "resolve-parent-axes",
-                "target_port": "structure_candidates",
-            },
-            {
-                "source_node_id": "structure-parents",
-                "source_port": "structure_candidates",
-                "target_node_id": "design-children",
                 "target_port": "structure_candidates",
             },
             {

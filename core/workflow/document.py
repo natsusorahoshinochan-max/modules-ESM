@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any
 
 from core.catalog.errors import CatalogBuildError
@@ -18,6 +17,7 @@ from core.scoring.selection import (
     observation_selector_canonical,
     selection_objective_canonical,
 )
+from datatypes.i_json import freeze_i_json, thaw_i_json
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
     CalibrationObservationContext,
@@ -27,24 +27,6 @@ from datatypes.observation import (
 
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
 
-
-def _freeze_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {name: _freeze_json(item) for name, item in value.items()}
-        )
-    if isinstance(value, list):
-        return tuple(_freeze_json(item) for item in value)
-    if isinstance(value, tuple):
-        return tuple(_freeze_json(item) for item in value)
-    return value
-
-def _thaw_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {name: _thaw_json(item) for name, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_thaw_json(item) for item in value]
-    return value
 
 def _exact_reference_from_admitted(
     value: Mapping[str, Any],
@@ -140,12 +122,12 @@ class WorkflowNodeInstance:
         object.__setattr__(
             self,
             "node_parameters",
-            _freeze_json(self.node_parameters),
+            freeze_i_json(self.node_parameters),
         )
         object.__setattr__(
             self,
             "binding_parameters",
-            _freeze_json(self.binding_parameters),
+            freeze_i_json(self.binding_parameters),
         )
 
     @classmethod
@@ -168,8 +150,8 @@ class WorkflowNodeInstance:
             "node_id": self.node_id,
             "node_type_id": self.node_type_id,
             "binding_id": self.binding_id,
-            "node_parameters": _thaw_json(self.node_parameters),
-            "binding_parameters": _thaw_json(self.binding_parameters),
+            "node_parameters": thaw_i_json(self.node_parameters),
+            "binding_parameters": thaw_i_json(self.binding_parameters),
         }
 
 @dataclass(frozen=True, slots=True)

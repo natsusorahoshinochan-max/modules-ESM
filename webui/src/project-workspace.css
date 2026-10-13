@@ -1,0 +1,43 @@
+.project-workspace-dialog { width:min(1000px,92vw); max-height:90vh; padding:0; border:1px solid #344739; border-radius:14px; background:#141e18; color:#e3ebe5; box-shadow:0 24px 90px #0008; }
+.project-workspace-dialog::backdrop { background:#070e0bbf; }
+.project-workspace-dialog header { display:flex; align-items:center; gap:14px; padding:20px 24px; border-bottom:1px solid #344739; }
+.project-workspace-dialog header div { flex:1; }
+.project-workspace-dialog h2,.project-workspace-dialog h3,.project-workspace-dialog p { margin:0 0 10px; }
+.project-workspace-dialog h2 { font-size:20px; }
+.project-workspace-dialog h3 { display:flex; align-items:center; gap:8px; font-size:16px; }
+.project-workspace-dialog header p,.workspace-muted { color:#a3b6a8; font-size:12px; line-height:1.6; }
+.project-workspace-dialog button,.project-workspace-dialog input { color:inherit; font:inherit; border:1px solid #425449; border-radius:6px; background:#25342a; padding:8px 10px; }
+.project-workspace-dialog button { display:inline-flex; align-items:center; justify-content:center; gap:7px; cursor:pointer; font-size:12px; }
+.project-workspace-dialog button:disabled { opacity:.45; cursor:default; }
+.project-workspace-dialog button:hover:not(:disabled) { background:#334c3d; }
+.project-workspace-dialog button:focus-visible,.project-workspace-dialog input:focus-visible { outline:2px solid #74d2a1; outline-offset:2px; }
+.project-workspace-dialog label { display:grid; gap:7px; font-size:12px; }
+.project-workspace-dialog input { min-width:0; width:100%; box-sizing:border-box; }
+.workspace-tabs { display:flex; gap:8px; padding:14px 24px; }
+.workspace-tabs [aria-selected=true] { border-color:#76bb91; background:#30513d; }
+.workspace-body { display:grid; grid-template-columns:285px minmax(0,1fr); min-height:370px; max-height:calc(90vh - 180px); overflow:auto; }
+.workspace-body aside { display:flex; flex-direction:column; gap:14px; padding:0 16px 24px 24px; border-right:1px solid #344739; }
+.workspace-body aside ul,.workspace-version-list { list-style:none; padding:0; margin:0; }
+.workspace-body aside li button { width:100%; display:grid; text-align:left; justify-content:start; gap:7px; margin-bottom:7px; }
+.workspace-body aside li .selected { border-color:#76bb91; background:#30513d; }
+.workspace-body small { display:block; overflow-wrap:anywhere; color:#a7b8ad; font-size:11px; line-height:1.5; }
+.workspace-body main { min-width:0; padding:0 24px 24px; }
+.workspace-body section { border-bottom:1px solid #344739; padding:0 0 20px; margin-bottom:20px; }
+.workspace-body section:last-child { border:0; margin-bottom:0; }
+.workspace-body p { font-size:13px; line-height:1.6; }
+.workspace-actions { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+.workspace-body form { display:flex; gap:10px; align-items:end; margin:14px 0; }
+.workspace-body form label { flex:1; }
+.workspace-body form button { flex-shrink:0; }
+.workspace-version-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid #2b3d31; }
+.workspace-version-list strong { display:block; margin-bottom:4px; font-size:13px; }
+.project-workspace-dialog .workspace-danger { color:#f2ada7; border-color:#824c45; }
+.workspace-error,.workspace-message { margin:0 24px 14px!important; padding:10px 13px; background:#283b2c; border-radius:6px; font-size:13px; }
+.workspace-error { background:#4f2926; color:#ffc5be; }
+.workspace-confirm,.workspace-running-delete { padding:16px 24px; background:#352e23; border-top:1px solid #665334; font-size:13px; }
+.workspace-confirm { padding:16px; border:1px solid #665334; border-radius:7px; }
+.workspace-confirm button { margin-right:8px; }
+.workspace-running-delete p { margin-top:10px; line-height:1.6; }
+.version-work-banner { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:9px 24px; background:#353323; color:#e8dfb8; font-size:12px; border-bottom:1px solid #615c35; }
+.version-work-banner button { padding:6px 11px; border:1px solid #8b8151; border-radius:5px; background:transparent; color:inherit; cursor:pointer; }
+@media (max-width:650px) { .workspace-body { grid-template-columns:1fr; }.workspace-body aside { border:0; padding-right:24px; }.workspace-body aside ul { max-height:180px; overflow:auto; }.workspace-body form { flex-wrap:wrap; }.workspace-body form label { flex-basis:100%; } }

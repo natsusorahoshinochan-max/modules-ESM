@@ -9,12 +9,12 @@ from types import MappingProxyType
 from typing import Any
 
 from datatypes.exact_reference import ExactContractReference
+from datatypes.i_json import freeze_i_json
 
 from .declarations import (
     AvailabilityResult,
     CatalogDefinition,
     ContractKind,
-    _freeze_declaration,
 )
 from core.catalog.errors import (
     CatalogBuildError,
@@ -22,6 +22,8 @@ from core.catalog.errors import (
     UnknownContractError,
 )
 from .port_contract import PortTypeDefinition
+from ._observation import produced_observation_plan
+from core.scoring.observation_plan import ProducedObservationPlan
 
 
 _NON_SCIENTIFIC_CONTRACT_FIELDS = {
@@ -90,13 +92,13 @@ class CatalogContract:
         object.__setattr__(
             self,
             "descriptor",
-            _freeze_declaration(self.descriptor),
+            freeze_i_json(self.descriptor),
         )
         object.__setattr__(self, "dependencies", tuple(self.dependencies))
         object.__setattr__(
             self,
             "result_identity_descriptor",
-            _freeze_declaration(
+            freeze_i_json(
                 {
                     "contract_kind": self.contract_kind,
                     "contract_id": self.contract_id,
@@ -128,7 +130,7 @@ def result_identity_contract(
     """Return Catalog-owned identity facts without presentation or digests."""
     if isinstance(contract, CatalogContract):
         return contract.result_identity_descriptor
-    return _freeze_declaration(
+    return freeze_i_json(
         {
             "contract_kind": "port_type",
             "contract_id": contract.type_id,
@@ -160,6 +162,10 @@ class FrozenCatalog:
     ] = field(
         init=False,
         repr=False,
+    )
+
+    _observation_plans: Mapping[str, ProducedObservationPlan] = field(
+        init=False, repr=False,
     )
 
     def __post_init__(self) -> None:
@@ -198,6 +204,21 @@ class FrozenCatalog:
             MappingProxyType(contracts_by_identity),
         )
         object.__setattr__(self, "availability", tuple(self.availability))
+        object.__setattr__(
+            self,
+            "_observation_plans",
+            MappingProxyType(
+                {
+                    contract.contract_id: produced_observation_plan(contract, catalog=self)
+                    for contract in ordered_contracts
+                    if contract.contract_kind == "binding"
+                }
+            ),
+        )
+
+    def produced_observation_plan(self, binding_id: str) -> ProducedObservationPlan:
+        """Return the immutable startup facts for an admitted Binding."""
+        return self._observation_plans[binding_id]
 
     def _contract_projections(self) -> tuple[CatalogContractProjection, ...]:
         projected = [

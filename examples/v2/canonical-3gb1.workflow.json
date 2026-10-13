@@ -816,22 +816,10 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "fold-sequences",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-fixed",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folded-residue-axes",
       "source_port": "residue_axes",
       "target_node_id": "align-fixed",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "import-3gb1",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-fixed",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-canonical-residue-axes",
@@ -870,22 +858,10 @@
       "target_port": "relation"
     },
     {
-      "source_node_id": "fold-sequences",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-paired",
-      "target_port": "subjects"
-    },
-    {
       "source_node_id": "resolve-folded-residue-axes",
       "source_port": "residue_axes",
       "target_node_id": "align-paired",
       "target_port": "subject_residue_axes"
-    },
-    {
-      "source_node_id": "generate-paired",
-      "source_port": "structure_candidates",
-      "target_node_id": "align-paired",
-      "target_port": "references"
     },
     {
       "source_node_id": "resolve-generated-residue-axes",
@@ -951,12 +927,6 @@
       "source_node_id": "take-top-three",
       "source_port": "candidates",
       "target_node_id": "resolve-selected-residue-axes",
-      "target_port": "structure_candidates"
-    },
-    {
-      "source_node_id": "take-top-three",
-      "source_port": "candidates",
-      "target_node_id": "design-children",
       "target_port": "structure_candidates"
     },
     {

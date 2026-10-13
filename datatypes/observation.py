@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import Any, Literal
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference, ResidueAxisReference
@@ -39,15 +40,6 @@ class CandidateRelationEntry:
     subject: CandidateDataReference
     reference: CandidateDataReference
 
-    def __post_init__(self) -> None:
-        if type(self.subject) is not CandidateDataReference:
-            raise TypeError(
-                "subject must be an exact CandidateDataReference"
-            )
-        if type(self.reference) is not CandidateDataReference:
-            raise TypeError(
-                "reference must be an exact CandidateDataReference"
-            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +61,6 @@ class PairwiseParticipant:
 
     role: str
     candidate: CandidateDataReference
-
-    def __post_init__(self) -> None:
-        if type(self.candidate) is not CandidateDataReference:
-            raise TypeError(
-                "candidate must be an exact CandidateDataReference"
-            )
 
     @property
     def candidate_id(self) -> str:
@@ -104,54 +90,6 @@ class PairwiseObservationContext:
     normalization_length: int | None = None
     aligned_atom_count: int | None = None
 
-    def __post_init__(self) -> None:
-        evidence = (
-            self.evidence_content_digest,
-            self.evidence_method,
-            self.normalization_length,
-            self.aligned_atom_count,
-        )
-        axis_evidence = (
-            self.subject_axis_content_digest,
-            self.reference_axis_content_digest,
-        )
-        if all(item is None for item in evidence):
-            if any(item is not None for item in axis_evidence):
-                raise ValueError(
-                    "Pairwise Context requires complete exact axis provenance"
-                )
-            return
-        if (
-            any(item is None for item in evidence)
-            or not isinstance(self.evidence_content_digest, str)
-            or re.fullmatch(
-                r"sha256:[0-9a-f]{64}",
-                self.evidence_content_digest,
-            )
-            is None
-            or type(self.evidence_method) is not ExactContractReference
-            or self.evidence_method.contract_kind != "method"
-            or type(self.normalization_length) is not int
-            or self.normalization_length < 1
-            or type(self.aligned_atom_count) is not int
-            or self.aligned_atom_count < 1
-            or self.aligned_atom_count > self.normalization_length
-        ):
-            raise ValueError(
-                "Pairwise Context requires complete exact evidence provenance"
-            )
-        if any(item is not None for item in axis_evidence) and (
-            any(item is None for item in axis_evidence)
-            or self.evidence_content_digest is None
-            or any(
-                type(item) is not str
-                or re.fullmatch(r"sha256:[0-9a-f]{64}", item) is None
-                for item in axis_evidence
-            )
-        ):
-            raise ValueError(
-                "Pairwise Context requires complete exact axis provenance"
-            )
 
 @dataclass(frozen=True, slots=True)
 class ScoreObservation:
@@ -174,16 +112,6 @@ class ScoreObservation:
     residue_axis: ResidueAxisReference | None = None
 
     def __post_init__(self) -> None:
-        if type(self.subject) is not CandidateDataReference:
-            raise TypeError(
-                "subject must be an exact CandidateDataReference"
-            )
-        if self.residue_axis is not None and type(
-            self.residue_axis
-        ) is not ResidueAxisReference:
-            raise TypeError(
-                "residue_axis must be an exact ResidueAxisReference"
-            )
         object.__setattr__(self, "value", freeze_i_json(self.value))
 
     @property
@@ -214,25 +142,15 @@ class ScoreCollection:
         unique: list[ScoreObservation] = []
         by_identity: dict[tuple[object, ...], ScoreObservation] = {}
         for entry in entries:
-            if type(entry) is not ScoreObservation:
-                raise TypeError(
-                    "entries must contain exact Score Observations"
-                )
-            existing = by_identity.get(entry.identity)
-            if existing is None:
+            if type(entry) is ScoreObservation:
+                existing = by_identity.get(entry.identity)
+                if existing is not None and (
+                    existing.source_partition == entry.source_partition
+                    and i_json_values_equal(existing.value, entry.value)
+                ):
+                    continue
                 by_identity[entry.identity] = entry
-                unique.append(entry)
-                continue
-            if not i_json_values_equal(existing.value, entry.value):
-                raise ValueError(
-                    "Score Collection contains one Observation identity "
-                    "with conflicting values"
-                )
-            if existing.source_partition != entry.source_partition:
-                raise ValueError(
-                    "Score Collection contains an Observation identity "
-                    "partition collision"
-                )
+            unique.append(entry)
         object.__setattr__(self, "entries", FrozenList(unique))
 
     def __len__(self) -> int:
@@ -240,3 +158,125 @@ class ScoreCollection:
 
     def __iter__(self):
         return iter(self.entries)
+
+
+def validate_pairwise_evidence(value: PairwiseObservationContext) -> None:
+    evidence = (
+        value.evidence_content_digest,
+        value.evidence_method,
+        value.normalization_length,
+        value.aligned_atom_count,
+    )
+    axis_evidence = (
+        value.subject_axis_content_digest,
+        value.reference_axis_content_digest,
+    )
+    if all(item is None for item in evidence):
+        if any(item is not None for item in axis_evidence):
+            raise ValueError(
+                "Pairwise Context requires complete exact axis provenance"
+            )
+        return
+    if (
+        any(item is None for item in evidence)
+        or not isinstance(value.evidence_content_digest, str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            value.evidence_content_digest,
+        )
+        is None
+        or type(value.evidence_method) is not ExactContractReference
+        or value.evidence_method.contract_kind != "method"
+        or type(value.normalization_length) is not int
+        or value.normalization_length < 1
+        or type(value.aligned_atom_count) is not int
+        or value.aligned_atom_count < 1
+        or value.aligned_atom_count > value.normalization_length
+    ):
+        raise ValueError(
+            "Pairwise Context requires complete exact evidence provenance"
+        )
+    if any(item is not None for item in axis_evidence) and (
+        any(item is None for item in axis_evidence)
+        or value.evidence_content_digest is None
+        or any(
+            type(item) is not str
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", item) is None
+            for item in axis_evidence
+        )
+    ):
+        raise ValueError(
+            "Pairwise Context requires complete exact axis provenance"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class IntrinsicContextProfile:
+    """Fixed scientific intrinsic Observation Context contract."""
+
+    kind: Literal["intrinsic"] = "intrinsic"
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationContextProfile:
+    """Fixed scientific calibration Observation Context contract."""
+
+    calibration_metric: str
+    calibration_value: int | float
+    calibration_unit: str
+    population_id: str
+    kind: Literal["calibration"] = "calibration"
+
+
+@dataclass(frozen=True, slots=True)
+class PairwiseContextProfile:
+    """Fixed scientific pairwise Observation Context contract."""
+
+    subject_role: str
+    reference_role: str
+    pairing_mode: str
+    normalization: str
+    kind: Literal["pairwise"] = "pairwise"
+
+
+ObservationContextProfile = (
+    IntrinsicContextProfile
+    | CalibrationContextProfile
+    | PairwiseContextProfile
+)
+
+
+def observation_context_profile(context: IntrinsicObservationContext | CalibrationObservationContext | PairwiseObservationContext) -> ObservationContextProfile:
+    """Extract fixed conditions from an admitted actual Observation Context."""
+    if isinstance(context, IntrinsicObservationContext):
+        return IntrinsicContextProfile()
+    if isinstance(context, CalibrationObservationContext):
+        return CalibrationContextProfile(
+            context.calibration_metric, context.calibration_value,
+            context.calibration_unit, context.population_id,
+        )
+    return PairwiseContextProfile(
+        context.subject.role, context.reference.role,
+        context.pairing_mode, context.normalization,
+    )
+
+
+def observation_context_profile_descriptor(profile: ObservationContextProfile) -> dict[str, Any]:
+    """Project fixed scientific conditions without admitting them again."""
+    if isinstance(profile, IntrinsicContextProfile):
+        return {"kind": profile.kind}
+    if isinstance(profile, CalibrationContextProfile):
+        return {
+            "kind": profile.kind,
+            "calibration_metric": profile.calibration_metric,
+            "calibration_value": profile.calibration_value,
+            "calibration_unit": profile.calibration_unit,
+            "population_id": profile.population_id,
+        }
+    return {
+        "kind": profile.kind,
+        "subject_role": profile.subject_role,
+        "reference_role": profile.reference_role,
+        "pairing_mode": profile.pairing_mode,
+        "normalization": profile.normalization,
+    }

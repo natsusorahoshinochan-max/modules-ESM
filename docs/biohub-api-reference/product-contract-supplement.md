@@ -74,14 +74,16 @@ Provider/Adapter 集成缺陷；不能通过同时接受多种猜测表示来掩
 这些值是 Method identity，不是用户参数。Adapter 不调用 `/fold_all_atom`，不公开
 distogram/embedding 选择，也不在 fold failure 时切换 model、endpoint 或配置。
 
-pLDDT、pTM、PAE 与 prediction residue axis 的 canonical scientific semantics 服从
-[ADR-0020](../adr/0020-canonical-plddt-contract.md) 和
-[`structure_prediction` 两阶段 seam](../protein_workbench_architecture.md#101-结构预测置信度的两阶段-seam)。
+pLDDT、pTM、PAE 与 prediction residue axis 的科学语义见
+[当前科学数据流规范](../2026-09-02-clean-scientific-data-flow-refactor-spec.md)，
+准入职责见[单次准入设计](../2026-09-21-single-admission-i-json-design.md)；当前置信度物化入口见
+[`structure_prediction` implementation](../../modules/structure_prediction/implementation.py)。
 
 ## 5. 当前 ESM-3 generation 合同
 
-每个 medium/open generation Binding 固定 exact model、operation、sampling configuration
-和 randomness contract。公共 Node parameters 只表达 Node Type 声明的科学选择；SDK 的
+每个 medium/open generation Binding 固定 exact model、operation 和 randomness contract。
+`num_steps`、`temperature`、`top_p`、`schedule`、`strategy` 与 `temperature_annealing`
+由 Node Type 声明为科学参数，Adapter 按已准入的参数构造 sampling configuration。SDK 的
 `condition_on_coordinates_only`、`invalid_ids` 等 Method-fixed representation facts 不成为
 额外用户控制项。
 
@@ -93,6 +95,12 @@ Generation output 的科学身份由 `esm3` Module Interface 拥有：
 - 纯 sequence output 不补造 structure、Prediction Key 或 confidence fact；
 - present structure 必须与 terminal sequence、Prediction Key、structure digest、prediction
   residue axis 和 exact Method 保持一一关联。
+
+ESM-3 的两个 structure confidence 输出中的 PAE 均为可选值，这是当前 Node Type
+的 `optional PAE` 与 Method 的 `L_by_L_or_none` 所声明的合同。缺失时保留 `None`，
+存在时保留以 Å 为单位、与 prediction residue axis 对齐的完整 `L × L` 矩阵；不补零，
+也不借用另一预测的 PAE。5G53 验收遵守这一合同，并独立检查 ESMFold2 固定
+`include_pae=true` 请求所对应的 PAE，不能把 folding 的要求套用于 generation。
 
 真实运行中观察到 coordinates、confidence 或其他字段，不能自行升级 classification、补造
 Candidate、扩大当前 output contract，或替代独立 Folding Method。
@@ -108,5 +116,9 @@ Candidate、扩大当前 output contract，或替代独立 Folding Method。
 文档；不从一次成功或失败运行中生成 compatibility parser、expected-failure 产品分支或
 fallback route。
 
-当前真实 Provider gate、source-bound Workflow 与 Acceptance Campaign 定义见
-[`backend-verification.md`](../backend-verification.md)。
+当前后端门禁入口见 [verification.backend](../../verification/backend.py)，
+真实 Provider Acceptance Campaign 定义与命令见
+[acceptance_campaign.py](../../verification/acceptance_campaign.py) 和
+[acceptance_cli.py](../../verification/acceptance_cli.py)。
+最新完整验收见[端口展示与连线编辑验收记录](../2026-09-24-port-connections-acceptance.md)；
+该记录绑定其明确列出的冻结源码及构建产物，不将历史运行记录作为当前产物的通过证明。

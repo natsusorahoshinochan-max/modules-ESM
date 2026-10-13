@@ -5,11 +5,11 @@ from __future__ import annotations
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ScientificOperationFactory,
 )
+from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -18,6 +18,7 @@ from core.catalog.port_contract import BehaviorReference
 from core.operation import OperationContext, ScientificOperation
 
 from .implementation import (
+    SequenceBatchImportImplementation,
     SequenceExportImplementation,
     SequenceImportImplementation,
     StructureExportImplementation,
@@ -30,6 +31,8 @@ def _build(operation: str):
     def factory(context: OperationContext) -> ScientificOperation:
         if operation == "import_sequence":
             return SequenceImportImplementation(context.resources)
+        if operation == "import_sequences":
+            return SequenceBatchImportImplementation(context.resources)
         if operation == "import_structure":
             return StructureImportImplementation(context.resources)
         if operation == "export_sequence":
@@ -42,11 +45,11 @@ def _build(operation: str):
 def _binding(operation: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"protein_io.{operation}.direct",
-        node_type=ContractIdentity(
+        node_type=ExactContractReference(
             "node_type",
             f"protein_io.{operation}",
         ),
-        method=ContractIdentity(
+        method=ExactContractReference(
             "method",
             f"protein_io.{operation}.method",
         ),
@@ -74,6 +77,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 _OPERATIONS = (
     "import_sequence",
+    "import_sequences",
     "import_structure",
     "export_sequence",
     "export_structure",
@@ -85,6 +89,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/sequence_import.yaml"),
+        DefinitionResource("definitions/sequences_import.yaml"),
         DefinitionResource("definitions/structure_import.yaml"),
         DefinitionResource("definitions/sequence_export.yaml"),
         DefinitionResource("definitions/structure_export.yaml"),
