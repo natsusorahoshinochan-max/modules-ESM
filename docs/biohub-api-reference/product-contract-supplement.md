@@ -96,6 +96,12 @@ Generation output 的科学身份由 `esm3` Module Interface 拥有：
 - present structure 必须与 terminal sequence、Prediction Key、structure digest、prediction
   residue axis 和 exact Method 保持一一关联。
 
+ESM-3 的两个 structure confidence 输出中的 PAE 均为可选值，这是当前 Node Type
+的 `optional PAE` 与 Method 的 `L_by_L_or_none` 所声明的合同。缺失时保留 `None`，
+存在时保留以 Å 为单位、与 prediction residue axis 对齐的完整 `L × L` 矩阵；不补零，
+也不借用另一预测的 PAE。5G53 验收遵守这一合同，并独立检查 ESMFold2 固定
+`include_pae=true` 请求所对应的 PAE，不能把 folding 的要求套用于 generation。
+
 真实运行中观察到 coordinates、confidence 或其他字段，不能自行升级 classification、补造
 Candidate、扩大当前 output contract，或替代独立 Folding Method。
 

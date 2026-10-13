@@ -817,8 +817,10 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
         result.reconstruction = object()  # type: ignore[misc]
 
 
+@pytest.mark.parametrize("include_pae", [True, False])
 def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     monkeypatch: pytest.MonkeyPatch,
+    include_pae: bool,
 ) -> None:
     import torch
 
@@ -860,7 +862,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
                 [1.0, 0.0, 1.0],
                 [2.0, 1.0, 0.0],
             ]
-        ),
+        ) if include_pae else None,
         pdb_string=provider_pdb,
     )
     client = ProviderClient([sequence_response, structure_response])
@@ -918,11 +920,11 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     confidence = result.structure.confidence
     assert confidence.ptm == pytest.approx(0.75)
     assert confidence.plddt_per_residue == pytest.approx((70.0, 80.0, 90.0))
-    assert confidence.pae == (
+    assert confidence.pae == ((
         (0.0, 1.0, 2.0),
         (1.0, 0.0, 1.0),
         (2.0, 1.0, 0.0),
-    )
+    ) if include_pae else None)
     assert result.structure.effective_num_steps == 4
     assert result.structure.effective_call_seed is None
     assert _plain_invocations(resources.invocations) == [

@@ -992,12 +992,21 @@ def _assert_5g53_science(
                 port,
             )
             assert len(facts.entries) == 2
-            assert all(
-                fact.pae is not None
-                and len(fact.pae) == length
-                and len(fact.pae[0]) == length
-                for fact in facts.entries
-            )
+            for fact in facts.entries:
+                assert fact.prediction_axis.layout.length == length
+                assert len(fact.plddt_per_residue) == length
+                # ESM-3 declares optional PAE; absence is not a zero matrix.
+                if fact.pae is not None:
+                    assert len(fact.pae) == length
+                    assert all(len(row) == length for row in fact.pae)
+        fold_facts = _one(
+            service, catalog, projection, f"fold-{branch}", "confidence_facts"
+        )
+        assert len(fold_facts.entries) == 2
+        for fact in fold_facts.entries:
+            assert fact.pae is not None
+            assert len(fact.pae) == length
+            assert all(len(row) == length for row in fact.pae)
         branch_sequences = _one(
             service,
             catalog,
