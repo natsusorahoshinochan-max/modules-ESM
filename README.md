@@ -14,6 +14,26 @@ the sources needed to build that wheel and additionally carry the root lockfile;
 neither artifact promises a runnable repository verification or Provider-install
 workspace.
 
+## Deployment and verification
+
+The application can be deployed on machines that satisfy the software, hardware
+and Provider requirements of the selected operations. It is not tied to the
+repository's remote verification host. The supported deployment model remains
+a trusted, single-user application bound to loopback on the chosen machine.
+
+The backend requires Python 3.12 and its declared dependencies. WebUI development
+and builds additionally require Node.js and npm; the built WebUI is deployed
+separately from the backend wheel. Remote Provider operations require their SDK
+and credentials, while local model operations require their configured model
+files, native tools and supported device resources. Browsing bundled results
+does not require running those Providers. Sufficient memory or GPU capacity
+alone does not establish operating-system compatibility for every Provider.
+
+Repository contributors run automated verification on the designated remote
+host under the backend verification policy. This is a development workflow,
+not a requirement that users deploy on that host. See the WebUI instructions
+linked above for installation, startup and built-asset deployment.
+
 ## Repository layout
 
 - `core/` owns runtime, Workflow, Project, and evidence behavior.
@@ -25,9 +45,8 @@ workspace.
 - `tests/` and `verification/` own repository tests and verification tooling.
 - `repositories/` contains pinned Provider sources, including the maintained
   SoluProt-next port.
-- `.scratch/webui-product-definition/` contains tracked WebUI interaction-design
-  evidence; other test, Run, diagnostic, and fixture-generation data does not
-  belong under `.scratch/`.
+- `.scratch/` contains ignored, local-only experiments and prototypes. Durable
+  design decisions belong in `docs/`; prototype files are not committed.
 - `.local/` contains ignored backend Run data, temporary generation results, and
   fixture-production intermediates.
 - `webui/test-results/` contains ignored Playwright test results.

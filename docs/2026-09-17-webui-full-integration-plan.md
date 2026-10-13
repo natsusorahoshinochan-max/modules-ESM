@@ -13,7 +13,7 @@
 
 1. [CONTEXT.md](../CONTEXT.md) 与当前科学规格拥有领域含义及科学合同。
 2. [2026-09-02 数据流规格](2026-09-02-clean-scientific-data-flow-refactor-spec.md)及后续 Commit、残基和 ESM3 规格优先于旧原型中的科学实现假设。
-3. [已确认功能基线](legacy/2026-08-29-webui-functional-spec.md)和[八个原型](../.scratch/webui-product-definition/)提供用户功能及交互方向。
+3. [已确认功能基线](legacy/2026-08-29-webui-functional-spec.md)提供用户功能及交互方向。八个早期原型为本机临时实验，不随仓库提交；正式功能依据以文档中的说明为准。
 
 继续遵守当前科学语义：Prompt Studio 编辑普通 `prompt_authoring.author` Node 的 `document`；FASTA/PDB 通过可见的 I/O Nodes 提供；不恢复 managed composition、平行 layout Ports 或旧前端。SS8、Function annotations 重复规则、absent 与 present all-null 按当前规格，不照抄旧原型。Availability 是启动诊断，不等于 Run-scoped Readiness，也不能单独阻止缓存复用或执行。
 
