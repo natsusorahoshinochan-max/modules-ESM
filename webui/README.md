@@ -1,18 +1,10 @@
 # Protein Workbench WebUI
 
-Last updated: 2026-10-13.
-
-The approved canvas experience is now the default application at `/`. There is
-one entry and build (`npm run dev`, `npm run build`); the prototype entry,
-mode, banner, layout switcher and right inspector have been removed.
-
-- Open published output collections directly from a node or stage card.
-- Results identifies the exact source and can locate it in the canvas. Saving a
-  Selection keeps the current results and offers navigation to the new nodes.
-- Prompt Studio shows its project, group and owning node. G/R previews update
-  locally while moving; confirmation submits the final transform.
-- The operation palette remains collapsible. Focus, comparison and checked
-  candidates remain independent in Results.
+The application has one entry at `/`. This guide describes how to start the
+current implementation and verify frontend changes. Product requirements and
+implementation gaps are maintained in the [workspace](../docs/workspace.md),
+[results](../docs/results.md), and [Prompt editing](../docs/prompt-editing.md)
+specifications, under the [current governance decisions](../docs/documentation-governance-decisions.md).
 
 ## Install and start on your machine
 
@@ -62,27 +54,20 @@ Install Provider Python dependencies when you need model execution:
 ```
 
 This installs Python dependencies, not model weights or all external executables.
-Set the required environment variables before starting the backend. Paths are
-absolute and belong to the deployment machine:
+The current implementation reads configuration from environment variables before
+backend startup. Follow [Provider configuration](../docs/provider-configuration.md#当前配置入口)
+for each selected route's credentials, absolute paths on the backend machine,
+native tools and required platform/device. Setting a directory variable does not
+install the Provider. Missing model configuration prevents the corresponding
+operations from running, not browsing already published example results.
+Credentials must remain outside Git.
 
-| Operation | Required configuration |
-| --- | --- |
-| Browse and edit the bundled example | Backend and WebUI dependencies; no model invocation |
-| Biohub ESMC, ESM-3 and ESMFold2 | `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, pointing to a private credential file, plus network access |
-| Local ESM-3 | `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT` with the complete model snapshot |
-| Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` and `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT` |
-| SimpleFold | `PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT`, `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`, `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT` |
-| ProteinMPNN | `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT` |
-| DSSP | `PROTEIN_WORKBENCH_MKDSSP_BINARY` |
-| SoluProt | `PROTEIN_WORKBENCH_SOLUPROT_ROOT`, containing the prepared Provider runtime and tools |
-| Protein-Sol | `PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT`, plus Bash and Perl on `PATH` |
-
-Local Providers also require their supported platform, device, memory and native
-tools. For example, full SoluProt additionally requires Perl. The current mapping
-is owned by [provider_environment.py](../protein_workbench_public/provider_environment.py);
-setting a directory variable does not install the Provider. Missing model
-configuration prevents the corresponding operations from running, not browsing
-already published example results. Credentials must remain outside Git.
+An application settings interface is a confirmed requirement: modules declare
+their settings, and the carrier displays, saves and supplies them. It is not yet
+provided by the environment-variable path above. See [Provider configuration](../docs/provider-configuration.md)
+for the current setup and its gap from that requirement. Model downloads and
+automatic environment installation are outside this decision; per-calculation
+parameters remain in Node/Binding controls.
 
 ## Deploy built frontend assets
 
@@ -99,55 +84,52 @@ it does not configure the server that hosts `dist/`. Keep the application within
 its trusted single-user, loopback deployment model.
 
 The repository's remote-only build and test policy applies to contributor
-verification, not to where users may install or run the application. Historical
-machine paths in acceptance records identify evidence locations only.
+verification, not to where users may install or run the application.
 
 ## Application behavior
 
-See the [design and verification history](../docs/research/2026-10-05-canvas-prototype.md).
+Open `http://127.0.0.1:5173`. The current app discovers the protected 3GB1 teaching
+example, its Workflow Draft and bundled completed Run through the public protocol.
+No Provider is needed to inspect these results; new Runs use configured real
+Providers. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
+describes what ships in the backend package.
 
-Open `http://127.0.0.1:5173`. The app discovers the immutable 3GB1 example,
-its Workflow Draft, and its bundled completed Run through the public protocol.
-The example is read-only; its first edit creates a personal Project and preserves
-the original results as an explicit reference. No Provider is needed to inspect
-the bundled evidence. New Runs use the configured real Providers.
+The canvas exposes operations, Node/Binding parameters, connections, nested
+groups, independent group copies and undo/redo. Default stage cards map to real
+nodes and parameters; groups preserve the actual workflow dependencies.
+[Workspace behavior](../docs/workspace.md) defines these interactions and the
+confirmed manual-save, project-copy and tutorial rules.
 
-The default example opens as five ordered stage groups:
-**模板 → Prompt (4) → 生成候选与初筛 (7) → 首轮折叠与筛选 (11) →
-设计序列 (2) → 末轮折叠与筛选 (11)**, followed by the ordinary export node.
-The 36 computation nodes and 61 edges remain unchanged; 14 connections cross
-stage boundaries, including two references from the first validation stage to
-the final stage. The groups form one horizontal row at an initial 100% zoom.
-Stage navigation and horizontal panning keep cards readable; Fit View is an
-explicit overview action.
+Prompt Studio combines a residue matrix and structure view. G/R moving and
+rotation update temporary coordinates locally; Enter or left-click confirms the
+final backend preview, and Escape or right-click restores the starting state.
+The viewer uses 3Dmol.js. Confirmation of an edit and persistent project saving
+have separate requirements; see [Prompt editing](../docs/prompt-editing.md).
 
-Stage controls map directly to existing node parameters and open the existing
-Prompt or Selection editors; they do not duplicate values or merge independent
-seeds. See the [stage and parameter mapping](../docs/research/2026-09-29-default-example-grouping.md).
-Browsing the immutable example does not create a copy. Its first edit preserves
-the displayed grouping, positions, per-level views and parameter mappings in the
-new personal Project's UI state. Existing personal copies are not migrated or
-automatically rearranged. Remote frontend verification passed: 70 focused cases, followed by five browser
-regressions after the final control-position adjustment. Application/test types,
-lint and build passed; the interaction contract records snapshots and viewport
-coverage. The user confirmed stage acceptance on 2026-09-29. The October 6 update adds local G/R display while dragging; confirmation still uses the backend preview.
+Results browse published intermediate outputs, exact Scores, parents and available
+alignment results. Focus, export selection and same-Run comparison are independent.
+The current ZIP exporter writes FASTA, Scores, metadata and PDB files for Candidates
+that have structures. [Results](../docs/results.md) defines the required history,
+reuse, structure formats, viewers and parameter export behavior.
 
-Use **添加来源** for a blank Prompt, FASTA, a PDB chain or an existing Prompt.
-Batch FASTA import creates one Candidate per record. The canvas supports adding
-operations, editing parameters and Selection rules, replacing connections,
-nested node groups, independent group copies, and undo/redo. See the
-[current frontend interaction contract](../docs/2026-09-29-frontend-interaction-contract.md)
-for matrix keys, 3D navigation and selection, group navigation, and the current
-stage acceptance record. Structure transforms now update selected atom coordinates locally on animation frames. Enter or left-click submits the final transform to the backend preview and accepts one edit; Escape or right-click restores the starting coordinates. This October 6 change is separate from the earlier grouping acceptance. The viewer uses 3Dmol.js directly. Run confirmation shows the actual full or
-partial scope. Continuation forces the selected Nodes and descendants to execute
-and refuses missing reusable upstream results.
+The current application still differs from confirmed requirements: it saves on
+edits/navigation, copies the teaching example on first edit, mainly opens the
+latest Run, retains result-to-workflow actions, and lacks mmCIF export and complete
+module settings/viewer integration. These are implementation gaps, not endorsed
+usage rules. Full historical/cross-project input adoption and source-independent
+availability remain to be verified. Project-wide editing protection
+during execution and batch result retention/continuation also require changes.
+Node-level continuation currently forces selected Nodes and descendants to run;
+it is distinct from the required continuation of unfinished requests within a
+batch. See [execution](../docs/execution.md) and the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
 
-Results expose published intermediate stages, exact Scores and parents,
-side-by-side views and existing alignment evidence. Temporary grouped filters,
-ranking and checked Candidates can become ordinary editable Workflow operations.
-ZIP export includes FASTA, Scores and provenance; only Candidates with structures
-receive PDB files. Project management persists Drafts, layout and named versions,
-including returning to the work that preceded opening an old version.
+## Verification
+
+For read-only review and explanatory text/link changes, inspect content and
+references without running executable verification. For behavior changes, use
+the complete [backend execution policy and gates](../docs/backend-verification.md#execution-policy)
+and these frontend entry points. This document records commands, not a claim
+that the current working tree has passed them.
 
 Run all verification on the remote verification host, reusing its existing
 Python 3.12 `.venv` and installed frontend dependencies. Do not run tests or builds
@@ -171,11 +153,8 @@ The regular Playwright configuration uses an isolated backend on port 8180 and
 Vite on port 5179. Real Provider journeys have a separate
 `playwright.real.config.ts`; they require an explicitly supervised built WebUI
 service and the prepared FASTA Project. See the
-[real FASTA journey specification](../docs/2026-09-19-webui-fasta-journey-spec.md)
-and the [latest complete acceptance record](../docs/2026-10-07-frontend-full-acceptance.md).
-The [September 19 record](../docs/2026-09-19-webui-integration-progress.md)
-documents the earlier integration snapshot and the separately tracked
-source-field simplification.
+[real FASTA journey procedure](../docs/backend-verification.md#real-fasta-webui-journey)
+for preparation, report collection and its required original full Run identity.
 Set `PROTEIN_WORKBENCH_REAL_UI_URL` and `PROTEIN_WORKBENCH_REAL_FASTA_PROJECT_ID`
 for the prepared service and Project, then run
 `npx playwright test --config playwright.real.config.ts` on the verification host.

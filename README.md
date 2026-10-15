@@ -3,10 +3,16 @@
 Protein Workbench provides a local scientific workflow backend and WebUI for
 protein design, structure prediction, comparison, annotation, and scoring.
 
-The source repository owns the
-[scientific vocabulary and architectural boundaries](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/CONTEXT.md),
-[backend verification entry points](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/backend-verification.md),
-and [WebUI startup and verification instructions](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/webui/README.md).
+Use the [documentation index](docs/README.md) to find current requirements,
+architecture, operations, and verification instructions. The
+[confirmed requirements](docs/documentation-governance-decisions.md) define the
+product behavior; the [open issues](docs/2026-10-15-documentation-governance-issues.md)
+identify implementation differences and facts still needing clarification.
+Documented requirements do not imply that the current application implements them.
+
+The source repository owns the [domain vocabulary](CONTEXT.md),
+[architecture](docs/architecture.md), [backend verification entry points](docs/backend-verification.md),
+and [WebUI startup and verification instructions](webui/README.md).
 Operational documentation, repository tests, verification tooling, and Provider
 source trees belong to the source checkout. Wheels contain the installable backend,
 maintained Workflow examples, and package metadata. Source distributions contain
@@ -36,17 +42,17 @@ linked above for installation, startup and built-asset deployment.
 
 ## Repository layout
 
-- `core/` owns runtime, Workflow, Project, and evidence behavior.
-- `datatypes/` owns provider-independent scientific values.
-- `modules/<package>/` contains the repository-owned Module Packages.
+- `core/` owns runtime, Workflow, Project, and necessary execution records.
+- `datatypes/` owns shared provider-independent values; it does not limit the types modules may declare.
+- `modules/<package>/` contains repository-owned Module Package sources. External modules follow the same extension contract; the current fixed assembly and missing installer remain implementation gaps.
 - `protein_workbench_public/` owns the current public protocol and server.
 - `examples/v2/` contains maintained Workflows, structure inputs, and bundled WebUI results.
-- [`webui/`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/webui/README.md) contains the React WebUI; its production build is deployed separately from the backend wheel.
+- [`webui/`](webui/README.md) contains the React WebUI; its production build is deployed separately from the backend wheel.
 - `tests/` and `verification/` own repository tests and verification tooling.
 - `repositories/` contains pinned Provider sources, including the maintained
   SoluProt-next port.
-- `.scratch/` contains ignored, local-only experiments and prototypes. Durable
-  design decisions belong in `docs/`; prototype files are not committed.
+- `docs/` contains current requirements, reference documentation, and unresolved issues.
+- `.scratch/` contains ignored, local-only experiments and prototypes.
 - `.local/` contains ignored backend Run data, temporary generation results, and
   fixture-production intermediates.
 - `webui/test-results/` contains ignored Playwright test results.

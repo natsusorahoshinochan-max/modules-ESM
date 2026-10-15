@@ -1,11 +1,17 @@
 # Protein Workbench v2 examples
 
-`canonical-3gb1.workflow.json` is the canonical scientific acceptance Workflow.
+`canonical-3gb1.workflow.json` is the canonical executable verification Workflow.
 `webui-3gb1.example.json` is the separate protected WebUI example;
 `webui-3gb1.results.zip` carries its completed real Run and is included in the
 backend wheel. Its results are available offline on first open; new Runs require
-the configured real Providers. See the [WebUI guide](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/webui/README.md) and
-[result resource contract](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/2026-09-19-webui-example-results-spec.md).
+the configured real Providers. See the [WebUI guide](../../webui/README.md) and
+[workspace requirements](../../docs/workspace.md#教学实例与默认入口).
+
+These files describe current executable fixtures; they do not establish product
+scope or prove that all current requirements are implemented. In particular,
+ProteinMPNN must be rebuilt under the [module requirements](../../docs/module-capabilities.md),
+and the teaching example's first-edit persistence does not meet the required
+first-manual-save behavior. Requirements are owned by the [current decisions](../../docs/documentation-governance-decisions.md).
 
 `repository-capabilities.workflow.json` is a provider-free Catalog compilation
 fixture. It fixes its Execution Bindings by stable ID and separates Node and
@@ -26,7 +32,8 @@ The repository examples are representative scientific Workflows, not a
 mechanical inventory of every Catalog registration. Prediction and folding
 Nodes publish subjectless confidence facts; the Workflows join those facts to
 admitted structure Candidates only through
-`structure_prediction.materialize_confidence`. Run:
+`structure_prediction.materialize_confidence`. Run on the remote verification
+host's fixed snapshot, following the [verification policy](../../docs/backend-verification.md#execution-policy):
 
 ```bash
 uv run --no-sync python -m examples.v2_suite
@@ -66,7 +73,9 @@ resolved reference axis. It fixes A:42, A:44, A:46, A:60–A:72, A:92, A:94, A:9
 A:110, A:112, A:121, A:123, A:145, A:148, A:150, A:165, A:167, A:183, A:203,
 A:205, A:220, and A:222, preserving the SHG precursor and the declared functional
 neighborhood. The maintained [source-bound Workflow](source-bound-2emo.workflow.json) records
-this exact set. The [current scientific specification](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/2026-09-02-clean-scientific-data-flow-refactor-spec.md#12-当前-authoring-边界) defines the authoring boundary.
+this exact set. The [module capability specification](../../docs/module-capabilities.md)
+defines current functional responsibilities, while [Prompt editing](../../docs/prompt-editing.md)
+describes the existing authoring boundary and its gaps.
 The Adapter maps these residue identities to Provider positions. Prompt sequence
 masking does not supply ProteinMPNN constraints, and the missing backbone oxygen
 at normalized A:65 remains missing.
@@ -86,3 +95,45 @@ gates. A scientifically valid zero-pass result remains a successful Run.
 Provider-free public REST/WebSocket acceptance uses lawful controlled Binding
 clients with reconstruction and both full-PAE confidence paths; it invokes no
 remote Provider or local model.
+
+## Protected WebUI result resource
+
+`webui-3gb1.results.zip` belongs to the protected `webui-3gb1-example` Project.
+It carries the completed real Run of `webui-3gb1.example.json` with the Workflow's
+declared Bindings, Methods and seeds; a canonical verification Run is not a
+substitute. The resource includes its manifest, original immutable Project
+Inputs, Draft/workspace/Commit records, ordered Ledger transactions, and all
+published manifests, values and artifacts needed by that Run. Original identities
+and contents remain unchanged. Runtime caches, temporary Provider workspaces,
+weights, process environment, execution profiles, credentials and private
+configuration are excluded.
+
+`verification.webui_example_evidence` generates and exports this resource. Generation
+uses a fresh explicit remote data root and execution profile, runs the full real
+Workflow and requires successful completion, no derived source and no cache replay.
+Export reads the original durable owner records rather than reconstructing Ledger
+transactions from public events. A failed or interrupted generation remains
+diagnosable in its data root and is not exported as the teaching result. An already
+completed generation can be exported without invoking Providers again. Changed
+calculation definitions require a new real generation, not relabeling old results.
+
+Current startup installs the packaged trusted records before runtime registration,
+publishes dependencies first and the Run directory last, and leaves no partly
+visible Run on interrupted staging. An already installed identical Run is reused;
+conflicting protected content is rejected without overwriting it. User Projects
+and the canonical verification Project are outside the installer. The resource
+ships in the backend wheel, so first-open browsing works with Providers unavailable.
+
+Current composition installs the example resource by default; the
+`load_example_results=False` option supports isolated composition and resource
+generation. This is implementation behavior, not a requirement that the carrier
+depend on a science module or teaching resource to start. The original tutorial
+remains protected. Editing/personal-save and copied Run scope must follow
+[workspace requirements](../../docs/workspace.md#教学实例与默认入口), not the currently
+implemented copy-on-first-edit path.
+
+Changes to the resource require remote verification of real generation, clean
+installed-package startup without Providers, original Commit/Run readability,
+candidate/score/parent/structure browsing, and protection of the teaching original.
+The real browser journeys and backend Provider gates remain separate; use the
+[WebUI verification entry point](../../webui/README.md#verification).

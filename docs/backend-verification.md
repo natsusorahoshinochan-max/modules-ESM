@@ -1,11 +1,22 @@
 # Backend verification tiers
 
-Status: current verification contract.
+This document owns the execution policy and the current executable backend
+verification matrix. Read it before changing executable examples, configuration,
+runtime behavior, or verification tooling. WebUI checks are maintained in the
+[WebUI verification entry point](../webui/README.md#verification).
 
-The backend verifies one current stable-ID Catalog and the current v2 public
-protocol. Verification prioritizes scientific meaning, exact contracts,
-lineage, residue mapping, units, randomness, provenance, and durable evidence;
-it does not verify compatibility with superseded development artifacts.
+Verification checks correct inputs and parameters, current package contracts,
+data correspondence, execution behavior, and durable writes. Existing assertions
+on lineage, residue mapping, units, randomness, provenance, and retained results
+remain required; this does not authorize additional scientific or evidence systems.
+
+The [current decisions](documentation-governance-decisions.md) define required
+product behavior. The matrix below describes implemented verification, not proof
+that every current requirement is implemented. In particular, existing ESMC
+logits-shape assertions do not prove actual logits output, and the existing
+ProteinMPNN gates do not define the interface of its required rebuild. Other
+implementation differences remain tracked in the
+[governance issue list](2026-10-15-documentation-governance-issues.md).
 
 Use one public verification command:
 
@@ -41,7 +52,7 @@ editing, searching and diff inspection.
 1. Freeze a task-specific source snapshot and record its digest. Keep running
    snapshots immutable and credentials outside the repository and logs.
 2. In each diagnostic round, collect focused tests, all seven repository tiers
-   and the applicable [WebUI checks](../webui/README.md) independently. Save each
+   and the applicable [WebUI checks](../webui/README.md#verification) independently. Save each
    exit code, complete log and structured result. `verify-repository` stops at
    the first failure, so diagnostic rounds invoke its seven existing tier entry
    points separately; a remote temporary collector is sufficient.
@@ -75,8 +86,8 @@ required real acceptance; do not add skips or weaken gates to obtain a pass.
 | Local ESMFold2 translation contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks native-result translation, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python -m verification.backend installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
 | Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
-| Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and fixes SDK retries to one attempt per call. |
-| Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run with one SDK attempt. |
+| Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and retains the applicable existing SDK retry limit. |
+| Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run, retaining the applicable existing SDK retry limit. |
 | Installed local ESM-3 | `.venv/bin/python -m verification.backend installed-local-esm3` | Invokes the configured local model for paired, sequence, and structure generation, explicitly forbids Hugging Face snapshot download/cache fallback, and requires complete scientific invocation evidence. |
 | Installed local ESMFold2 | `.venv/bin/python -m verification.backend installed-local-esmfold2` | Invokes the configured ESMFold2 and ESMC models through a fresh Run using the Binding-owned platform device policy: CUDA on Linux/Windows and CPU on macOS, with ESMC FP32 precision. CUDA-platform failure never falls back to CPU. The gate requires effective-seed Method evidence. |
 | Installed ProteinMPNN | `.venv/bin/python -m verification.backend installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs. Direct Adapter edge cases remain non-authoritative Provider regressions. |
@@ -100,6 +111,14 @@ intentional scientific contract or scenario change, regenerate them with
 stress suite verifies topology, stable references, scientific Port compatibility,
 and scenario behavior without storing internal contract versions or a Contract
 Lock.
+
+Engine Invocation counts describe runtime tool invocations, not SDK-internal
+request attempts. The configured ESM-3 and ESMFold2 SDK default allows at most
+five total attempts for its specified retryable outcomes. Verification uses the
+existing applicable defaults; it does not force one attempt or introduce a new
+retry layer. This is not a five-attempt rule for every tool or failure. See
+[execution requirements](execution.md) for failure handling and user-initiated
+continuation.
 
 All nineteen Acceptance Campaign tiers are zero-skip gates: a missing Provider,
 fixture-only collection, missing Engine Invocation,
@@ -174,40 +193,36 @@ Biohub Method or broadens a downstream selector to arbitrary pLDDT provenance.
 ## Trusted Provider environment configuration
 
 Provider filesystem locations and credentials are Environment Configuration,
-not Workflow parameters and not workstation-specific literals. Set the exact
-variables required by the selected gate:
+not Workflow parameters and not workstation-specific literals. Configure every
+requirement of the selected gate using the environment-variable and resource
+mapping in [Provider configuration](provider-configuration.md). The private
+Campaign Execution Profile supplies those requirements explicitly, including
+`PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE` for the Biohub gates.
 
 The installed server requires one absolute `PROTEIN_WORKBENCH_DATA_ROOT` and
 derives `projects/`, `cache/`, `outputs/`, `runs/`, and Provider runtime state
 from it. Verification supplies an isolated absolute data root for each child
 process; it never relies on the caller's working directory.
 
-| Gate | Required trusted configuration |
-| --- | --- |
-| Biohub ESMC, ESM-3, ESMFold2 | `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, selecting one private regular credential file by absolute path. |
-| Local ESM-3 | `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`, selecting the configured snapshot root by absolute path. |
-| Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` and `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT`. |
-| ProteinMPNN | `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT`. |
-| mkdssp | `PROTEIN_WORKBENCH_MKDSSP_BINARY`, selecting the configured supported binary by absolute path. |
-| SimpleFold | `PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT`, `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`, and `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`. |
-| SoluProt | `PROTEIN_WORKBENCH_SOLUPROT_ROOT`, selecting the trusted runtime and asset root. |
-| Protein-Sol | `PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT`, selecting the trusted Protein-Sol source root. |
-
 Missing or relative required path configuration fails a zero-skip gate.
 Acceptance files do not infer Provider runtimes from another workspace.
-The private Campaign Execution Profile supplies every canonical requirement
-explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`.
 
 The installed `protein-workbench-server` command loads these variables into the
-same Binding-scoped Environment Configuration used by verification. A separate
-Python launcher that calls `create_application(v2_environment_configuration=...)`
-is no longer required for ordinary backend deployment.
+same Binding-scoped Environment Configuration used by verification. Deployment
+and the required in-application settings interface are described in
+[Provider configuration](provider-configuration.md); the private verification
+Execution Profile remains explicit.
 
 All declared canonical pytest file targets are required to exist. A developer
 may use a focused override for remote diagnosis; only the Campaign's fixed selectors
 constitute canonical acceptance.
 
 ## Architecture invariants
+
+Read [architecture](architecture.md) for current responsibility boundaries. The
+assertions below describe the current executable suite; startup registration and
+PDB-specific assertions do not establish the required plugin installer or
+PDB/mmCIF support.
 
 The verification suite must prove all of the following through public or
 contract-owning interfaces:
@@ -216,8 +231,9 @@ contract-owning interfaces:
   Node Type, Port Type Definition, Method, Execution Binding, Metric Definition,
   Utility Transform, and Behavior ID;
 - incompatible changes update all current producers, consumers, examples, and
-  fixtures together; superseded development Workflow, Cache, and Run data is
-  discarded or regenerated without migration or legacy execution;
+  fixtures together; superseded development Workflow, Cache, and Run data may be
+  discarded or regenerated without migration or legacy execution, while saved
+  user work and adopted inputs remain protected;
 - an immutable `Execution Plan` fixes the stable contracts before a Run and the
   runtime does not rediscover graph, Binding, Method, or Port facts;
 - canonical scientific operations accept admitted provider-independent values
@@ -226,8 +242,8 @@ contract-owning interfaces:
   contract does not introduce a second positional or legacy implementation;
 - a concrete Provider Adapter is the only owner of provider-native translation;
   source, checkpoint, installation form, and device are not scientific identity;
-- identical canonical PDB content has one `protein.structure` content
-  digest independent of provider or project-source provenance, and the active
+- in the current PDB representation, identical canonical content has one
+  `protein.structure` content digest independent of provider or project-source provenance, and the active
   structure wire admits no source-bearing historical shape;
 - `structure_transform.backbone_structure` is admitted by
   structural and atomic invariants, never by a producer/source label;
@@ -239,7 +255,8 @@ contract-owning interfaces:
 
 A repository-owned extension has one production entry point:
 `modules/<package>/package.py:MODULE_PACKAGE`. The composition root explicitly
-registers these production packages:
+registers these production packages. This list describes the implemented Catalog,
+not the final functional-module division or the complete external-plugin contract:
 
 - `collection_ops`
 - `esm3`
@@ -279,6 +296,95 @@ The synthetic echo package exists only under
 `tests/fixtures/zero_core_packages`. Production discovery does not expose echo.
 Neither the wheel nor the sdist contains the repository test tree, fixture
 resources, or synthetic echo package.
+
+## Test ownership and shared helpers
+
+Package and scenario tests own their inputs, expected terminal status, parameter
+translation, outputs, and required relationships. Shared helpers own protocol
+requests, response validation, byte retrieval, and synchronization. A valid
+terminal status is not itself success; failure, cancellation, and interruption
+tests must assert the intended outcome. Error-response tests continue to call
+the tested interface directly. Test reorganizations retain equivalent positive
+and negative coverage and receive both standards and specification review;
+smaller files or fewer tests do not establish equivalence.
+
+### Contract Test Kit
+
+The Kit offers independent Port conformance and one-case execution interfaces.
+Port conformance obtains the owning Port through real Catalog admission and
+checks representative valid values, invalid values, and canonical codec
+roundtrips without requiring an executable Workflow. One-case execution may use
+upstream Nodes to construct real inputs. The case declares inputs, Binding,
+parameters, environment, and required graph configuration; ordinary pytest
+assertions remain with its owner.
+
+The Kit owns isolated storage, Commit, execution, terminal wait, retrieval, and
+cleanup for one successful conformance case. It returns decoded target outputs,
+Artifact bytes, and existing typed evidence captured before cleanup. Returned
+values remain usable after the runtime and temporary directory close. Decode
+with the actual Port codec and preserve exact Port, value, Candidate, Method,
+Metric, Context, and Artifact references, including multiple Artifacts on one
+Port. Associate evidence by target Node Attempt, Operation Attempt, and Engine
+Invocation keys: upstream calls cannot satisfy the target Node's expected calls.
+Zero, one, and multiple invocations are valid when explicitly expected. Invalid
+codecs, invalid outputs, and failed execution cannot return conformance success.
+
+Runtime and Ledger owner tests retain causality, Cache replay, cancellation,
+restart, and failure-propagation coverage. The Kit consumes their existing
+typed evidence; it does not reproduce reducers, infer expected tool behavior,
+or add a second evidence model. Pytest parameterization owns independent cases
+and reporting. The execution policy above governs diagnostic batching. Keep
+case-specific credential checks against actual public outputs in the owning
+tests; a Kit summary does not replace them.
+
+### Public Workflow and Run support
+
+[public_runs.py](../tests/support/public_runs.py) provides public requests,
+Commit and Run receipts, terminal projection polling, exact Typed Output and
+Artifact retrieval, and network event collection. The caller owns its client,
+application, isolated storage, gates, and fault injection. Submit, start, wait,
+and read remain independently usable; helpers do not silently change Workflow
+identity, save a Draft, recommit, or retry. Preserve actual receipts, output
+order, exact Port/value indices, content identity, Artifact references, and
+protocol metadata rather than substituting result summaries.
+
+[inprocess_runs.py](../tests/support/inprocess_runs.py) synchronizes a TestClient
+with the durable runtime terminal state before reading the public projection.
+This does not verify network transport. Installed acceptance uses actual HTTP
+polling and real WebSocket collection without backend implementation imports or
+`app.state` access. Event tests own connection, replay cursor, disconnect,
+envelope, ordering, and terminal-collection assertions. These internal waits are
+separate from the 30-minute external monitoring rule.
+
+[runtime_results.py](../tests/support/runtime_results.py) owns direct-runtime
+waiting and codec retrieval. Shared contract, direct, pipeline, and Artifact
+scenarios live in [run_scenarios.py](../tests/fixtures/run_scenarios.py); consumers
+use that shared fixture module rather than importing another test file.
+Execution actions, Readiness, randomness, call counts, gates, and terminal fault
+controls remain test seams. Owner-specific persistence faults stay with their
+tests; helpers distinguish complete event envelopes from inner events.
+
+### Required module regression coverage
+
+Retain source identity, chain layout, residue correspondence, track values and
+presence, annotations, and public Preview/Run parity in their owning module
+tests. In particular, preserve 2EMO parent-span normalization, segment topology,
+coordinate masks, and Prompt mapping; 5G53 modeled residues and optional tracks;
+unambiguous primary sources, monotone merges and target gaps; absent versus
+present-all-null tracks; explicit, inherited, and merged annotations, legal
+overlap and invalid duplicates; and source admission before downstream edits.
+
+Random insertion coverage checks actual public operation traces and
+handle-to-residue correspondence without assuming an internal ID string format.
+Display-axis coverage uses real Preview and verifies order, identity uniqueness,
+and pending-deletion handling. Track assembly and decomposition retain direct
+codec and Layout coverage as well as cross-Node journeys. Source sequence or
+track-layout errors are checked through structured Preview rejection, unchanged
+Drafts, and actual source-Node failure; valid sources with an invalid baseline
+retain repair-and-apply coverage. Draft revision conflicts must protect saved
+work. These are the current suite's scoped checks, not a generic HTTP rule for
+every Provider failure. Required editing behavior remains defined in
+[Prompt editing](prompt-editing.md), including editable random insertions.
 
 ## Installed parity contract
 
@@ -336,7 +442,8 @@ facts use the current schema. Development state has no compatibility promise.
 Before a changed result-affecting definition can execute under the same stable
 ID, Cache entries written by its superseded definition must be cleared or
 isolated. Other incompatible development state may be regenerated without a
-migration or legacy reader.
+migration or legacy reader. This permission does not authorize silent loss of
+saved user work or invalidate an adopted input when its source Project is deleted.
 
 Public projection and event replay are derived from the Run Ledger. There is no
 parallel provider-evidence writer or internal filesystem integrity protocol.
@@ -372,6 +479,7 @@ Each tier makes its exact scientific assertions before retaining already
 validated public observations. Local-model tiers remain separate child
 processes. Within one child, a declared resident model may be reused for that
 tier; child exit releases it before the next tier.
+
 ## Deterministic public-protocol acceptance
 
 The deterministic tier uses
@@ -382,8 +490,125 @@ cancellation, and Artifact Retrieval. Providers are replaced only at their
 declared Adapter seams; the Frozen Catalog, compiler, execution engine, Cache,
 Ledger, and public routes remain real.
 
-The tier verifies the accepted ten paired ESM-3 Candidates, initial folds,
+The tier verifies the maintained scenario's ten paired ESM-3 Candidates, initial folds,
 isolated fixed-reference and paired-counterpart TM-score objectives, weighted
 top three, three ProteinMPNN parents with five children each, fifteen final
 folds, complete causal closure, and fifteen retrievable PDB digests. It never
 uses v1 bundles, fixed historical provider counts, or separate adapter evidence.
+
+## Real FASTA WebUI journey
+
+Use this representative journey when verifying the real FASTA import,
+evaluation, folding, selection, and ZIP-export path in the built WebUI. It
+supplements the backend and real-browser gates; it does not replace the canonical
+Campaign or the other real WebUI journeys. The other real journeys use a personal
+Project based on the teaching example, edit its Prompt, explicitly reduce the
+representative sample counts, and start a fresh Run through the built WebUI.
+
+### Fixed journey inputs and computation
+
+The input is [protein_sol_input.fasta](../modules/solubility/fixtures/protein_sol_input.fasta),
+with records `116415` and `ubiquitin` in that order. Upload the original bytes
+through the public immutable Project Input operation. The production inspector
+and `protein_io.import_sequences` parse the file; the verifier does not fabricate
+Candidates. The current executable Workflow is defined in
+[webui_journey_evidence.py](../verification/webui_journey_evidence.py).
+
+| Node | Current verification configuration |
+| --- | --- |
+| `import-fasta` | `protein_io.import_sequences.direct`; two independent ordered sequence Candidates. |
+| `score-solubility` | `solubility.protein_sol.local`; Method `solubility.protein_sol.sequence_prediction_2017`. |
+| `prefilter-solubility` | `selection.filter.direct`; `solubility.protein_sol_scaled`, partition `protein_sol_scaled`, threshold `>= 0.446`. |
+| `fold` | `folding.fold.esmfold2_remote`; Method `folding.fold.esmfold2_fast_biohub_2026_05`, configured node `effective_seed=2719001`, one sample per admitted sequence. |
+| `materialize-confidence` | `structure_prediction.materialize_confidence.direct`; join actual confidence facts and structure Candidates. |
+| `rank-confidence` | `selection.sort.direct`; mean-residue pLDDT Utility `structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit`, weight 1; descending Utility, Candidate identity ascending for ties. |
+| `postfilter-confidence` | `selection.filter.direct`; exact mean-residue pLDDT `>= 70` on the 0–100 scale, applied to the original fold population. |
+| `passing-ranked-candidates` | `collection_ops.intersect_candidates.direct`; ranked Candidates as `candidates_a`, threshold-passing Candidates as `candidates_b`, retaining the passing subset in ranked order. |
+
+The Protein-Sol selector uses calibration Context
+`population_scaled_solubility`, value `0.446`, unit `dimensionless`, population
+`niwa_non_membrane_2396`. The fixture's recorded scaled values are `0.252` and
+`0.761`; they explain this representative input but are not injected as Provider
+results. Confidence selectors use intrinsic mean-residue pLDDT, partition
+`prediction_confidence`, and the exact remote folding Method. Unselected Metrics
+are ignored; missing required observations are errors. The configured seed
+field is not a claim that the remote API supports controlled randomness.
+
+The intersection preserves exact Candidate references, content, lineage,
+metadata, and rank order; it neither rematerializes Scores nor invokes another
+Provider. The raw threshold result remains separately visible. Thresholds are
+this journey's settings, not universal quality criteria. Empty selections remain
+empty. Do not lower thresholds, substitute sequences, add retries beyond the
+applicable SDK defaults, or report an incomplete Run as completed to obtain a
+passing result.
+
+### Prepare, execute, and report
+
+Run serially on the remote host from the frozen snapshot, after the applicable
+non-Provider matrix passes. Use the same private Execution Profile for preparation
+and the server. Replace the example paths below with this verification's absolute
+paths: a private profile outside the repository and fresh data/evidence directories
+that contain no user work. These paths are configuration, not locations to recover
+from an earlier task.
+
+```bash
+FASTA_DATA_ROOT=/absolute/path/to/fresh-fasta-data
+FASTA_PROFILE=/absolute/private/acceptance-profile.json
+FASTA_EVIDENCE_DIRECTORY=/absolute/path/to/fresh-fasta-evidence
+.venv/bin/python -m verification.webui_journey_evidence prepare \
+  --data-root "$FASTA_DATA_ROOT" \
+  --profile "$FASTA_PROFILE" \
+  --evidence-directory "$FASTA_EVIDENCE_DIRECTORY"
+```
+
+`prepare` creates the Project, publishes and inspects the immutable input, saves
+the Draft, and commits the Workflow through real public HTTP operations using an
+in-process client. It loads the normal application and bundled example resource;
+it does not start a Run or invoke a Provider. Installing that protected resource
+does not create a replacement example Commit when the installed backend starts.
+
+Start the [normal backend server](../webui/README.md) with the Execution Profile's
+complete environment and `PROTEIN_WORKBENCH_DATA_ROOT` set to `FASTA_DATA_ROOT`.
+Preparation applies the profile only to its own process and does not configure a
+subsequently started server. Open the reported personal Project in the built
+WebUI and start the full Run there. Supply its Project ID as
+`PROTEIN_WORKBENCH_REAL_FASTA_PROJECT_ID` and the built WebUI URL as
+`PROTEIN_WORKBENCH_REAL_UI_URL` to the
+[real browser checks](../webui/README.md#verification).
+
+Inspect the two imported Candidates, prefilter, fold lineage, real Scores,
+ranking, and threshold results. Exercise ZIP export of sequence-only, folded
+structure, and mixed selections; compare manifest references with the published
+stage pages. The journey subsequently creates a `from_node` Run. Take the
+original full Run ID from Playwright's `actual-run-receipt` attachment or
+`Actual UI Run:` log, rather than the final page or latest Project Run.
+
+After browser acceptance finishes, read that terminal Run from the same live
+backend. Replace the example server URL and receipt identifier:
+
+```bash
+FASTA_BASE_URL=http://127.0.0.1:8000
+FASTA_FULL_RUN_ID=FULL_RUN_ID_FROM_RECEIPT
+.venv/bin/python -m verification.webui_journey_evidence report \
+  --base-url "$FASTA_BASE_URL" \
+  --run-id "$FASTA_FULL_RUN_ID" \
+  --evidence-directory "$FASTA_EVIDENCE_DIRECTORY"
+```
+
+`report` reads the original public Commit snapshot, terminal projection, and
+published Candidate pages; it never starts or cancels a Run, or opens another
+runtime on the server's data directory. It compares the Workflow and scientific
+definitions with preparation and retains both prepared and actual Commit IDs if
+the WebUI committed the same definition under a new ID. The optional script
+`run` subcommand is an alternative that prepares and executes once with real
+Providers and collects public events. Use one execution route per journey.
+
+The data directory owns the immutable Input, Draft, Commit, Run Ledger, typed
+values, Artifacts, lineage, Scores, and selection results. The evidence directory
+retains the submitted Workflow, input inspection, Commit receipt, admission,
+projection, stage pages, and `report.json` with Project/Run/Commit IDs. Admission
+receipts are retained immediately, including before later failure; the script
+execution route also retains public events. These files locate the durable
+records and do not replace them. Keep environment and credential contents out of
+the report. Preparation alone does not establish a completed browser or ZIP
+journey.

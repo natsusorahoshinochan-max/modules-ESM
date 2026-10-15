@@ -1,124 +1,44 @@
-# Biohub / ESM 当前产品合同
+# Biohub / ESM 接入说明
 
-状态：当前规范性产品选择
+本文区分现有接入与已确认要求。目标行为以[当前决策](../documentation-governance-decisions.md)为准；参数与输出的已知差异见[参数审查](../tool-parameter-exposure-audit.md)和[治理问题清单](../2026-10-15-documentation-governance-issues.md)。
 
-日期：2026-08-20
+## 官方接口与项目职责
 
-## 1. 范围与事实 owner
+Biohub 官方 API 和固定官方 SDK 定义 Provider 的请求、响应表示及处理结果。[v1 快照](v1/README.md)保存其抓取时公开的请求字段，不包含完整响应 schema。Adapter 按官方接口将用户指定的输入与参数正确传入，并接回所需结果。
 
-本文只解释 Protein Workbench 当前如何选择和使用 Biohub / ESM 能力，不建立第二套
-Provider、Catalog、Method 或科学合同。
+模块声明描述当前软件提供哪些功能；现有声明不是冻结错误参数范围或隐藏适用参数的理由。现有功能中，官方支持、适用且影响结果的输入与参数须按 Q26 允许配置，默认值及限制有明确依据；这不自动新增其他工具模式。
 
-相关事实由以下 owner 分别持有：
+Adapter 信任符合约定的响应，只做确定的格式和单位翻译。官方未发布的 schema 不从表格展示标签或观测值反推，不增加响应修复、交叉验证、兼容分支或备用端点。程序不变量错误立即失败；已定义的运行失败遵守[执行规则](../execution.md)。
 
-1. Biohub 官方 API specification 与仓库固定的官方 ESM SDK revision 定义 Provider
-   request/response representation 和官方 operational outcomes；
-2. active Catalog 中的 Method 与 Execution Binding 定义 Workbench 当前公开的 model、
-   operation、固定配置、随机性和科学解释；
-3. concrete Adapter 在 Provider seam 实现唯一的 Workbench value ↔ Provider representation
-   翻译；
-4. 带 Git revision 的真实 Provider Acceptance Evidence 只证明该 revision 按上述合同执行过，
-   不扩大、缩小或覆盖官方 Provider contract 与 active Catalog。
+## 现有远程路线
 
-不可变的 [`v1/`](v1/README.md) 快照保留其抓取时官方页面明确发布的 method、path 和
-request wire 事实。快照未包含的 response schema 不从历史运行值反向推断；仓库固定 SDK、
-active Method/Binding 和官方规范共同决定当前唯一翻译。
+| 当前代码包 | Biohub 模型 | 已接入操作 |
+|---|---|---|
+| `esm3` | `esmc-600m-2024-12` | encode 与 logits，构成序列表征操作。 |
+| `esm3` | `esm3-medium-2024-08`、`esm3-open-2024-03` | sequence、structure、paired generation。 |
+| `folding` | `esmfold2-fast-2026-05` | 单链 `/fold`。 |
 
-## 2. 当前远程模型与操作
+精确注册、参数和输出见 [`esm3/package.py`](../../modules/esm3/package.py)、[`folding/package.py`](../../modules/folding/package.py)及各自 `definitions/`。这些代码包名称不预定最终功能模块划分；职责见[模块能力](../module-capabilities.md)。
 
-当前 active Catalog 只公开以下 Biohub service model identities：
+当前 ESMFold2 路线不调用 `/fold_all_atom`。快照中 `all_atom_input.sequences[].ProteinInput` 等名称可能是联合类型分支标签，不能据此认定它们是实际 JSON 键并多包一层对象。本地材料不足以裁决这个展示问题；新增或修改相关路线前必须核对官方原始定义，不能猜测。当前产品未因快照包含该端点而自动接入复合物折叠。
 
-| Module Package | model ID | 当前操作 |
-| --- | --- | --- |
-| `esm3` | `esmc-600m-2024-12` | encode、logits |
-| `esm3` | `esm3-medium-2024-08` | sequence、structure、paired generation |
-| `esm3` | `esm3-open-2024-03` | sequence、structure、paired generation |
-| `folding` | `esmfold2-fast-2026-05` | strict single-chain fold |
+## 输入、参数与随机性
 
-精确 Node Type、Port Type、Method、Execution Binding、parameter 和 output contracts 由
-[`modules/esm3`](../../modules/esm3/package.py) 与
-[`modules/folding`](../../modules/folding/package.py) 的 active registrations 拥有。本文的
-表格帮助维护者定位当前产品选择，不允许独立于 active Catalog 增加 model 或 operation。
+ESM-3 条件翻译的 atom37、绝对 SASA、功能注释及缺值规则见[模块能力中的 ESM-3 条件翻译](../module-capabilities.md#esm-3-条件翻译)。翻译属于该工具 Adapter，不限制通用 Prompt 或其他模块的数据表达。
 
-Availability 只描述 startup 时结构性 prerequisites；Readiness 只在 Cache miss 或 bypass
-实际进入所选 Provider 前检查 exact Binding。二者都不自动选择另一个 model、route 或
-operation。
+ESM-3 的三种生成当前共用采样参数声明；paired 先生成序列，再据该序列生成结构。`condition_on_coordinates_only` 当前固定为 true，`invalid_ids` 当前未开放；ESMFold2 的步数、循环、dropout 和 masking 等也固定在调用中。这些是尚未对齐 Q26 的实现状态，不能继续作为禁止用户配置的要求。对应路线的范围、默认值和限制见[参数审查](../tool-parameter-exposure-audit.md)。
 
-## 3. Provider Adapter seam
+项目当前使用的固定 SDK 生成与折叠调用未传入 seed，Adapter 将远程随机性记录为 Provider 控制；不能因节点显示 seed 就宣称远端采用了它。这个结论描述固定调用路线，不推断当前线上全部接口。本地 ESM-3 的派生 seed 与实际输入由同一 Adapter 条件投影计算，具体公式见[模块能力](../module-capabilities.md#esm-3-条件翻译)。
 
-Biohub Adapter 只执行以下职责：
+ESM-3 与 ESMFold2 使用固定 SDK 的现有适用重试，默认总计最多五次尝试，仅重试 SDK 指定错误；不在外层叠加重试。一次 Engine Invocation 可以包含 SDK 的多次尝试，不等于一次 HTTP 请求。Q9 不把这一次数变成所有模块的统一规则；实现见[SDK 重试](../../repositories/esm/esm/sdk/retry.py)。
 
-1. 接收已经 admitted 的 provider-independent Workbench values；
-2. 按官方规范和 exact Method 构造唯一 request；
-3. 调用 Binding 固定的 endpoint、model 和 SDK；
-4. 假定 conforming request 获得 conforming response，并执行文档规定的唯一确定性翻译；
-5. 记录 exact Method、model、translation、randomness 和 Engine Invocation provenance；
-6. 让官方 operational error 按当前 Run Evidence 合同正常传播和终止。
+## 输出含义与实现差异
 
-Adapter 不根据 observed value 猜测 schema，不为 hypothetical malformed response 建立
-shape/type/range 兼容矩阵，不 cross-check Provider，不改写 response，不切换 endpoint、model
-或 device，也不加入未由官方合同和 Method 明确拥有的 retry 或 fallback。
+- ESM-3 structure-track 采样输出标记为 `sampled_structure`；坐标条件下 sequence-track 返回的条件结构重建标记为 `prompt_reconstruction`。二者不冒充独立折叠验证结果。纯序列结果不补造结构或置信度。
+- ESM-3 结构附带的 PAE 当前允许缺失；存在时保留与相应预测残基轴一致的完整矩阵，单位为 Å，不补零或借用另一预测的值。
+- ESMFold2 当前明确请求 `include_pae=true`、`include_embeddings=false`，同时保留该次预测的结构、pLDDT、pTM 与 PAE。与已承诺输出对应的必需开关，不直接视为需要新增关闭选项的证据；也不自动接入其他输出模式。
+- ESMC 当前只保存整序列 mean embedding 和 logits 的形状。Q27 已确认整条序列 embedding 和实际逐位置 logits 均应作为可选输出，供查看与后续计算；该要求尚未对齐。logits 不是概率。
 
-如果固定官方合同、固定 SDK 与当前翻译不再一致，这是需要 fail fast 并重新裁决合同的
-Provider/Adapter 集成缺陷；不能通过同时接受多种猜测表示来掩盖。
+工具自然产生且属于所需功能的分数随结果保留；不因功能模块拆分而要求用户重算。评价对象与参考对象独立于生成来源，不通过改写来源关系绑定评分。
 
-## 4. 当前 ESMFold2 合同
-
-`folding.fold.esmfold2_remote` 只调用 `esmfold2-fast-2026-05` 的官方 `/fold` operation。
-当前 Method 固定完整 confidence 请求配置，包括：
-
-- `include_pae=true`；
-- `include_embeddings=false`；
-- exact sampling steps、loops、dropout 与 mask percentage。
-
-这些值是 Method identity，不是用户参数。Adapter 不调用 `/fold_all_atom`，不公开
-distogram/embedding 选择，也不在 fold failure 时切换 model、endpoint 或配置。
-
-pLDDT、pTM、PAE 与 prediction residue axis 的科学语义见
-[当前科学数据流规范](../2026-09-02-clean-scientific-data-flow-refactor-spec.md)，
-准入职责见[单次准入设计](../2026-09-21-single-admission-i-json-design.md)；当前置信度物化入口见
-[`structure_prediction` implementation](../../modules/structure_prediction/implementation.py)。
-
-## 5. 当前 ESM-3 generation 合同
-
-每个 medium/open generation Binding 固定 exact model、operation 和 randomness contract。
-`num_steps`、`temperature`、`top_p`、`schedule`、`strategy` 与 `temperature_annealing`
-由 Node Type 声明为科学参数，Adapter 按已准入的参数构造 sampling configuration。SDK 的
-`condition_on_coordinates_only`、`invalid_ids` 等 Method-fixed representation facts 不成为
-额外用户控制项。
-
-Generation output 的科学身份由 `esm3` Module Interface 拥有：
-
-- structure-track sampling 产生的结构使用 `sampled_structure` classification；
-- coordinate-conditioned sequence generation 返回的来源结构只使用
-  `prompt_reconstruction` classification；
-- 纯 sequence output 不补造 structure、Prediction Key 或 confidence fact；
-- present structure 必须与 terminal sequence、Prediction Key、structure digest、prediction
-  residue axis 和 exact Method 保持一一关联。
-
-ESM-3 的两个 structure confidence 输出中的 PAE 均为可选值，这是当前 Node Type
-的 `optional PAE` 与 Method 的 `L_by_L_or_none` 所声明的合同。缺失时保留 `None`，
-存在时保留以 Å 为单位、与 prediction residue axis 对齐的完整 `L × L` 矩阵；不补零，
-也不借用另一预测的 PAE。5G53 验收遵守这一合同，并独立检查 ESMFold2 固定
-`include_pae=true` 请求所对应的 PAE，不能把 folding 的要求套用于 generation。
-
-真实运行中观察到 coordinates、confidence 或其他字段，不能自行升级 classification、补造
-Candidate、扩大当前 output contract，或替代独立 Folding Method。
-
-## 6. 运行证据的职责
-
-[真实运行观测](observed-runtime-overlay.md)和
-[带日期研究包](research/README.md)是绑定日期、Git revision、SDK、model、device 与 request
-组合的历史 Evidence。它们用于解释一次 acceptance 或集成调查，不定义 current capability。
-
-新的运行结果若与当前合同不一致，应先作为 Provider/SDK 集成问题调查。只有官方合同或当前
-产品科学选择确实改变时，才原子修改 active Method/Binding、Adapter、tests、examples 和当前
-文档；不从一次成功或失败运行中生成 compatibility parser、expected-failure 产品分支或
-fallback route。
-
-当前后端门禁入口见 [verification.backend](../../verification/backend.py)，
-真实 Provider Acceptance Campaign 定义与命令见
-[acceptance_campaign.py](../../verification/acceptance_campaign.py) 和
-[acceptance_cli.py](../../verification/acceptance_cli.py)。
-最新完整验收见[端口展示与连线编辑验收记录](../2026-09-24-port-connections-acceptance.md)；
-该记录绑定其明确列出的冻结源码及构建产物，不将历史运行记录作为当前产物的通过证明。
+配置说明见[Provider 配置](../provider-configuration.md)，验证门禁见[后端验证规范](../backend-verification.md)。本说明不提供旧验收通过记录，也不把原始研究数据当成当前产物已通过验证的证明。

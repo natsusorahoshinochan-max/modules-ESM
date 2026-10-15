@@ -1,390 +1,98 @@
-# Protein Workbench
-
-Protein Workbench is a node-based environment for composing protein design,
-folding, evaluation, transformation, and selection operations. Its language
-separates scientific operations from the packages and deployment adapters that
-make those operations executable.
-
-## Workflow Language
-
-**Node Type**:
-A reusable scientific operation with declared inputs, outputs, and parameters.
-Its scientific identity does not change when its deployment mechanism changes.
-_Avoid_: Module, implementation, model runner
-
-**Node Instance**:
-A concrete use of a Node Type in a Workflow, with one explicitly selected
-Execution Binding, bound parameters, and connections.
-_Avoid_: Node Type, block, step, task
-
-**Workflow**:
-A directed acyclic graph of Node Instances connected through compatible Ports.
-_Avoid_: Pipeline, recipe, protocol
-
-**Workflow Draft**:
-One unlocked immutable authoring revision, which may be incomplete or invalid
-and cannot be executed.
-_Avoid_: Workflow Commit, Execution Plan, runnable revision
-
-**Workflow Commit**:
-One immutable runnable publication of an admitted Workflow Draft. It stores the
-admitted Workflow and the minimum scientific definition snapshots required to
-interpret its results. The current Catalog recompiles its in-process Execution
-Plan when needed.
-_Avoid_: Workflow Draft, compile ID, mutable active Workflow
-
-**Run**:
-A single admitted execution of a Workflow, with its own evidence and terminal
-outcome.
-_Avoid_: Job, session, Workflow
-
-**Execution Plan**:
-The immutable, fully resolved in-process form of a validated Workflow, fixing
-its stable contract IDs, implementations, codecs, parameters, and scientific
-relationships for execution.
-_Avoid_: Workflow document, scheduler state, Run
-
-**Port**:
-A named input or output of a Node Type whose values conform to one Port Type
-Definition.
-_Avoid_: Slot, pin, socket
-
-**Port Type Definition**:
-The nominal scientific contract for values crossing a Port, including their
-scientific admission, canonical scientific representation, and content identity.
-Its validator owns scientific admission; encoding, hashing and published-value
-restoration only convert representations and do not repeat admission.
-_Avoid_: Unregistered type string, implicit conversion, inferred datatype
-
-## Authoring Language
-
-**Project Workspace**:
-One exact pairing of an immutable Workflow Draft revision and an opaque UI
-revision, made current by one workspace publication. Workflow and layout from
-the same edit become current together; ordinary layout-only edits do not create
-a scientific Draft. An editor's pending desired changes are distinct from the
-acknowledged workspace.
-_Avoid_: Workflow Commit, transaction across all storage, mutable scientific Draft
-
-**Authoring Capability Projection**:
-A startup-frozen, non-scientific projection over exact contracts in the same
-FrozenCatalog. It declares ordinary Palette operations and dedicated editor
-capabilities; it is not another scientific Catalog.
-_Avoid_: Scientific Catalog, runtime registry, inferred editor grouping
-
-**Prompt Authoring Document**:
-The non-executable `document` parameter of the `prompt_authoring.author` Node
-Type, declaring the prompt source, target residue membership, final track
-edits, function annotations, random conditions, source merges, and structure
-transforms. Prompt Studio edits exactly this parameter on one ordinary Node
-Instance.
-_Avoid_: ProteinPrompt, Workflow, command log, scientific evidence
-
-**Prompt Authoring Preview**:
-A non-published, non-executable backend projection of a Prompt Authoring
-Document containing its normalized document, complete Prompt projection,
-changes, realized random choices, and diagnostics.
-_Avoid_: Run, Candidate, Cache, Artifact, Evidence
-
-## Extension Language
-
-**Module Package**:
-A cohesive repository-owned extension unit that provides one or more Node
-Types, their Node Definitions, Methods, Execution Bindings, and required
-implementations or Adapters. The Catalog builder admits its production
-registration; focused owner tests exercise its scientific behavior and codecs.
-_Avoid_: Plugin, single node, module directory
-
-**Node Definition**:
-The public contract that declares a Node Type's identity, Ports, cross-Binding
-scientific parameters, and user-visible meaning. Each Node Type owns exactly
-one Node Definition.
-_Avoid_: Implementation metadata, Binding configuration, runtime state
-
-**Adapter**:
-The translator that converts a provider, model, runtime, or deployment mode
-into Workbench inputs, outputs, errors, and provenance without changing the
-Node Type's scientific meaning.
-_Avoid_: Node Type, Execution Binding, provider name
-
-**Execution Binding**:
-The executable association of one Node Type with one Method and either a direct
-implementation or a required Adapter. It owns route-specific parameters and the
-Availability and Readiness contracts, while scientific model or algorithm
-identity remains fixed by its stable Method ID.
-_Avoid_: Node Definition, Adapter, provider name
-
-**Provider Asset Closure**:
-The minimal operational set of Provider files and source locations required by
-one Execution Binding. It selects what is loaded or staged but does not make
-source bytes, checkpoints, Git metadata, or installation form part of scientific
-identity.
-_Avoid_: Content proof, installation identity, Provider inventory
-
-**Environment Configuration**:
-Credentials, deployment endpoints, and runtime filesystem locations supplied by
-the composition root to make an Execution Binding operable without becoming
-scientific Workflow parameters. Adapter-owned device and performance policy do
-not round-trip through this configuration.
-_Avoid_: Node parameter, Binding parameter, scientific input
-
-**Module Package Registration**:
-The complete production contract through which a Module Package contributes
-Node Types, Execution Bindings, Methods, Metric Definitions, Port Type
-Definitions, Utility Transforms, and Availability and Readiness declarations.
-The Catalog builder admits its stable IDs, implementation references, and
-scientific relationships once when constructing the current Catalog.
-Contract-test cases and fixtures are separate from it.
-_Avoid_: Import side effect, per-node registration call, recursive discovery
-
-**FrozenCatalog**:
-The immutable admitted startup result containing the current stable-ID
-registrations, scientific relationships, and diagnostic Binding Availability
-observations used by authoring and compilation. It owns immutable per-Binding
-Observation plans; compilation adds Workflow-specific sources and relationships.
-_Avoid_: Mutable Registry, discovery workspace, runtime plugin manager
-
-**Availability**:
-The startup-resolved snapshot of whether an Execution Binding's baseline
-prerequisites appear to exist and, when they do not, the structured diagnostic
-reason. It never authorizes or blocks execution.
-_Avoid_: Readiness Attestation, discovery failure, disabled node
-
-**Readiness Attestation**:
-A run-scoped, point-in-time conclusion about whether one Adapter Execution
-Binding's declared prerequisites allow a Cache miss or bypass to enter its
-Provider seam. Cache replay does not require Readiness.
-_Avoid_: Availability, provider call, guarantee of invocation success
-
-**Binding Failure**:
-The failed Node Execution Attempt produced when Run-scoped Readiness stops a
-Cache miss or bypass before an Operation Attempt starts. It preserves the
-Binding error and never invents an Operation or Engine Invocation. Availability
-alone cannot produce a Binding Failure.
-_Avoid_: Operation failure, admission failure, provider failure
-
-**Contract Test Kit**:
-Shared focused conformance helpers that execute representative Module Package
-cases and expose the target Node's outputs and evidence to check shared
-extension, execution, data, and provenance contracts, without requiring exact-set
-coverage of registered Nodes, Bindings, or Ports. Package-owned tests state
-case-specific scientific results and Engine Invocation expectations; runtime and
-the Run Evidence Ledger own causal closure.
-_Avoid_: Package-specific smoke tests, manual checklist
-
-## Scientific Data and Scoring
-
-**ProteinPrompt**:
-The closed residue-aligned multi-track conditioning aggregate owned by Prompt
-Studio and consumed by ESM3. It owns exactly one ResidueLayout; sequence and
-named-atom coordinates are always present (all-null allowed), while secondary
-structure and SASA may be whole-track absent, which is distinct from a present
-all-null track. Function annotations are identity-addressed intervals within
-that layout. It is not the universal exchange language of other scientific
-Modules.
-_Avoid_: Prompt object, ESM input, multi-track input, target layout copy
-
-**Candidate**:
-A generated or transformed protein sequence or structure with stable
-run-independent identity, lineage, and provenance.
-_Avoid_: Result, output sample, generation
-
-**Candidate Collection**:
-An ordered collection of Candidates that flow together through evaluation and
-selection operations.
-_Avoid_: Batch, result list, candidate set
-
-**Candidate Data Reference**:
-The exact association key comprising a Candidate identity, its nominal data
-type, and the canonical content digest of that Candidate's data; admitted
-references establish scientific subjects and parent identity without requiring
-the complete Candidate value or relying on collection position. A reference
-does not carry the complete Candidate content, lineage, or metadata required
-for unchanged Candidate pass-through.
-_Avoid_: Candidate, list index, Node Instance locator
-
-**Candidate Relation**:
-An ordered collection of explicit subject and reference Candidate Data
-Reference pairs. Generic relation operations derive, invert, compose, and join
-these exact associations; each consuming Node Type or Method declares the
-cardinality it requires instead of inferring relationships from collection
-position.
-_Avoid_: Pairing mode, positional zip, effect-specific mapping
-
-**Metric Definition**:
-The canonical scientific meaning of a measured quantity, including its value
-shape, unit, direction, range, granularity, and aggregation semantics.
-_Avoid_: Score ID, output field, display label
-
-**Method**:
-The stable-ID scientific definition of the algorithm or model variant used to
-perform a Node Type or observe a Metric, including the facts needed to interpret
-its result.
-_Avoid_: Metric, provider, arbitrary implementation
-
-**Observation Context**:
-The typed scientific context required to interpret a Score Observation, such as
-an intrinsic measurement or role-labelled reference Candidate.
-_Avoid_: Score ID suffix, free-form details, Method
-
-**Observation Context Profile**:
-The fixed scientific conditions shared by a family of Observation Contexts.
-For a pairwise measurement these are the participant roles, pairing mode, and
-normalization, without the particular Candidate pair or its realized evidence.
-A Profile does not replace the complete Context of a measured Observation.
-_Avoid_: Complete Observation Context, display grouping key, Candidate relation
-
-**Score Observation**:
-A value that binds one Candidate to one Metric Definition, one Method, and one
-Observation Context.
-_Avoid_: Bare score, score ID/value pair, evaluation result
-
-**Score Collection**:
-A collection of Score Observations consumed by comparison, filtering, and
-selection Node Types.
-_Avoid_: Score set, metric bundle, evaluation result
-
-**Utility Transform**:
-An explicit mapping from a selected Metric, Method, and Observation
-Context's canonical value to a dimensionless `[0, 1]` value configured by a
-Workflow's Selection Objective.
-_Avoid_: Implicit normalization, dataset-relative scaling, raw score weight
-
-**Selection Objective**:
-A Workflow-owned preference that identifies exact Score Observations and fixes
-their Utility Transform, weight, and missing-value policy.
-_Avoid_: Metric Definition, implicit ranking rule, display preference
-
-**Structure Alignment Evidence**:
-The exact Candidate-associated structural superposition, residue-axis
-provenance, correspondence, normalization, transform, and Method identity
-shared by downstream structural Metrics.
-_Avoid_: Built-in StructureAlignment, superimposition result, structural match
-
-**Resolved Structure Residue Axis**:
-The canonical, immutable interpretation of one admitted ProteinStructure,
-including its parent residue sequence, identity-complete layout, segment
-topology, selected named-atom coordinates, masks, component dispositions, and
-modified-residue normalization provenance.
-_Avoid_: ATOM-only view, reparsed CA list, implicit chain sequence
-
-**Candidate-associated Resolved Residue Axes**:
-An ordered, nonempty collection binding each exact structure Candidate Data
-Reference to its Resolved Structure Residue Axis, preserving the source Candidate
-Collection order. It supplies structure subjects and their axes without carrying
-the complete Candidates' lineage or metadata.
-_Avoid_: Position-paired sidecar, unordered capability set, complete Candidate Collection
-
-**Prediction Residue Axis**:
-The exact residue population used by one structure prediction, binding its exact
-input source to an identity-complete layout and the actual prediction sequence.
-It is independent of any later interpretation of the output structure.
-_Avoid_: Provider token positions, output-PDB residue list, Resolved Structure
-Residue Axis
-
-**Prediction Key**:
-A content-derived association key shared by one predicted structure output and
-its subjectless Prediction Confidence Fact before Candidate identity exists. It
-does not identify a Candidate.
-_Avoid_: Candidate ID, Candidate Data Reference, collection index
-
-**Prediction Confidence Fact**:
-A subjectless provider observation for one predicted structure, carrying its
-Prediction Key, exact structure-content digest, Prediction Residue Axis, and
-confidence values until an admitted Candidate can become the subject.
-_Avoid_: Score Observation, Candidate annotation, unlabeled confidence array
-
-**Confidence Materialization**:
-The exact association of Prediction Confidence Facts with admitted structure
-Candidates to create Candidate-associated Score Observations.
-_Avoid_: Structure prediction, confidence recomputation, positional zip
-
-**Component Disposition**:
-The resolved decision that includes, excludes, or requires normalization of one
-observed structure component, together with the exact reason and residue
-identity known at the residue-axis seam.
-_Avoid_: PDB record name, HETATM-is-ligand rule, downstream guess
-
-**Candidate-associated Scientific Value**:
-A derived scientific value that carries an exact Candidate Data Reference for
-its subject. Collection order never establishes the association.
-_Avoid_: Parallel list, positional zip, unlabeled annotation
-
-**Residue Track**:
-A self-describing value series bound to one exact ResidueLayout, carrying one
-nullable value per residue identity. The carrier does not interpret the
-scientific role of a missing value; the nominal Port Type Definition owns that
-semantics.
-_Avoid_: Raw array, token vector, residue metadata, parallel layout Port
-
-**PDB String**:
-The canonical text representation used to exchange protein structures at
-Workbench boundaries.
-_Avoid_: Coordinate tensor, provider-native structure object
-
-## Execution and Evidence
-
-**Result Identity**:
-The canonical identity of a reproducible Node result, derived from resolved
-stable scientific and execution IDs, normalized inputs, parameters, and
-effective randomness. CPU/GPU device choice and its accepted tiny numerical
-variation do not split Result Identity or Cache identity.
-_Avoid_: Cache path, Run ID, Node Instance ID, arbitrary hash
-
-**Typed Output**:
-The admitted ordered values published for one exact output Port, retaining
-their nominal Port Type, content identity, Result Identity, and producer
-provenance independently of storage representation.
-_Avoid_: Artifact, Cache entry, provider payload
-
-**Node Execution Attempt**:
-The record of one scheduled Node Instance outcome, including an execution
-satisfied entirely by Cache replay.
-_Avoid_: Operation Attempt, Engine Invocation, provider call
-
-**Operation Attempt**:
-One actual run of a Node Type implementation after Cache miss or bypass, which
-may contain zero, one, or several Engine Invocations.
-_Avoid_: Node Execution Attempt, composite provider call
-
-**Engine Invocation**:
-One actual entry into a declared scientific engine seam. Normal execution
-records exactly one terminal fact for every invocation that starts; an
-interrupted process is not reconstructed on restart. An already-known actual
-device may be retained as non-gating provenance.
-_Avoid_: Readiness check, Cache replay, outer operation summary
-
-**Run Evidence Ledger**:
-The ordered durable source of typed run facts from which the manifest and
-lifecycle event stream are projected. It is rooted by `workflow_commit_id` and
-stores minimum scientific and causal evidence without derived digest hierarchy.
-_Avoid_: Provider log, mutable details map, independent manifest writer
-
-**Node Outcome Publication**:
-The all-or-nothing durable conclusion of one Node Execution Attempt, relating
-its terminal outcome to any published Typed Outputs and Artifacts.
-_Avoid_: Operation Attempt terminal, Projection refresh, Cache write
-
-**Run Closure**:
-The normal terminal conclusion of a Run after every Node disposition and every
-required Selection conclusion is closed. Restart instead records one honest
-`interrupted` Run terminal without inventing missing internal outcomes.
-_Avoid_: Worker exit, restart marker, last Node completion
-
-## Verification and Release
-
-**Acceptance Campaign**:
-The single serial run that builds one clean candidate and executes all canonical
-real-Provider and source-bound tiers once with one Execution Profile.
-_Avoid_: Qualification, Certification Generation, retryable campaign
-
-**Execution Profile**:
-The private local mapping of Environment Configuration paths and remote
-transport policy used to execute one Acceptance Campaign.
-_Avoid_: Workflow parameters, manifest paths, shell-state reconstruction
-
-**Acceptance Result**:
-The retained result of one canonical tier after its scientific assertions pass
-in the current Acceptance Campaign. Failed or interrupted diagnostic output is
-not an Acceptance Result.
-_Avoid_: Qualification Result, Certification Result, promoted evidence
+# Protein Workbench 领域词汇
+
+本文件定义交流和代码阅读所用术语。产品要求以[当前有效决策](docs/documentation-governance-decisions.md)为准；定义不表示功能已全部实现。职责、数据与差距见[架构](docs/architecture.md)，运行与持久发布见[执行](docs/execution.md)。
+
+## 角色与扩展
+
+| 术语 | 含义 |
+|---|---|
+| 项目用户 | 使用软件的人，负责安装、启用和使用模块。 |
+| 模块开发者 | 实现模块、遵守接入与数据约定的人，负责正确调用内部工具。 |
+| 载体 | 提供模块管理、画布、流程编排、运行、保存及数据传递的应用基础。前端画布是其界面的一部分。 |
+| 功能模块 | 围绕用户任务提供操作、节点及专用界面的功能单位；可以提供多个节点、使用多个工具。 |
+| 工具 / Provider | 模块内部使用的模型、算法、外部服务或程序，不决定功能模块划分。 |
+| Module Package | 模块的扩展交付单位，提供节点、数据类型、执行实现及所需界面等声明。官方与外部包遵守相同规范，不限定为仓库内源码。 |
+| Module Package Registration | 当前后端生产注册契约，向 Catalog 提供 Node Types、Bindings、Methods、Port Types、Metrics、Utility Transforms 和运行条件等声明。测试用例独立于生产注册。 |
+| Adapter | 工具边界的翻译实现，将模块输入和参数按工具接口传入，接回所需结果及已定义的运行失败。 |
+| Environment Configuration | 凭据、服务地址、模型及外部程序位置等运行配置，与每次计算的节点参数分开。应用内设置的接入情况见架构文档。 |
+| Provider Asset Closure | 一个 Binding 实际运行需要的文件和源位置集合；不是源码、检查点或安装身份的证明系统。 |
+
+## 流程与编辑
+
+| 术语 | 含义 |
+|---|---|
+| Node Type | 声明输入、输出、参数和操作含义的可复用操作。 |
+| Node Definition | 一个 Node Type 的公开定义，声明稳定身份、Ports、跨 Binding 参数和用户可见含义。 |
+| Node Instance | Workflow 中对一个 Node Type 的具体使用，带有明确 Binding、参数和连线。 |
+| Workflow | Node Instances 通过兼容 Ports 连接成的有向无环图。 |
+| Port | Node Type 的命名输入或输出，其值遵守一个 Port Type Definition。 |
+| Port Type Definition | 跨 Port 值的名义类型契约，包括值准入、规范表示和内容身份；形状相同不代表可直接连接。 |
+| Workflow Draft | 一次不可变的编辑修订，可以未完成，不能直接运行。 |
+| Workflow Commit | 对满足运行条件的 Draft 发布的不可变可执行版本，保留 Workflow 和解释结果所需的最小定义快照。 |
+| Project Workspace | 配对保存的 Draft 修订与 UI 修订。内存中的未保存修改与已保存版本分别表达。 |
+| Execution Plan | 编译 Workflow 后供运行使用的进程内不可变计划，固定类型、实现、参数和必要关联；不是保存的 Workflow 文档。 |
+| Authoring Capability Projection | 当前后端从 Catalog 声明生成的编辑能力投影，包括普通节点操作和专用编辑能力。 |
+| Prompt Authoring Document | `prompt_authoring.author` 节点的非可执行 `document` 参数，记录来源、残基编辑、轨道条件、随机操作、合并和坐标变换。 |
+| Prompt Authoring Preview | 对上述文档求值的未发布预览，包括规范文档、Prompt、实际随机选择、变化和诊断；不是运行结果。 |
+
+## 执行条件与运行记录
+
+| 术语 | 含义 |
+|---|---|
+| Method | 操作所用算法或模型变体的稳定定义，保留解释结果需要的含义；与 Provider 部署位置分开。 |
+| Execution Binding | 一个 Node Type、一个 Method 及其直接实现或 Adapter 的可执行关联，声明路线参数、Availability 和 Readiness。 |
+| FrozenCatalog | 当前后端构建后不可变的注册目录，供编辑与编译读取；不是面向用户的插件管理器。 |
+| Availability | 启动时观察到的 Binding 前提条件与诊断，不作为运行授权。 |
+| Readiness Attestation | 一次 Run 内、进入 Adapter 前确认所需运行条件的结论。缓存重放不需要 Provider Readiness。 |
+| Binding Failure | Readiness 阻止进入 Operation 的节点失败，不虚构 Operation 或 Engine Invocation。 |
+| Run | 对一个明确 Workflow Commit 的一次执行，具有自己的运行记录和终态。 |
+| Node Execution Attempt | 一个节点本次被调度的结果记录，也包括完全由缓存重放满足的执行。 |
+| Operation Attempt | 缓存未命中或绕过缓存后，节点实现的一次实际执行，可以包含零次、一次或多次 Engine Invocations。 |
+| Engine Invocation | 一次实际进入声明的计算引擎边界；不等于一次 HTTP 请求或 SDK 内部网络尝试。 |
+| Result Identity | 根据结果相关稳定定义、规范输入、参数和有效随机性形成的节点结果身份，用于当前缓存复用。 |
+| Typed Output | 某个明确输出 Port 发布的有序值，保留名义类型、内容身份和实际产生来源。 |
+| Artifact | 按声明媒体契约发布、可独立取回的文件成果，与 Typed Output 保持明确关联。 |
+| Run Evidence Ledger | 每次 Run 的有序持久事实来源，供运行投影和事件流使用；仅保留执行与解释结果所需记录。 |
+| Node Outcome Publication | 一次节点终结及其成果的持久发布；原子写入不等于可以丢弃批内已成功请求的结果。 |
+| Run Closure | 所有实际节点与筛选结论完成后的正常运行终结；进程重启对未完成 Run 记录 `interrupted`。 |
+
+## 数据、评价与区域
+
+| 术语 | 含义 |
+|---|---|
+| Candidate | 序列或结构等操作对象，具有稳定身份、真实生成来源和数据。 |
+| Candidate Collection | 有序的 Candidate 集合。集合顺序与对象之间的评价对应关系是不同信息。 |
+| Candidate Data Reference | Candidate ID、名义数据类型和内容摘要组成的完整引用，可确定主体，不能替代完整 Candidate 的数据和元信息。 |
+| Candidate Relation | 明确的 subject/reference 引用对组成的有序关系；指定本次比较或评价对象，不改写真实生成来源。 |
+| ResidueLayout | 有序、身份完整的残基轴，长度及链顺序从残基身份派生。 |
+| ResidueTrack | 自带一个确切 ResidueLayout、每个残基一个可空值的轨道；缺值含义由名义类型负责。 |
+| CandidateResidueTrack | 一个明确 Candidate Data Reference 与其 ResidueTrack 的关联。 |
+| ProteinPrompt | 当前条件编辑使用的残基对齐多轨道值，包括序列、命名原子坐标、可选二级结构和 SASA，以及功能标注；不是所有模块的通用输入语言。 |
+| PDB String | 当前结构值使用的 PDB 文本表示。该内部表示不限定用户导入、导出格式。 |
+| Resolved Structure Residue Axis | 对一个结构的明确解释，包括残基身份、序列、片段拓扑、坐标、mask、组分处理及修饰残基转换来源。 |
+| Candidate-associated Resolved Residue Axes | 将每个结构主体与相应残基轴绑定的有序集合，不包含可替代完整 Candidate 的全部数据。 |
+| Component Disposition | 结构解释中对实际组分包含、排除或需转换的明确决定及对应身份，不是简单按 ATOM/HETATM 猜分类。 |
+| Prediction Residue Axis | 由本次实际预测输入形成的残基轴，与后来解析预测输出得到的结构残基轴分开。 |
+| Prediction Key | 预测结构及对应置信度事实在 Candidate 身份建立前使用的关联键。 |
+| Prediction Confidence Fact | 本次预测产生、尚未关联 Candidate 的置信度及其 Prediction Key、结构身份和预测残基轴。 |
+| Confidence Materialization | 将上述置信度事实精确关联到已建立的结构 Candidate，形成 Score Observations，不重新预测。 |
+| Metric Definition | 一个测量量的含义、值形状、单位、方向、范围及汇总语义。 |
+| Observation Context | 解释评价值所需的实际对象、参考对象、区域等上下文。 |
+| Observation Context Profile | 一组 Context 共用的固定条件，如参与角色与归一化方式，不能替代具体评价对象。 |
+| Score Observation | 将一个 Candidate 与一个 Metric、Method、Context 及实际评价值关联的结果。 |
+| Score Collection | 供分析、筛选和排序等操作消费的 Score Observations 集合。 |
+| Utility Transform | 把指定评价量映射成无量纲 `[0, 1]` 值的显式转换。 |
+| Selection Objective | 由 Workflow 指定的评价选择与排序偏好，包括所用观察、转换、权重和缺值规则。 |
+| Structure Alignment Evidence | 已计算的结构对应、刚体变换、区域、归一化和 Method 等数据，供比较指标及展示使用，不要求扩建证据体系。 |
+| Candidate-associated Scientific Value | 显式携带主体完整引用的派生值，关联不依赖平行列表位置。 |
+
+## 验证
+
+| 术语 | 含义 |
+|---|---|
+| Contract Test Kit | 执行代表性模块用例、返回实际输出与关联运行记录的测试辅助。各所属测试负责具体预期。 |
+| Acceptance Campaign | 使用一个确定构建产物和私有配置，串行执行现行完整验收矩阵的一次正式运行。 |
+| Execution Profile | 验证所需运行位置、凭据文件位置及传输配置的私有映射，不包含令牌正文。 |
+| Acceptance Result | 正式验收中某个档位通过其断言后保留的结果；失败或中断的诊断输出不等于通过。 |
+
+验证规则与完整门禁只在[后端验证](docs/backend-verification.md)和[WebUI 说明](webui/README.md)维护。保存、结果查看与具体模块行为分别见[工作区](docs/workspace.md)、[结果](docs/results.md)、[模块能力](docs/module-capabilities.md)。
