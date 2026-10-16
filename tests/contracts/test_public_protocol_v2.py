@@ -108,6 +108,9 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "catalog_snapshot",
         "module_inventory",
         "module_enable",
+        "module_install",
+        "module_install_bundled",
+        "module_uninstall",
         "module_ui_manifest",
         "module_ui_asset",
         "result_action",
@@ -166,6 +169,9 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "catalog_snapshot": ("GET", "/api/v2/catalog"),
         "module_inventory": ("GET", "/api/v2/modules"),
         "module_enable": ("PUT", "/api/v2/modules"),
+        "module_install": ("POST", "/api/v2/modules/install"),
+        "module_install_bundled": ("POST", "/api/v2/modules/bundled"),
+        "module_uninstall": ("DELETE", "/api/v2/modules/{package_id}"),
         "module_ui_manifest": ("GET", "/api/v2/module-ui"),
         "module_ui_asset": ("GET", "/api/v2/module-ui/{extension_id}/assets/{resource_path}"),
         "result_action": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:action"),
@@ -1456,7 +1462,10 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
         assert response.json()["error"]["code"] == "malformed_request"
 
 
-def test_backend_public_route_inventory_equals_the_bundle() -> None:
+def test_backend_public_route_inventory_equals_the_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from protein_workbench_public.bootstrap import create_application as production_application
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    (tmp_path / "modules.json").write_text('{"packages": []}')
     bundle = load_bundle()
     expected_http = {
         (operation["method"], operation["route"].partition("?")[0])
@@ -1475,9 +1484,7 @@ def test_backend_public_route_inventory_equals_the_bundle() -> None:
         "/openapi.json",
         "/redoc",
     }
-    for route in create_application(
-        frozen_catalog_override=builtin_frozen_catalog()
-    ).routes:
+    for route in production_application(v2_environment_configuration={}).routes:
         # Compare the public URL template, excluding Starlette converter syntax.
         path = getattr(route, "path_format", getattr(route, "path", ""))
         if path in framework_documentation_routes:

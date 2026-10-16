@@ -1681,6 +1681,25 @@
       "required": [],
       "type": "object"
     },
+    "ModuleInstallRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "$ref": "#/$defs/ProjectInputContentBase64"
+        },
+        "filename": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+\\.whl$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "content_base64"
+      ],
+      "type": "object"
+    },
     "ModuleInventory": {
       "additionalProperties": false,
       "properties": {
@@ -1726,6 +1745,18 @@
       "additionalProperties": false,
       "properties": {},
       "required": [],
+      "type": "object"
+    },
+    "ModulePackageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "package_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "package_id"
+      ],
       "type": "object"
     },
     "ModuleUiAssetMetadata": {
@@ -7957,6 +7988,34 @@
         "default": "structured_error"
       }
     },
+    "module_install": {
+      "method": "POST",
+      "request_schema": "#/$defs/ModuleInstallRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleInventory",
+        "success_status": 201
+      },
+      "route": "/api/v2/modules/install",
+      "status_mapping": {
+        "201": "response",
+        "default": "structured_error"
+      }
+    },
+    "module_install_bundled": {
+      "method": "POST",
+      "request_schema": "#/$defs/ModulePackageRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleInventory",
+        "success_status": 201
+      },
+      "route": "/api/v2/modules/bundled",
+      "status_mapping": {
+        "201": "response",
+        "default": "structured_error"
+      }
+    },
     "module_inventory": {
       "method": "GET",
       "request_schema": "#/$defs/ModuleInventoryRequest",
@@ -7999,6 +8058,20 @@
         "success_status": 200
       },
       "route": "/api/v2/module-ui",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "module_uninstall": {
+      "method": "DELETE",
+      "request_schema": "#/$defs/ModulePackageRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleInventory",
+        "success_status": 200
+      },
+      "route": "/api/v2/modules/{package_id}",
       "status_mapping": {
         "200": "response",
         "default": "structured_error"

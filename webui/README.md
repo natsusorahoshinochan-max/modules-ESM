@@ -98,7 +98,7 @@ the canvas and manual Project persistence. The production inventory is
 `modules.json` under the application data root, with a `packages` array of
 `package_id`, `package_module`, boolean `enabled`, and nullable `source_root` entries. A missing inventory uses the
 bundled enabled packages; `{"packages": []}` selects an empty carrier. This
-composition contract is not yet an in-application package manager. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
+inventory is managed by the **模块管理** dialog, available in both the empty carrier and open projects. Users select a wheel file, toggle installed packages, uninstall packages, or restore bundled packages. Changes require an idle runtime and preserve Project Inputs, Workspaces and Runs. Unsaved edits are handled before activation; the current project reloads against the replacement Catalog. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
 describes what ships in the backend package.
 
 The canvas exposes operations, Node/Binding parameters, connections, nested
@@ -210,5 +210,22 @@ for the prepared service and Project, then run
 `npx playwright test --config playwright.real.config.ts` on the verification host.
 
 模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；外部编辑器旅程通过 `npm run test:module-ui` 在独立公共应用上验证。后端源码资产读取检查前执行 `npm run build:module-ui`，wheel 构建自动生成包内资源。
+
+### External module package
+
+A wheel declares one `protein_workbench.modules` entry point whose name is its
+package ID and whose value is `your_package.package:MODULE_PACKAGE`. The exported
+value is a `ModulePackageRegistration`; official and external packages use the
+same registration, Catalog and module UI resource loader. Include declared UI
+resources in the wheel. The application installs the distribution under its data
+root, using the current Python environment and `pip --no-index --no-deps`; package
+dependencies must already be provided by that environment. Installation does not
+download scientific models or execute them. Uninstall before replacing a package;
+reinstallation imports the new distribution files.
+
+`npm run test:empty-carrier` covers startup without modules, explicit Project
+persistence and the user wheel-install / disable / enable / uninstall / restore
+chain with a deterministic external operation. It runs under the same explicit
+private Execution Profile policy as the other browser journeys.
 
 所有 Playwright 入口使用 `tsconfig.test.json` 将 React 运行时解析到 WebUI 工具链依赖，使位于 `modules/*/ui` 的源码也使用同一安装包；应用类型检查仍使用 `tsconfig.app.json`。模块资产在浏览器中按声明的绝对 URL 导入，不接受开发服务器额外添加的协议查询参数。

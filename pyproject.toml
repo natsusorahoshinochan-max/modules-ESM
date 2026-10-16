@@ -12,6 +12,7 @@ dependencies = [
     "gemmi==0.7.3",
     "fastapi>=0.115,<1",
     "numpy==2.5.1",
+    "pip>=24,<27",
     "pyyaml>=6,<7",
     "rfc8785==0.1.4",
     "scipy==1.18.0",
