@@ -24,7 +24,14 @@ const fieldLabels: Record<string, string> = {
   designable_residue_ids: '可设计残基', fixed_residue_ids: '固定残基',
   designed_chains: '设计链', fixed_chains: '固定链', chain_ids: '链',
   omit_amino_acids: '排除的氨基酸', tied_residue_groups: '同一采样氨基酸的残基组',
-  bias_by_residue: '逐残基氨基酸偏置',
+  bias_by_residue: '逐残基氨基酸偏置', omit_by_residue: '逐位置禁止氨基酸',
+  amino_acids: '禁止的氨基酸', amino_acid_bias: '全局氨基酸偏置',
+  tied_weights: '绑定组成员 Logit 权重', weight: '权重',
+  pssm_by_residue: 'PSSM 残基矩阵', coefficient: '位置混合系数',
+  probabilities: '概率（ACDEFGHIKLMNPQRSTVWY）', log_odds: 'Log-odds（ACDEFGHIKLMNPQRSTVWY）',
+  pssm_multi: 'PSSM 全局混合权重', pssm_bias_flag: '启用 PSSM 概率混合',
+  pssm_log_odds_flag: '启用 PSSM Log-odds 软筛选', pssm_threshold: 'Log-odds 阈值',
+  sequence_correspondence: '序列与骨架位置对应', sequence_position: '序列位置（从 1 开始）',
 }
 
 function scalarValue(raw: string, contract: ParameterValueContract): unknown {

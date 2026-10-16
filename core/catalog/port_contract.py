@@ -167,6 +167,8 @@ def observation_context_canonical(
         result["normalization_length"] = value.normalization_length
     if value.aligned_atom_count is not None:
         result["aligned_atom_count"] = value.aligned_atom_count
+    if value.sequence_correspondence is not None:
+        result["sequence_correspondence"] = [list(pair) for pair in value.sequence_correspondence]
     return result
 
 

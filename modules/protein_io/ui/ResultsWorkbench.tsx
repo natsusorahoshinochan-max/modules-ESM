@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { StructureComponents } from './StructureComponents'
 import { StructureViewer } from '../../../webui/src/StructureViewer'
 import { AlignmentComparison } from './AlignmentComparison'
 import { ResultFilter } from './ResultFilter'
@@ -32,7 +33,7 @@ function CandidateDetail({ candidate, results, scores, catalog }: { candidate: C
   return <article className="result-detail">
     <h3>{candidate.reference.candidate_id}</h3>
     {error ? <p role="alert">{error}</p> : structure === undefined ? <p>加载候选…</p> : <>
-      {structure !== null ? <div className="result-structure"><StructureViewer structure={structure} /></div> : <p>此候选没有结构</p>}
+      {structure !== null ? <><StructureComponents results={results} candidateKey={key} /><details><summary>原结构三维视图</summary><div className="result-structure"><StructureViewer structure={structure} /></div></details></> : <p>此候选没有结构</p>}
       <h4>序列</h4><code className="sequence-block">{candidate.sequence ?? '尚无已发布序列证据'}</code>
     </>}
     <details><summary>精确数据与来源</summary><pre>{JSON.stringify({ reference: candidate.reference, source: candidate.source, output: candidate.output, metadata: candidate.metadata }, null, 2)}</pre></details>

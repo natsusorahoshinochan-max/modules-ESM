@@ -11,6 +11,7 @@ type ChoicesClient = Pick<PublicV2Client, 'listProjectInputs' | 'inspectProjectI
 const residueFields = new Set(['residue_id', 'residue_ids', 'designable_residue_ids', 'fixed_residue_ids', 'tied_residue_groups'])
 const chainFields = new Set(['chain_ids', 'designed_chains', 'fixed_chains'])
 const axisType = 'structure_transform.resolved_residue_axis'
+const associatedAxesType = 'structure_transform.candidate_resolved_residue_axis_associations'
 
 function needsLayout(field: string, contract: ParameterValueContract): boolean {
   return residueFields.has(field) || chainFields.has(field) || Object.entries(contract.properties ?? {}).some(([key, value]) => needsLayout(key, value)) || Boolean(contract.items && needsLayout(field, contract.items))
@@ -31,6 +32,13 @@ function sourcePreview(workflow: Workflow, source: WorkflowNode, outputPort: str
   const nodeId = `parameter-source-preview-${serial}`
   let staged = workflow
   let sourceNodeId = source.node_id
+  if (portType === associatedAxesType) {
+    const axisId = `${nodeId}-axis`
+    staged = { ...staged, nodes: [...staged.nodes, { node_id: axisId, node_type_id: 'structure_transform.project_single_residue_axis', binding_id: 'structure_transform.project_single_residue_axis.direct', node_parameters: {}, binding_parameters: {} }], edges: [...staged.edges, { source_node_id: sourceNodeId, source_port: outputPort, target_node_id: axisId, target_port: 'residue_axes' }] }
+    sourceNodeId = axisId
+    outputPort = 'residue_axis'
+    portType = axisType
+  }
   if (portType === 'protein.structure') {
     const axisId = `${nodeId}-axis`
     staged = { ...staged, nodes: [...staged.nodes, { node_id: axisId, node_type_id: 'structure_transform.resolve_residue_axis', binding_id: 'structure_transform.resolve_residue_axis.direct', node_parameters: {}, binding_parameters: {} }], edges: [...staged.edges, { source_node_id: sourceNodeId, source_port: outputPort, target_node_id: axisId, target_port: 'structure' }] }
@@ -75,7 +83,7 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
           residues: axis.residue_ids.map(value => ({ value, label: value })),
         }, source: `${sourceLabel} · Run ${publishedRun!.run_id}` }
       }
-      const canPreview = portType === 'protein.prompt' || portType === 'protein.structure' || source.node_type_id === 'structure_transform.resolve_residue_axis'
+      const canPreview = portType === associatedAxesType || portType === 'protein.prompt' || portType === 'protein.structure' || source.node_type_id === 'structure_transform.resolve_residue_axis'
       if (canPreview) {
         const preview = sourcePreview(workflow, source, outputPort, portType)
         const snapshot = await client.openPrompt(projectId, preview.nodeId, preview.workflow)
@@ -92,7 +100,7 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
     const choices: ParameterChoices = Object.fromEntries(parameters.filter(parameter => parameter.resourceKind === 'project_input').map(parameter => [parameter.key, inputChoices]))
     if (!parameters.some(parameter => needsLayout(parameter.key, parameter.contract))) return [node.node_id, { choices, ...(Object.keys(choices).length && !inputs.length ? { notice: '项目暂无 Input；可通过“添加来源”上传或粘贴输入。' } : {}) }]
     const inputPorts = nodeTypePresentation(catalog, node.node_type_id).inputs
-    const edges = workflow.edges.filter(edge => edge.target_node_id === node.node_id && [axisType, 'protein.prompt', 'protein.structure'].includes(inputPorts.find(port => port.name === edge.target_port)!.portTypeId!))
+    const edges = workflow.edges.filter(edge => edge.target_node_id === node.node_id && [axisType, associatedAxesType, 'protein.prompt', 'protein.structure'].includes(inputPorts.find(port => port.name === edge.target_port)!.portTypeId!))
     if (edges.length !== 1) return [node.node_id, { choices, notice: edges.length ? '存在多个布局来源；尚无唯一的参数选项依据。' : '尚未连接可读取的结构、Prompt 或残基轴来源；已有参数值仍保留。' }]
     const edge = edges[0]
     try {
