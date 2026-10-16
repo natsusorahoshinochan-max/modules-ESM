@@ -8,6 +8,7 @@ from datatypes.structure_format import read_mmcif_atoms
 
 from datatypes.structure import ProteinStructure, validate_protein_structure
 
+from .conformers import StructureModel, structure_models
 from .errors import ProteinInputError
 from .fasta import admit_fasta_record, parse_fasta_entries
 
@@ -29,6 +30,7 @@ class FastaInspection(TypedDict):
 class PdbInspection(TypedDict):
     format: Literal["pdb", "mmcif"]
     chain_ids: list[str]
+    models: list[StructureModel]
 
 
 def read_structure_input(payload: bytes) -> ProteinStructure:
@@ -75,6 +77,7 @@ def inspect_project_input(
         raise ProteinInputError(str(error)) from error
     return {
         "format": structure.format,
+        "models": structure_models(structure),
         "chain_ids": list(dict.fromkeys(
             atom.chain_id for atom in read_mmcif_atoms(structure.text)
         )) if structure.format == "mmcif" else list(dict.fromkeys(

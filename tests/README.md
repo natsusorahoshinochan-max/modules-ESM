@@ -144,6 +144,12 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 
 通过公共 Run API 与受控官方 SDK 响应覆盖序列、结构、联合生成的主动继续、重开、首请求失败、再次失败、重建结构与置信度保留、下游阻断和参数变化后的新计算。不加载本地模型，不向线上服务注入故障。
 
+## 结构构象选择与拆分
+
+`.venv/bin/python -m unittest discover -s tests -p test_structure_conformers.py` 覆盖公共输入检查、PDB/mmCIF 选择和拆分、来源身份、重开、拒绝未选/不存在的模型，以及真实残基轴下游对单构象的读取。不调用模型。
+
+使用独立临时数据目录启动正常应用后端及前端（启用默认模块），在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5206 npx playwright test tests/structure-conformers.spec.ts --workers=1 --reporter=line --output=/tmp/conformers-results`。覆盖完整来源界面的单文件上传、构象勾选、保存重开，以及 Prompt 来源构象与链的对应。
+
 ## SimpleFold 定义失败与批内续算
 
 ```sh
