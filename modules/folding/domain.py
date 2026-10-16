@@ -46,8 +46,6 @@ class ESMFold2Adapter(Protocol):
 
 
 class _RenderedProtein(Protocol):
-    def infer_oxygen(self) -> _RenderedProtein: ...
-
     def to_pdb_string(self) -> str: ...
 
 
@@ -63,7 +61,7 @@ def _matrix_values(value: torch.Tensor) -> tuple[tuple[float, ...], ...]:
 
 
 def _provider_pdb_string(protein: _RenderedProtein) -> str:
-    rendered = protein.infer_oxygen().to_pdb_string()
+    rendered = protein.to_pdb_string()
     if not rendered.endswith("\n"):
         rendered = f"{rendered}\n"
     if rendered.splitlines()[-1][:6].strip() != "END":

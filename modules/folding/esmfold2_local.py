@@ -128,7 +128,8 @@ class _LocalEngine:
             provider_input,
             num_diffusion_samples=1,
             seed=effective_seed,
-            **parameters,
+            **{name: value for name, value in parameters.items()
+               if name != "effective_seed"},
             complex_id="protein-workbench-fold",
         )
 

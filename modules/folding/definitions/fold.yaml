@@ -23,17 +23,8 @@ parameter_groups:
   - id: sampling
     title: Sampling controls
     parameters:
-      - effective_seed
       - num_samples
 node_parameters:
-  effective_seed:
-    parameter_scope: scientific
-    scientific_meaning: Configured base seed used by Bindings with exact seed control; a controlled call derives its seed from canonical parent-sequence content and stable parent/sample semantics, while a provider-uncontrolled Binding records no effective seed.
-    required: true
-    value_contract:
-      type: integer
-      minimum: 0
-      maximum: 9007199254740991
   num_samples:
     parameter_scope: scientific
     scientific_meaning: Exact ordered number of complete folded structures requested for each input parent.
