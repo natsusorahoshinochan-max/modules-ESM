@@ -1,4 +1,5 @@
 import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject, Workflow, WorkflowNode } from '../../../webui/src/protocol/client'
+import { readWeightedDraft, saveWeightedDraft } from './weighted-authoring'
 
 export type SelectionOperation = 'filter' | 'sort' | 'top_k' | 'weighted_rank' | 'pareto' | 'diversity' | 'manual'
 export const selectionNodeTypes = new Set(['filter', 'sort', 'top_k', 'weighted_rank', 'pareto', 'diversity', 'manual'].map((name) => `selection.${name}`))
@@ -72,6 +73,7 @@ function nodeReferenceIds(node: WorkflowNode): { selectors: string[]; objectives
 export function readSelectionDraft(workflow: Workflow, nodeId: string): SelectionDraft {
   const node = workflow.nodes.find((item) => item.node_id === nodeId)!
   const operation = node.node_type_id.slice('selection.'.length) as SelectionOperation
+  if (operation === 'weighted_rank') return readWeightedDraft(workflow, nodeId)
   if (operation === 'sort' || operation === 'top_k') {
     const selection = node.node_parameters.selection as JsonObject | undefined
     const unfinished = newObservation()
@@ -118,6 +120,7 @@ export function readSelectionDraft(workflow: Workflow, nodeId: string): Selectio
 
 /** Publish one complete editing transaction. */
 export function saveSelectionDraft(workflow: Workflow, nodeId: string, draft: SelectionDraft): Workflow {
+  if (draft.operation === 'weighted_rank') return saveWeightedDraft(workflow, nodeId, draft)
   if (draft.operation === 'sort' || draft.operation === 'top_k') return saveRawSelectionDraft(workflow, nodeId, draft)
   const existing = workflow.nodes.find((node) => node.node_id === nodeId)
   const oldIds = existing ? nodeReferenceIds(existing) : { selectors: [], objectives: [] }

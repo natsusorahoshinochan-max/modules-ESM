@@ -5418,6 +5418,26 @@
         },
         "schema_namespace": {
           "const": "protein-workbench-contract/v2"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "required": [
@@ -5427,7 +5447,11 @@
         "compatible_input_contract",
         "parameters",
         "behavior",
-        "output_contract"
+        "output_contract",
+        "title",
+        "meaning",
+        "applicability",
+        "limitations"
       ],
       "type": "object"
     },

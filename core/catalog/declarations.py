@@ -268,6 +268,10 @@ class UtilityTransformDefinition:
     """Controlled mapping to a dimensionless unit interval."""
 
     transform_id: str
+    title: str
+    meaning: str
+    applicability: str
+    limitations: tuple[str, ...]
     compatible_input_contract: Mapping[str, Any]
     parameters: Mapping[str, Any]
     parameter_contract: ParameterContract = field(init=False, repr=False)
@@ -278,6 +282,12 @@ class UtilityTransformDefinition:
     )
 
     def __post_init__(self) -> None:
+        for name in ("title", "meaning", "applicability"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
+                raise CatalogBuildError(f"Utility Transform {name} must be nonempty text")
+        if not self.limitations or any(not isinstance(item, str) or not item.strip() for item in self.limitations):
+            raise CatalogBuildError("Utility Transform limitations must contain nonempty text")
+        object.__setattr__(self, "limitations", tuple(self.limitations))
         for field_name in ("compatible_input_contract", "parameters"):
             value = getattr(self, field_name)
             if not isinstance(value, Mapping):
@@ -308,6 +318,10 @@ class UtilityTransformDefinition:
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "utility_transform",
             "contract_id": self.transform_id,
+            "title": self.title,
+            "meaning": self.meaning,
+            "applicability": self.applicability,
+            "limitations": self.limitations,
             "compatible_input_contract": self.compatible_input_contract,
             "parameters": self.parameters,
             "behavior": self.behavior.descriptor(),

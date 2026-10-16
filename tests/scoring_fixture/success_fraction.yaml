@@ -1,0 +1,11 @@
+metric_id: scoring_fixture.success_fraction
+title: Successful trial fraction
+description: The fraction of successful trials in a fixed deterministic experiment.
+value_shape: scalar
+unit: fraction
+direction: higher_is_better
+canonical_range: {minimum: 0, maximum: 1}
+granularity: candidate
+aggregation_semantics: {kind: none}
+observation_context_schema: {kind: intrinsic}
+validation_contract: {finite: true}

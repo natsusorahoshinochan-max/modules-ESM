@@ -58,7 +58,7 @@ export function chooseObservation(value: ObservationDraft, option: ObservationOp
 }
 
 export function effectiveWeightPercentages(observations: ObservationDraft[]): Array<number | undefined> {
-  if (observations.some((entry) => entry.weight === undefined || entry.weight <= 0)) return observations.map(() => undefined)
+  if (observations.some((entry) => entry.weight === undefined || !Number.isFinite(entry.weight) || entry.weight < 0)) return observations.map(() => undefined)
   const total = observations.reduce((sum, entry) => sum + entry.weight!, 0)
-  return observations.map((entry) => total > 0 ? entry.weight! / total * 100 : undefined)
+  return observations.map((entry) => Number.isFinite(total) && total > 0 ? entry.weight! / total * 100 : undefined)
 }

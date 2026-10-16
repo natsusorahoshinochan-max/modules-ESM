@@ -16,6 +16,8 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 `WorkflowEdge.target_slot` 为目标节点内稳定的输入槽身份，模块可在节点参数中引用该槽；来源节点与输出端口只保存在普通连线中。画布建立或更换来源时生成新槽，删除连线保留节点参数；模块不能因此改用另一条输入。片段复制保留节点参数及内部连线的槽，副本的参数可独立编辑。来源未连接的配置仍可手动保存，是否满足运行要求由模块与通用编译边界判断。Selection 原值排序和 top-k 使用这一公共机制，将评价选择、方向和数量保存为节点参数，不读取 Workflow 全局筛选规则。
 
+指标模块通过同一 `ModulePackageRegistration.utility_transforms` 声明评分方式。`UtilityTransformDefinition` 必须给出 `title`、`meaning`、`applicability`、非空 `limitations`，以及精确 Metric、Method、Context Profile 的 `compatible_input_contract`、参数默认值、Behavior 与 callable。公共 Catalog 完整投影这些声明；Selection 编辑器仅呈现与已选评价匹配且无需用户补填必需转换参数的方式。无适用方式时明确显示加权不可用，仍允许编辑和保存；已保存但失配的选择保留并标明，不自动换成另一方式。标题是展示内容，含义、适用性与限制仍属于定义事实。
+
 模块通过 `value_previews` 声明 `ValuePreviewDefinition(projection_id, port_type_id, title, describe)`，解释所属工具如何使用一个已准入的临时值。Prompt 模块收集 `protein.prompt` 的已启用投影，公共协议仅编码 `tool_projections`。ESM3 自己调用其 Adapter/Operation 解释，不由公共 codec 导入；禁用 ESM3 不影响一般 Prompt 编辑。
 
 ## 未发布输入检查与编辑预览

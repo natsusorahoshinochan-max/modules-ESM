@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test:selection": "esbuild tests/selection-authoring.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/selection-authoring.test.mjs && node node_modules/.tmp/selection-authoring.test.mjs",
+    "test:scoring": "esbuild tests/scoring-choices.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/scoring-choices.test.mjs && node node_modules/.tmp/scoring-choices.test.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:module-ui": "node tools/build-module-ui.mjs",
