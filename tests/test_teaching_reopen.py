@@ -65,7 +65,7 @@ class TeachingReopen(unittest.TestCase):
                     self.assertEqual(started.status_code, 202, started.text)
                     run_path = prefix + '/runs/' + started.json()['run_id']
                     deadline = time.monotonic() + 10
-                    while client.get(run_path).json()['status'] in ('pending', 'running'):
+                    while client.get(run_path).json()['status'] in ('admitted', 'running'):
                         self.assertLess(time.monotonic(), deadline)
                         time.sleep(.01)
                     paths = [prefix + '/workspace', run_path,
