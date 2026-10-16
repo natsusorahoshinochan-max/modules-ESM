@@ -268,3 +268,30 @@ def test_project_history_lists_success_and_failed_runs_with_retained_results_aft
             reopened = http.get(f"{prefix}/runs/{original['run_id']}")
             assert reopened.status_code == 200, reopened.text
             assert reopened.json() == original
+
+
+def test_project_history_reports_unavailable_persisted_run_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    catalog = build_frozen_catalog((PROTEIN_IO_PACKAGE,))
+    app = create_application(frozen_catalog_override=catalog)
+    with TestClient(app) as http:
+        client = PublicRunClient(http)
+        project_id = http.post("/api/v2/projects", json={"name": "Damaged history"}).json()["id"]
+        prefix = f"/api/v2/projects/{project_id}"
+        published = http.post(f"{prefix}/inputs", json={
+            "filename": "good.fasta", "content_base64": base64.b64encode(b">one\nACDE\n").decode("ascii"),
+        })
+        commit = client.commit_workflow(project_id, _workflow(project_id, published.json()["project_input_ref"]))
+        receipt = client.start_run(project_id, commit["workflow_commit_id"], request_id="damaged-history")
+        assert client.wait_terminal(project_id, receipt["run_id"])["status"] == "succeeded"
+        ledger = app.state.project_manager.run_storage_directory(project_id, receipt["run_id"]) / "ledger"
+    next(ledger.glob("*.json")).write_bytes(b"unreadable transaction")
+    with TestClient(create_application(frozen_catalog_override=catalog)) as http:
+        projection = http.get(f"{prefix}/runs/{receipt['run_id']}")
+        assert projection.status_code == 503
+        assert projection.json()["error"]["code"] == "evidence_unavailable"
+        history = http.get(f"{prefix}/runs")
+        assert history.status_code == 503, history.text
+        assert history.json()["error"]["code"] == "evidence_unavailable"
