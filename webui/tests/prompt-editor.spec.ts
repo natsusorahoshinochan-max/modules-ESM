@@ -120,3 +120,15 @@ test('temporary structure motion cancels without accepting coordinates or closin
   expect(persisted.track_edits).toEqual(document.track_edits)
   expect(persisted.rigid_transforms ?? []).toEqual([])
 })
+
+test('Selection opens through the same editor interface without a published Run', async ({ page, request }) => {
+  const { id } = await (await request.post(`${app}/api/v2/projects`, { data: { name: 'Selection editor' } })).json()
+  const workflow = { schema_version: '2.1.0', workflow_id: id, edges: [], nodes: [{ node_id: 'select', node_type_id: 'selection.manual', binding_id: 'selection.manual.direct', binding_parameters: {}, node_parameters: { selected_candidates: [] } }] }
+  expect((await request.put(`${app}/api/v2/projects/${id}/workspace`, { data: { workflow, ui_state: {}, expected_draft_revision: 0, expected_workspace_revision: 0 } })).status()).toBe(200)
+  await page.goto(`${app}/?project=${id}`)
+  await page.getByRole('button', { name: '编辑筛选与排序', exact: true }).click()
+  await expect(page.getByLabel('流程筛选编辑器')).toBeVisible()
+  await expect(page.getByLabel('筛选操作')).toHaveValue('manual')
+  await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click()
+  expect((await (await request.get(`${app}/api/v2/projects/${id}/workspace`)).json()).draft.workflow.nodes).toEqual(workflow.nodes)
+})
