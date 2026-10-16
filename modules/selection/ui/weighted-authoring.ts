@@ -11,7 +11,7 @@ export function readWeightedDraft(workflow: Workflow, nodeId: string): Selection
     return edge ? { node_id: edge.source_node_id, output_port: edge.source_port } : undefined
   }
   return {
-    operation: 'weighted_rank', candidateSource: source('candidates'), predicate: { kind: 'group', operator: 'and', children: [] }, selectedCandidates: [], outOfScope: 'error',
+    operation: 'weighted_rank', candidateSource: source('candidates'), selectedCandidates: [],
     observations: ((node.node_parameters.objectives ?? []) as WeightedObjective[]).map((objective, index) => {
       const selection = objective.selection ?? {}
       return {

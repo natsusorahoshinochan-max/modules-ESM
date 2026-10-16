@@ -16,7 +16,6 @@ from core.catalog.declarations import (
     ModulePackageRegistration,
     ModuleUiDefinition,
     NodeEditorDefinition,
-    ObservationSelectorConsumptionDefinition,
     ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
 )
@@ -65,12 +64,11 @@ def _factory(operation: str):
     def build(context: OperationContext):
         if operation == "weighted_rank":
             raise SelectionError("weighted_execution_pending", "Weighted ranking execution is pending #132")
-        if operation in {"sort", "top_k"}:
+        if operation in {"filter", "sort", "top_k"}:
             return RawSelectionOperation(operation)
         return SelectionImplementation(
             operation=operation,
             objectives=context.selection_objectives,
-            selectors=context.observation_selectors,
         )
 
     return build
@@ -119,16 +117,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     else {"objective_id_parameter": "objective_id"}
                 ),
             )
-        ),
-        observation_selector_consumption=(
-            ObservationSelectorConsumptionDefinition(
-                candidate_input_port="candidates",
-                score_collection_input_port="scores",
-                candidate_output_port="candidates",
-                selector_ids_parameter="selector_ids",
-            )
-            if operation == "filter"
-            else None
         ),
         candidate_selection_consumption=(
             CandidateSelectionConsumptionDefinition(

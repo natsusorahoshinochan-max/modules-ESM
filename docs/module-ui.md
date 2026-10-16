@@ -14,7 +14,9 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 载体拥有对话框、异步加载会话、运行锁及保存。项目切换会废弃尚未完成的编辑器打开请求；运行期间不接受新编辑。Selection 自己通过通用结果会话及公共 client 读取候选，复用模块内共享阅读缓存；完整读取前不开放候选编辑，读取失败显示错误，用户可主动重新读取。重试先刷新读取状态再补全分页，避免把部分集合当作完整集合。宿主不向编辑器传递候选专用投影。Selection 和 Prompt Studio 使用相同接口，源码分别位于 `modules/selection/ui/` 与 `modules/prompt_authoring/ui/`。Prompt 模块持有预览、矩阵、结构操作及合并来源子会话；应用不再固定加载 PromptStudio。
 
-`WorkflowEdge.target_slot` 为目标节点内稳定的输入槽身份，模块可在节点参数中引用该槽；来源节点与输出端口只保存在普通连线中。画布建立或更换来源时生成新槽，删除连线保留节点参数；模块不能因此改用另一条输入。片段复制保留节点参数及内部连线的槽，副本的参数可独立编辑。来源未连接的配置仍可手动保存，是否满足运行要求由模块与通用编译边界判断。Selection 原值排序和 top-k 使用这一公共机制，将评价选择、方向和数量保存为节点参数，不读取 Workflow 全局筛选规则。
+`WorkflowEdge.target_slot` 为目标节点内稳定的输入槽身份，模块可在节点参数中引用该槽；来源节点与输出端口只保存在普通连线中。画布建立或更换来源时生成新槽，删除连线保留节点参数；模块不能因此改用另一条输入。片段复制保留节点参数及内部连线的槽，副本的参数可独立编辑。来源未连接的配置仍可手动保存，是否满足运行要求由模块与通用编译边界判断。Selection 条件筛选、原值排序和 top-k 使用这一公共机制，将组合条件、评价选择、方向和数量保存为节点参数，不读取 Workflow 全局筛选规则。
+
+节点 `value_contract` 支持根级 `$defs` 和本地 `#/$defs/<name>` 引用，可用封闭对象定义递归参数。引用只指向同一参数契约中的命名定义，不读取外部资源；`$ref` 除字段含义与根定义外不附加其他约束。Catalog 校验声明，Commit 准入实际参数，并按实际分支检查嵌套 `input_port` 槽引用。Selection 用这一通用参数能力表达条件树；载体不解释 AND/OR 或阈值含义。
 
 指标模块通过同一 `ModulePackageRegistration.utility_transforms` 声明评分方式。`UtilityTransformDefinition` 必须给出 `title`、`meaning`、`applicability`、非空 `limitations`，以及精确 Metric、Method、Context Profile 的 `compatible_input_contract`、参数默认值、Behavior 与 callable。公共 Catalog 完整投影这些声明；Selection 编辑器仅呈现与已选评价匹配且无需用户补填必需转换参数的方式。无适用方式时明确显示加权不可用，仍允许编辑和保存；已保存但失配的选择保留并标明，不自动换成另一方式。标题是展示内容，含义、适用性与限制仍属于定义事实。
 

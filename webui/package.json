@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:conditions": "esbuild tests/selection-conditions.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/selection-conditions.test.mjs && node node_modules/.tmp/selection-conditions.test.mjs",
     "test:selection": "esbuild tests/selection-authoring.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/selection-authoring.test.mjs && node node_modules/.tmp/selection-authoring.test.mjs",
     "test:scoring": "esbuild tests/scoring-choices.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/scoring-choices.test.mjs && node node_modules/.tmp/scoring-choices.test.mjs",
     "dev": "vite",
