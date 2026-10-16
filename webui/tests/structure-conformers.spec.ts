@@ -42,7 +42,7 @@ test('Prompt source chooses a model before offering its own chains', async ({ pa
   await page.getByLabel('Prompt 来源构象', { exact: true }).selectOption('2')
   await expect(page.getByLabel('选择 PDB Chain A', { exact: true })).toHaveCount(0)
   await page.getByLabel('选择 PDB Chain B', { exact: true }).check()
-  const preview = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('prompt-authoring:open') && response.request().method() === 'POST')
+  const preview = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('authoring-actions/prompt_authoring.open') && response.request().method() === 'POST')
   await page.getByRole('button', { name: '进入 Prompt 预览', exact: true }).click()
   const response = await preview
   expect(response.status()).toBe(200)

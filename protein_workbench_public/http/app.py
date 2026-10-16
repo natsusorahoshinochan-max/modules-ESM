@@ -27,14 +27,10 @@ from protein_workbench_public.http.errors import (
 from protein_workbench_public.http.project_routes import (
     register_project_routes,
 )
-from protein_workbench_public.http.input_routes import register_input_routes
+from protein_workbench_public.http.authoring_action_routes import register_authoring_action_routes
 from protein_workbench_public.http.adoption_routes import register_adoption_routes
 from protein_workbench_public.http.run_routes import register_run_routes
 from protein_workbench_public.http.result_routes import register_result_routes
-from protein_workbench_public.http.prompt_authoring_routes import (
-    register_prompt_authoring_routes,
-)
-from modules.prompt_authoring.authoring import PromptAuthoringService
 from protein_workbench_public.http.workflow_routes import (
     register_workflow_routes,
 )
@@ -117,13 +113,8 @@ def create_http_app(
     )
     register_adoption_routes(app, catalog, projects, runtime, authoring, rest_operations)
     register_project_routes(app, projects, authoring, rest_operations, runtime)
-    register_input_routes(app, projects, rest_operations)
+    register_authoring_action_routes(app, projects, authoring, catalog)
     register_workflow_routes(app, authoring, rest_operations, runtime)
-    register_prompt_authoring_routes(
-        app,
-        PromptAuthoringService(projects, authoring, catalog),
-        rest_operations,
-    )
     register_run_routes(app, runtime, rest_operations, run_event_stream)
     register_result_routes(app, PublishedResultReader(runtime.published_value, catalog.result_readers), rest_operations,
                            ResultActionReader(catalog, runtime.published_value))

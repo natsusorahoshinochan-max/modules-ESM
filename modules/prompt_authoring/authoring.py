@@ -207,21 +207,6 @@ class PromptAuthoringService:
         self._workflow_authoring = workflow_authoring
         self._input_reader = input_reader or projects.read_input
 
-    def with_project_inputs(
-        self, project_id: str,
-        inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]],
-    ) -> PromptAuthoringService:
-        """Resolve one request's unpublished inputs without shared mutable state."""
-        def read_input(scope: str, reference: str) -> tuple[ProjectInputDescriptor, bytes]:
-            if scope == project_id and reference in inputs:
-                return inputs[reference]
-            return self._input_reader(scope, reference)
-
-        return PromptAuthoringService(
-            self._projects, self._workflow_authoring, self._catalog,
-            input_reader=read_input,
-        )
-
     def _require_author_node(
         self,
         project_id: str,

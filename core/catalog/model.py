@@ -20,6 +20,7 @@ from .declarations import (
     ContractKind,
 )
 from core.catalog.result_actions import ResultActionDefinition
+from core.catalog.authoring_actions import AuthoringActionDefinition
 from core.catalog.result_reading import ResultReaderDefinition
 from core.catalog.errors import (
     CatalogBuildError,
@@ -161,6 +162,7 @@ class FrozenCatalog:
     availability_observed_at: datetime
     value_previews: tuple[ValuePreviewDefinition, ...] = ()
     ui_extensions: tuple[ModuleUiDefinition, ...] = ()
+    authoring_actions: tuple[AuthoringActionDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     result_readers: tuple[ResultReaderDefinition, ...] = ()
     result_sources: tuple[ResultSourceDefinition, ...] = ()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .authoring_actions import AUTHORING_ACTIONS
+
 from core.catalog.result_reading import ResultReaderDefinition
 from core.catalog.ui import ModuleUiDefinition, NodeEditorDefinition, ResultViewerDefinition
 from .published_reading import read_prompt
@@ -224,6 +226,7 @@ def _binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    authoring_actions=AUTHORING_ACTIONS,
     ui_extensions=(ModuleUiDefinition(
         extension_id="prompt_authoring.viewers", resource_package=__package__,
         entry="ui/build/viewers.js", styles=("ui/build/viewers.css",), react_major=19,

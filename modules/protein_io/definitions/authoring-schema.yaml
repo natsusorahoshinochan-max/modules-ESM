@@ -1,0 +1,101 @@
+FastaInputInspection:
+  additionalProperties: false
+  properties:
+    content_digest:
+      $ref: '#/$defs/Digest'
+    format:
+      const: fasta
+    project_id:
+      $ref: '#/$defs/ProjectId'
+    project_input_ref:
+      $ref: '#/$defs/ProjectInputReference'
+    records:
+      items:
+        $ref: '#/$defs/FastaRecordInspection'
+      minItems: 1
+      type: array
+    total_length:
+      minimum: 1
+      type: integer
+  required:
+  - project_id
+  - project_input_ref
+  - content_digest
+  - format
+  - records
+  - total_length
+  type: object
+FastaRecordInspection:
+  additionalProperties: false
+  properties:
+    display_name:
+      minLength: 1
+      type: string
+    header:
+      type: string
+    length:
+      minimum: 1
+      type: integer
+    line_number:
+      minimum: 1
+      type: integer
+    record_index:
+      minimum: 1
+      type: integer
+  required:
+  - record_index
+  - header
+  - display_name
+  - line_number
+  - length
+  type: object
+PdbInputInspection:
+  additionalProperties: false
+  properties:
+    chain_ids:
+      items:
+        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+        type: string
+      minItems: 1
+      type: array
+      uniqueItems: true
+    content_digest:
+      $ref: '#/$defs/Digest'
+    format:
+      enum:
+      - pdb
+      - mmcif
+    project_id:
+      $ref: '#/$defs/ProjectId'
+    project_input_ref:
+      $ref: '#/$defs/ProjectInputReference'
+  required:
+  - project_id
+  - project_input_ref
+  - content_digest
+  - format
+  - chain_ids
+  type: object
+ProjectInputInspection:
+  oneOf:
+  - $ref: '#/$defs/FastaInputInspection'
+  - $ref: '#/$defs/PdbInputInspection'
+ProjectInputInspectionRequest:
+  additionalProperties: false
+  properties:
+    format:
+      enum:
+      - fasta
+      - pdb
+      - mmcif
+      - structure
+      type: string
+    project_id:
+      $ref: '#/$defs/ProjectId'
+    project_input_ref:
+      $ref: '#/$defs/ProjectInputReference'
+  required:
+  - project_id
+  - project_input_ref
+  - format
+  type: object

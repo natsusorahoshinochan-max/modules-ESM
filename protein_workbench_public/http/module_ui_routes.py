@@ -32,7 +32,7 @@ def register_module_ui_routes(app: FastAPI, catalog: FrozenCatalog) -> None:
                 "run_viewers": [asdict(viewer) for viewer in extension.run_viewers],
             }
             for extension in catalog.ui_extensions
-        ], "readers": [{"port_type_id": reader.port_type_id, "kind": reader.kind} for reader in catalog.result_readers]})
+        ], "authoring_actions": [action.action_id for action in catalog.authoring_actions], "readers": [{"port_type_id": reader.port_type_id, "kind": reader.kind} for reader in catalog.result_readers]})
 
     @app.get("/api/v2/module-ui/{extension_id}/assets/{resource_path:path}", include_in_schema=False)
     async def asset(extension_id: str, resource_path: str, request: Request) -> Any:

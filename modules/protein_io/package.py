@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .authoring_actions import INSPECT_INPUT
+
 from core.catalog.result_adoption import ResultSourceDefinition
 from core.project.adopted_input import AdoptedInputOperation
 from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition, RunViewerDefinition
@@ -103,6 +105,7 @@ _OPERATIONS = (
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    authoring_actions=(INSPECT_INPUT,),
     result_sources=(ResultSourceDefinition("candidate.collection", "protein_io.adopt_candidates", "protein_io.adopt_candidates.direct"),),
     result_readers=(
         ResultReaderDefinition("protein.sequence", "sequence", read_sequence),

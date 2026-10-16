@@ -1,17 +1,11 @@
-"""Public codecs for authoring hierarchy and Prompt Studio projections."""
+"""Public codec for the module authoring capability hierarchy."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from core.catalog.authoring import AuthoringCapabilityProjection
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import thaw_i_json
-from modules.prompt_authoring.authoring import (
-    PromptAuthoringPreview,
-    PromptAuthoringSnapshot,
-)
 
 
 def _reference(reference: ExactContractReference) -> dict[str, str]:
@@ -78,66 +72,4 @@ def encode_authoring_capability_projection(
             }
             for role in projection.node_roles
         ],
-    }
-
-
-def encode_prompt_snapshot(
-    snapshot: PromptAuthoringSnapshot,
-) -> dict[str, Any]:
-    return {
-        "document": thaw_i_json(snapshot.document),
-        "draft_revision": snapshot.draft_revision,
-        "tool_projections": [thaw_i_json(item) for item in snapshot.tool_projections],
-        "merge_targets": [thaw_i_json(item) for item in snapshot.merge_targets],
-        "residues": [thaw_i_json(item) for item in snapshot.residues],
-        "tracks": {
-            name: {
-                "present": bool(projection["present"]),
-                "values": [
-                    thaw_i_json(item) for item in projection["values"]
-                ],
-            }
-            for name, projection in snapshot.tracks.items()
-        },
-        "function_annotations": [
-            thaw_i_json(item) for item in snapshot.function_annotations
-        ],
-        "source": thaw_i_json(snapshot.source),
-        "baseline_diagnostics": [item.projection() for item in snapshot.baseline_diagnostics],
-        "random_selections": [thaw_i_json(item) for item in snapshot.random_selections],
-    }
-
-
-def encode_prompt_preview(
-    preview: PromptAuthoringPreview,
-) -> dict[str, Any]:
-    return {
-        "normalized_document": thaw_i_json(preview.normalized_document),
-        "tool_projections": [thaw_i_json(item) for item in preview.tool_projections],
-        "merge_targets": [thaw_i_json(item) for item in preview.merge_targets],
-        "baseline_diagnostics": [item.projection() for item in preview.baseline_diagnostics],
-        "residues": [thaw_i_json(item) for item in preview.residues],
-        "tracks": {
-            name: {
-                "present": bool(projection["present"]),
-                "values": [
-                    thaw_i_json(item) for item in projection["values"]
-                ],
-            }
-            for name, projection in preview.tracks.items()
-        },
-        "function_annotations": [
-            thaw_i_json(item) for item in preview.function_annotations
-        ],
-        "changes": [thaw_i_json(item) for item in preview.changes],
-        "random_selections": [
-            thaw_i_json(item) for item in preview.random_selections
-        ],
-        "source_merges": [
-            thaw_i_json(item) for item in preview.source_merges
-        ],
-        "diagnostics": [
-            diagnostic.projection() for diagnostic in preview.diagnostics
-        ],
-        "summary": thaw_i_json(preview.summary),
     }

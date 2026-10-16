@@ -162,10 +162,11 @@ def _validate(
     schema: dict[str, Any],
     *,
     path: str,
+    definitions: Mapping[str, Any] | None = None,
 ) -> None:
     reference = schema.get("$ref")
     if reference is not None:
-        _validate(value, _resolve_schema(reference), path=path)
+        _validate(value, _schema_definition(reference, definitions), path=path, definitions=definitions)
         return
 
     alternatives = schema.get("oneOf")
@@ -174,7 +175,7 @@ def _validate(
         matches = 0
         for alternative in alternatives:
             try:
-                _validate(value, alternative, path=path)
+                _validate(value, alternative, path=path, definitions=definitions)
             except ProtocolValidationError as error:
                 failures.append(error)
             else:
@@ -197,7 +198,7 @@ def _validate(
         failures = []
         for alternative in alternatives:
             try:
-                _validate(value, alternative, path=path)
+                _validate(value, alternative, path=path, definitions=definitions)
             except ProtocolValidationError as error:
                 failures.append(error)
             else:
@@ -238,7 +239,7 @@ def _validate(
             if item_schema is None and isinstance(additional, dict):
                 item_schema = additional
             if item_schema is not None:
-                _validate(item, item_schema, path=f"{path}.{name}")
+                _validate(item, item_schema, path=f"{path}.{name}", definitions=definitions)
 
     if expected_type == "array":
         minimum = schema.get("minItems")
@@ -253,7 +254,7 @@ def _validate(
         item_schema = schema.get("items")
         if item_schema is not None:
             for index, item in enumerate(value):
-                _validate(item, item_schema, path=f"{path}[{index}]")
+                _validate(item, item_schema, path=f"{path}[{index}]", definitions=definitions)
         if schema.get("uniqueItems") is True:
             canonical_items = [canonical_json_bytes(item) for item in value]
             if len(canonical_items) != len(set(canonical_items)):
@@ -306,9 +307,16 @@ def _validate(
             )
 
 
-def validate_schema(reference: str, payload: Any) -> None:
-    """Check the named schema of an admitted or constructed payload."""
-    _validate(payload, _resolve_schema(reference), path="$")
+def _schema_definition(reference: str, definitions: Mapping[str, Any] | None) -> dict[str, Any]:
+    name = reference.removeprefix("#/$defs/")
+    if definitions is not None and name in definitions:
+        return definitions[name]
+    return _resolve_schema(reference)
+
+
+def validate_schema(reference: str, payload: Any, *, definitions: Mapping[str, Any] | None = None) -> None:
+    """Validate a public or module-owned schema, with shared public definitions."""
+    _validate(payload, _schema_definition(reference, definitions), path="$", definitions=definitions)
 
 
 def _rest_operation(operation_id: str) -> dict[str, Any]:
@@ -345,6 +353,7 @@ _STRUCTURED_ERROR_DETAILS_FIELDS = {
     "internal_error": (("incident_id",), ()),
     "invalid_cursor": (("after_sequence",), ()),
     "malformed_request": (("field_path",), ()),
+    "authoring_action_not_found": (("action_id",), ()),
     "module_ui_asset_not_found": (("extension_id", "resource_path"), ()),
     "node_execution_failed": (
         ("exception_type",),

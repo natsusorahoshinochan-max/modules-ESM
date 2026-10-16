@@ -47,7 +47,7 @@ test('main results ZIP converts the selected historical structure and records it
     const reuploaded = await request.post(`${base}/inputs`, { data: { filename, content_base64: Buffer.from(files[filename]).toString('base64') } })
     expect(reuploaded.status()).toBe(201)
     const ref = (await reuploaded.json()).project_input_ref
-    const inspected = await request.post(`${base}/inputs/${ref}:inspect`, { data: { format } })
+    const inspected = await request.post(`${base}/authoring-actions/protein_io.inspect_input`, { data: { parameters: { project_input_ref: ref, format } } })
     expect(inspected.status()).toBe(200)
     expect((await inspected.json()).models).toEqual([{ model_index: 1, model_id: '1', chain_ids: ['A'] }])
     const parameters = JSON.parse(strFromU8(files['computation-parameters.json']))

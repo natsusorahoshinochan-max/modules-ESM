@@ -940,6 +940,13 @@ def build_frozen_catalog(
                 if node_type in editor_nodes:
                     raise CatalogBuildError(f"Node Type has multiple default editors: {node_type}")
                 editor_nodes.add(node_type)
+    authoring_actions = tuple(action for package in registration_tuple for action in package.authoring_actions)
+    authoring_action_ids: set[str] = set()
+    for action in authoring_actions:
+        _require_identifier(action.action_id, "authoring action_id")
+        if action.action_id in authoring_action_ids:
+            raise CatalogBuildError(f"duplicate authoring action {action.action_id}")
+        authoring_action_ids.add(action.action_id)
     result_actions = tuple(action for package in registration_tuple for action in package.result_actions)
     action_ids: set[str] = set()
     port_ids = {definition.type_id for _, definition in port_type_entries}
@@ -988,6 +995,7 @@ def build_frozen_catalog(
         ui_extensions=ui_extensions,
         value_previews=value_previews,
         result_actions=result_actions,
+        authoring_actions=authoring_actions,
         result_readers=result_readers,
         result_sources=tuple(source for package in registration_tuple for source in package.result_sources),
     )
