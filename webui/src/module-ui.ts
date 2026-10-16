@@ -2,14 +2,16 @@ import type { PublishedResults } from './published-results'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as jsxRuntime from 'react/jsx-runtime'
-import type { CatalogSnapshot, PublishedResultValue, ResultCandidate, Workflow, RunProjection, ResultLocation, PublicV2Client } from './protocol/client'
+import type { CatalogSnapshot, PublishedResultValue, Workflow, RunProjection, ResultLocation, PublicV2Client } from './protocol/client'
 
 export type ModuleEditorProps = {
   catalog: CatalogSnapshot
+  client: PublicV2Client
+  versionContext?: { version_id: string }
   workflow: Workflow
   nodeId: string
-  candidateCollections: Array<{ source: { node_id: string; output_port: string }; items: ResultCandidate[] }>
-  onApply: (workflow: Workflow) => void
+  results: PublishedResults
+  onApply: (workflow: Workflow) => Promise<void>
   onCancel: () => void
 }
 export type ModuleEditorDefinition = { editor_id: string; title: string; node_type_ids: string[]; component: string }

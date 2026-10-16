@@ -53,7 +53,7 @@ FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显�
 
 ## 结果入口与展示
 
-结果以实际 Project/Run、节点实例、输出端口及 Typed Output value index 定位。任意已发布中间输出均可浏览，不依赖最后一个 Selection 或整次运行成功。未发布的临时张量、视图和失败响应不冒充成功结果。
+结果以实际 Project/Run、节点实例、输出端口及 Typed Output value index 定位。画布节点与分组的输出入口覆盖所有名义类型，显示已发布值数量；点击后定位到对应输出和值索引，内容由用户按需加载。候选数量和科学展示由模块结果面板负责。任意已发布中间输出均可浏览，不依赖最后一个 Selection 或整次运行成功。未发布的临时张量、视图和失败响应不冒充成功结果。
 
 候选分页保持集合顺序，返回总数、原 item index、完整 Candidate Data Reference、全部 parent IDs、metadata、已知序列和结构存在状态。item index 仅定位同一不可变输出中的条目；Score 和跨来源引用使用 `{candidate_id, data_type_id, content_digest}`，不以行号或名字建立关联。浏览沿用首次发布的身份，不重算摘要或产生新候选。
 

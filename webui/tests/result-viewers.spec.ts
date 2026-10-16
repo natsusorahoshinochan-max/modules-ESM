@@ -105,3 +105,37 @@ test('an external reader kind does not select a protein presentation', async ({ 
   await page.getByText('查看已发布科学事实', { exact: true }).click()
   await expect(page.getByText('"message": "room temperature"', { exact: false })).toBeVisible()
 })
+
+test('a canvas output link opens an external typed value without rewriting it', async ({ page, request }) => {
+  const projectResponse = await request.post(`${appUrl}/api/v2/projects`, { data: { name: 'Temperature readings' } })
+  expect(projectResponse.status()).toBe(201)
+  const { id } = await projectResponse.json()
+  const base = `${appUrl}/api/v2/projects/${id}`
+  const commitResponse = await request.post(`${base}/workflow:commit`, { data: { workflow: {
+    schema_version: '2.1.0', workflow_id: id,
+    nodes: [{ node_id: 'observe', node_type_id: 'reader_demo.observe', binding_id: 'reader_demo.observe.direct', node_parameters: {}, binding_parameters: {} }], edges: [],
+  } } })
+  expect(commitResponse.status()).toBe(200)
+  const commit = await commitResponse.json()
+  const started = await request.post(`${base}/runs`, { data: { workflow_commit_id: commit.workflow_commit_id, client_request_id: 'temperature-ui' } })
+  expect(started.status()).toBe(202)
+  const { run_id } = await started.json()
+  const runUrl = `${base}/runs/${run_id}`
+  await expect.poll(async () => (await (await request.get(runUrl)).json()).status).toBe('succeeded')
+  const rawUrl = `${runUrl}/outputs/observe/observation/values/0`
+  const original = await (await request.get(rawUrl)).text()
+  await page.goto(`${appUrl}/?project=${id}&run=${run_id}`)
+  const node = page.locator('.react-flow__node[data-id="observe"]')
+  await node.getByText('查看输出', { exact: false }).click()
+  await node.getByRole('button', { name: 'observe observation · 值 1' }).click()
+  const detail = page.getByRole('region', { name: '输出详情', exact: true })
+  await expect(detail.getByRole('heading', { name: 'observe / observation' })).toBeVisible()
+  await expect(detail.getByLabel('输出值索引')).toHaveValue('0')
+  await detail.getByRole('button', { name: '加载此值', exact: true }).click()
+  await expect(detail.getByText('23.5 °C', { exact: true })).toBeVisible()
+  await page.reload()
+  await node.getByText('查看输出', { exact: false }).click()
+  await node.getByRole('button', { name: 'observe observation · 值 1' }).click()
+  await expect(detail.getByRole('heading', { name: 'observe / observation' })).toBeVisible()
+  expect(await (await request.get(rawUrl)).text()).toBe(original)
+})

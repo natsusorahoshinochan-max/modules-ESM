@@ -23,7 +23,7 @@ export function InteractionDialog({ title, children, className, onClose, busy = 
           event.stopPropagation()
           // Handle Escape at the focused dialog, not document capture: nested
           // dialogs must not dismiss their parent during layer registration.
-          if (event.key === 'Escape' && !busy && !event.nativeEvent.isComposing) {
+          if (event.key === 'Escape' && !event.defaultPrevented && !busy && !event.nativeEvent.isComposing) {
             event.preventDefault()
             onClose()
           }

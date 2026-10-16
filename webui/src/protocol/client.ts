@@ -86,21 +86,8 @@ export type PromptFunctionAnnotation = { label: string; start_residue_handle: st
 export type PromptDiagnostic = { code: string; message: string; field_path: Array<string | number>; residue_handle?: string }
 export type PromptRandomSelection = { operation_index: number; kind: 'insert' | 'mask'; realized_residue_handles: string[] }
 export type PromptMergeSource = { source_index: number; source: JsonObject; residues: PromptResidue[]; tracks: Record<PromptTrackKey, PromptTrackProjection>; function_annotations: PromptFunctionAnnotation[] }
-export type ESM3ConditioningProjection = {
-  status: 'compatible' | 'unsupported'
-  reason: string | null
-  operations: Record<'generate_sequence' | 'generate_structure' | 'generate_paired', { compatible: boolean; reason: string | null }>
-  effective_input: null | {
-    functional_input_digest: string
-    sequence: string
-    secondary_structure: string | null
-    sasa: Array<number | null> | null
-    function_annotations: Array<{ label: string; start: number; end: number }>
-    coordinates: { present: boolean; shape: number[] | null; dtype: 'float32'; unit: 'angstrom'; missing_atom_representation: 'NaN'; entries: Array<{ residue_id: string; position: number; atom_name: string; atom_index: number; coordinates: number[]; float32_bits: string[] }>; omitted_named_atoms: Array<{ residue_id: string; atom_name: string }> }
-  }
-}
 export type PromptMergeTarget = Pick<PromptMergeSource, 'residues' | 'tracks' | 'function_annotations'> & { merge_index: number }
-export type PromptSnapshot = { draft_revision: number; merge_targets: PromptMergeTarget[]; esm3_conditioning: ESM3ConditioningProjection | null; baseline_diagnostics: PromptDiagnostic[]; random_selections: PromptRandomSelection[]; document: PromptAuthoringDocument; residues: PromptResidue[]; tracks: Record<PromptTrackKey, PromptTrackProjection>; function_annotations: PromptFunctionAnnotation[]; source: JsonObject & { merge_sources?: PromptMergeSource[] } }
+export type PromptSnapshot = { draft_revision: number; merge_targets: PromptMergeTarget[]; tool_projections: Array<{ projection_id: string; title: string; value: JsonObject }>; baseline_diagnostics: PromptDiagnostic[]; random_selections: PromptRandomSelection[]; document: PromptAuthoringDocument; residues: PromptResidue[]; tracks: Record<PromptTrackKey, PromptTrackProjection>; function_annotations: PromptFunctionAnnotation[]; source: JsonObject & { merge_sources?: PromptMergeSource[] } }
 export type PromptPreview = Omit<PromptSnapshot, 'document' | 'source' | 'draft_revision'> & { normalized_document: PromptAuthoringDocument; changes: JsonObject[]; random_selections: PromptRandomSelection[]; source_merges: JsonObject[]; diagnostics: PromptDiagnostic[]; summary: JsonObject }
 export type RunStatus = 'admitted' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 export type RunScopeRequest = { mode: 'full' | 'to_node' | 'from_node'; node_ids: string[]; source_run_id?: string }

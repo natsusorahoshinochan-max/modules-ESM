@@ -1,3 +1,4 @@
+import { PromptEditor } from './PromptEditor'
 import { useState } from 'react'
 import type { PublishedPrompt } from '../../../webui/src/protocol/client'
 import type { ModuleViewerProps } from '../../../webui/src/module-ui'
@@ -19,4 +20,4 @@ function PromptValue({ value }: { value: PublishedPrompt }) {
 }
 
 function Prompt({ reading }: ModuleViewerProps) { return <PromptValue value={reading.value as PublishedPrompt} /> }
-export function register() { return { Prompt } }
+export function register() { return { Prompt, PromptEditor } }

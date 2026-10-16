@@ -30,17 +30,6 @@
 - **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现；教学副本首次保存从当前 Catalog 或保存的 Commit 定义快照识别并复制所需输入，不猜测引用。
 - **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前实现。设置保存重开、并发字段保存及远程 SDK 参数链已有新公共 API 测试；设置界面保存及刷新重开已有独立浏览器测试；本地 Protein-Sol 与远程 Biohub ESMC 均已通过公共设置保存、重开、实际运行及原始结果读回；该范围不代表其他 Provider 或模块管理的全部路径已核对。
 
-### DOC-028｜Prompt 合并要求项目用户维护内部身份
-
-- **要求**：用户选择采用区域、轨道和必要的位置对应，内部标识及映射维护由模块负责。
-- **当前证据**：[PromptMergeEditor](../webui/src/PromptMergeEditor.tsx)第 112 行仍提供 `A:new.identity` 输入。
-- **状态**：按[Prompt 编辑说明](prompt-editing.md)整改交互；保留用户表达所选对象与位置的能力，不把内部 ID 维护交给项目用户。
-
-### DOC-029｜公共编辑协议直接依赖 ESM3 专用实现
-
-- **当前证据**：[authoring_codec](../protein_workbench_public/authoring_codec.py)第 12–13、87–102 行直接导入 ESM3 Adapter、Operation 并生成 esm3_conditioning；[PromptStudio](../webui/src/PromptStudio.tsx)第 693–704 行固定展示该工具条件。
-- **状态**：工具特有投影应按[架构职责](architecture.md)由模块及 Adapter 提供。可保留有用的工具兼容性展示；现有耦合不证明不能保存其他 Prompt 内容。
-
 ### DOC-036｜Prompt 编辑器仍有固定分派
 
 - **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据允许多个查看器。
