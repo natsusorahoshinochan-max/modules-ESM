@@ -33,6 +33,7 @@ from datatypes.exact_reference import (
 from datatypes.identifier import validate_canonical_identifier
 
 from core.catalog.result_actions import ResultActionDefinition
+from core.catalog.authoring_actions import AuthoringActionDefinition
 from core.catalog.result_reading import ResultReaderDefinition
 from core.catalog.errors import CatalogBuildError
 from core.catalog.observation import ProducedObservation, ObservationPropagation
@@ -632,6 +633,7 @@ class ModulePackageRegistration:
     port_types: tuple[PortTypeDefinition, ...] = ()
     utility_transforms: tuple[UtilityTransformDefinition, ...] = ()
     authoring_capabilities: tuple[AuthoringCapabilityDefinition, ...] = ()
+    authoring_actions: tuple[AuthoringActionDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     result_readers: tuple[ResultReaderDefinition, ...] = ()
     result_sources: tuple[ResultSourceDefinition, ...] = ()
@@ -648,6 +650,7 @@ class ModulePackageRegistration:
             "ui_extensions",
             "value_previews",
             "result_actions",
+            "authoring_actions",
             "result_readers",
             "result_sources",
         ):

@@ -26,7 +26,7 @@ export type WorkspaceEditSession = {
   versionContext(): PromptVersionContext | undefined
   commit(proposal: { workflow: Workflow; updateUi?: (currentUi: JsonObject) => JsonObject }): Promise<ProjectWorkspace | undefined>
 }
-type EditorClient = Pick<PublicV2Client, 'copyExample' | 'projectWorkspace' | 'saveWorkspace' | 'forkVersion' | 'returnWorkspace' | 'commitWorkflow' | 'listProjectInputs' | 'publishProjectInput' | 'inspectProjectInput' | 'openPrompt' | 'previewPrompt' | 'compareWorkflowScience'>
+type EditorClient = Pick<PublicV2Client, 'copyExample' | 'projectWorkspace' | 'saveWorkspace' | 'forkVersion' | 'returnWorkspace' | 'commitWorkflow' | 'listProjectInputs' | 'publishProjectInput' | 'inspectProjectInput' | 'authoringAction' | 'openPrompt' | 'previewPrompt' | 'compareWorkflowScience'>
 type HistoryEntry = { previous: EditableWorkspace; workflow: boolean; ui: boolean; label: string }
 type SaveAttempt = { target: EditableWorkspace; workspaceRevision: number; draftRevision: number; version?: WorkflowVersionView }
 type Session = {
@@ -294,7 +294,7 @@ export class WorkspaceEditor {
   }
 
   /** Resolve inputs for the current editing scope without making a tutorial copy. */
-  readonly sources: InputSourceClient & Pick<PublicV2Client, 'openPrompt' | 'previewPrompt' | 'compareWorkflowScience'> = {
+  readonly sources: InputSourceClient & Pick<PublicV2Client, 'authoringAction' | 'openPrompt' | 'previewPrompt' | 'compareWorkflowScience'> = {
     listProjectInputs: async projectId => {
       const session = this.session
       const result = await this.client.listProjectInputs(projectId)
@@ -318,6 +318,7 @@ export class WorkspaceEditor {
         return publication
       } finally { session.inputRequests -= 1 }
     },
+    authoringAction: <T = JsonObject>(projectId: string, actionId: string, parameters: object, inputs?: ProspectiveInput[]) => this.client.authoringAction<T>(projectId, actionId, parameters, inputs ?? this.prospectiveInputs(projectId)),
     inspectProjectInput: (projectId, inputRef, format) => this.client.inspectProjectInput(projectId, inputRef, format, this.session?.project.id === projectId ? this.session.inputs.find(entry => entry.input.project_input_ref === inputRef)?.input : undefined),
     openPrompt: (projectId, nodeId, workflow) => this.client.openPrompt(projectId, nodeId, workflow, this.prospectiveInputs(projectId)),
     previewPrompt: (projectId, nodeId, document, workflow, versionContext) => this.client.previewPrompt(projectId, nodeId, document, workflow, versionContext, this.prospectiveInputs(projectId)),

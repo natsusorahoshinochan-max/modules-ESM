@@ -14,6 +14,34 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 模块通过 `value_previews` 声明 `ValuePreviewDefinition(projection_id, port_type_id, title, describe)`，解释所属工具如何使用一个已准入的临时值。Prompt 模块收集 `protein.prompt` 的已启用投影，公共协议仅编码 `tool_projections`。ESM3 自己调用其 Adapter/Operation 解释，不由公共 codec 导入；禁用 ESM3 不影响一般 Prompt 编辑。
 
+## 未发布输入检查与编辑预览
+
+模块通过 `ModulePackageRegistration.authoring_actions` 声明 `AuthoringActionDefinition(action_id, apply)`；`GET /api/v2/module-ui` 的 `authoring_actions` 公布当前启用的 action IDs。`POST /api/v2/projects/{project_id}/authoring-actions/{action_id}` 接收 `{parameters, prospective_inputs?}`，返回模块定义的 JSON object。未声明或已禁用的 action 返回 404。
+
+handler 接收 `AuthoringActionContext` 和模块参数。上下文提供当前项目、Workflow authoring、Catalog 与 `read_input(reference)`；后者先取本次请求的暂存输入，再读取项目已保存输入。暂存输入不发布，不修改项目；模块负责参数准入和结果编码。只读 action 用于来源检查及确定性编辑预览，不能发布 Run、保存编辑或调用科学 Provider；真正采用、保存与计算仍由用户明确触发。
+
+Protein I/O 的 `protein_io.inspect_input` 与 Prompt 的 `prompt_authoring.open`、`prompt_authoring.preview` 使用同一声明和入口，其 schema/codec 在所属模块内。Prompt 继续接收 prospective Workflow 和 version context，只解析已支持来源，不执行任意上游节点。前端模块调用 `client.authoringAction(projectId, actionId, parameters)`；宿主提供的编辑 client 自动带上当前会话暂存输入。已有 `inspectProjectInput`、`openPrompt`、`previewPrompt` 是同一入口的类型化方便方法。
+
+外部模块最小声明示例：
+
+```python
+from core.catalog.authoring_actions import AuthoringActionDefinition
+from core.catalog.declarations import ModulePackageRegistration
+
+
+def inspect_reading(context, parameters):
+    descriptor, payload = context.read_input(parameters["project_input_ref"])
+    return {"filename": descriptor.filename, "reading": float(payload)}
+
+
+MODULE_PACKAGE = ModulePackageRegistration(
+    package_id="meter", package_module=__name__,
+    authoring_actions=(AuthoringActionDefinition("meter.inspect", inspect_reading),),
+)
+```
+
+模块可使用自己的参数解析器，或通过 `validate_schema(..., definitions=...)` 复用公共 JSON schema 解析器；自己的 schema 可引用共享的项目、Workflow 和 JSON 类型，不要求伪装为 ProteinPrompt 或蛋白输入。
+
 ## 结果读取与查看器
 
 模块通过 `ModulePackageRegistration.result_readers` 注册 `ResultReaderDefinition(port_type_id, kind, read)`。同一 Port Type 只有一个读取投影，函数接收已发布 canonical bytes，返回模块定义的 JSON object。`results:value` 按输出的实际 Port Type 分派，返回 `{kind, value}`；载体不要求自定义类型伪装为蛋白。`GET /api/v2/module-ui` 同时公布 readers 与 UI extensions，原始类型值读取不依赖专用 reader。

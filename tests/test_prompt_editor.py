@@ -31,7 +31,7 @@ class PromptEditor(unittest.TestCase):
                         'binding_id': 'prompt_authoring.author.direct', 'binding_parameters': {},
                         'node_parameters': {'document': {'chains': [{'chain_id': 'A', 'length': 3}]}},
                     }]}
-                    response = client.post(f'/api/v2/projects/{project_id}/prompt-authoring:open', json={'node_id': 'prompt', 'workflow': workflow})
+                    response = client.post(f'/api/v2/projects/{project_id}/authoring-actions/prompt_authoring.open', json={'parameters': {'node_id': 'prompt', 'workflow': workflow}})
                     self.assertEqual(response.status_code, 200, response.text)
                     projections = response.json()['tool_projections']
                     self.assertEqual([entry['projection_id'] for entry in projections], ['esm3.conditioning'])
@@ -40,7 +40,7 @@ class PromptEditor(unittest.TestCase):
                     enabled = [entry['package_id'] for entry in inventory['modules'] if entry['enabled'] and entry['package_id'] != 'esm3']
                     changed = client.put('/api/v2/modules', json={'enabled_package_ids': enabled})
                     self.assertEqual(changed.status_code, 200, changed.text)
-                    response = client.post(f'/api/v2/projects/{project_id}/prompt-authoring:open', json={'node_id': 'prompt', 'workflow': workflow})
+                    response = client.post(f'/api/v2/projects/{project_id}/authoring-actions/prompt_authoring.open', json={'parameters': {'node_id': 'prompt', 'workflow': workflow}})
                     self.assertEqual(response.status_code, 200, response.text)
                     self.assertEqual(response.json()['tool_projections'], [])
                     self.assertEqual(len(response.json()['residues']), 3)
@@ -68,7 +68,7 @@ class PromptEditor(unittest.TestCase):
                         {'node_id': 'generate', 'node_type_id': 'esm3.generate_sequence', 'binding_id': 'esm3.generate_sequence.biohub_open', 'node_parameters': {'num_samples': 1}, 'binding_parameters': {'num_steps': 1}},
                     ], 'edges': [{'source_node_id': 'prompt', 'source_port': 'protein_prompt', 'target_node_id': 'generate', 'target_port': 'protein_prompt'}]}
                     document = {**workflow['nodes'][0]['node_parameters']['document'], 'track_edits': [{'track': 'sequence', 'action': 'replace', 'residue_id': 'A:1', 'value': 'W'}]}
-                    preview = client.post(base + '/prompt-authoring:preview', json={'node_id': 'prompt', 'workflow': workflow, 'document': document})
+                    preview = client.post(base + '/authoring-actions/prompt_authoring.preview', json={'parameters': {'node_id': 'prompt', 'workflow': workflow, 'document': document}})
                     self.assertEqual(preview.status_code, 200, preview.text)
                     self.assertEqual(preview.json()['diagnostics'], [])
                     workflow['nodes'][0]['node_parameters']['document'] = preview.json()['normalized_document']

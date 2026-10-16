@@ -61,7 +61,7 @@ class StructureConformers(unittest.TestCase):
             with TestClient(create_application(load_example_results=False)) as client:
                 for text, format, chains in [(PDB, 'pdb', [['A'], ['B']]), (CIF, 'mmcif', [['alpha'], ['beta']])]:
                     base, ref = self.upload(client, text, format)
-                    result = self.request(client, 'POST', base + '/inputs/' + ref + ':inspect', json={'format': format})
+                    result = self.request(client, 'POST', base + '/authoring-actions/protein_io.inspect_input', json={'parameters': {'project_input_ref': ref, 'format': format}})
                     self.assertEqual(result['models'], [
                         {'model_index': 1, 'model_id': '7', 'chain_ids': chains[0]},
                         {'model_index': 2, 'model_id': '19', 'chain_ids': chains[1]},
@@ -154,7 +154,7 @@ class StructureConformers(unittest.TestCase):
                         self.assertEqual(status['outputs'], [])
                         self.assertIn('blocked', str(status['node_dispositions']))
                     # Selection never replaces the uploaded ensemble, including after failed imports.
-                    inspected = self.request(client, 'POST', base + '/inputs/' + ref + ':inspect', json={'format': format})
+                    inspected = self.request(client, 'POST', base + '/authoring-actions/protein_io.inspect_input', json={'parameters': {'project_input_ref': ref, 'format': format}})
                     self.assertEqual([model['model_id'] for model in inspected['models']], ['7', '19'])
 
     def test_mmcif_selection_keeps_only_the_selected_atoms_anisotropic_values(self):

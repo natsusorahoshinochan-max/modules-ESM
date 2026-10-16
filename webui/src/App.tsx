@@ -241,7 +241,7 @@ function App() {
   const [nodes, setNodes] = useState<FlowNode[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
   const [inputSource, setInputSource] = useState<{ projectId: string; workflow: Workflow; session: WorkspaceEditSession }>()
-  const [moduleUi, setModuleUi] = useState<ModuleUiManifest>({ extensions: [], readers: [] })
+  const [moduleUi, setModuleUi] = useState<ModuleUiManifest>({ extensions: [], readers: [], authoring_actions: [] })
   const moduleOpenRevision = useRef(0)
   const [moduleEdit, setModuleEdit] = useState<{ nodeId: string; title: string; Component: React.ComponentType<ModuleEditorProps>; workflow: Workflow; session: WorkspaceEditSession }>()
   const [parameterChoices, setParameterChoices] = useState<{ workflow: Workflow; values: WorkflowParameterChoices }>()

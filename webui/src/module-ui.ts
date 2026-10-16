@@ -27,7 +27,7 @@ export type ModuleViewerProps = { reading: PublishedResultValue }
 export type ModuleViewerDefinition = { viewer_id: string; title: string; port_type_id: string; component: string; is_default: boolean }
 export type RegisteredResultViewer = { extension: ModuleUiExtension; definition: ModuleViewerDefinition }
 export type ModuleUiExtension = { extension_id: string; react_major: 19; entry_url: string; style_urls: string[]; editors: ModuleEditorDefinition[]; viewers: ModuleViewerDefinition[]; run_viewers: ModuleRunViewerDefinition[] }
-export type ModuleUiManifest = { extensions: ModuleUiExtension[]; readers: Array<{ port_type_id: string; kind: string }> }
+export type ModuleUiManifest = { authoring_actions: string[]; extensions: ModuleUiExtension[]; readers: Array<{ port_type_id: string; kind: string }> }
 export type RegisteredNodeEditor = { extension: ModuleUiExtension; definition: ModuleEditorDefinition }
 export type ModuleUiHost = { React: typeof React; ReactDOM: typeof ReactDOM; jsxRuntime: typeof jsxRuntime }
 export type ModuleUiEntry = { register: (host: ModuleUiHost) => Record<string, React.ComponentType<never>> }
