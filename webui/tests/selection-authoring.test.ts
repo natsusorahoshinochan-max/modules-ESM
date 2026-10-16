@@ -126,3 +126,28 @@ test('same-length pairwise regions have readable labels from the exact recorded 
   assert.match(view, /参考区域 B:12、B:14/)
   assert.match(view, /残基轴 A:1、A:3/)
 })
+
+test('the editor offers many-valued evaluations and relations only to compatible inputs', () => {
+  const multiple = { reference: { contract_kind: 'node_type', contract_id: 'batch_source' }, descriptor: { title: '批量评价', inputs: [], outputs: [
+    { name: 'scores', port_type: { contract_id: 'score.collection' }, multiplicity: 'many' },
+    { name: 'relations', port_type: { contract_id: 'candidate.relation' }, multiplicity: 'many' },
+    { name: 'candidates', port_type: { contract_id: 'candidate.collection' }, multiplicity: 'many' },
+  ] } }
+  const inputs = (multiplicity: string) => [
+    { name: 'scores', port_type: { contract_id: 'score.collection' }, multiplicity },
+    { name: 'relations', port_type: { contract_id: 'candidate.relation' }, multiplicity },
+    { name: 'candidates', port_type: { contract_id: 'candidate.collection' }, multiplicity: 'one' },
+  ]
+  const draft = createSelectionDraft('top_k')
+  draft.observations = [{ ...newObservation(), context: { kind: 'pairwise' }, relationInput: 'pending-relation' }]
+  const saved = saveSelectionDraft(workflow(), 'rank', draft)
+  saved.nodes.push({ node_id: 'batch', node_type_id: 'batch_source', binding_id: 'batch_source.direct', node_parameters: {}, binding_parameters: {} })
+  const render = (multiplicity: string) => renderToStaticMarkup(createElement(SelectionEditor, { catalog: { ...catalog, contracts: [...catalog.contracts.filter((entry) => entry.reference.contract_id !== 'selection.top_k'), multiple, { reference: { contract_kind: 'node_type', contract_id: 'selection.top_k' }, descriptor: { title: 'Top-k', inputs: inputs(multiplicity), outputs: [] } }] }, workflow: saved, nodeId: 'rank', onChange: () => {} }))
+  const many = render('many')
+  assert.match(many, />批量评价 · batch \/ scores<\/option>/)
+  assert.match(many, />批量评价 · batch \/ relations<\/option>/)
+  assert.doesNotMatch(many, />批量评价 · batch \/ candidates<\/option>/)
+  const one = render('one')
+  assert.doesNotMatch(one, />批量评价 · batch \/ scores<\/option>/)
+  assert.doesNotMatch(one, />批量评价 · batch \/ relations<\/option>/)
+})

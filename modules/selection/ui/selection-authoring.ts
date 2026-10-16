@@ -179,6 +179,10 @@ function saveRawSelectionDraft(workflow: Workflow, nodeId: string, draft: Select
 }
 
 export function selectionSources(workflow: Workflow, catalog: CatalogSnapshot, excludedNode: string, portType: string): Array<SelectionSource & { label: string }> {
+  const target = workflow.nodes.find((node) => node.node_id === excludedNode)
+  const targetContract = catalog.contracts.find((item) => item.reference.contract_kind === 'node_type' && item.reference.contract_id === target?.node_type_id)
+  const inputs = (targetContract?.descriptor.inputs ?? []) as Array<{ port_type: ContractReference; multiplicity: string }>
+  const acceptsMany = ['score.collection', 'candidate.relation'].includes(portType) && inputs.some((input) => input.port_type.contract_id === portType && input.multiplicity === 'many')
   const descendants = new Set([excludedNode])
   let changed = true
   while (changed) {
@@ -188,7 +192,7 @@ export function selectionSources(workflow: Workflow, catalog: CatalogSnapshot, e
   return workflow.nodes.filter((node) => !descendants.has(node.node_id)).flatMap((node) => {
     const contract = catalog.contracts.find((item) => item.reference.contract_kind === 'node_type' && item.reference.contract_id === node.node_type_id)
     if (!contract) return []
-    return (contract.descriptor.outputs as Array<{ name: string; port_type: ContractReference; multiplicity: string }>).filter((output) => output.port_type.contract_id === portType && output.multiplicity === 'one').map((output) => ({ node_id: node.node_id, output_port: output.name, label: `${contract.descriptor.title} · ${node.node_id} / ${output.name}` }))
+    return (contract.descriptor.outputs as Array<{ name: string; port_type: ContractReference; multiplicity: string }>).filter((output) => output.port_type.contract_id === portType && (output.multiplicity === 'one' || acceptsMany)).map((output) => ({ node_id: node.node_id, output_port: output.name, label: `${contract.descriptor.title} · ${node.node_id} / ${output.name}` }))
   })
 }
 
