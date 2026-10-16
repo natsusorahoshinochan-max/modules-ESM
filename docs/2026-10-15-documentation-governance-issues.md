@@ -81,20 +81,7 @@
 - **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../modules/protein_io/ui/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
 - **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
 
-### DOC-051｜多构象选择及拆分尚未提供
-
-- **要求**：单文件多个构象可以选取或分别拆成候选；一次只导入一个文件不限制构象数量。
-- **当前证据**：[结构导入声明](../modules/protein_io/definitions/structure_import.yaml)输出单候选，[导入实现](../modules/protein_io/implementation.py)第 118–131 行整文件生成一个候选，[结构处理](../modules/structure_transform/residue_axis.py)第 98–101 行拒绝多个 MODEL。
-- **状态**：按[结构输入约定](results.md#结构输入与组分)补齐选择与拆分；[结构值](../datatypes/structure.py)第 104–137 行可保留多 MODEL 原文，不能写成完全不接受此类文件。
-
 ## 范围与事实待核实
-
-### DOC-053｜浏览器退出三项选择仍需产品裁定
-
-- **要求**：Q13 禁止自动保存，未保存退出时提供保存后退出、放弃和取消；Q17 的后端 Run 生命周期独立。
-- **当前证据**：[App](../webui/src/App.tsx) 的应用内 `askUnsaved('leave')` 提供三项，浏览器 `beforeunload` 处理器仅请求原生确认。[官方限制、数据影响与可行选择](workspace.md#浏览器退出边界与未决要求)已核实，原生确认不能添加保存动作，也不保证所有关闭路径都会触发。
-- **未决边界**：是否批准网页关闭/刷新仅提供尽力原生提醒、需取消离开后手动保存的例外，或另行扩展可控窗口的宿主形态。两者均未获批准；不得将技术限制写成新需求。
-- **交付与验收**：[#123](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/123)只交付核实结论；[#124](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留 Q13 浏览器部分未完成的结论，待产品裁定。应用内退出选择不等同于浏览器关闭行为。
 
 ### DOC-010｜部分输入字符与长度限制的官方依据仍需核对
 

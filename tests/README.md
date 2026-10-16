@@ -104,6 +104,16 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
 
+## 未保存编辑提醒
+
+启用官方模块的正常应用使用独立临时数据目录，启动后在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5194 npx playwright test tests/unsaved-exit.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-exit-test-results
+```
+
+覆盖未保存布局切换项目时仅放弃或取消；取消保留编辑，放弃后原保存内容不被改写。使用公共 API 准备未完成流程，不调用模型。浏览器原生提醒的触发条件由浏览器控制。
+
 ## 官方序列与 Prompt 查看器
 
 使用启用默认官方模块的独立临时应用目录（不用 reader_demo 清单），正常启动后端和前端；在 `webui/` 运行：
@@ -133,6 +143,12 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```
 
 通过公共 Run API 与受控官方 SDK 响应覆盖序列、结构、联合生成的主动继续、重开、首请求失败、再次失败、重建结构与置信度保留、下游阻断和参数变化后的新计算。不加载本地模型，不向线上服务注入故障。
+
+## 结构构象选择与拆分
+
+`.venv/bin/python -m unittest discover -s tests -p test_structure_conformers.py` 覆盖公共输入检查、PDB/mmCIF 选择和拆分、来源身份、重开、拒绝未选/不存在的模型，以及真实残基轴下游对单构象的读取。不调用模型。
+
+使用独立临时数据目录启动正常应用后端及前端（启用默认模块），在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5206 npx playwright test tests/structure-conformers.spec.ts --workers=1 --reporter=line --output=/tmp/conformers-results`。覆盖完整来源界面的单文件上传、构象勾选、保存重开，以及 Prompt 来源构象与链的对应。
 
 ## SimpleFold 定义失败与批内续算
 

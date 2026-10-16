@@ -41,6 +41,7 @@ from datatypes.structure import (
 )
 from modules.protein_io.fasta import parse_fasta_sequence
 from modules.protein_io.inspection import read_structure_input
+from modules.protein_io.conformers import select_model
 from modules.residue_data.implementation import materialize_sequence
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from modules.structure_transform.projections import extract_sequence, select_chains
@@ -371,7 +372,8 @@ class PromptAuthoringService:
             project_id,
             node.node_parameters["project_input_ref"],
         )
-        return _StructureValue(read_structure_input(payload), descriptor)
+        structure, _ = select_model(read_structure_input(payload), node.node_parameters.get("model_index"))
+        return _StructureValue(structure, descriptor)
 
     def _structure_value_from_edge(
         self,
