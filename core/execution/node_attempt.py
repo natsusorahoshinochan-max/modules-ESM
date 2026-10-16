@@ -297,6 +297,8 @@ class _NodeAttempt:
             node_parameters=effective_randomness.node_parameters,
             binding_parameters=effective_randomness.binding_parameters,
             effective_randomness=effective_randomness.effective_randomness,
+            continuation_state=state.continuation_state,
+            completed_outputs=state.completed_outputs,
         )
         environment = self._environment.for_binding(
             state.node.binding.contract_id,
@@ -425,8 +427,11 @@ class _NodeAttempt:
         try:
             try:
                 raw_outputs = operation_execute(operation_call)
+                state.continuation_state = None
             except OperationFailedWithOutputs as failure:
                 body_error = failure.error
+                state.continuation_state = (dict(failure.continuation_state)
+                                            if failure.continuation_state is not None else None)
                 retain_completed_outputs = True
                 raw_outputs = failure.outputs
             if self._ledger.cancellation_requested:
@@ -497,6 +502,9 @@ class _NodeAttempt:
         """Execute one schedulable Node Execution Attempt lifecycle."""
         prepared = self._prepare(spec) if spec.reused_result is None else None
         state = self._new_state(spec, prepared)
+        if spec.continuation_result is not None:
+            state.continuation_state = spec.continuation_result.continuation_state
+            state.completed_outputs = spec.continuation_result.admitted_output.ports
         cancellation = self._begin_attempt(state)
         if cancellation is not None:
             return self._publication.commit_unstarted(

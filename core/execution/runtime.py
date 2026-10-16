@@ -186,7 +186,9 @@ class V2RunService:
     ) -> dict[str, Any]:
         del client_request_id
         run_id = f"run-{uuid.uuid4().hex}"
-        admission = self._scopes.resolve(project_id, workflow_commit_id, scope, run_id)
+        admission = self._scopes.resolve(project_id, workflow_commit_id, scope, run_id,
+            continuation_node_ids=(_derived_from.selected_node_ids
+                if _derived_from is not None and _derived_from.policy == "continue_batch" else ()))
         admission.require_ready()
         compiled = admission.compiled
         plan = compiled.execution_plan
@@ -323,6 +325,7 @@ class V2RunService:
                     cancellation=record.cancellation,
                     cache_bypassed=node.node_id in _cache_bypass_nodes,
                     reused_result=admission.reused.get(node.node_id),
+                    continuation_result=admission.continuations.get(node.node_id),
                 )
             )
             if committed.disposition == "succeeded":
@@ -546,6 +549,9 @@ class V2RunService:
 
     def projection(self, project_id: str, run_id: str) -> RunProjection:
         return self._queries.projection(project_id, run_id)
+
+    def continuable_node_ids(self, project_id: str, run_id: str) -> tuple[str, ...]:
+        return self._queries.continuable_node_ids(project_id, run_id)
 
     def typed_value(
         self,

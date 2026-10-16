@@ -141,7 +141,7 @@ class PublishedArtifact:
 @dataclass(frozen=True, slots=True)
 class DerivedRunReference:
     source_run_id: str
-    policy: Literal["retry_failed", "force_selected"]
+    policy: Literal["retry_failed", "force_selected", "continue_batch"]
     selected_node_ids: tuple[str, ...]
     forced_node_ids: tuple[str, ...]
 
@@ -670,7 +670,7 @@ def validate_fact_payload(payload: FactPayload) -> None:
             derived = payload.derived_from
             if (
                 not _valid_identifier(derived.source_run_id)
-                or derived.policy not in {"retry_failed", "force_selected"}
+                or derived.policy not in {"retry_failed", "force_selected", "continue_batch"}
                 or derived.selected_node_ids
                 != tuple(dict.fromkeys(derived.selected_node_ids))
                 or derived.forced_node_ids

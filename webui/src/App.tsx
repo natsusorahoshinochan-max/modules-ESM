@@ -213,6 +213,7 @@ function App() {
   const history = useProjectRunHistory(client, project?.id, project?.latest_run_id)
   const execution = useProjectExecution(client, project?.id, project?.latest_run_id, history.refresh)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [continuingBatch, setContinuingBatch] = useState(false)
   const workspace = editing.acknowledged
   const viewedVersion = editing.version
   const draft = useMemo<WorkflowDraft | undefined>(() => editing.desired && project ? { project_id: project.id, draft_revision: workspace?.draft?.draft_revision ?? 0, workflow: editing.desired.workflow } : undefined, [editing.desired, project, workspace?.draft?.draft_revision])
@@ -839,8 +840,31 @@ function App() {
       <button className="secondary-button" onClick={() => setModulesOpen(true)}>模块管理</button>
     </>}
   </div>
+  const continueBatch = async (nodeId: string) => {
+    if (!run || continuingBatch || executionReadOnly || run.project_id !== project.id) return
+    const source = run
+    setContinuingBatch(true)
+    setRunError('')
+    try {
+      const receipt = await client.continueBatch(source.project_id, source.run_id, nodeId)
+      execution.started(receipt.project_id, receipt.run_id)
+      const current = editor.getSnapshot().project
+      if (current?.id !== receipt.project_id) return
+      rememberRun(receipt.project_id, { project_id: receipt.project_id, run_id: receipt.run_id })
+      results.openRun({ project_id: receipt.project_id, run_id: receipt.run_id }, receipt.event_cursor)
+      editor.updateProject({ ...current, latest_run_id: receipt.run_id })
+    } catch (reason) {
+      setRunError(workspaceErrorMessage(reason))
+    } finally {
+      setContinuingBatch(false)
+    }
+  }
   const runControls = <>
     {view === 'results' && <button onClick={() => { history.refresh(); setHistoryOpen(true) }}>运行历史</button>}
+    {run?.project_id === project.id && run.continuable_node_ids.length > 0 && <section aria-label="主动继续批次">
+      <p>继续这次运行的原输入和参数；当前画布修改不会保存或用于续算。</p>
+      {run.continuable_node_ids.map(nodeId => <button key={nodeId} disabled={continuingBatch || executionReadOnly} onClick={() => void continueBatch(nodeId)}>继续批次：{nodeId}</button>)}
+    </section>}
     {history.error && <div role="alert">{history.error}<button onClick={history.refresh}>重新读取运行历史</button></div>}
     {execution.loading && <div role="status">正在读取项目执行状态…</div>}
     {execution.error && <div role="alert">{execution.error}<button onClick={execution.refresh}>重新读取项目执行状态</button></div>}

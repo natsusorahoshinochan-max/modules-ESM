@@ -76,8 +76,25 @@ class ESMFold2FoldingImplementation:
         )
 
         completed_samples: list[CompletedFoldingSample] = []
+        if call.continuation_state is not None and call.continuation_state["next_request"]:
+            candidates = call.completed_outputs["structure_candidates"].value.items
+            facts = {fact.prediction_key: fact for fact in
+                     call.completed_outputs["confidence_facts"].value.entries}
+            for candidate in candidates:
+                fact = facts[candidate.metadata["prediction_key"]]
+                completed_samples.append(CompletedFoldingSample(
+                    parent_slot=candidate.metadata["parent_index"],
+                    sample_slot=candidate.metadata["sample_index"],
+                    structure=candidate.data, per_residue_plddt=fact.plddt_per_residue,
+                    ptm=fact.ptm, pae=fact.pae,
+                    effective_call_seed=candidate.metadata.get("effective_call_seed")))
+            if len(completed_samples) != call.continuation_state["next_request"]:
+                raise ValueError("Folding continuation does not match completed requests")
+        completed_slots = {(sample.parent_slot, sample.sample_slot) for sample in completed_samples}
         for parent in construction.parents:
             for sample_index in range(sample_count):
+                if (parent.slot, sample_index) in completed_slots:
+                    continue
                 call_seed = (
                     None
                     if effective_seed is None
@@ -98,10 +115,9 @@ class ESMFold2FoldingImplementation:
                         ),
                     )
                 except ESMFold2ProviderError as error:
-                    if not completed_samples:
-                        raise
                     raise OperationFailedWithOutputs(
-                        error, construction.construct(tuple(completed_samples))
+                        error, construction.construct(tuple(completed_samples)) if completed_samples else {},
+                        continuation_state={"next_request": len(completed_samples)},
                     ) from error
                 completed_samples.append(
                     CompletedFoldingSample(

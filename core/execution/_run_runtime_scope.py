@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from core.execution._node_attempt_identity import _node_output_plan, _result_identity, _resolve_effective_randomness
@@ -25,6 +25,7 @@ class _ScopeAdmission:
     reused: dict[str, StoredNodeResult]
     blockers: tuple[dict[str, Any], ...]
     nodes: tuple[dict[str, Any], ...]
+    continuations: dict[str, StoredNodeResult] = field(default_factory=dict)
 
     def projection(self, workflow_commit_id: str) -> dict[str, Any]:
         return {
@@ -53,7 +54,7 @@ class _RunScopeAdmission:
 
     def resolve(self, project_id: str, workflow_commit_id: str,
                 request: RunScopeRequest, materialization_run_id: str,
-                *, include_summaries: bool = False) -> _ScopeAdmission:
+                *, include_summaries: bool = False, continuation_node_ids: tuple[str, ...] = ()) -> _ScopeAdmission:
         compiled = self._authoring.require_verified_commit(
             project_id, workflow_commit_id=workflow_commit_id
         )
@@ -103,6 +104,7 @@ class _RunScopeAdmission:
             source_run_id=request.source_run_id,
         )
         publications = {}
+        all_publications = {}
         if request.source_run_id is not None:
             source = self._registry.require_record(project_id, request.source_run_id)
             source.require_lifecycle_evidence()
@@ -112,6 +114,7 @@ class _RunScopeAdmission:
                     "malformed_request", "Continue requires a terminal source Run",
                     details={"field_path": ["scope", "source_run_id"]},
                 )
+            all_publications = {item.node_id: item for item in source_projection.publications}
             succeeded = {
                 item.node_id for item in source_projection.node_dispositions
                 if item.outcome == "succeeded"
@@ -213,4 +216,30 @@ class _RunScopeAdmission:
                         "message": f"No reusable value for required input {node.node_id}.{port_name}",
                         "field_path": ["scope", "source_run_id"],
                     })
-        return _ScopeAdmission(compiled, scope, reused, tuple(blockers), tuple(summaries))
+        continuations = {}
+        for node in (() if blockers else plan.nodes):
+            if node.node_id not in continuation_node_ids:
+                continue
+            publication = all_publications.get(node.node_id)
+            if publication is None:
+                raise V2RunError("malformed_request", "Node has no resumable batch publication",
+                                 details={"field_path": ["node_ids"]})
+            prepared = prepare_node(self._projects, project_id, node, values)
+            identity = _result_identity(node, prepared.inputs,
+                resolved_resource_inputs=prepared.resource_identities,
+                effective_randomness_snapshot=prepared.effective_randomness)
+            if identity != publication.result_identity:
+                raise V2RunError("malformed_request", "Batch inputs or parameters changed",
+                                 details={"field_path": ["source_run_id"]})
+            restored = self._results.restore(
+                project_id=project_id, materialization_run_id=materialization_run_id,
+                producer_run_id=request.source_run_id,
+                node_plan=_node_output_plan(node, plan._runtime.candidate_data_port_types),
+                result_identity=identity,
+                node_result_manifest=StoredObject(publication.node_result_manifest.content_digest,
+                                                  publication.node_result_manifest.size))
+            if restored.continuation_state is None:
+                raise V2RunError("malformed_request", "Node has no resumable batch state",
+                                 details={"field_path": ["node_ids"]})
+            continuations[node.node_id] = restored
+        return _ScopeAdmission(compiled, scope, reused, tuple(blockers), tuple(summaries), continuations)

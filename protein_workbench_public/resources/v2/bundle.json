@@ -6300,6 +6300,13 @@
         },
         "workflow_commit_id": {
           "$ref": "#/$defs/WorkflowCommitId"
+        },
+        "continuable_node_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeInstanceId"
+          },
+          "maxItems": 2048
         }
       },
       "required": [
@@ -6310,7 +6317,8 @@
         "ledger_cursor",
         "node_dispositions",
         "outputs",
-        "artifact_index"
+        "artifact_index",
+        "continuable_node_ids"
       ],
       "type": "object"
     },
@@ -6889,7 +6897,8 @@
         "policy": {
           "enum": [
             "retry_failed",
-            "force_selected"
+            "force_selected",
+            "continue_batch"
           ]
         },
         "project_id": {

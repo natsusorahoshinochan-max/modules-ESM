@@ -45,6 +45,7 @@ class AttemptSpec:
     cancellation: CancellationControl
     cache_bypassed: bool
     reused_result: StoredNodeResult | None = None
+    continuation_result: StoredNodeResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +85,8 @@ class _NodeExecutionAttemptState:
     resolution: Literal["executed", "cache_replayed"] = "executed"
     resources: RunResources | None = None
     operation_started: bool = False
+    continuation_state: dict[str, Any] | None = None
+    completed_outputs: Mapping[str, AdmittedPort] = field(default_factory=dict)
 
 
 __all__ = ["AttemptOutcome", "AttemptSpec", "ExecutionTermination"]
