@@ -140,6 +140,11 @@ def test_webui_example_public_journey_and_prompt_contract(
         assert nodes["generate-paired"]["binding_id"] == (
             "esm3.generate_paired.biohub_medium"
         )
+        assert nodes["generate-paired"]["node_parameters"] == {"num_samples": 7}
+        assert "effective_seed" not in nodes["generate-paired"]["binding_parameters"]
+        from protein_workbench_public.example_results import shipped_example_workflow
+        from protein_workbench_public.workflow_codec import decode_workflow_document
+        assert decode_workflow_document(workflow) == shipped_example_workflow()
         assert nodes["fold-stage-one"]["binding_id"] == (
             "folding.fold.esmfold2_remote"
         )

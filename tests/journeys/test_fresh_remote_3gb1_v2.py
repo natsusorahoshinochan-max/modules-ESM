@@ -92,6 +92,8 @@ def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
         if replacement is None:
             continue
         node["binding_id"] = replacement
+        if replacement == "esm3.generate_paired.local_open":
+            node["binding_parameters"]["effective_seed"] = 1603
         replaced += 1
     assert replaced == 3
 
@@ -166,6 +168,7 @@ def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
         "fold-sequences": "folding.fold.esmfold2_local",
         "fold-final": "folding.fold.esmfold2_local",
     }
+    assert nodes["generate-paired"]["binding_parameters"]["effective_seed"] == 1603
     assert workflow["workflow_id"] == "fresh-local-canonical-3gb1"
     assert nodes["import-3gb1"]["node_parameters"] == {
         "project_input_ref": project_input_ref
