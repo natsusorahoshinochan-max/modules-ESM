@@ -19,6 +19,8 @@ class ParameterContractDefinitionError(ValueError):
 
 _SUPPORTED_VALUE_CONTRACT_KEYS = frozenset(
     {
+        "$defs",
+        "$ref",
         "additionalProperties",
         "allOf",
         "anyOf",
@@ -129,7 +131,9 @@ def _validate_value_contract_schema(
     schema: Mapping[str, Any],
     *,
     path: str,
+    root: Mapping[str, Any] | None = None,
 ) -> None:
+    root = schema if root is None else root
     unexpected = set(schema) - _SUPPORTED_VALUE_CONTRACT_KEYS
     if unexpected:
         raise ParameterContractDefinitionError(
@@ -141,6 +145,18 @@ def _validate_value_contract_schema(
         or schema.get('type') != 'string'
     ):
         raise ParameterContractDefinitionError(f"{path}.input_port requires a named Port and string slot value")
+    if '$defs' in schema:
+        if schema is not root or not isinstance(schema['$defs'], Mapping):
+            raise ParameterContractDefinitionError(f'{path}.$defs must be a root definition object')
+        for name, definition in schema['$defs'].items():
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*', name) or not isinstance(definition, Mapping):
+                raise ParameterContractDefinitionError(f'{path}.$defs requires named schema objects')
+            _validate_value_contract_schema(definition, path=f'{path}.$defs.{name}', root=root)
+    if '$ref' in schema:
+        resolve_value_contract_reference(schema, root)
+        if set(schema) - {'$ref', '$defs', 'field_scope', 'scientific_meaning'}:
+            raise ParameterContractDefinitionError(f'{path}.$ref cannot have validation siblings')
+        return
     discriminators = {"allOf", "anyOf", "const", "enum", "oneOf", "type"}
     if not set(schema).intersection(discriminators):
         raise ParameterContractDefinitionError(
@@ -326,6 +342,7 @@ def _validate_value_contract_schema(
             _validate_value_contract_schema(
                 alternative,
                 path=f"{path}.{keyword}[{index}]",
+                root=root,
             )
     item_schema = schema.get("items")
     if "items" in schema:
@@ -336,6 +353,7 @@ def _validate_value_contract_schema(
         _validate_value_contract_schema(
             item_schema,
             path=f"{path}.items",
+            root=root,
         )
     properties = schema.get("properties")
     if "properties" in schema:
@@ -365,6 +383,7 @@ def _validate_value_contract_schema(
             _validate_value_contract_schema(
                 property_schema,
                 path=f"{path}.properties.{name}",
+                root=root,
             )
         undeclared = set(required or ()) - set(properties)
         if undeclared:
@@ -393,8 +412,12 @@ def _parameter_contract_violation(
     schema: Mapping[str, Any],
     *,
     path: tuple[str | int, ...],
+    root: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[str | int, ...], str] | None:
     """Return the first violation of one validated value contract."""
+    root = schema if root is None else root
+    if '$ref' in schema:
+        return _parameter_contract_violation(value, resolve_value_contract_reference(schema, root), path=path, root=root)
     if "const" in schema and value != schema["const"]:
         return path, f"must equal {schema['const']!r}"
     if "enum" in schema and value not in schema["enum"]:
@@ -405,7 +428,7 @@ def _parameter_contract_violation(
         if alternatives is None:
             continue
         results = [
-            _parameter_contract_violation(value, item, path=path)
+            _parameter_contract_violation(value, item, path=path, root=root)
             for item in alternatives
         ]
         matches = sum(result is None for result in results)
@@ -486,6 +509,7 @@ def _parameter_contract_violation(
                     item,
                     schema["items"],
                     path=(*path, index),
+                    root=root,
                 )
                 if violation is not None:
                     return violation
@@ -523,6 +547,7 @@ def _parameter_contract_violation(
                 item,
                 item_schema,
                 path=(*path, name),
+                root=root,
             )
             if violation is not None:
                 return violation
@@ -624,9 +649,21 @@ def admit_values(
     return AdmittedParameterValues(resolved)
 
 
-def matching_value_contract_alternatives(value: Any, schema: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+def matching_value_contract_alternatives(value: Any, schema: Mapping[str, Any], *, root: Mapping[str, Any] | None = None) -> tuple[Mapping[str, Any], ...]:
     """Return active branches using the same matching as value admission."""
     return tuple(schema.get('allOf', ())) + tuple(
         alternative for keyword in ('anyOf', 'oneOf') for alternative in schema.get(keyword, ())
-        if _parameter_contract_violation(value, alternative, path=()) is None
+        if _parameter_contract_violation(value, alternative, path=(), root=root or schema) is None
     )
+
+
+def resolve_value_contract_reference(schema: Mapping[str, Any], root: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Resolve a local named schema; no external resources are loaded."""
+    reference = schema['$ref']
+    if not isinstance(reference, str) or not re.fullmatch(r'#/\$defs/[A-Za-z_][A-Za-z0-9_.-]*', reference):
+        raise ParameterContractDefinitionError('Value-contract $ref must name a local $defs schema')
+    name = reference.removeprefix('#/$defs/')
+    definitions = root.get('$defs', {})
+    if name not in definitions:
+        raise ParameterContractDefinitionError(f'Unknown value-contract definition {name!r}')
+    return definitions[name]

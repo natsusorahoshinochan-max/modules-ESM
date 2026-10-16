@@ -1,11 +1,11 @@
 import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject, Workflow, WorkflowNode } from '../../../webui/src/protocol/client'
+import { readFilterDraft, saveFilterDraft, type ConditionDraft } from './selection-conditions'
 
 export type SelectionOperation = 'filter' | 'sort' | 'top_k' | 'weighted_rank' | 'pareto' | 'diversity' | 'manual'
 export const selectionNodeTypes = new Set(['filter', 'sort', 'top_k', 'weighted_rank', 'pareto', 'diversity', 'manual'].map((name) => `selection.${name}`))
 export type SelectionSource = { node_id: string; output_port: string }
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
 export type Predicate = { kind: 'comparison'; selectorId: string; operator: ComparisonOperator; threshold?: number } | { kind: 'group'; operator: 'and' | 'or'; children: Predicate[] }
-export type ExpressionToken = { selector_index: number; operator: ComparisonOperator; threshold?: number } | { operator: 'and' | 'or'; operand_count: number }
 export type ObservationDraft = {
   id: string
   scoreInput?: string
@@ -26,11 +26,10 @@ export type SelectionDraft = {
   operation: SelectionOperation
   candidateSource?: SelectionSource
   observations: ObservationDraft[]
-  predicate: Predicate
+  condition?: ConditionDraft
   selectedCandidates: CandidateReference[]
   k?: number
   direction?: 'ascending' | 'descending'
-  outOfScope: 'error' | 'ignore'
 }
 
 const ref = (contract_kind: string, contract_id: string): ContractReference => ({ contract_kind, contract_id })
@@ -42,36 +41,18 @@ export function newObservation(): ObservationDraft {
   return { id, scoreInput: id, metricId: '', methodId: '', partition: '', context: { kind: 'intrinsic' }, transformId: '', transformParameters: {}, weight: 1 }
 }
 
-export function decodePredicate(tokens: ExpressionToken[], selectorIds: string[]): Predicate {
-  if (tokens.length === 0) return { kind: 'group', operator: 'and', children: [] }
-  const stack: Predicate[] = []
-  for (const token of tokens) {
-    if ('operand_count' in token) stack.push({ kind: 'group', operator: token.operator, children: stack.splice(-token.operand_count) })
-    else stack.push({ kind: 'comparison', selectorId: selectorIds[token.selector_index], operator: token.operator, threshold: token.threshold })
-  }
-  return stack[0]
-}
-
-export function encodePredicate(predicate: Predicate, selectorIds: string[]): ExpressionToken[] {
-  if (predicate.kind === 'comparison') return [{ selector_index: selectorIds.indexOf(predicate.selectorId), operator: predicate.operator, ...(predicate.threshold === undefined ? {} : { threshold: predicate.threshold }) }]
-  const children = predicate.children.map((child) => encodePredicate(child, selectorIds)).filter((tokens) => tokens.length > 0)
-  return children.length > 1 ? [...children.flat(), { operator: predicate.operator, operand_count: children.length }] : children.flat()
-}
-
 export function createSelectionDraft(operation: SelectionOperation, candidateSource?: SelectionSource): SelectionDraft {
-  return { operation, candidateSource, observations: [], predicate: { kind: 'group', operator: 'and', children: [] }, selectedCandidates: [], outOfScope: 'error' }
+  return { operation, candidateSource, observations: [], selectedCandidates: [] }
 }
 
-function nodeReferenceIds(node: WorkflowNode): { selectors: string[]; objectives: string[] } {
-  return {
-    selectors: (node.node_parameters.selector_ids as string[] | undefined) ?? [],
-    objectives: (node.node_parameters.objective_ids as string[] | undefined) ?? (node.node_parameters.objective_id ? [node.node_parameters.objective_id as string] : []),
-  }
+function nodeObjectiveIds(node: WorkflowNode): string[] {
+  return (node.node_parameters.objective_ids as string[] | undefined) ?? (node.node_parameters.objective_id ? [node.node_parameters.objective_id as string] : [])
 }
 
 export function readSelectionDraft(workflow: Workflow, nodeId: string): SelectionDraft {
   const node = workflow.nodes.find((item) => item.node_id === nodeId)!
   const operation = node.node_type_id.slice('selection.'.length) as SelectionOperation
+  if (operation === 'filter') return readFilterDraft(workflow, nodeId, createSelectionDraft(operation))
   if (operation === 'sort' || operation === 'top_k') {
     const selection = node.node_parameters.selection as JsonObject | undefined
     const unfinished = newObservation()
@@ -96,44 +77,42 @@ export function readSelectionDraft(workflow: Workflow, nodeId: string): Selectio
       }] : [],
     }
   }
-  const ids = nodeReferenceIds(node)
-  const definitions = operation === 'filter' ? workflow.observation_selectors.filter((value) => ids.selectors.includes(value.selector_id as string)) : workflow.selection_objectives.filter((value) => ids.objectives.includes(value.objective_id as string))
-  const orderedIds = operation === 'filter' ? ids.selectors : ids.objectives
-  const byId = new Map(definitions.map((value) => [(value.selector_id ?? value.objective_id) as string, value]))
+  const orderedIds = nodeObjectiveIds(node)
+  const definitions = workflow.selection_objectives.filter((value) => orderedIds.includes(value.objective_id as string))
+  const byId = new Map(definitions.map((value) => [value.objective_id as string, value]))
   const observations = orderedIds.filter((id) => byId.has(id)).map((id): ObservationDraft => {
     const value = byId.get(id)!
-    return { id, scoreSource: value.score_collection_input as SelectionSource, metricId: (value.metric as ContractReference).contract_id, methodId: (value.method as ContractReference).contract_id, partition: value.source_partition as string, context: value.context_selector as JsonObject, transformId: value.utility_transform ? (value.utility_transform as ContractReference).contract_id : '', transformParameters: (value.utility_parameters as JsonObject | undefined) ?? {}, weight: operation === 'filter' ? 1 : value.weight as number | undefined }
+    return { id, scoreSource: value.score_collection_input as SelectionSource, metricId: (value.metric as ContractReference).contract_id, methodId: (value.method as ContractReference).contract_id, partition: value.source_partition as string, context: value.context_selector as JsonObject, transformId: value.utility_transform ? (value.utility_transform as ContractReference).contract_id : '', transformParameters: (value.utility_parameters as JsonObject | undefined) ?? {}, weight: value.weight as number | undefined }
   })
   const edge = workflow.edges.find((item) => item.target_node_id === nodeId && item.target_port === 'candidates')
   return {
     operation,
     candidateSource: edge ? { node_id: edge.source_node_id, output_port: edge.source_port } : undefined,
     observations,
-    predicate: node.node_parameters.expression ? decodePredicate(node.node_parameters.expression as ExpressionToken[], ids.selectors) : { kind: 'group', operator: 'and', children: [] },
     selectedCandidates: (node.node_parameters.selected_candidates as CandidateReference[] | undefined) ?? [],
     k: node.node_parameters.k as number | undefined,
-    outOfScope: (node.node_parameters.out_of_scope_policy as 'error' | 'ignore' | undefined) ?? 'error',
   }
 }
 
 /** Publish one complete editing transaction. */
 export function saveSelectionDraft(workflow: Workflow, nodeId: string, draft: SelectionDraft): Workflow {
+  if (draft.operation === 'filter') return saveFilterDraft(workflow, nodeId, draft)
   if (draft.operation === 'sort' || draft.operation === 'top_k') return saveRawSelectionDraft(workflow, nodeId, draft)
   const existing = workflow.nodes.find((node) => node.node_id === nodeId)
-  const oldIds = existing ? nodeReferenceIds(existing) : { selectors: [], objectives: [] }
+  const oldIds = existing ? nodeObjectiveIds(existing) : []
   const source = draft.candidateSource
-  const observations = draft.operation === 'manual' ? [] : ['sort', 'top_k'].includes(draft.operation) ? draft.observations.slice(0, 1) : draft.observations
+  const observations = draft.operation === 'manual' ? [] : draft.observations
   const preferences = observations.map((observation) => ({
     candidate_input: source ? { node_id: source.node_id, output_port: source.output_port } : undefined,
     score_collection_input: observation.scoreSource ? { node_id: observation.scoreSource.node_id, output_port: observation.scoreSource.output_port } : undefined,
     source_partition: observation.partition,
     metric: ref('metric', observation.metricId), method: ref('method', observation.methodId),
     context_selector: observation.context, match_cardinality: 'exactly_one', missing_policy: 'error',
-    ...(draft.operation === 'filter' ? { selector_id: observation.id } : { objective_id: observation.id, utility_transform: ref('utility_transform', observation.transformId), utility_parameters: observation.transformParameters, weight: observation.weight }),
+    objective_id: observation.id, utility_transform: ref('utility_transform', observation.transformId), utility_parameters: observation.transformParameters, weight: observation.weight,
   }))
-  const parameters: JsonObject = draft.operation === 'manual' ? { selected_candidates: draft.selectedCandidates } : draft.operation === 'filter' ? { selector_ids: observations.map((value) => value.id), expression: encodePredicate(draft.predicate, observations.map((value) => value.id)), out_of_scope_policy: draft.outOfScope } : {
-    ...(['sort', 'top_k'].includes(draft.operation) ? { objective_id: observations[0]?.id, out_of_scope_policy: draft.outOfScope } : { objective_ids: observations.map((value) => value.id) }),
-    tie_policy: 'candidate_id_ascending', ...(['top_k', 'diversity'].includes(draft.operation) && draft.k !== undefined ? { k: draft.k } : {}),
+  const parameters: JsonObject = draft.operation === 'manual' ? { selected_candidates: draft.selectedCandidates } : {
+    objective_ids: observations.map((value) => value.id), tie_policy: 'candidate_id_ascending',
+    ...(draft.operation === 'diversity' && draft.k !== undefined ? { k: draft.k } : {}),
   }
   const node: WorkflowNode = { node_id: nodeId, node_type_id: `selection.${draft.operation}`, binding_id: `selection.${draft.operation}.direct`, node_parameters: parameters, binding_parameters: {} }
   const scoreSources = new Map(observations.filter((value) => value.scoreSource).map((value) => [sourceKey(value.scoreSource!), value.scoreSource!]))
@@ -141,8 +120,7 @@ export function saveSelectionDraft(workflow: Workflow, nodeId: string, draft: Se
     ...workflow,
     nodes: existing ? workflow.nodes.map((value) => value.node_id === nodeId ? node : value) : [...workflow.nodes, node],
     edges: [...workflow.edges.filter((value) => value.target_node_id !== nodeId || !['candidates', 'scores'].includes(value.target_port)), ...(source ? [{ source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: 'candidates' }] : []), ...[...scoreSources.values()].map((value) => ({ source_node_id: value.node_id, source_port: value.output_port, target_node_id: nodeId, target_port: 'scores' }))],
-    observation_selectors: [...workflow.observation_selectors.filter((value) => !oldIds.selectors.includes(value.selector_id as string)), ...(draft.operation === 'filter' ? preferences : [])],
-    selection_objectives: [...workflow.selection_objectives.filter((value) => !oldIds.objectives.includes(value.objective_id as string)), ...(draft.operation === 'filter' ? [] : preferences)],
+    selection_objectives: [...workflow.selection_objectives.filter((value) => !oldIds.includes(value.objective_id as string)), ...preferences],
   }
 }
 

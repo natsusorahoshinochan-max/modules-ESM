@@ -7,7 +7,7 @@ from typing import Any
 
 from core.parameters.model import AdmittedParameterValues
 
-from core.parameters.contract import matching_value_contract_alternatives
+from core.parameters.contract import matching_value_contract_alternatives, resolve_value_contract_reference
 from core.catalog.declarations import (
     ExecutionBindingDefinition,
     NodePortDefinition,
@@ -203,7 +203,10 @@ def _validate_input_slot_references(
     for node_index, node in enumerate(workflow.nodes):
         connected = {(edge.target_port, edge.target_slot) for edge in workflow.edges
                      if edge.target_node_id == node.node_id and edge.target_slot is not None}
-        def visit(schema: Mapping[str, Any], value: Any, path: tuple[str | int, ...]) -> None:
+        def visit(schema: Mapping[str, Any], value: Any, path: tuple[str | int, ...], root: Mapping[str, Any]) -> None:
+            if '$ref' in schema:
+                visit(resolve_value_contract_reference(schema, root), value, path, root)
+                return
             input_port = schema.get('input_port')
             if input_port is not None and (input_port, value) not in connected:
                 raise WorkflowCompileError(
@@ -212,13 +215,13 @@ def _validate_input_slot_references(
             if isinstance(value, Mapping):
                 for name, child in schema.get('properties', {}).items():
                     if name in value:
-                        visit(child, value[name], (*path, name))
+                        visit(child, value[name], (*path, name), root)
             if isinstance(value, (list, tuple)) and 'items' in schema:
                 for index, item in enumerate(value):
-                    visit(schema['items'], item, (*path, index))
-            for alternative in matching_value_contract_alternatives(value, schema):
-                visit(alternative, value, path)
+                    visit(schema['items'], item, (*path, index), root)
+            for alternative in matching_value_contract_alternatives(value, schema, root=root):
+                visit(alternative, value, path, root)
         for declaration in plan_nodes[node.node_id][0].parameter_contract.entries:
             if declaration.name in admitted_parameters[node.node_id]:
                 visit(declaration.value_contract, admitted_parameters[node.node_id][declaration.name],
-                      ('nodes', node_index, 'node_parameters', declaration.name))
+                      ('nodes', node_index, 'node_parameters', declaration.name), declaration.value_contract)

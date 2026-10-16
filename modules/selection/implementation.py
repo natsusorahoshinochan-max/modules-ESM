@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import math
-import operator
 from typing import Any
 
 from core.operation import OperationCall
 from core.scoring.selection import (
-    PairwiseContextSelector,
-    ObservationSelector,
     ResolvedSelectionObjective,
     SelectionError,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
-    resolve_objective_observations,
     weighted_utility_totals,
 )
 from datatypes.candidate import (
@@ -24,7 +20,6 @@ from datatypes.candidate import (
 )
 from datatypes.observation import (
     ScoreCollection,
-    ScoreObservation,
 )
 
 
@@ -36,17 +31,13 @@ class SelectionImplementation:
         *,
         operation: str,
         objectives: tuple[ResolvedSelectionObjective, ...],
-        selectors: tuple[ObservationSelector, ...],
     ) -> None:
         self._operation = operation
         self._objectives = {
             item.objective_id: item
             for item in objectives
         }
-        self._selectors = {
-            item.selector_id: item
-            for item in selectors
-        }
+
 
     def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
         candidates = call.inputs["candidates"].value
@@ -81,13 +72,6 @@ class SelectionImplementation:
                 if item.candidate_id in selected_ids
             ])
         scores = call.inputs["scores"].value
-        if self._operation == "filter":
-            return self._output(candidates, self._filter(
-                candidates=candidates,
-                score_collections=scores,
-                node_parameters=call.node_parameters,
-                candidate_data_references=candidate_data_references,
-            ))
         if self._operation in {"weighted_rank", "pareto", "diversity"}:
             return self._execute_multi_objective(
                 candidates=candidates,
@@ -261,98 +245,6 @@ class SelectionImplementation:
                 items=list(selected),
             )
         }
-
-    def _filter(
-        self,
-        *,
-        candidates: CandidateCollection,
-        score_collections: tuple[ScoreCollection, ...],
-        node_parameters: Mapping[str, Any],
-        candidate_data_references: Mapping[str, CandidateDataReference],
-    ) -> list[Any]:
-        selectors = tuple(
-            self._selectors[selector_id]
-            for selector_id in node_parameters["selector_ids"]
-        )
-        sources = {
-            selector.score_collection_input: collection
-            for selector, collection in zip(selectors, score_collections, strict=True)
-        }
-        matches: list[Mapping[str, ScoreObservation]] = []
-        used_observations: set[int] = set()
-        for selector in selectors:
-            matching = resolve_objective_observations(
-                candidates=candidates,
-                collection=sources[selector.score_collection_input],
-                objective=selector,
-                out_of_scope_policy="ignore",
-            )
-            for candidate_id, observation in matching.items():
-                if observation.subject != candidate_data_references[candidate_id]:
-                    raise SelectionError(
-                        "Observation subject does not match the exact Candidate input"
-                    )
-                if (
-                    isinstance(selector.context_selector, PairwiseContextSelector)
-                    and observation.context.subject.candidate
-                    != candidate_data_references[candidate_id]
-                ):
-                    raise SelectionError(
-                        "Pairwise Context subject does not match the exact Candidate input"
-                    )
-                used_observations.add(id(observation))
-            matches.append(matching)
-        if node_parameters["out_of_scope_policy"] == "error" and any(
-            id(entry) not in used_observations
-            for collection in sources.values()
-            for entry in collection.entries
-        ):
-            raise SelectionError("selection received an out-of-scope observation")
-
-        comparisons = {
-            ">": operator.gt,
-            ">=": operator.ge,
-            "<": operator.lt,
-            "<=": operator.le,
-            "==": operator.eq,
-            "!=": operator.ne,
-        }
-        stack: list[set[str]] = []
-        used_selectors: set[int] = set()
-        for token_index, token in enumerate(node_parameters["expression"]):
-            operation = token["operator"]
-            if operation in {"and", "or"}:
-                count = token["operand_count"]
-                if len(stack) < count:
-                    raise SelectionError(
-                        f"Filter expression token {token_index} has too few operands"
-                    )
-                operands = stack[-count:]
-                del stack[-count:]
-                combine = set.intersection if operation == "and" else set.union
-                stack.append(combine(*operands))
-            else:
-                selector_index = token["selector_index"]
-                if selector_index >= len(selectors):
-                    raise SelectionError(
-                        f"Filter expression token {token_index} names an unknown selector index"
-                    )
-                used_selectors.add(selector_index)
-                comparison = comparisons[operation]
-                stack.append({
-                    candidate_id
-                    for candidate_id, observation in matches[selector_index].items()
-                    if comparison(observation.value, token["threshold"])
-                })
-        if len(stack) != 1 or used_selectors != set(range(len(selectors))):
-            raise SelectionError(
-                "Filter expression must produce one result and use every declared selector"
-            )
-        return [
-            candidate
-            for candidate in candidates.items
-            if candidate.candidate_id in stack[0]
-        ]
 
     @staticmethod
     def _candidate_data_references(
