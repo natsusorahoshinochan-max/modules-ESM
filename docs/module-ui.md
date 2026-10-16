@@ -18,7 +18,26 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 `ModuleUiDefinition.viewers` 接受 `ResultViewerDefinition(viewer_id, title, port_type_id, component, is_default)`。同一类型可由多个模块声明不同查看器，所有声明中恰有一个默认查看器；重复 ID、缺失 reader、缺失或重复默认值在 Catalog 构建时拒绝，不按加载顺序覆盖。查看器与节点编辑器共用 `register(host)`、React 实例、入口缓存和资源交付。查看器组件接收 `ModuleViewerProps.reading`，只决定显示，切换不会改写已发布值。
 
-Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文查看器。载体提供选择控件和原始值入口。序列、Prompt 等其他已有展示仍由当前展示组件提供，统一迁移尚未完成；候选分页及候选结构定位读取接口保持现有语义。新行为测试中的外部模块通过同一声明为独立 `reader_demo.temperature` 类型提供摄氏与华氏查看器，不依赖蛋白类型。读取投影的 `kind` 由模块定义；没有专用查看器的外部值采用通用 JSON 展示，不因同名 `kind` 被当作蛋白数据。
+Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文查看器。载体提供选择控件和原始值入口。序列与 Prompt 轨道展示也由各自模块注册；Prompt 保留残基分页、Mask 与整条轨道缺失区别、原子坐标和功能注释。载体对没有查看器的值只提供 JSON 展示，不再固定分派序列或 Prompt。候选分页与候选结构读取由 Protein I/O 的 `protein_io.candidate_page` 和 `protein_io.candidate_structure` 只读 action 提供，经通用 `results:action` 调用；原独立 collection/structure 路由已移除。action 接收发布字节、已准入参数和已发布 Candidate references，分页沿用原身份而不重算。候选关联分数、对齐、筛选和导出由模块 Run 查看器组合呈现。新行为测试中的外部模块通过同一声明为独立 `reader_demo.temperature` 类型提供摄氏与华氏查看器，不依赖蛋白类型。读取投影的 `kind` 由模块定义；没有专用查看器的外部值采用通用 JSON 展示，不因同名 `kind` 被当作蛋白数据。
+
+## 同一次 Run 的跨输出查看
+
+`ModuleUiDefinition.run_viewers` 声明 `RunViewerDefinition(viewer_id, title, port_type_ids, component)`。Run 包含声明类型中的任一输出时，载体显示该面板入口；多个入口按稳定 viewer ID 排序，用户可切换，不按模块加载顺序覆盖。它与单值查看器共用 `register(host)`、资源与 React 实例。
+
+`ModuleRunViewerProps` 只提供 Run、通用结果阅读会话、公共客户端、当前工作区查看状态和节点定位回调。外部模块可用相同的值读取与 action 接口关联多个输出，不需要接收载体定义的蛋白、分数或对齐对象。查看状态仅保留在浏览器会话内，不保存项目。
+
+| 现有展示 | 读取与界面 owner |
+|---|---|
+| 序列、结构三维与原文 | Protein I/O 单值 reader/viewer |
+| Prompt 残基轨道、坐标、Mask、注释和分页 | Prompt authoring 单值 reader/viewer |
+| 候选分页、元信息、完整引用和所有 parents | Protein I/O candidate actions 与 Run 面板 |
+| 关联分数的 Metric、Method、Context、单位、残基轴及来源 | Selection reader；Protein I/O Run 面板组合 |
+| 已发布轴及候选序列关联 | Structure transform reader；原值与候选面板 |
+| 对齐角色、刚体变换、RMSD、coverage、三维叠加 | Structure comparison reader；Protein I/O Run 面板组合 |
+| 搜索、临时筛选/排序、导出勾选、四位置比较、ZIP及参数 | Protein I/O Run 面板及模块读取会话 |
+| 所有类型原值、输出身份、附件与 Run 控制 | 载体通用结果壳 |
+
+`PublishedResults` 只协调 Run 状态/事件和通用不可变值读取。Protein I/O 的 `CandidateResults` 订阅该会话，维护候选分页与关联索引；同一会话的候选面板、节点摘要和 Selection 编辑数据共享索引，不建立第二条事件连接。宿主结果壳不固定加载蛋白面板。模块内部可以共用 UI 设施，不要求复制结构渲染器等实现。
 
 ## 构建与分发
 

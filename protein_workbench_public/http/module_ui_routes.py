@@ -29,6 +29,7 @@ def register_module_ui_routes(app: FastAPI, catalog: FrozenCatalog) -> None:
                 "style_urls": [f"/api/v2/module-ui/{extension.extension_id}/assets/{style}" for style in extension.styles],
                 "editors": [asdict(editor) for editor in extension.editors],
                 "viewers": [asdict(viewer) for viewer in extension.viewers],
+                "run_viewers": [asdict(viewer) for viewer in extension.run_viewers],
             }
             for extension in catalog.ui_extensions
         ], "readers": [{"port_type_id": reader.port_type_id, "kind": reader.kind} for reader in catalog.result_readers]})

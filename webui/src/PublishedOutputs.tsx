@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType } from 'react'
-import { PublicV2Client, type PublishedOutput, type PublishedPrompt, type PublishedResultValue, type PublishedScientificValue, type ResultLocation, type RunProjection } from './protocol/client'
+import { PublicV2Client, type PublishedOutput, type PublishedResultValue, type ResultLocation, type RunProjection } from './protocol/client'
 import type { PublishedResults } from './published-results'
 import { loadResultViewer, resultViewers, type ModuleUiManifest, type ModuleViewerProps, type RegisteredResultViewer } from './module-ui'
 import './published-outputs.css'
@@ -24,31 +24,6 @@ function PublishedRawValue({ results, source }: { results: PublishedResults; sou
     return () => { active = false }
   }, [expanded, results, source])
   return <details className="published-raw" onToggle={event => setExpanded(event.currentTarget.open)}><summary>查看原始已发布值</summary>{expanded && (error ? <p role="alert">{error}</p> : value === undefined ? <p>加载原值…</p> : <pre>{JSON.stringify(value, null, 2)}</pre>)}</details>
-}
-
-function PromptValue({ value }: { value: PublishedPrompt }) {
-  const [page, setPage] = useState(0)
-  const residueIds = value.residue_ids
-  const offset = page * 100
-  return <section aria-label="已发布 Prompt"><p>{residueIds.length} 个残基；Mask 表示该残基没有条件，未提供整条轨道与 Mask 分别显示。</p>
-    <div className="published-prompt-scroll"><table><thead><tr><th>残基身份</th><th>序列</th><th>原子坐标（Å）</th><th>二级结构（SS8）</th><th>SASA（Å²）</th></tr></thead><tbody>{residueIds.slice(offset, offset + 100).map((id, row) => {
-      const index = offset + row
-      const coordinates = value.coordinates[index]
-      return <tr key={id}><th scope="row">{id}</th><td>{value.sequence[index] ?? 'Mask'}</td><td>{coordinates === null ? 'Mask' : <details><summary>{coordinates.atoms.length} 个原子</summary>{coordinates.atoms.map(([name, position]) => <p key={name}>{name}: ({position.join(', ')})</p>)}</details>}</td><td>{value.secondary_structure === null ? '未提供整条轨道' : value.secondary_structure[index] ?? 'Mask'}</td><td>{value.sasa === null ? '未提供整条轨道' : value.sasa[index] ?? 'Mask'}</td></tr>
-    })}</tbody></table></div>
-    {residueIds.length > 100 && <div className="published-pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</button><span>{offset + 1}–{Math.min(offset + 100, residueIds.length)} / {residueIds.length}</span><button disabled={offset + 100 >= residueIds.length} onClick={() => setPage(page + 1)}>下一页</button></div>}
-    <h4>功能注释</h4>{value.function_annotations.length === 0 ? <p>没有功能注释。</p> : <ul>{value.function_annotations.map((annotation, index) => <li key={index}>{annotation.label} · {annotation.start_residue_id} → {annotation.end_residue_id}</li>)}</ul>}
-  </section>
-}
-
-function ValuePresentation({ payload: reading, portTypeId }: { payload: PublishedResultValue; portTypeId: string }) {
-  const payload = reading as PublishedScientificValue
-  if (portTypeId === 'protein.sequence' && payload.kind === 'sequence') {
-    const value = payload.value
-    return <section aria-label="已发布序列"><p>{value.sequence.length} 个序列位置</p><pre className="published-sequence">{value.sequence}</pre>{value.residue_ids === null ? <p>该序列未提供残基身份列表。</p> : <RawValue value={value.residue_ids} label="查看已发布残基身份" />}</section>
-  }
-  if (portTypeId === 'protein.prompt' && payload.kind === 'prompt') return <PromptValue value={payload.value} />
-  return <RawValue value={payload.value} label="查看已发布科学事实" />
 }
 
 function ModuleViewer({ payload, viewers }: { payload: PublishedResultValue; viewers: RegisteredResultViewer[] }) {
@@ -89,7 +64,7 @@ function LoadValue({ results, output, valueIndex }: { results: PublishedResults;
     } catch (reason) { setError(errorMessage(reason)) }
     finally { setBusy(false) }
   }
-  return <div className="published-value">{!loaded && <><p>点击后读取此值；打开输出列表不会下载值内容。</p><button disabled={busy} onClick={() => void load()}>{busy ? '加载中…' : '加载此值'}</button></>}{error && <p role="alert">{error}</p>}{loaded && <>{payload ? (viewers.length ? <ModuleViewer payload={payload} viewers={viewers} /> : <ValuePresentation payload={payload} portTypeId={output.port_type.contract_id} />) : <p>已加载 {output.port_type.contract_id} 的完整类型值。</p>}<PublishedRawValue results={results} source={source} /></>}</div>
+  return <div className="published-value">{!loaded && <><p>点击后读取此值；打开输出列表不会下载值内容。</p><button disabled={busy} onClick={() => void load()}>{busy ? '加载中…' : '加载此值'}</button></>}{error && <p role="alert">{error}</p>}{loaded && <>{payload ? (viewers.length ? <ModuleViewer payload={payload} viewers={viewers} /> : <RawValue value={payload.value} label="查看已发布科学事实" />) : <p>已加载 {output.port_type.contract_id} 的完整类型值。</p>}<PublishedRawValue results={results} source={source} /></>}</div>
 }
 
 function OutputDetail({ results, output }: { results: PublishedResults; output: PublishedOutput }) {

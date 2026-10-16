@@ -41,11 +41,11 @@
 - **当前证据**：[authoring_codec](../protein_workbench_public/authoring_codec.py)第 12–13、87–102 行直接导入 ESM3 Adapter、Operation 并生成 esm3_conditioning；[PromptStudio](../webui/src/PromptStudio.tsx)第 693–704 行固定展示该工具条件。
 - **状态**：工具特有投影应按[架构职责](architecture.md)由模块及 Adapter 提供。可保留有用的工具兼容性展示；现有耦合不证明不能保存其他 Prompt 内容。
 
-### DOC-036｜模块专用界面与结果读取仍固定分派
+### DOC-036｜Prompt 编辑器仍有固定分派
 
-- **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据可有多个查看器，允许切换。
-- **当前证据**：[App](../webui/src/App.tsx)的 Selection 已改为模块声明的 React 编辑器入口，外部包使用同一发现和资源接口（见[模块 UI 契约](module-ui.md)）；Prompt 编辑器尚有固定分派；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
-- **状态**：后端专用读取与前端加载须一起修正，不能要求自定义数据伪装成蛋白类型。已有 Port Type 注册及编解码不等于专用界面接入完整，见[架构](architecture.md)和[结果说明](results.md)。
+- **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据允许多个查看器。
+- **当前实现**：Selection 编辑器、序列/结构/Prompt 单值展示及候选、分数、对齐 Run 面板均通过模块声明加载；后端值读取与候选 actions 使用公共注册契约。外部模块用相同接口读取自定义值及同 Run 的多个输出，见[模块 UI 契约](module-ui.md)。
+- **剩余差异**：[App](../webui/src/App.tsx) 的 Prompt 编辑器仍固定分派，不能由结果展示迁移推断编辑器已完成。
 
 ### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
 
@@ -71,7 +71,7 @@
 ### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
+- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../modules/protein_io/ui/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
 - **待核对**：结果 action 与浏览器格式选择入口的完整业务路径。
 
 ### DOC-046｜批内主动续算已接入，真实失败核验范围有限
@@ -89,7 +89,7 @@
 ### DOC-050｜结果 ZIP 的计算参数关联
 
 - **要求**：导出附带已经记录的计算参数，供离开软件后查看。
-- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../webui/src/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
+- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../modules/protein_io/ui/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
 - **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
 
 ### DOC-051｜多构象选择及拆分尚未提供

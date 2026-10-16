@@ -1,7 +1,8 @@
+import type { PublishedResults } from './published-results'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as jsxRuntime from 'react/jsx-runtime'
-import type { CatalogSnapshot, PublishedResultValue, ResultCandidate, Workflow } from './protocol/client'
+import type { CatalogSnapshot, PublishedResultValue, ResultCandidate, Workflow, RunProjection, ResultLocation, PublicV2Client } from './protocol/client'
 
 export type ModuleEditorProps = {
   catalog: CatalogSnapshot
@@ -12,10 +13,18 @@ export type ModuleEditorProps = {
   onCancel: () => void
 }
 export type ModuleEditorDefinition = { editor_id: string; title: string; node_type_ids: string[]; component: string }
+export type ModuleRunViewerProps = {
+  run: RunProjection; results: PublishedResults; client: PublicV2Client
+  active: boolean; workspaceProjectId?: string; viewStateStore: Map<string, unknown>
+  requestedSource?: ResultLocation & { requestId: number }; nodeLabels: Record<string, string>
+  onLocateNode: (nodeId: string) => void; scienceStatus: 'current' | 'stale' | 'unknown'
+}
+export type ModuleRunViewerDefinition = { viewer_id: string; title: string; port_type_ids: string[]; component: string }
+export type RegisteredRunViewer = { extension: ModuleUiExtension; definition: ModuleRunViewerDefinition }
 export type ModuleViewerProps = { reading: PublishedResultValue }
 export type ModuleViewerDefinition = { viewer_id: string; title: string; port_type_id: string; component: string; is_default: boolean }
 export type RegisteredResultViewer = { extension: ModuleUiExtension; definition: ModuleViewerDefinition }
-export type ModuleUiExtension = { extension_id: string; react_major: 19; entry_url: string; style_urls: string[]; editors: ModuleEditorDefinition[]; viewers: ModuleViewerDefinition[] }
+export type ModuleUiExtension = { extension_id: string; react_major: 19; entry_url: string; style_urls: string[]; editors: ModuleEditorDefinition[]; viewers: ModuleViewerDefinition[]; run_viewers: ModuleRunViewerDefinition[] }
 export type ModuleUiManifest = { extensions: ModuleUiExtension[]; readers: Array<{ port_type_id: string; kind: string }> }
 export type RegisteredNodeEditor = { extension: ModuleUiExtension; definition: ModuleEditorDefinition }
 export type ModuleUiHost = { React: typeof React; ReactDOM: typeof ReactDOM; jsxRuntime: typeof jsxRuntime }
@@ -67,4 +76,15 @@ async function loadComponent<Props>(extension: ModuleUiExtension, componentName:
   const component = (await loaded)[componentName]
   if (!component) throw new Error(`模块 ${extension.extension_id} 未导出组件 ${componentName}`)
   return component as React.ComponentType<Props>
+}
+
+export function runViewers(manifest: ModuleUiManifest, run: RunProjection): RegisteredRunViewer[] {
+  const types = new Set(run.outputs.map(output => output.port_type.contract_id))
+  return manifest.extensions.flatMap(extension => extension.run_viewers
+    .filter(definition => definition.port_type_ids.some(type => types.has(type)))
+    .map(definition => ({ extension, definition })))
+    .sort((left, right) => left.definition.viewer_id.localeCompare(right.definition.viewer_id))
+}
+export function loadRunViewer(viewer: RegisteredRunViewer): Promise<React.ComponentType<ModuleRunViewerProps>> {
+  return loadComponent<ModuleRunViewerProps>(viewer.extension, viewer.definition.component)
 }
