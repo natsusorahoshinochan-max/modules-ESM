@@ -7,7 +7,7 @@ inputs:
     port_type_id: candidate.collection
     required: true
     multiplicity: one
-    scientific_meaning: Exactly one complete canonical-amino-acid sequence Candidate. Without residue identities, sequence positions follow the complete supplied backbone axis; explicit residue identities must match that axis.
+    scientific_meaning: Exactly one complete sequence Candidate using the 20 standard amino acids or the official ProteinMPNN unknown token X. Without residue identities, sequence positions follow the complete supplied backbone axis; explicit residue identities must match that axis.
   - name: structure_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
