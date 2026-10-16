@@ -13,6 +13,7 @@ from core.catalog.model import FrozenCatalog
 from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import ProjectManager
 from protein_workbench_public.published_results import PublishedResultReader
+from protein_workbench_public.result_actions import ResultActionReader
 from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.http.catalog_routes import (
@@ -122,5 +123,6 @@ def create_http_app(
         rest_operations,
     )
     register_run_routes(app, runtime, rest_operations, run_event_stream)
-    register_result_routes(app, PublishedResultReader(runtime.published_value), rest_operations)
+    register_result_routes(app, PublishedResultReader(runtime.published_value), rest_operations,
+                           ResultActionReader(catalog, runtime.published_value))
     return app

@@ -5421,6 +5421,47 @@
       ],
       "type": "object"
     },
+    "ResultActionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "value_index": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "project_id",
+        "run_id",
+        "value_index",
+        "action_id",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "ResultActionValue": {
+      "type": "object"
+    },
     "ResultCandidateReference": {
       "additionalProperties": false,
       "properties": {
@@ -7866,6 +7907,22 @@
         "200": "response",
         "404": "structured_error",
         "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "result_action": {
+      "method": "POST",
+      "request_schema": "#/$defs/ResultActionRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ResultActionValue",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:action",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
         "422": "structured_error",
         "default": "structured_error"
       }

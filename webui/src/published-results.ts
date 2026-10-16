@@ -153,15 +153,17 @@ export class PublishedResults {
     }
   }
 
-  async structure(key: string): Promise<PublishedStructure | null | undefined> {
+  async structure(key: string, exportFormat?: PublishedStructure['format']): Promise<PublishedStructure | null | undefined> {
     const session = this.session
     if (!session) return undefined
     const candidate = this.snapshot.index.candidates.get(key)!
     if (!candidate.has_structure) return null
-    const contentKey = JSON.stringify([locationKey(candidate.source), candidate.item_index])
+    const contentKey = JSON.stringify([locationKey(candidate.source), candidate.item_index, exportFormat ?? null])
     let pending = session.structures.get(contentKey)
     if (!pending) {
-      pending = this.client.resultStructure(session.reference.project_id, session.reference.run_id, candidate.source, candidate.item_index)
+      pending = (exportFormat
+        ? this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.export_structure', { item_index: candidate.item_index, format: exportFormat })
+        : this.client.resultStructure(session.reference.project_id, session.reference.run_id, candidate.source, candidate.item_index))
         .catch(error => { session.structures.delete(contentKey); throw error })
       session.structures.set(contentKey, pending)
     }
@@ -207,14 +209,18 @@ export class PublishedResults {
     } catch (error) { if (this.session === session) throw error }
   }
 
-  async prepareExport(keys: readonly string[]): Promise<CandidateExportMaterial | undefined> {
+  async prepareExport(keys: readonly string[], format: PublishedStructure['format']): Promise<CandidateExportMaterial | undefined> {
     const selected = [...keys]
     const session = this.session
     if (!session) return undefined
     const snapshot = await this.ensureCandidates({ all: true })
     if (!snapshot?.run || this.session !== session) return undefined
     const candidates = selected.map(key => snapshot.index.candidates.get(key)!)
-    const content = await Promise.all(candidates.map(candidate => this.structure(candidateViewKey(candidate))))
+    const content = await Promise.all(candidates.map(async candidate => {
+      const key = candidateViewKey(candidate)
+      const original = await this.structure(key)
+      return !original || original.format === format ? original : this.structure(key, format)
+    }))
     if (this.session !== session) return undefined
     return { candidates, structures: new Map(candidates.map((candidate, index) => [candidateViewKey(candidate), content[index]!])), index: snapshot.index, run: snapshot.run }
   }

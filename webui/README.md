@@ -115,7 +115,7 @@ have separate requirements; see [Prompt editing](../docs/prompt-editing.md).
 
 Results browse published intermediate outputs, exact Scores, parents and available
 alignment results. Focus, export selection and same-Run comparison are independent.
-The current ZIP exporter writes FASTA, Scores, metadata and structure files in the Candidates’ original PDB or mmCIF format. [Results](../docs/results.md) defines the required history,
+The current ZIP exporter writes FASTA, Scores, metadata and structure files in the selected PDB or mmCIF format. Same-format export preserves source text; conversion leaves stored results unchanged. [Results](../docs/results.md) defines the required history,
 reuse, structure formats, viewers and parameter export behavior.
 
 Edits now remain in memory until an explicit save. Navigation offers save,
@@ -125,8 +125,8 @@ modification while remaining readable. Result-to-workflow actions have been
 removed. These changes passed the frozen snapshot’s non-Provider regressions;
 see the current [verification scope](../docs/testing.md).
 
-The app still mainly opens the latest Run and lacks user-selected structure
-format conversion and complete module settings/viewer integration. Full
+The app still mainly opens the latest Run and lacks complete module settings/viewer integration. The new structure format
+selection and conversion paths await full verification. Full
 historical/cross-project input adoption and source-independent availability
 remain to be verified. Failed batches can publish completed results for reading
 without making the Node successful or sending those outputs downstream; this

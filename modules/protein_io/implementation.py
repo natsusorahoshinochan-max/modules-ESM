@@ -19,6 +19,7 @@ from datatypes.structure import ProteinStructure
 
 from .fasta import admit_fasta_record, parse_fasta_entries, parse_fasta_sequence
 from .inspection import read_structure_input
+from .structure_export import convert_structure
 
 
 def _native_structure_bytes(structure: ProteinStructure) -> bytes:
@@ -163,7 +164,7 @@ class SequenceExportImplementation:
 
 
 class StructureExportImplementation:
-    """Serialize one ProteinStructure in its declared source format."""
+    """Serialize structures in the selected target format."""
 
     def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
@@ -175,8 +176,9 @@ class StructureExportImplementation:
             with self._run_resources.engine_invocation():
                 artifacts: dict[str, list[ArtifactPayload]] = {}
                 for index, candidate in enumerate(structures.items):
-                    body = _native_structure_bytes(candidate.data)
-                    is_mmcif = candidate.data.format == "mmcif"
+                    converted = convert_structure(candidate.data, call.node_parameters["format"])
+                    body = _native_structure_bytes(converted)
+                    is_mmcif = converted.format == "mmcif"
                     port = "candidate_mmcif_artifacts" if is_mmcif else "candidate_artifacts"
                     artifacts.setdefault(port, []).append(
                         ArtifactPayload(
@@ -189,8 +191,9 @@ class StructureExportImplementation:
             return artifacts
         structure = inputs["structure"].value
         with self._run_resources.engine_invocation():
-            body = _native_structure_bytes(structure)
-        is_mmcif = structure.format == "mmcif"
+            converted = convert_structure(structure, call.node_parameters["format"])
+            body = _native_structure_bytes(converted)
+        is_mmcif = converted.format == "mmcif"
         return {
             "standalone_mmcif_artifact" if is_mmcif else "standalone_artifact": ArtifactPayload(
                 body=body,

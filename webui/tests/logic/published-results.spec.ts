@@ -168,7 +168,7 @@ test('refresh during paging enriches the returned snapshot and export resolves p
   expect(snapshot.index.collections[0].items).toHaveLength(250)
   const candidate = snapshot.index.collections[0].items[0]
   expect(candidate.sequence).toBe('ACDE')
-  const files = candidateExportFiles((await reader.prepareExport([candidateViewKey(candidate)]))!, 'current')
+  const files = candidateExportFiles((await reader.prepareExport([candidateViewKey(candidate)], 'pdb'))!, 'current')
   expect(strFromU8(files['candidates.fasta'])).toBe('>candidate-0\nACDE\n')
   const manifest = JSON.parse(strFromU8(files['manifest.json']))
   expect(manifest.candidates[0].parents[0]).toMatchObject({ status: 'resolved', references: [item(100).reference] })
@@ -328,7 +328,7 @@ test('detail, alignment and export share one immutable PDB request without fetch
   expect(client.structureReads).toBe(1)
   expect(client.offsets).toEqual([0])
   expect(resolveParentReferences(reader.getSnapshot().index.candidates.get(key)!, reader.getSnapshot().index)[0]).toMatchObject({ status: 'incomplete', references: [] })
-  const exporting = reader.prepareExport([key])
+  const exporting = reader.prepareExport([key], 'pdb')
   held.resolve({ text: 'ORIGINAL PDB\n', format: 'pdb' })
   expect(await detail).toEqual({ text: 'ORIGINAL PDB\n', format: 'pdb' })
   expect(await overlay).toEqual({ text: 'ORIGINAL PDB\n', format: 'pdb' })
@@ -404,7 +404,7 @@ test('export fixes clicked keys and freezes its completed scientific snapshot be
   await open(reader)
   const [first, second] = reader.getSnapshot().index.collections[0].items
   const selected = [candidateViewKey(first)]
-  const exporting = reader.prepareExport(selected)
+  const exporting = reader.prepareExport(selected, 'pdb')
   selected.splice(0, 1, candidateViewKey(second))
   await requested.promise
   client.projectionFor = async () => projection('A', [output, axisOutput])

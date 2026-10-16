@@ -75,11 +75,11 @@
 - **当前证据**：[运行时](../modules/folding/simplefold_runtime.py)第 260–268 行固定 tau=.1；[Binding](../modules/folding/package.py)第 424–435 行将步数限制在 1–50，固定上游 CLI 公开步数及 tau，示例采用 500 步。
 - **状态**：开放适用参数并移除无依据限制。tau=.1 有默认依据；不将折叠采样参数套用于不重新采样的已有结构 confidence 操作。见[参数审查](tool-parameter-exposure-audit.md)。
 
-### DOC-045｜结构导出仍缺用户选择格式转换
+### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)按原格式输出，尚未提供 Q34 要求的用户选择格式转换。
-- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；导入或原格式导出通过不等于两条导出路径的选择转换已完成。
+- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
+- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；节点四种源/目标组合已通过本次诊断；结果 action 与浏览器选择入口的完整验证仍待完成，不将前者当作后者已验收。
 
 ### DOC-046｜跳过批内成功请求的主动续算仍缺
 
