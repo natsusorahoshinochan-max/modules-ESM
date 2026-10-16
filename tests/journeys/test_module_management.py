@@ -34,3 +34,52 @@ def test_disable_all_modules_preserves_saved_project_and_survives_restart(
     with TestClient(create_application(v2_environment_configuration={})) as http:
         assert not any(module["enabled"] for module in http.get("/api/v2/modules").json()["modules"])
         assert http.get(f"/api/v2/projects/{project_id}/workspace").json() == saved.json()
+
+
+def test_external_wheel_installs_runs_and_recovers_without_source_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+    import json
+
+    from tests.fixtures.external_module import build_external_module_wheel
+    from tests.support.public_runs import PublicRunClient
+
+    data_root = tmp_path / "application"
+    data_root.mkdir()
+    (data_root / "modules.json").write_text('{"packages": []}')
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
+    wheel = build_external_module_wheel(tmp_path / "external-distribution")
+    upload = {"filename": wheel.name, "content_base64": base64.b64encode(wheel.read_bytes()).decode()}
+    with TestClient(create_application(v2_environment_configuration={})) as http:
+        installed = http.post("/api/v2/modules/install", json=upload)
+        assert installed.status_code == 201, installed.text
+        assert installed.json()["modules"] == [{
+            "package_id": "external_echo", "package_module": "external_echo.package",
+            "enabled": True, "origin": "external",
+        }]
+        project_id = http.post("/api/v2/projects", json={"name": "External module"}).json()["id"]
+        workflow = {"schema_version": "2.1.0", "workflow_id": project_id, "nodes": [{
+            "node_id": "echo", "node_type_id": "external.echo", "binding_id": "external.echo.direct",
+            "node_parameters": {}, "binding_parameters": {},
+        }], "edges": []}
+        client = PublicRunClient(http)
+        commit = client.commit_workflow(project_id, workflow)
+        receipt = client.start_run(project_id, commit["workflow_commit_id"], request_id="external-first")
+        run = client.wait_terminal(project_id, receipt["run_id"])
+        assert run["status"] == "succeeded", run
+        assert json.loads(client.typed_output_bytes(project_id, receipt["run_id"], run["outputs"][0], 0))["value"] == "installed external value"
+        saved = http.get(f"/api/v2/projects/{project_id}/workspace").json()
+        removed = http.delete("/api/v2/modules/external_echo")
+        assert removed.status_code == 200, removed.text
+        assert removed.json()["modules"] == []
+        assert http.get(f"/api/v2/projects/{project_id}/workspace").json() == saved
+        assert http.post(f"/api/v2/projects/{project_id}/workflow:commit", json={"workflow": workflow}).status_code == 422
+        restored = http.post("/api/v2/modules/install", json=upload)
+        assert restored.status_code == 201, restored.text
+        commit = client.commit_workflow(project_id, workflow)
+        receipt = client.start_run(project_id, commit["workflow_commit_id"], request_id="external-restored")
+        assert client.wait_terminal(project_id, receipt["run_id"])["status"] == "succeeded"
+    with TestClient(create_application(v2_environment_configuration={})) as http:
+        assert http.get("/api/v2/modules").json()["modules"][0]["enabled"] is True
+        assert http.get(f"/api/v2/projects/{project_id}/workspace").json()["draft"]["workflow"]["nodes"] == workflow["nodes"]
