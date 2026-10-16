@@ -224,3 +224,9 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5197 npx playwright test tests/proteinmpnn-p
 
 The browser checks natural residue choices, PSSM controls and manual saving; it
 does not launch a Provider. Build module UI assets before starting the application.
+
+## 历史运行列表
+
+使用独立临时数据目录启动正常应用及前端，在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5215 npx playwright test tests/run-history.spec.ts --workers=1 --reporter=line --output=/tmp/history-results`。
+
+测试通过公开 API 在同项目创建两次不同序列的真实导入运行，再从界面“运行历史”列表选择较旧 Run，核对所选标记、节点状态、旧序列查看及刷新恢复；同时确认查看不改变已保存工作区。不调用模型，也不以此单个成功运行场景替代批次失败与保留成果的续算测试。
