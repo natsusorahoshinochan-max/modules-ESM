@@ -351,6 +351,8 @@ def alignment_evidence_to_wire(value: StructureAlignmentEvidence) -> object:
         "schema_version": EVIDENCE_VERSION,
         "subject": _candidate_data_reference_to_canonical(value.subject),
         "reference": _candidate_data_reference_to_canonical(value.reference),
+        "subject_region": list(value.subject_region),
+        "reference_region": list(value.reference_region),
         "subject_axis_content_digest": value.subject_axis_content_digest,
         "reference_axis_content_digest": value.reference_axis_content_digest,
         "segment_map": [
@@ -429,6 +431,7 @@ def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
             "reference": _candidate_data_reference_from_canonical(
                 value["reference"]
             ),
+            **{name: tuple(value[name]) for name in ("subject_region", "reference_region") if name in value},
             "segment_map": tuple(
                 AlignmentSegmentMapEntry(**entry)
                 for entry in value["segment_map"]

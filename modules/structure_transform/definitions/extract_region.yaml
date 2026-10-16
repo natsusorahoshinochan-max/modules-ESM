@@ -1,0 +1,24 @@
+node_type_id: structure_transform.extract_region
+title: Extract structure region
+summary: Explicitly extracts selected protein residues as a new Candidate, preserving author numbering and the parent structure.
+category: structure_transform
+inputs:
+  - {name: structure_candidates, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Full structure Candidates to extract from.}
+outputs:
+  - {name: structure_candidates, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: One coordinate-fragment child per input structure with original residue numbering and exact parent lineage.}
+parameter_groups: []
+node_parameters:
+  region:
+    parameter_scope: scientific
+    scientific_meaning: Exact chain, author residue number and insertion locations; empty selects the full axis. Selected positions retain original axis order in a new coordinate fragment; the parent structure is unchanged.
+    default: []
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [chain_id, residue_number, insertion_code]
+        properties:
+          chain_id: {type: string, minLength: 1, field_scope: scientific, scientific_meaning: Original chain identifier.}
+          residue_number: {type: string, minLength: 1, field_scope: scientific, scientific_meaning: Original author residue number.}
+          insertion_code: {type: string, field_scope: scientific, scientific_meaning: Original insertion code or empty.}

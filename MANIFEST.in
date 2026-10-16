@@ -8,3 +8,5 @@ include webui/package.json webui/package-lock.json
 recursive-include webui/tools *.mjs
 recursive-include webui/src *.ts *.tsx *.css
 recursive-include modules */ui/*.ts */ui/*.tsx */ui/*.css */ui/*.json
+
+recursive-include modules/residue_data/components *.tsx *.json

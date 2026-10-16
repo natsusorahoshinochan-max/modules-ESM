@@ -36,12 +36,6 @@
 - **当前实现**：Selection 编辑器、序列/结构/Prompt 单值展示及候选、分数、对齐 Run 面板均通过模块声明加载；后端值读取与候选 actions 使用公共注册契约。外部模块用相同接口读取自定义值及同 Run 的多个输出，见[模块 UI 契约](module-ui.md)。
 - **剩余差异**：[App](../webui/src/App.tsx) 的 Prompt 编辑器仍固定分派，不能由结果展示迁移推断编辑器已完成。
 
-### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
-
-- **要求**：相关模块共用明确的链、残基与不连续区域表达，正确传递所选对象和位置；项目用户不维护内部映射。
-- **当前证据**：[align_pairs](../modules/structure_comparison/definitions/align_pairs.yaml)第 1–16 行只接收完整轴，[轴解析声明](../modules/structure_transform/definitions/resolve_candidate_residue_axes.yaml)未提供区域选择；已有专用 inserted-loop 评价不能证明通用组合已完整覆盖。
-- **状态**：按[架构](architecture.md)与[模块能力](module-capabilities.md)核对真实场景覆盖。不同表示本身不证明残基错配，不把模块内部区域处理放进载体。
-
 ### DOC-039｜ESM3 参数接入的调用链待核对
 
 - **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
@@ -114,3 +108,9 @@
 
 - **当前事实**：[Provider](../modules/proteinmpnn/provider_runtime.py)第 210–225 行只取 sample_out 的 S；固定上游同时返回 probs 和 decoding_order。独立 NLL 评分另有前向计算，不能称为已经丢失同一份 NLL。
 - **范围边界**：工具自然产生的所需分数随结果保留，但不自动要求公开所有内部数组。重做的具体输出范围须符合已确认功能；见[模块能力](module-capabilities.md)。
+
+### DOC-053｜作者残基编号与插入码的已有身份歧义
+
+- **当前事实**：残基轴的既有字符串身份串接作者编号与插入码；`auth_seq_id=12A, ins=''` 与 `auth_seq_id=12, ins=A` 会形成相同身份。两者同时存在时轴解析失败，不任取其一。原结构仍保存、可读。
+- **保全边界**：已保存 Prompt 的 target_residues 可能再次解析其原结构来源；全局改写非数字作者标签会使这些已保存编辑失效。当前保持既有身份，不加别名或旧解析器。比较/提取额外核对独立实际作者位置；不宣称消除了底层身份歧义。
+- **待解决**：在保持已保存编辑与来源可用的前提下，确定无歧义身份方案。不可仅遇到文件内碰撞时更换ID，也不可盲改保存数据。

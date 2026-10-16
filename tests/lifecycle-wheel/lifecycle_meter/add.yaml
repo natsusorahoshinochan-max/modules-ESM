@@ -1,0 +1,31 @@
+node_type_id: lifecycle_meter.add
+title: External measurement addition
+summary: Add an explicit amount to an incoming measurement, or zero for a source.
+category: measurement
+inputs:
+  - name: reading
+    port_type_id: lifecycle_meter.reading
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional incoming measurement.
+outputs:
+  - name: reading
+    port_type_id: lifecycle_meter.reading
+    required: true
+    multiplicity: one
+    scientific_meaning: The incoming value plus the configured amount.
+parameter_groups:
+  - id: adjustment
+    title: Adjustment
+    parameters: [amount, note]
+node_parameters:
+  amount:
+    parameter_scope: scientific
+    scientific_meaning: Explicit value to add.
+    value_contract: {type: integer}
+    default: 1
+  note:
+    parameter_scope: scientific
+    scientific_meaning: User annotation retained with the resulting measurement.
+    value_contract: {type: string}
+    default: measurement

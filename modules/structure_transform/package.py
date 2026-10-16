@@ -44,6 +44,8 @@ from .projections import (
     SelectChainsImplementation,
 )
 from .residue_axis import ResolveResidueAxisImplementation
+from .regions import ExtractRegionImplementation
+from core.catalog.ui import ModuleUiDefinition, NodeEditorDefinition
 from .port_types import (
     BACKBONE_STRUCTURE_PORT_TYPE,
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
@@ -55,6 +57,7 @@ from .port_types import (
 
 
 _OPERATIONS = (
+    "extract_region",
     "select_chains",
     "select_candidate_chains",
     "extract_backbone",
@@ -76,6 +79,7 @@ _OPERATION_IMPLEMENTATIONS: dict[
     str,
     Callable[[OperationResources], ScientificOperation],
 ] = {
+    "extract_region": ExtractRegionImplementation,
     "select_chains": SelectChainsImplementation,
     "select_candidate_chains": SelectCandidateChainsImplementation,
     "extract_backbone": ExtractBackboneImplementation,
@@ -148,7 +152,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     package_id="structure_transform",
     package_module=__package__,
+    ui_extensions=(ModuleUiDefinition(
+        extension_id="structure_transform.regions", resource_package=__package__,
+        entry="ui/build/editor.js", styles=(), react_major=19,
+        editors=(NodeEditorDefinition("structure_transform.regions", "选择提取区域", ("structure_transform.extract_region",), "RegionEditor"),),
+    ),),
     node_definitions=(
+        DefinitionResource("definitions/extract_region.yaml"),
         DefinitionResource("definitions/select_chains.yaml"),
         DefinitionResource("definitions/select_candidate_chains.yaml"),
         DefinitionResource("definitions/extract_backbone.yaml"),
