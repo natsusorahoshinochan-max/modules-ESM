@@ -33,6 +33,7 @@ from .domain import (
 )
 from .simplefold_adapter import (
     SimpleFoldAdapter,
+    SimpleFoldProviderError,
 )
 from .simplefold_confidence_adapter import (
     SimpleFoldConfidenceAdapter,
@@ -172,20 +173,46 @@ class SimpleFoldFoldingImplementation:
             observation_method=self._method,
         )
         completed_samples: list[CompletedFoldingSample] = []
-        for parent in construction.parents:
+        next_parent = 0
+        if call.continuation_state is not None:
+            next_parent = call.continuation_state["next_request"]
+            if next_parent:
+                candidates = call.completed_outputs["structure_candidates"].value.items
+                facts = {fact.prediction_key: fact for fact in
+                         call.completed_outputs["confidence_facts"].value.entries}
+                for candidate in candidates:
+                    fact = facts[candidate.metadata["prediction_key"]]
+                    completed_samples.append(CompletedFoldingSample(
+                        parent_slot=candidate.metadata["parent_index"],
+                        sample_slot=candidate.metadata["sample_index"],
+                        structure=candidate.data,
+                        per_residue_plddt=fact.plddt_per_residue,
+                        effective_call_seed=candidate.metadata["effective_call_seed"],
+                        num_steps=candidate.metadata["num_steps"],
+                    ))
+            if len(completed_samples) != next_parent * sample_count:
+                raise ValueError("SimpleFold continuation does not match completed requests")
+        for parent in construction.parents[next_parent:]:
             call_seed = self._call_seed(
                 effective_seed,
                 parent.reference.content_digest,
                 parent.slot,
             )
-            adapter_result = self._adapter.fold(
-                sequence=parent.sequence,
-                num_steps=num_steps,
-                tau=call.binding_parameters["tau"],
-                num_samples=sample_count,
-                derived_call_seed=call_seed,
-                engine_role=f"fold_parent_{parent.slot}",
-            )
+            try:
+                adapter_result = self._adapter.fold(
+                    sequence=parent.sequence,
+                    num_steps=num_steps,
+                    tau=call.binding_parameters["tau"],
+                    num_samples=sample_count,
+                    derived_call_seed=call_seed,
+                    engine_role=f"fold_parent_{parent.slot}",
+                )
+            except SimpleFoldProviderError as error:
+                raise OperationFailedWithOutputs(
+                    error,
+                    construction.construct(tuple(completed_samples)) if completed_samples else {},
+                    continuation_state={"next_request": parent.slot},
+                ) from error
             for sample in adapter_result.samples:
                 completed_samples.append(
                     CompletedFoldingSample(

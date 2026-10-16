@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
+from core.catalog.result_reading import ResultReaderDefinition
+from .published_reading import read_representation
+
 from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
@@ -146,12 +150,10 @@ def _esmc_method() -> MethodDefinition:
             "name": "ESMC masked-language-model sequence representation",
             "provider_operations": ("encode", "logits"),
             "logits_request": {
-                "sequence": True,
-                "return_mean_embedding": True,
+                "selection": "outputs: embedding, logits, or both",
             },
             "published_value": (
-                "Provider-normalized mean embedding and sequence-logits "
-                "shape on the CLS, residue-token, EOS axis"
+                "Requested provider mean embedding and/or actual residue logits"
             ),
         },
         model_identity={
@@ -171,9 +173,9 @@ def _esmc_method() -> MethodDefinition:
                 "dimension": ESMC_MEAN_EMBEDDING_DIMENSION,
             },
             "sequence_logits": {
-                "storage": "validated_shape_only_not_persisted",
-                "shape": "L_plus_2_by_64",
-                "axis": "CLS_then_residue_tokens_then_EOS",
+                "storage": "actual_values",
+                "shape": "L_by_64",
+                "axis": "input_residues_without_CLS_EOS",
                 "model_head_class_width": ESMC_SEQUENCE_LOGITS_DIMENSION,
             },
         },
@@ -211,7 +213,7 @@ def _esmc_binding() -> ExecutionBindingDefinition:
             "esm3.biohub_esmc/adapter",
             {
                 "provider_contract": "esm-sdk-encode+logits",
-                "output_contract": "mean-embedding-1152+logits-L+2x64",
+                "output_contract": "optional-mean-embedding-1152+actual-logits-Lx64",
                 "engine_identity": "stable_method_id",
             },
         ),
@@ -695,6 +697,12 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_readers=(ResultReaderDefinition("esm3.esmc_sequence_representation", "esmc_representation", read_representation),),
+    ui_extensions=(ModuleUiDefinition(
+        extension_id="esm3.esmc.viewers", resource_package=__package__,
+        entry="ui/build/viewers.js", styles=(), react_major=19, editors=(),
+        viewers=(ResultViewerDefinition("esm3.esmc.values", "ESMC 数值", "esm3.esmc_sequence_representation", "ESMCValues", True),),
+    ),),
     package_id="esm3",
     package_module=__package__,
     node_definitions=(

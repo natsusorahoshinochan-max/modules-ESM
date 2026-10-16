@@ -73,7 +73,7 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 - **SimpleFold 的步数控件**：界面按 Binding 声明编辑，当前无 50 步上限。
 - **SimpleFold 现有结构 confidence**：直接执行 confidence head，不重新采样，不应给它凭空添加折叠 steps/tau。
 - **DSSP accessibility 恒开启**：当前操作承诺输出 SASA，开启该计算是履行既定输出，不直接作为应新增关闭选项的证据。
-- **ESMC 表征其他输出模式**：hidden states、层选择、SAE 等不自动纳入。embedding 和实际 logits 已确认应作为可选输出供查看及后续模块使用；当前仅保留 logits shape 属于已决定待对齐的结果问题。
+- **ESMC 表征其他输出模式**：hidden states、层选择、SAE 等不自动纳入。embedding 和实际 logits 通过 outputs 选择请求和持久化；未请求值为 null，实际 logits 按输入残基顺序去除 CLS/EOS 行。
 - **模型路线和设备路径**：不因为模型固定就自动要求新增全部模型；部署配置与节点计算参数的开放范围分开。
 - **自写结构对齐设置**：BLOSUM62、gap 等常量属于项目自定算法配置，不是外部工具官方参数缺失。可另审其用户配置需求，但不冒充已接入工具的参数遗漏。
 

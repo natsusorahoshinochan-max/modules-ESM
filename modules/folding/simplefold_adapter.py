@@ -29,6 +29,10 @@ from .simplefold_asset_closure import (
 )
 
 
+class SimpleFoldProviderError(RuntimeError):
+    """An explicit resource failure in the activated folding invocation."""
+
+
 class _SimpleFoldNativeScore(TypedDict):
     sample_index: int
     per_residue: list[float]

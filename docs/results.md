@@ -125,7 +125,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 | 结构格式、多构象、非蛋白组分 | 已支持 PDB/mmCIF 导入与格式转换；构象选择/拆分及完整组分操作仍待完成 |
 | 模块查看器 | 内置读取和固定分派须按模块契约开放；多个查看器切换尚待实现 |
 | 结果页转流程 | 已删除入口及节点生成路径 |
-| ESMC 输出 | 实际 logits 可选输出尚未对齐，不能以矩阵尺寸冒充数值；见[模块能力](module-capabilities.md) |
+| ESMC 输出 | 可选 embedding、实际逐位置 logits，模块数值查看器及原值读取；见[模块能力](module-capabilities.md) |
 | 批次成功结果与续算 | 失败时保留已完成结果；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
 | 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，以及来源 Run/Commit 参数文件 |
 
