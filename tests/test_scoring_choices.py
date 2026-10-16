@@ -91,9 +91,9 @@ class ScoringChoiceTests(unittest.TestCase):
     def test_binding_scientific_behaviors_are_valid_public_contract_descriptors(self):
         response = self.client.get("/api/v2/catalog")
         self.assertEqual(response.status_code, 200, response.text)
-        weighted = next(item['descriptor'] for item in response.json()['contracts']
-                        if item['reference']['contract_id'] == 'selection.weighted_rank.direct')
-        validate_schema('#/$defs/BindingContractDescriptor', weighted)
+        for contract in response.json()['contracts']:
+            if contract['reference']['contract_kind'] == 'binding':
+                validate_schema('#/$defs/BindingContractDescriptor', contract['descriptor'])
 
 
 if __name__ == "__main__":
