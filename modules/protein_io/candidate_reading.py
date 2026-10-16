@@ -4,18 +4,18 @@ from dataclasses import asdict
 from typing import Any, cast
 
 from core.catalog.builtins import restore_candidate_collection_slice
-from core.catalog.result_actions import ResultActionDefinition, ResultActionError
+from core.catalog.result_actions import ResultActionDefinition, ResultActionError, ResultActionInput, ResultActionInputs
 from core.parameters.contract import admit_declarations
-from datatypes.candidate import CandidateDataReference
 from datatypes.i_json import thaw_i_json
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
 
 def read_candidate_page(
-    body: bytes, parameters: Mapping[str, Any],
-    references: tuple[CandidateDataReference, ...],
+    inputs: ResultActionInputs, parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
+    value = next(iter(inputs["candidates"].values()))[0]
+    body, references = value.body, value.candidate_references
     offset = parameters["offset"]
     collection = restore_candidate_collection_slice(body, offset=offset, limit=parameters["limit"])
     published = {reference.candidate_id: reference for reference in references}
@@ -36,7 +36,7 @@ def read_candidate_page(
 
 
 CANDIDATE_PAGE_ACTION = ResultActionDefinition(
-    action_id="protein_io.candidate_page", port_type_id="candidate.collection",
+    action_id="protein_io.candidate_page", inputs=(ResultActionInput("candidates", "candidate.collection"),),
     parameters=admit_declarations({
         "offset": {"parameter_scope": "scientific", "scientific_meaning": "First item in the published collection.", "required": True, "value_contract": {"type": "integer", "minimum": 0}},
         "limit": {"parameter_scope": "scientific", "scientific_meaning": "Maximum number of items to read.", "required": True, "value_contract": {"type": "integer", "minimum": 1, "maximum": 1000}},
@@ -46,9 +46,10 @@ CANDIDATE_PAGE_ACTION = ResultActionDefinition(
 
 
 def read_candidate_structure(
-    body: bytes, parameters: Mapping[str, Any],
-    references: tuple[CandidateDataReference, ...],
+    inputs: ResultActionInputs, parameters: Mapping[str, Any],
 ) -> dict[str, str]:
+    value = next(iter(inputs["candidates"].values()))[0]
+    body, references = value.body, value.candidate_references
     index = parameters["item_index"]
     collection = restore_candidate_collection_slice(body, offset=index, limit=1)
     if index >= collection.total:
@@ -60,7 +61,7 @@ def read_candidate_structure(
 
 
 CANDIDATE_STRUCTURE_ACTION = ResultActionDefinition(
-    action_id="protein_io.candidate_structure", port_type_id="candidate.collection",
+    action_id="protein_io.candidate_structure", inputs=(ResultActionInput("candidates", "candidate.collection"),),
     parameters=admit_declarations({
         "item_index": {"parameter_scope": "scientific", "scientific_meaning": "Selected published Candidate index.", "required": True, "value_contract": {"type": "integer", "minimum": 0}},
     }, path="protein_io.candidate_structure"),

@@ -33,6 +33,7 @@ from core.operation import OperationContext
 from .implementation import SelectionImplementation
 from .operation import RawSelectionOperation
 from .weighted import WeightedSelectionOperation, weighted_dependencies
+from .result_actions import VIEW_CANDIDATES_ACTION
 
 
 OPERATIONS = (
@@ -138,6 +139,7 @@ _ADOPT_BINDING = ExecutionBindingDefinition(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_actions=(VIEW_CANDIDATES_ACTION,),
     result_sources=(ResultSourceDefinition("score.collection", "selection.adopt_scores", "selection.adopt_scores.direct", observations=adopted_observations, dependencies=adopted_dependencies),),
     result_readers=(
         ResultReaderDefinition("score.collection", "scores", read_scores),

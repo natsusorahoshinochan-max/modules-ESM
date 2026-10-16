@@ -127,6 +127,12 @@ node-level rerun. See
 The previous test framework and gates are retired. See [AGENTS.md](../AGENTS.md#测试)
 for the current decision.
 
+Fresh focused result tests run with `npm run test:results`. The controlled result
+context editor interaction regression uses the Playwright library and an ephemeral
+local page: install its Chromium driver with `npx playwright install chromium`,
+then run `npm run test:result-interactions`. It does not start the application or
+read project data.
+
 模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；`npm run build:module-ui` 构建源码资产，wheel 构建自动生成包内资源。
 
 ### External module package

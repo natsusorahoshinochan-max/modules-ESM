@@ -69,7 +69,7 @@ class HistoryPreservationTests(unittest.TestCase):
 
     def candidates(self, project_id, run_id, node_id, port):
         return self.request("POST", f"/api/v2/projects/{project_id}/runs/{run_id}/results:action", json={
-            "node_id": node_id, "output_port": port, "value_index": 0,
+            "inputs": {"candidates": [{"node_id": node_id, "output_port": port, "value_index": 0, "slot": "collection"}]},
             "action_id": "protein_io.candidate_page", "parameters": {"offset": 0, "limit": 10}})
 
     def test_historical_run_exposes_original_saved_calculation_settings(self):

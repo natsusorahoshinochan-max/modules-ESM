@@ -6,7 +6,6 @@ export type SelectionOperation = 'filter' | 'sort' | 'top_k' | 'weighted_rank' |
 export const selectionNodeTypes = new Set(['filter', 'sort', 'top_k', 'weighted_rank', 'pareto', 'diversity', 'manual'].map((name) => `selection.${name}`))
 export type SelectionSource = { node_id: string; output_port: string }
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
-export type Predicate = { kind: 'comparison'; selectorId: string; operator: ComparisonOperator; threshold?: number } | { kind: 'group'; operator: 'and' | 'or'; children: Predicate[] }
 export type ObservationDraft = {
   id: string
   scoreInput?: string
