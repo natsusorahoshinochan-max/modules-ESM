@@ -1,5 +1,7 @@
 # 当前未解决问题
 
+更新日期：2026-10-16
+
 本清单只维护当前需要实现对齐、范围明确或事实核实的事项。已确认要求以[当前有效决策](documentation-governance-decisions.md)为准，现行说明入口见[文档索引](README.md)。规范文字得到纠正不代表应用代码已经修改。
 
 已解决的文字冲突和已移除的失效材料不保留为历史档案。问题 ID 用于稳定引用，因此不要求连续。文档、研究或代码中的自述不能替代实际核验；未确认事项不自动成为开发需求。
@@ -10,64 +12,13 @@
 
 下列实现差异在业务实现对齐之前仍保留。代码文件链接用于定位，具体类、函数和字段比随编辑变化的行号更可靠。
 
-## 实现待对齐
-
-### DOC-011｜ESM3 路线步数声明的调用链待核对
-
-- **当前实现**：[Binding 声明](../modules/esm3/package.py)按官方远程快照限制 Biohub 1–100 步，本地正整数不套用远程上限，保留 SDK 有效步数处理。
-- **待核对**：路线步数及 SDK 有效步数在当前业务调用方中的传递。
-
-### DOC-019｜历史结果采用与来源删除独立性尚未证实完整
-
-- **要求**：运行列表可打开以前的运行；支持本项目及跨项目结果直接采用，采用后不因来源项目删除而失效。不提供跨运行候选并排查看。
-- **当前证据**：[运行历史](../webui/src/RunHistoryDialog.tsx)与[公共 Run 路由](../protein_workbench_public/http/run_routes.py)支持项目运行列表及单 Run 查看，查看选择独立于流程保存和活动运行锁。项目复制或节点级重跑不能证明任意历史采用和输入独立性已提供。
-- **状态**：[工作区](workspace.md)和[结果说明](results.md)已区分历史查看与输入采用；完整采用入口及独立持久化路径仍需核查和对齐，不仅凭 Project-local 引用认定不可跨项目使用。
-
-### DOC-020｜用户插件管理与空载体能力尚未完整接入
-
-- **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
-- **当前实现**：[模块清单](../protein_workbench_public/module_registry.py)管理启用包；[模块设置](../protein_workbench_public/module_settings.py)按 Binding 声明保存凭据、路径和服务地址，并在空闲时替换后续运行配置。远程 Adapter 使用保存的服务地址；缺少必需配置时 Readiness 明确失败。
-- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现；教学副本首次保存从当前 Catalog 或保存的 Commit 定义快照识别并复制所需输入，不猜测引用。
-- **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前实现。设置保存重开、并发字段保存及远程 SDK 参数链已有新公共 API 测试；设置界面保存及刷新重开已有独立浏览器测试；本地 Protein-Sol 与远程 Biohub ESMC 均已通过公共设置保存、重开、实际运行及原始结果读回；该范围不代表其他 Provider 或模块管理的全部路径已核对。
-
-### DOC-036｜Prompt 编辑器仍有固定分派
-
-- **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据允许多个查看器。
-- **当前实现**：Selection 编辑器、序列/结构/Prompt 单值展示及候选、分数、对齐 Run 面板均通过模块声明加载；后端值读取与候选 actions 使用公共注册契约。外部模块用相同接口读取自定义值及同 Run 的多个输出，见[模块 UI 契约](module-ui.md)。
-- **剩余差异**：[App](../webui/src/App.tsx) 的 Prompt 编辑器仍固定分派，不能由结果展示迁移推断编辑器已完成。
-
-### DOC-039｜ESM3 参数接入的调用链待核对
-
-- **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
-- **待核对**：当前调用方、示例与参数记录是否完整对齐官方接口，见[参数审查](tool-parameter-exposure-audit.md)。
-
-### DOC-040｜ESMFold2 参数接入的调用链待核对
-
-- **当前实现**：[Binding](../modules/folding/package.py)已声明六项适用推理参数，由远程和本地 Adapter 分别传入官方接口；范围、默认值和 null 语义按各路线区分。未展示标准本地模型实际忽略的 sampler overrides。
-- **待核对**：非默认参数的调用方与官方接口语义，见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与适用范围)。
-
-### DOC-041｜SimpleFold 折叠参数已接入
-
-- **当前实现**：[Binding](../modules/folding/package.py)公开 tau 与无额外上限的正整数步数，默认值分别为固定官方 CLI 的 0.1 和 500；[运行时](../modules/folding/simplefold_runtime.py)原样传入官方 wrapper。
-- **范围**：独立 confidence 操作不新增不适用的采样参数，见[参数审查](tool-parameter-exposure-audit.md)。
+## 业务路径待核对
 
 ### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
 - **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../modules/protein_io/ui/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
 - **待核对**：结果 action 与浏览器格式选择入口的完整业务路径。
-
-### DOC-046｜批内主动续算已接入，真实失败核验范围有限
-
-- **要求**：批内保留已成功请求；一个请求用完适用重试后失败，停止剩余请求；用户可在相同输入和参数下继续失败及未开始请求，失败节点下游仍阻塞。
-- **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。普通[重跑派生](../core/execution/_run_runtime_derived.py)的 `retry_failed` / `force_selected` 按节点重跑，批内继续使用独立的 `continue_batch` 策略。
-- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 测试覆盖中途失败、首请求失败、再次失败与主动继续；一次真实 Biohub 折叠及结构、置信度原值读回已完成，未进行线上故障注入。ESM3 已通过相同入口恢复序列、结构与联合生成；联合生成只重试未完成的结构步骤，保留此前序列、重建结构及置信度。公共 API 受控 SDK 测试覆盖续算、首失败、再次失败与来源保留；一次真实 Biohub ESM3 序列生成及原值读取完成，未向线上服务注入故障。SimpleFold 已接入相同续算入口，保留完成请求的结构、置信度、候选身份及有效 seed；仅将已加载模型推理抛出的 `torch.cuda.OutOfMemoryError` 归为定义资源失败。受控 Adapter 公共 Run 覆盖首失败、再次失败、重开与续算，不证明真实本地模型或设备内存耗尽行为；未运行本地模型。不增加自动重试或接纳残缺响应。
-
-### DOC-047｜空载体生产启动与项目使用路径待核对
-
-- **要求**：空载体独立可用；默认模块与教学实例仍按产品要求提供。
-- **当前实现**：[bootstrap](../protein_workbench_public/bootstrap.py)读取安装清单，空 Catalog 不安装教学项目；有教学文件且所需节点与 Binding 存在时才安装，编译错误不被吞掉。前端无教学项目时可进入个人项目或创建入口。
-- **待核对**：空载体与应用内模块管理的完整业务路径；保留默认教学入口、原件保护及首次手动保存副本行为。
 
 ### DOC-050｜结果 ZIP 的计算参数关联
 
