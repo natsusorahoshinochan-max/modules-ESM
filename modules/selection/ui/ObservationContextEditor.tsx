@@ -1,26 +1,37 @@
-import type { CandidateReference, JsonObject, PublishedObservation, ResultLocation, Workflow } from '../../../webui/src/protocol/client'
+import type { CandidateReference, JsonObject, PublishedAlignment, PublishedObservation, ResultLocation, Workflow } from '../../../webui/src/protocol/client'
 import { candidateReferenceKey, selectionSources, sourceKey, type ObservationDraft, type SelectionSource } from './selection-authoring'
 import type { CatalogSnapshot } from '../../../webui/src/protocol/client'
 import { sameContext } from './selection-observations'
 
 export type ScoreObservationReading = PublishedObservation & { source: ResultLocation }
+export type AlignmentReading = PublishedAlignment & { value_content_digest: string }
 
 function factKey(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item)
 }
 
-function actualContextLabel(context: JsonObject, residueAxis: unknown): string {
+function actualContextLabel(context: JsonObject, residueAxis: unknown, subject: CandidateReference, alignments: AlignmentReading[]): string {
   const axis = residueAxis ? ` · 残基轴 ${((residueAxis as { layout: { residue_ids: string[] } }).layout.residue_ids).join('、')}` : ''
   if (context.kind !== 'pairwise') return `候选自身${axis}`
   const reference = (context.reference as { candidate: CandidateReference }).candidate
+  const recordedSubject = (context.subject as { candidate: CandidateReference }).candidate
+  // Evidence supplies display text only. The selected Context remains the original fact.
+  const evidence = typeof context.evidence_content_digest === 'string' && typeof context.subject_axis_content_digest === 'string' && typeof context.reference_axis_content_digest === 'string'
+    && candidateReferenceKey(subject) === candidateReferenceKey(recordedSubject)
+    ? alignments.find((entry) => entry.value_content_digest === context.evidence_content_digest
+      && candidateReferenceKey(entry.subject) === candidateReferenceKey(subject)
+      && candidateReferenceKey(entry.reference) === candidateReferenceKey(reference)
+      && entry.subject_axis_content_digest === context.subject_axis_content_digest
+      && entry.reference_axis_content_digest === context.reference_axis_content_digest)
+    : undefined
   const region = (value: unknown) => value === undefined || value === null ? '未记录' : (value as string[]).length ? (value as string[]).join('、') : '完整结构'
-  return `参考 ${reference.candidate_id} · 候选区域 ${region(context.subject_region)} · 参考区域 ${region(context.reference_region)} · 归一化 ${String(context.normalization)}${context.aligned_atom_count ? ` · 对齐原子 ${String(context.aligned_atom_count)}` : ''}${context.sequence_correspondence ? ` · 位置对应 ${JSON.stringify(context.sequence_correspondence)}` : ''}${axis}`
+  return `参考 ${reference.candidate_id} · 候选区域 ${region(context.subject_region ?? evidence?.subject_region)} · 参考区域 ${region(context.reference_region ?? evidence?.reference_region)} · 归一化 ${String(context.normalization)}${context.aligned_atom_count ? ` · 对齐原子 ${String(context.aligned_atom_count)}` : ''}${context.sequence_correspondence ? ` · 位置对应 ${JSON.stringify(context.sequence_correspondence)}` : ''}${axis}`
 }
 
 /** Select actual existing facts, or a relation that will arrive through an ordinary input. */
-export function ObservationContextEditor({ value, workflow, catalog, nodeId, observations, candidates, onChange, allowRelations = true }: {
+export function ObservationContextEditor({ value, workflow, catalog, nodeId, observations, candidates, alignments = [], onChange, allowRelations = true }: {
   value: ObservationDraft; workflow: Workflow; catalog: CatalogSnapshot; nodeId: string
-  observations: ScoreObservationReading[]; candidates: CandidateReference[]; allowRelations?: boolean; onChange: (value: ObservationDraft) => void
+  observations: ScoreObservationReading[]; candidates: CandidateReference[]; alignments?: AlignmentReading[]; allowRelations?: boolean; onChange: (value: ObservationDraft) => void
 }) {
   const mode = value.exactContexts !== undefined ? 'exact' : value.relationInput ? 'relation' : value.reference ? 'reference' : 'unique'
   const matching = observations.filter((entry) => value.scoreSource && sourceKey(entry.source) === sourceKey(value.scoreSource) && entry.metric.contract_id === value.metricId && entry.method.contract_id === value.methodId && entry.source_partition === value.partition && sameContext(entry.context_profile, value.context))
@@ -52,7 +63,7 @@ export function ObservationContextEditor({ value, workflow, catalog, nodeId, obs
       return <div key={key}><label>候选 {subject.candidate_id} 的评价上下文<select aria-label={`候选 ${subject.candidate_id} 的评价上下文`} value={selectedKey} onChange={(event) => {
         const choice = choices.find((entry) => factKey({ context: entry.context, residue_axis: entry.residue_axis }) === event.target.value)
         onChange({ ...value, exactContexts: [...(value.exactContexts ?? []).filter((entry) => candidateReferenceKey(entry.subject) !== key), ...(choice ? [{ subject, context: choice.context, residue_axis: choice.residue_axis }] : [])] })
-      }}><option value="">选择确切评价…</option>{selected && !choices.some((entry) => factKey({ context: entry.context, residue_axis: entry.residue_axis }) === selectedKey) && <option value={selectedKey}>已保存上下文 · {actualContextLabel(selected.context, selected.residue_axis)}</option>}{choices.map((entry, index) => <option key={factKey({ context: entry.context, residue_axis: entry.residue_axis })} value={factKey({ context: entry.context, residue_axis: entry.residue_axis })}>评价 {index + 1} · {actualContextLabel(entry.context, entry.residue_axis)}</option>)}</select></label>{selected && <details><summary>查看已选评价的对象、区域与位置对应</summary><pre>{JSON.stringify({ context: selected.context, residue_axis: selected.residue_axis }, null, 2)}</pre></details>}</div>
+      }}><option value="">选择确切评价…</option>{selected && !choices.some((entry) => factKey({ context: entry.context, residue_axis: entry.residue_axis }) === selectedKey) && <option value={selectedKey}>已保存上下文 · {actualContextLabel(selected.context, selected.residue_axis, subject, alignments)}</option>}{choices.map((entry, index) => <option key={factKey({ context: entry.context, residue_axis: entry.residue_axis })} value={factKey({ context: entry.context, residue_axis: entry.residue_axis })}>评价 {index + 1} · {actualContextLabel(entry.context, entry.residue_axis, subject, alignments)}</option>)}</select></label>{selected && <details><summary>查看已选评价的对象、区域与位置对应</summary><p>{actualContextLabel(selected.context, selected.residue_axis, subject, alignments)}</p><pre>{JSON.stringify({ context: selected.context, residue_axis: selected.residue_axis }, null, 2)}</pre></details>}</div>
     })}{subjects.length === 0 && <p>当前没有可读取的已有评价。请先读取结果或选择明确关系输入。</p>}</>}
   </fieldset>
 }

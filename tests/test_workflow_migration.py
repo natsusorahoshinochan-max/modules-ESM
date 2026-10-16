@@ -40,7 +40,7 @@ class PreservedConfigurationTests(unittest.TestCase):
             "preserved_configuration": {"reason": "The saved operation cannot be converted equivalently.",
                 "settings": {"original_options": {"objective_id": "old-ranking"}},
                 "project_input_parameters": ["project_input_ref"]},
-        }], "edges": [], "observation_selectors": [], "selection_objectives": []}
+        }], "edges": []}
 
     def test_preserved_registered_node_saves_and_reopens_but_cannot_run_new_defaults(self):
         workflow = self.saved_configuration()

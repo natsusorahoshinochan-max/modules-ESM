@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from core.parameters.model import AdmittedParameterValues
@@ -10,10 +9,9 @@ from core.parameters.model import AdmittedParameterValues
 from core.parameters.contract import matching_value_contract_alternatives, resolve_value_contract_reference
 from core.catalog.declarations import (
     ExecutionBindingDefinition,
-    NodePortDefinition,
     NodeTypeDefinition,
 )
-from core.scoring.selection import SelectionInput
+from core.workflow.graph import NodeOutputReference, WorkflowGraphDescription
 from core.workflow.document import WorkflowDocument, WorkflowNodeInstance
 from core.workflow.errors import WorkflowCompileError
 
@@ -22,32 +20,14 @@ type _PlanNodes = Mapping[
     str,
     tuple[NodeTypeDefinition, ExecutionBindingDefinition],
 ]
-type _AdmittedInputSource = tuple[int, SelectionInput]
-
-
-@dataclass(frozen=True, slots=True)
-class _AdmittedWorkflowGraph:
-    nodes_by_id: Mapping[str, WorkflowNodeInstance]
-    input_sources: dict[str, dict[str, tuple[_AdmittedInputSource, ...]]]
-    output_ports_by_node: Mapping[str, Mapping[str, NodePortDefinition]]
-    node_order: tuple[str, ...]
-
-
-def _connected_source(
-    graph: _AdmittedWorkflowGraph,
-    *,
-    node_id: str,
-    input_port: str,
-) -> SelectionInput | None:
-    sources = graph.input_sources[node_id].get(input_port, ())
-    return sources[0][1] if len(sources) == 1 else None
+type _AdmittedInputSource = tuple[int, NodeOutputReference]
 
 
 def _admit_workflow_graph(
     workflow: WorkflowDocument,
     plan_nodes: _PlanNodes,
     *, require_complete: bool = True,
-) -> _AdmittedWorkflowGraph:
+) -> WorkflowGraphDescription:
     nodes_by_id: dict[str, WorkflowNodeInstance] = {}
     for index, node in enumerate(workflow.nodes):
         if node.node_id in nodes_by_id:
@@ -61,14 +41,14 @@ def _admit_workflow_graph(
 
     input_ports_by_node = {
         node_id: {port.name: port for port in plan_nodes[node_id][0].inputs}
-        for node_id in nodes_by_id
+        for node_id in plan_nodes
     }
     output_ports_by_node = {
         node_id: {port.name: port for port in plan_nodes[node_id][0].outputs}
-        for node_id in nodes_by_id
+        for node_id in plan_nodes
     }
     input_sources: dict[str, dict[str, tuple[_AdmittedInputSource, ...]]] = {
-        node_id: {} for node_id in nodes_by_id
+        node_id: {} for node_id in plan_nodes
     }
     adjacency = {node_id: [] for node_id in nodes_by_id}
     indegree = {node_id: 0 for node_id in nodes_by_id}
@@ -81,6 +61,8 @@ def _admit_workflow_graph(
                 "Workflow Edge references a Node outside the Workflow",
                 field_path=("edges", index),
             )
+        if not require_complete and (source.node_id not in plan_nodes or target.node_id not in plan_nodes):
+            continue
         source_port = output_ports_by_node[source.node_id].get(edge.source_port)
         target_port = input_ports_by_node[target.node_id].get(edge.target_port)
         if source_port is None:
@@ -117,7 +99,7 @@ def _admit_workflow_graph(
                 node_id=target.node_id,
                 field_path=("edges", index),
             )
-        source_fact = (index, SelectionInput(source.node_id, edge.source_port))
+        source_fact = (index, NodeOutputReference(source.node_id, edge.source_port))
         existing_sources = input_sources[target.node_id].get(edge.target_port, ())
         if edge.target_slot is not None and any(
             workflow.edges[existing_index].target_slot == edge.target_slot
@@ -139,6 +121,8 @@ def _admit_workflow_graph(
         indegree[target.node_id] += 1
 
     for index, node in enumerate(workflow.nodes):
+        if node.node_id not in plan_nodes and not require_complete:
+            continue
         node_definition, binding = plan_nodes[node.node_id]
         if binding.node_type.key != node_definition.identity.key:
             raise WorkflowCompileError(
@@ -186,7 +170,7 @@ def _admit_workflow_graph(
             "Workflow graph must be acyclic",
             field_path=("edges",),
         )
-    return _AdmittedWorkflowGraph(
+    return WorkflowGraphDescription(
         nodes_by_id=nodes_by_id,
         input_sources=input_sources,
         output_ports_by_node=output_ports_by_node,

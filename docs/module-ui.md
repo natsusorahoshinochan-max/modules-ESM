@@ -30,6 +30,8 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 handler 接收 `AuthoringActionContext` 和模块参数。上下文提供当前项目、Workflow authoring、Catalog 与 `read_input(reference)`；后者先取本次请求的暂存输入，再读取项目已保存输入。暂存输入不发布，不修改项目；模块负责参数准入和结果编码。只读 action 用于来源检查及确定性编辑预览，不能发布 Run、保存编辑或调用科学 Provider；真正采用、保存与计算仍由用户明确触发。
 
+`context.workflow_authoring.describe(project_id, workflow, input_reader=context.read_input)` 提供未完成图的节点、连线来源、输出声明、拓扑顺序，以及可用的已采用数据声明。未安装或保全为不可运行的节点不作为可用来源。该接口不要求完整参数或已连接所有必需端口，也不执行流程；评价是否可选、方法来源和传播等含义由使用这些声明的模块解释。
+
 Protein I/O 的 `protein_io.inspect_input` 与 Prompt 的 `prompt_authoring.open`、`prompt_authoring.preview` 使用同一声明和入口，其 schema/codec 在所属模块内。Prompt 继续接收 prospective Workflow 和 version context，只解析已支持来源，不执行任意上游节点。前端模块调用 `client.authoringAction(projectId, actionId, parameters)`；宿主提供的编辑 client 自动带上当前会话暂存输入。已有 `inspectProjectInput`、`openPrompt`、`previewPrompt` 是同一入口的类型化方便方法。
 
 外部模块最小声明示例：
@@ -62,7 +64,7 @@ Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文�
 
 模块通过 `result_actions` 声明 `ResultActionDefinition(action_id, inputs, parameters, apply)`。每个 `ResultActionInput(name, port_type_id, multiplicity="one", required=True)` 指定命名输入、名义类型、`one` 或 `many` 基数以及是否必需。`POST /api/v2/projects/{project_id}/runs/{run_id}/results:action` 接收 `{action_id, inputs, parameters}`；`inputs` 是输入名到发布位置数组的映射，每个位置包含 `{node_id, output_port, value_index, slot}`。`slot` 是本次操作内的稳定输入槽，可以将同一输入的多个已发布值归入同一槽。前端使用 `client.resultAction(projectId, runId, inputs, actionId, parameters)`。
 
-公共读取器检查声明、基数和实际 Port Type，并按声明准入参数；全部读取成功后才调用 `apply(inputs, parameters)`。传给模块的 `inputs[name][slot]` 是 `ResultActionValue` 元组，各值提供不可变 `body` 字节及实际发布的 `candidate_references`。模块使用所属类型的 codec 恢复值，并返回临时 JSON object；预期的不适用情况抛出 `ResultActionError`。这条接口不创建 Run、成果或项目修订。官方与外部模块使用相同声明和读取器。
+公共读取器检查声明、基数和实际 Port Type，并按声明准入参数；全部读取成功后才调用 `apply(inputs, parameters)`。传给模块的 `inputs[name][slot]` 是 `ResultActionValue` 元组，各值提供不可变 `body` 字节、实际发布的 `candidate_references` 与该单值的 `value_content_digest`。专用值读取返回的 `{kind, value, value_content_digest}` 也保留同一单值摘要；整端口摘要不能替代它。模块使用所属类型的 codec 恢复值，并返回临时 JSON object；预期的不适用情况抛出 `ResultActionError`。这条接口不创建 Run、成果或项目修订。官方与外部模块使用相同声明和读取器。
 
 Protein I/O 的五个候选读取/导出 action 声明一个 `candidates` 输入；Selection 的 `selection.view` 声明一个 `candidates`、多份 `scores` 及可选 `relations`，使用与节点相同的评价匹配及计算，返回原集合的 `candidate_indices`。浏览器只维护条件草稿、搜索、分页与勾选，不执行另一套科学筛选或排序。
 

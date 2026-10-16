@@ -488,8 +488,7 @@ function App() {
     if (!await askUnsaved('leave')) return
     const created = await client.createProject(`Untitled Project ${new Date().toLocaleString()}`)
     await openProject(created)
-    await editor.edit(current => ({ workflow: current.workflow, ui_state: current.ui_state }))
-  }, [askUnsaved, editor, openProject])
+  }, [askUnsaved, openProject])
   const saveBinding = useCallback(async (nodeId: string, bindingId: string) => {
     await beforeWorkspaceAction()
     return editor.edit(current => {

@@ -2,8 +2,8 @@ import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject
 import { readWeightedDraft, saveWeightedDraft } from './weighted-authoring'
 import { readFilterDraft, saveFilterDraft, type ConditionDraft } from './selection-conditions'
 
-export type SelectionOperation = 'filter' | 'sort' | 'top_k' | 'weighted_rank' | 'pareto' | 'diversity' | 'manual'
-export const selectionNodeTypes = new Set(['filter', 'sort', 'top_k', 'weighted_rank', 'pareto', 'diversity', 'manual'].map((name) => `selection.${name}`))
+export type SelectionOperation = 'filter' | 'sort' | 'top_k' | 'weighted_rank' | 'pareto' | 'manual'
+export const selectionNodeTypes = new Set(['filter', 'sort', 'top_k', 'weighted_rank', 'pareto', 'manual'].map((name) => `selection.${name}`))
 export type SelectionSource = { node_id: string; output_port: string }
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
 export type ObservationDraft = {
@@ -33,7 +33,6 @@ export type SelectionDraft = {
   direction?: 'ascending' | 'descending'
 }
 
-const ref = (contract_kind: string, contract_id: string): ContractReference => ({ contract_kind, contract_id })
 export const sourceKey = (source: SelectionSource) => JSON.stringify([source.node_id, source.output_port])
 export const candidateReferenceKey = (reference: CandidateReference) => JSON.stringify([reference.candidate_id, reference.data_type_id, reference.content_digest])
 
@@ -44,10 +43,6 @@ export function newObservation(): ObservationDraft {
 
 export function createSelectionDraft(operation: SelectionOperation, candidateSource?: SelectionSource): SelectionDraft {
   return { operation, candidateSource, observations: [], selectedCandidates: [] }
-}
-
-function nodeObjectiveIds(node: WorkflowNode): string[] {
-  return (node.node_parameters.objective_ids as string[] | undefined) ?? (node.node_parameters.objective_id ? [node.node_parameters.objective_id as string] : [])
 }
 
 export function readSelectionDraft(workflow: Workflow, nodeId: string): SelectionDraft {
@@ -85,20 +80,10 @@ export function readSelectionDraft(workflow: Workflow, nodeId: string): Selectio
       }),
     }
   }
-  const orderedIds = nodeObjectiveIds(node)
-  const definitions = workflow.selection_objectives.filter((value) => orderedIds.includes(value.objective_id as string))
-  const byId = new Map(definitions.map((value) => [value.objective_id as string, value]))
-  const observations = orderedIds.filter((id) => byId.has(id)).map((id): ObservationDraft => {
-    const value = byId.get(id)!
-    return { id, scoreSource: value.score_collection_input as SelectionSource, metricId: (value.metric as ContractReference).contract_id, methodId: (value.method as ContractReference).contract_id, partition: value.source_partition as string, context: value.context_selector as JsonObject, transformId: value.utility_transform ? (value.utility_transform as ContractReference).contract_id : '', transformParameters: (value.utility_parameters as JsonObject | undefined) ?? {}, weight: value.weight as number | undefined }
-  })
   const edge = workflow.edges.find((item) => item.target_node_id === nodeId && item.target_port === 'candidates')
   return {
-    operation,
-    candidateSource: edge ? { node_id: edge.source_node_id, output_port: edge.source_port } : undefined,
-    observations,
+    ...createSelectionDraft(operation, edge ? { node_id: edge.source_node_id, output_port: edge.source_port } : undefined),
     selectedCandidates: (node.node_parameters.selected_candidates as CandidateReference[] | undefined) ?? [],
-    k: node.node_parameters.k as number | undefined,
   }
 }
 
@@ -108,28 +93,12 @@ export function saveSelectionDraft(workflow: Workflow, nodeId: string, draft: Se
   if (draft.operation === 'filter') return saveFilterDraft(workflow, nodeId, draft)
   if (draft.operation === 'sort' || draft.operation === 'top_k' || draft.operation === 'pareto') return saveRawSelectionDraft(workflow, nodeId, draft)
   const existing = workflow.nodes.find((node) => node.node_id === nodeId)
-  const oldIds = existing ? nodeObjectiveIds(existing) : []
   const source = draft.candidateSource
-  const observations = draft.operation === 'manual' ? [] : draft.observations
-  const preferences = observations.map((observation) => ({
-    candidate_input: source ? { node_id: source.node_id, output_port: source.output_port } : undefined,
-    score_collection_input: observation.scoreSource ? { node_id: observation.scoreSource.node_id, output_port: observation.scoreSource.output_port } : undefined,
-    source_partition: observation.partition,
-    metric: ref('metric', observation.metricId), method: ref('method', observation.methodId),
-    context_selector: observation.context, match_cardinality: 'exactly_one', missing_policy: 'error',
-    objective_id: observation.id, utility_transform: ref('utility_transform', observation.transformId), utility_parameters: observation.transformParameters, weight: observation.weight,
-  }))
-  const parameters: JsonObject = draft.operation === 'manual' ? { selected_candidates: draft.selectedCandidates } : {
-    objective_ids: observations.map((value) => value.id), tie_policy: 'candidate_id_ascending',
-    ...(draft.operation === 'diversity' && draft.k !== undefined ? { k: draft.k } : {}),
-  }
-  const node: WorkflowNode = { node_id: nodeId, node_type_id: `selection.${draft.operation}`, binding_id: `selection.${draft.operation}.direct`, node_parameters: parameters, binding_parameters: {} }
-  const scoreSources = new Map(observations.filter((value) => value.scoreSource).map((value) => [sourceKey(value.scoreSource!), value.scoreSource!]))
+  const node: WorkflowNode = { node_id: nodeId, node_type_id: 'selection.manual', binding_id: 'selection.manual.direct', node_parameters: { selected_candidates: structuredClone(draft.selectedCandidates) }, binding_parameters: {} }
   return {
     ...workflow,
     nodes: existing ? workflow.nodes.map((value) => value.node_id === nodeId ? node : value) : [...workflow.nodes, node],
-    edges: [...workflow.edges.filter((value) => value.target_node_id !== nodeId || !['candidates', 'scores'].includes(value.target_port)), ...(source ? [{ source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: 'candidates' }] : []), ...[...scoreSources.values()].map((value) => ({ source_node_id: value.node_id, source_port: value.output_port, target_node_id: nodeId, target_port: 'scores' }))],
-    selection_objectives: [...workflow.selection_objectives.filter((value) => !oldIds.includes(value.objective_id as string)), ...preferences],
+    edges: [...workflow.edges.filter((value) => value.target_node_id !== nodeId), ...(source ? [{ source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: 'candidates' }] : [])],
   }
 }
 

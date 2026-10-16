@@ -118,8 +118,7 @@ class DataRootMigrationTests(unittest.TestCase):
                         "node_parameters": {"objective_id": "saved-objective", "k": 2}, "binding_parameters": {},
                     }, {"node_id": "input", "node_type_id": "protein_io.import_sequences", "binding_id": "protein_io.import_sequences.direct",
                         "node_parameters": {"project_input_ref": uploaded["project_input_ref"]}, "binding_parameters": {}}],
-                        "edges": [{"source_node_id": "input", "source_port": "sequence_candidates", "target_node_id": "rank", "target_port": "candidates"}],
-                        "observation_selectors": [], "selection_objectives": []}
+                        "edges": [{"source_node_id": "input", "source_port": "sequence_candidates", "target_node_id": "rank", "target_port": "candidates"}]}
                     base = f"/api/v2/projects/{project}"
                     first = request("PUT", base + "/workspace", json={"workflow": workflow, "ui_state": {"position": "first"}})
                     version = request("POST", base + "/versions", json={"name": "Original preference"})

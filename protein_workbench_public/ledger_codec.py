@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from core.execution.ledger import (
-    ContextSelectorEvidence,
     CancellationDecision,
     EngineInvocationStarted,
     EngineInvocationTerminal,
@@ -14,7 +13,6 @@ from core.execution.ledger import (
     NodeAttemptStarted,
     NodeAttemptTerminal,
     NodeDisposition,
-    ObservationSelectorEvidence,
     OperationAttemptStarted,
     OperationAttemptTerminal,
     PublishedArtifact,
@@ -25,9 +23,6 @@ from core.execution.ledger import (
     RunProjection,
     RunStarted,
     RunTerminal,
-    SelectionObjectiveEvidence,
-    SelectionResult,
-    SelectionTerminal,
     StructuredError,
     run_cursor,
 )
@@ -102,98 +97,6 @@ def _output(
         "value_count": value.value_count,
         "value_manifest_reference": value.value_manifest_reference,
     }
-
-
-def _selection_input(value: Any) -> dict[str, str]:
-    return {"node_id": value.node_id, "output_port": value.output_port}
-
-
-def _context(value: ContextSelectorEvidence) -> dict[str, Any]:
-    result: dict[str, Any] = {"kind": value.kind}
-    for field_name in (
-        "calibration_metric",
-        "calibration_value",
-        "calibration_unit",
-        "population_id",
-        "subject_role",
-        "reference_role",
-        "pairing_mode",
-        "normalization",
-    ):
-        observed = getattr(value, field_name)
-        if observed is not None:
-            result[field_name] = observed
-    return result
-
-
-def _selection_objective(
-    value: SelectionObjectiveEvidence,
-) -> dict[str, Any]:
-    return {
-        "objective_id": value.objective_id,
-        "candidate_input": _selection_input(value.candidate_input),
-        "score_collection_input": _selection_input(
-            value.score_collection_input
-        ),
-        "source_partition": value.source_partition,
-        "metric": _reference(value.metric),
-        "method": _reference(value.method),
-        "context_selector": _context(value.context_selector),
-        "utility_transform": _reference(value.utility_transform),
-        "utility_parameters": thaw_i_json(value.utility_parameters),
-        "declared_weight": value.declared_weight,
-        "effective_weight": value.effective_weight,
-        "match_cardinality": value.match_cardinality,
-        "missing_policy": value.missing_policy,
-    }
-
-
-def _observation_selector(
-    value: ObservationSelectorEvidence,
-) -> dict[str, Any]:
-    return {
-        "selector_id": value.selector_id,
-        "candidate_input": _selection_input(value.candidate_input),
-        "score_collection_input": _selection_input(
-            value.score_collection_input
-        ),
-        "source_partition": value.source_partition,
-        "metric": _reference(value.metric),
-        "method": _reference(value.method),
-        "context_selector": _context(value.context_selector),
-        "match_cardinality": value.match_cardinality,
-        "missing_policy": value.missing_policy,
-    }
-
-
-def _selection(value: SelectionResult) -> dict[str, Any]:
-    result = {
-        "status": "succeeded",
-        "selection_node_id": value.selection_node_id,
-        "selection_method": _reference(value.selection_method),
-        "candidate_input": _selection_input(value.candidate_input),
-        "selected_collection_id": value.selected_collection_id,
-        "selected_candidate_ids": list(value.selected_candidate_ids),
-    }
-    if value.objectives:
-        result["objectives"] = [
-            _selection_objective(objective) for objective in value.objectives
-        ]
-    if value.observation_selectors:
-        result["observation_selectors"] = [
-            _observation_selector(selector)
-            for selector in value.observation_selectors
-        ]
-    if value.selected_candidate_references is not None:
-        result["selected_candidate_references"] = [
-            {
-                "candidate_id": item.candidate_id,
-                "data_type_id": item.data_type_id,
-                "content_digest": item.content_digest,
-            }
-            for item in value.selected_candidate_references
-        ]
-    return result
 
 
 def _provenance(value: EngineInvocationStarted) -> dict[str, Any]:
@@ -288,12 +191,6 @@ def encode_run_projection(projection: RunProjection) -> dict[str, Any]:
     }
     if projection.execution_scope is not None:
         result["scope"] = projection.execution_scope.projection()
-    if projection.selection_results is not None:
-        result["selection_results"] = [
-            _selection(selection) for selection in projection.selection_results
-        ]
-    if projection.selection_error is not None:
-        result["selection_error"] = _error(projection.selection_error)
     if projection.diagnostic is not None:
         result["diagnostic"] = {
             "code": projection.diagnostic.code,
@@ -394,13 +291,6 @@ def _event_payload(fact: Fact) -> dict[str, Any]:
             "terminal_sequence": fact.sequence,
         }
         return {"type": "node_disposition", "disposition": disposition}
-    if isinstance(payload, SelectionTerminal):
-        result = {"type": "selection_terminal", "status": payload.status}
-        if payload.result is not None:
-            result["result"] = _selection(payload.result)
-        if payload.error is not None:
-            result["error"] = _error(payload.error)
-        return result
     if isinstance(payload, RunTerminal):
         return {"type": "run_terminal", "status": payload.status}
     raise TypeError("Fact is not a public Run event")

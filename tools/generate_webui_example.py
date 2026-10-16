@@ -249,8 +249,6 @@ def main() -> None:
         "workflow_id": WEBUI_3GB1_PROJECT_ID,
         "nodes": [*source_nodes, *ordinary_nodes],
         "edges": [*source_edges, *ordinary_edges],
-        "observation_selectors": [],
-        "selection_objectives": [],
     }
     admitted = decode_workflow_document(workflow)
     compile(CompilationRequest(admitted), catalog)

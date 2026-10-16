@@ -16,7 +16,7 @@ const transform = (id: string, method = 'trials', context = { kind: 'intrinsic' 
 const catalog: CatalogSnapshot = { protocol_digest: 'test', catalog_digest: 'test', availability: [], contracts: [
   transform('success.native'), transform('wrong.method', 'other'), transform('wrong.context', 'trials', { kind: 'calibration' }),
 ] }
-const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'study', nodes: [], edges: [], observation_selectors: [], selection_objectives: [] }
+const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'study', nodes: [], edges: [] }
 
 test('the public weighted editor presents module meaning and exact applicable choices after reopen', () => {
   const draft = createSelectionDraft('weighted_rank')
@@ -37,7 +37,7 @@ test('weighted choices belong to the node and retain the exact evaluation withou
   const draft = createSelectionDraft('weighted_rank', { node_id: 'population', output_port: 'candidates' })
   draft.observations = [{ ...newObservation(), scoreSource: { node_id: 'trials', output_port: 'scores' }, metricId: 'success_fraction', methodId: 'trials', partition: 'measured', transformId: 'success.native', weight: 2 }]
   const saved = saveSelectionDraft(workflow, 'rank', draft)
-  assert.deepEqual(saved.selection_objectives, [])
+  assert.equal(Object.hasOwn(saved, 'selection_objectives'), false)
   const objective = (saved.nodes[0].node_parameters.objectives as Array<Record<string, unknown>>)[0]
   assert.equal(objective.transform_id, 'success.native')
   assert.equal('transform_parameters' in objective, false)

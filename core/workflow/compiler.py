@@ -14,11 +14,8 @@ from core.catalog.declarations import (
     ExecutionBindingDefinition,
     NodePortDefinition,
     NodeTypeDefinition,
-    UtilityTransformDefinition,
     ParameterDependencies,
 )
-
-from core.scoring.selection import SelectionInput, context_selector_canonical
 
 from core.parameters.contract import (
     ParameterValueAdmissionError,
@@ -34,15 +31,6 @@ from core.workflow._compiler.identity import (
     _result_identity_plan_facts,
 )
 from core.workflow._compiler.graph import _admit_workflow_graph, _validate_input_slot_references
-from core.workflow._compiler.selection import (
-    _compile_selection_objectives,
-)
-from core.workflow._compiler.selection_capabilities import (
-    _validate_selection_capabilities,
-)
-from core.workflow._compiler.selection_consumers import (
-    _compile_selection_consumers,
-)
 from core.workflow import errors as _errors
 from core.workflow.document import WorkflowDocument
 from core.workflow.plan import (
@@ -168,101 +156,8 @@ def compile(
                 field_path=("nodes", index, "binding_parameters"),
             ),
         )
-    for index, selector in enumerate(workflow.observation_selectors):
-        for field_name, reference, expected_kind in (
-            ("metric", selector.metric, "metric"),
-            ("method", selector.method, "method"),
-        ):
-            if reference.contract_kind != expected_kind:
-                raise _errors.WorkflowCompileError(
-                    "contract_kind_mismatch",
-                    f"{field_name} must reference a {expected_kind}",
-                    field_path=(
-                        "observation_selectors",
-                        index,
-                        field_name,
-                        "contract_kind",
-                    ),
-                )
-            resolved_contract(
-                expected_kind,
-                reference.contract_id,
-                field_path=(
-                    "observation_selectors",
-                    index,
-                    field_name,
-                    "contract_id",
-                ),
-            )
-    for index, objective in enumerate(workflow.selection_objectives):
-        for field_name, reference, expected_kind in (
-            ("metric", objective.metric, "metric"),
-            ("method", objective.method, "method"),
-            (
-                "utility_transform",
-                objective.utility_transform,
-                "utility_transform",
-            ),
-        ):
-            if reference.contract_kind != expected_kind:
-                raise _errors.WorkflowCompileError(
-                    "contract_kind_mismatch",
-                    f"{field_name} must reference a {expected_kind}",
-                    field_path=(
-                        "selection_objectives",
-                        index,
-                        field_name,
-                        "contract_kind",
-                    ),
-                )
-            resolved_contract(
-                expected_kind,
-                reference.contract_id,
-                field_path=(
-                    "selection_objectives",
-                    index,
-                    field_name,
-                    "contract_id",
-                ),
-            )
-    objective_compilation_by_id = {
-        objective.objective_id: (
-            index,
-            _admit_parameter_values(
-                objective.utility_parameters,
-                cast(
-                    UtilityTransformDefinition,
-                    catalog.require_contract(
-                        *objective.utility_transform.key
-                    ).definition,
-                ).parameter_contract,
-                field_name="utility_parameters",
-                field_path=(
-                    "selection_objectives",
-                    index,
-                    "utility_parameters",
-                ),
-            ),
-        )
-        for index, objective in enumerate(workflow.selection_objectives)
-    }
     graph = _admit_workflow_graph(workflow, plan_nodes)
     _validate_input_slot_references(workflow, plan_nodes, {node_id: values[0] for node_id, values in admitted_parameters.items()})
-    _validate_selection_capabilities(
-        workflow,
-        adopted_observations=request.adopted_observations,
-        graph=graph,
-        catalog=catalog,
-    )
-    selection_consumers = _compile_selection_consumers(
-        workflow,
-        graph=graph,
-        plan_nodes=plan_nodes,
-        admitted_node_parameters={
-            node_id: values[0]
-            for node_id, values in admitted_parameters.items()
-        },
-    )
     candidate_data_port_types = {
         definition.type_id: definition
         for definition in catalog.port_types
@@ -302,14 +197,6 @@ def compile(
                     raise _errors.WorkflowCompileError(
                         "required_input_missing", f"Input slot {slot!r} on {port!r} is disconnected",
                         node_id=node_id, field_path=("nodes", node_id, "node_parameters"))
-        selected_objectives = selection_consumers.objectives_by_node[node_id]
-        selected_selectors = selection_consumers.selectors_by_node[node_id]
-        resolved_selected_objectives = _compile_selection_objectives(
-            selected_objectives,
-            compilation_by_id=objective_compilation_by_id,
-            catalog=catalog,
-        )
-
         def resolved_ports(
             declarations: tuple[NodePortDefinition, ...],
         ) -> dict[str, _ExecutionPlanPort]:
@@ -329,9 +216,6 @@ def compile(
 
         input_ports = resolved_ports(node_definition.inputs)
         output_ports = resolved_ports(node_definition.outputs)
-        objective_consumption = (
-            binding_definition.selection_objective_consumption
-        )
         frozen_input_sources = {
             port_name: tuple(
                 _ExecutionPlanValueSource(
@@ -343,32 +227,6 @@ def compile(
             )
             for port_name, admitted_sources in graph.input_sources[node_id].items()
         }
-        if (
-            objective_consumption is not None
-            and selected_objectives
-            and input_ports[
-                objective_consumption.score_collection_input_port
-            ].multiplicity
-            == "many"
-        ):
-            frozen_input_sources[
-                objective_consumption.score_collection_input_port
-            ] = tuple(
-                _ExecutionPlanValueSource(
-                    objective.score_collection_input.node_id,
-                    objective.score_collection_input.output_port,
-                )
-                for objective in selected_objectives
-            )
-        selector_consumption = binding_definition.observation_selector_consumption
-        if selected_selectors:
-            frozen_input_sources[selector_consumption.score_collection_input_port] = tuple(
-                _ExecutionPlanValueSource(
-                    selector.score_collection_input.node_id,
-                    selector.score_collection_input.output_port,
-                )
-                for selector in selected_selectors
-            )
         required_port_names = {
             name
             for name, port in input_ports.items()
@@ -402,20 +260,10 @@ def compile(
                     ),
                 )
             )
-        selector_consumption = binding_definition.observation_selector_consumption
-        selection_consumption = (
-            selector_consumption
-            if selector_consumption is not None
-            else objective_consumption
-            if objective_consumption is not None
-            else binding_definition.candidate_selection_consumption
-        )
         try:
             result_contracts = _result_contracts_for_node(
                 node_contract=node_type_contract,
                 binding_contract=binding,
-                selected_objectives=selected_objectives,
-                selected_selectors=selected_selectors,
                 catalog=catalog,
                 parameter_dependencies=parameter_dependencies.contracts,
             )
@@ -437,8 +285,6 @@ def compile(
             binding_contract=binding,
             method_contract=method_contract,
             result_contracts=result_contracts,
-            selected_objectives=resolved_selected_objectives,
-            selected_selectors=selected_selectors,
         )
         slot_bindings = {port: [source.target_slot for source in sources]
                          for port, sources in frozen_input_sources.items()
@@ -446,7 +292,6 @@ def compile(
         if slot_bindings:
             result_identity_plan_facts = ResultIdentityPlanFacts(
                 {**result_identity_plan_facts.identity_projection(), "input_slots": slot_bindings},
-                result_identity_plan_facts.node_parameter_indirections,
             )
         runtime = _ExecutionPlanNodeRuntime(
             factory=binding_definition.factory,
@@ -483,21 +328,6 @@ def compile(
                 if declaration.resource_kind == "project_input"
             ),
             produced_observation_plan=produced_observation_plan,
-            selection_objectives=resolved_selected_objectives,
-            observation_selectors=selected_selectors,
-            selection_candidate_output_port=(
-                selection_consumption.candidate_output_port
-                if selection_consumption is not None
-                else None
-            ),
-            selection_candidate_input=(
-                SelectionInput(
-                    frozen_input_sources[selection_consumption.candidate_input_port][0].node_id,
-                    frozen_input_sources[selection_consumption.candidate_input_port][0].output_port,
-                )
-                if selection_consumption is not None
-                else None
-            ),
             artifact_outputs=tuple(artifact_outputs),
         )
         nodes.append(
@@ -530,36 +360,5 @@ def compile(
         _runtime=_ExecutionPlanRuntime(
             candidate_data_port_types=candidate_data_port_types,
         ),
-        observation_selectors=workflow.observation_selectors,
-        selection_objectives=workflow.selection_objectives,
     )
     return plan
-
-
-def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, ranking: bool, adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]] | None = None) -> list[dict[str, Any]]:
-    """Project the compiler's observation facts for an unfinished editor graph."""
-    from core.workflow._compiler.selection_capabilities import _derive_observation_capabilities, selectable_observation
-
-    plan_nodes = {
-        node.node_id: (
-            cast(NodeTypeDefinition, catalog.require_contract("node_type", node.node_type_id).definition),
-            cast(ExecutionBindingDefinition, catalog.require_contract("binding", node.binding_id).definition),
-        )
-        for node in workflow.nodes
-    }
-    graph = _admit_workflow_graph(workflow, plan_nodes, require_complete=False)
-    capabilities = _derive_observation_capabilities(graph, catalog=catalog, adopted_observations=adopted_observations)
-    options = []
-    for (node_id, output_port), values in capabilities.items():
-        for value in values:
-            metric = catalog.require_contract("metric", value.metric.contract_id)
-            if metric.descriptor["value_shape"] != "scalar" or value.method is None or not selectable_observation(value, ranking=ranking):
-                continue
-            options.append({
-                "source": {"node_id": node_id, "output_port": output_port},
-                "partition": value.source_partition,
-                "metric_id": value.metric.contract_id,
-                "method_id": value.method.contract_id,
-                "context": context_selector_canonical(value.context_profile),
-            })
-    return options

@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-import math
 import re
 from typing import Literal, TypeAlias
 
 from core.catalog.port_contract import is_valid_artifact_media_type
 from core.operation import EngineInvocationProvenance
-from core.scoring.selection import SelectionInput
 from core.execution.ledger.transitions import PlanNodeEvidence
 from core.execution.scope import RunExecutionScope
-from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json
 
@@ -148,66 +144,11 @@ class DerivedRunReference:
 
 
 @dataclass(frozen=True, slots=True)
-class ContextSelectorEvidence:
-    kind: Literal["intrinsic", "calibration", "pairwise"]
-    calibration_metric: str | None = None
-    calibration_value: float | None = None
-    calibration_unit: str | None = None
-    population_id: str | None = None
-    subject_role: str | None = None
-    reference_role: str | None = None
-    pairing_mode: str | None = None
-    normalization: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class SelectionObjectiveEvidence:
-    objective_id: str
-    candidate_input: SelectionInput
-    score_collection_input: SelectionInput
-    source_partition: str
-    metric: ExactContractReference
-    method: ExactContractReference
-    context_selector: ContextSelectorEvidence
-    utility_transform: ExactContractReference
-    utility_parameters: Mapping[str, object]
-    declared_weight: float
-    effective_weight: float
-    match_cardinality: str
-    missing_policy: str
-
-@dataclass(frozen=True, slots=True)
-class ObservationSelectorEvidence:
-    selector_id: str
-    candidate_input: SelectionInput
-    score_collection_input: SelectionInput
-    source_partition: str
-    metric: ExactContractReference
-    method: ExactContractReference
-    context_selector: ContextSelectorEvidence
-    match_cardinality: str
-    missing_policy: str
-
-
-@dataclass(frozen=True, slots=True)
-class SelectionResult:
-    selection_node_id: str
-    selection_method: ExactContractReference
-    candidate_input: SelectionInput
-    selected_collection_id: str
-    selected_candidate_ids: tuple[str, ...]
-    objectives: tuple[SelectionObjectiveEvidence, ...] = ()
-    observation_selectors: tuple[ObservationSelectorEvidence, ...] = ()
-    selected_candidate_references: tuple[CandidateDataReference, ...] | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class RunScopeBound:
     project_id: str
     run_id: str
     workflow_commit_id: str
     plan_nodes: tuple[PlanNodeEvidence, ...]
-    selection_terminal_keys: tuple[str, ...]
     derived_from: DerivedRunReference | None = None
     execution_scope: RunExecutionScope | None = None
 
@@ -325,13 +266,6 @@ class NodeDisposition:
 
 
 @dataclass(frozen=True, slots=True)
-class SelectionTerminal:
-    status: Literal["succeeded", "failed"]
-    result: SelectionResult | None = None
-    error: StructuredError | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class RunTerminal:
     status: Literal["succeeded", "failed", "cancelled", "interrupted"]
 
@@ -351,7 +285,6 @@ FactPayload: TypeAlias = (
     | OperationAttemptTerminal
     | NodeAttemptTerminal
     | NodeDisposition
-    | SelectionTerminal
     | RunTerminal
 )
 
@@ -374,7 +307,6 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
             or node.dependencies != tuple(sorted(set(node.dependencies)))
             or any(dependency not in node_ids for dependency in node.dependencies)
             or node.execution_route not in {"direct", "adapter"}
-            or type(node.selection_consumer) is not bool
         ):
             raise ValueError("Run plan evidence is invalid")
         _require_reference_kind(node.node_type, expected_kind="node_type")
@@ -467,194 +399,6 @@ def _validate_artifact(artifact: PublishedArtifact) -> None:
         raise ValueError("Run Ledger Artifact is invalid")
 
 
-def _validate_selection_input(value: SelectionInput) -> None:
-    if (
-        not _valid_identifier(value.node_id)
-        or not _valid_identifier(value.output_port)
-    ):
-        raise ValueError("Selection input evidence is invalid")
-
-
-def _valid_finite_number(value: object, *, positive: bool = False) -> bool:
-    if type(value) not in {int, float}:
-        return False
-    try:
-        numeric = float(value)
-    except OverflowError:
-        return False
-    return (
-        math.isfinite(numeric)
-        and not (numeric == 0 and math.copysign(1.0, numeric) < 0)
-        and (not positive or numeric > 0)
-    )
-
-
-def _validate_selection_context(value: ContextSelectorEvidence) -> None:
-    if type(value.kind) is not str:
-        raise ValueError("Selection Context evidence is invalid")
-    calibration_fields = (
-        value.calibration_metric,
-        value.calibration_value,
-        value.calibration_unit,
-        value.population_id,
-    )
-    pairwise_fields = (
-        value.subject_role,
-        value.reference_role,
-        value.pairing_mode,
-        value.normalization,
-    )
-    if value.kind == "intrinsic":
-        if any(
-            item is not None
-            for item in (*calibration_fields, *pairwise_fields)
-        ):
-            raise ValueError("Selection Context evidence is invalid")
-        return
-    if value.kind == "calibration":
-        if (
-            not _valid_identifier(value.calibration_metric)
-            or not _valid_finite_number(value.calibration_value)
-            or not _valid_identifier(value.calibration_unit)
-            or not _valid_identifier(value.population_id)
-            or any(item is not None for item in pairwise_fields)
-        ):
-            raise ValueError("Selection Context evidence is invalid")
-        return
-    if value.kind == "pairwise":
-        if (
-            any(item is not None for item in calibration_fields)
-            or type(value.subject_role) is not str
-            or value.subject_role != "subject"
-            or type(value.reference_role) is not str
-            or value.reference_role != "reference"
-            or type(value.pairing_mode) is not str
-            or value.pairing_mode
-            not in {
-                "fixed_reference",
-                "explicit_relation",
-            }
-            or not _valid_identifier(value.normalization)
-        ):
-            raise ValueError("Selection Context evidence is invalid")
-        return
-    raise ValueError("Selection Context evidence is invalid")
-
-
-def _validate_selection_objective(
-    value: SelectionObjectiveEvidence,
-) -> None:
-    if (
-        not _valid_identifier(value.objective_id)
-        or not _valid_identifier(value.source_partition)
-        or not _valid_finite_number(value.declared_weight, positive=True)
-        or not _valid_finite_number(value.effective_weight, positive=True)
-        or float(value.effective_weight) > 1.0
-        or value.match_cardinality != "exactly_one"
-        or value.missing_policy != "error"
-    ):
-        raise ValueError("Selection Objective evidence is invalid")
-    _validate_selection_input(value.candidate_input)
-    _validate_selection_input(value.score_collection_input)
-    _require_reference_kind(value.metric, expected_kind="metric")
-    _require_reference_kind(value.method, expected_kind="method")
-    _require_reference_kind(
-        value.utility_transform,
-        expected_kind="utility_transform",
-    )
-    _validate_selection_context(value.context_selector)
-
-
-def _validate_observation_selector(
-    value: ObservationSelectorEvidence,
-) -> None:
-    if (
-        not _valid_identifier(value.selector_id)
-        or not _valid_identifier(value.source_partition)
-        or value.match_cardinality != "exactly_one"
-        or value.missing_policy != "error"
-    ):
-        raise ValueError("Observation Selector evidence is invalid")
-    _validate_selection_input(value.candidate_input)
-    _validate_selection_input(value.score_collection_input)
-    _require_reference_kind(value.metric, expected_kind="metric")
-    _require_reference_kind(value.method, expected_kind="method")
-    _validate_selection_context(value.context_selector)
-
-
-def _validate_selection_result(value: SelectionResult) -> None:
-    if (
-        not _valid_identifier(value.selection_node_id)
-        or not _valid_identifier(value.selected_collection_id)
-        or any(
-            not _valid_identifier(candidate_id)
-            for candidate_id in value.selected_candidate_ids
-        )
-        or value.selected_candidate_ids
-        != tuple(dict.fromkeys(value.selected_candidate_ids))
-        or sum((bool(value.objectives), bool(value.observation_selectors), value.selected_candidate_references is not None)) != 1
-    ):
-        raise ValueError("Selection result is invalid")
-    _require_reference_kind(value.selection_method, expected_kind="method")
-    _validate_selection_input(value.candidate_input)
-    if value.selected_candidate_references is not None:
-        if (
-            any(type(item) is not CandidateDataReference for item in value.selected_candidate_references)
-            or tuple(item.candidate_id for item in value.selected_candidate_references) != value.selected_candidate_ids
-        ):
-            raise ValueError("Manual Selection references do not match selected Candidates")
-        return
-    if value.objectives:
-        for objective in value.objectives:
-            _validate_selection_objective(objective)
-            if objective.candidate_input != value.candidate_input:
-                raise ValueError(
-                    "Selection Objective evidence is inconsistent"
-                )
-        objective_ids = tuple(
-            objective.objective_id for objective in value.objectives
-        )
-        if objective_ids != tuple(dict.fromkeys(objective_ids)):
-            raise ValueError("Selection Objective evidence is invalid")
-        declared_total = math.fsum(
-            float(objective.declared_weight) for objective in value.objectives
-        )
-        effective_total = math.fsum(
-            float(objective.effective_weight) for objective in value.objectives
-        )
-        if (
-            not math.isfinite(declared_total)
-            or not math.isclose(
-                effective_total,
-                1.0,
-                rel_tol=1e-12,
-                abs_tol=1e-12,
-            )
-            or any(
-                not math.isclose(
-                    float(objective.effective_weight),
-                    float(objective.declared_weight) / declared_total,
-                    rel_tol=1e-12,
-                    abs_tol=1e-12,
-                )
-                for objective in value.objectives
-            )
-        ):
-            raise ValueError("Selection Objective weights are invalid")
-        return
-    for selector in value.observation_selectors:
-        _validate_observation_selector(selector)
-        if selector.candidate_input != value.candidate_input:
-            raise ValueError(
-                "Observation Selector evidence is inconsistent"
-            )
-    selector_ids = tuple(
-        selector.selector_id for selector in value.observation_selectors
-    )
-    if selector_ids != tuple(dict.fromkeys(selector_ids)):
-        raise ValueError("Observation Selector evidence is invalid")
-
-
 def validate_fact_payload(payload: FactPayload) -> None:
     """Validate one owner-typed fact without projecting through JSON."""
     if isinstance(payload, RunScopeBound):
@@ -663,8 +407,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             not _valid_identifier(payload.project_id)
             or not _valid_identifier(payload.run_id)
             or not _valid_identifier(payload.workflow_commit_id)
-            or payload.selection_terminal_keys
-            != tuple(dict.fromkeys(payload.selection_terminal_keys))
         ):
             raise ValueError("Run scope fact is invalid")
         if payload.derived_from is not None:
@@ -829,19 +571,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             )
         ):
             raise ValueError("Node disposition is invalid")
-        return
-    if isinstance(payload, SelectionTerminal):
-        if (
-            payload.status not in {"succeeded", "failed"}
-            or (payload.status == "succeeded")
-            != (payload.result is not None and payload.error is None)
-            or (payload.status == "failed")
-            != (payload.error is not None and payload.result is None)
-        ):
-            raise ValueError("Selection conclusion is invalid")
-        _validate_error(payload.error)
-        if payload.result is not None:
-            _validate_selection_result(payload.result)
         return
     if isinstance(payload, RunTerminal):
         if payload.status not in {

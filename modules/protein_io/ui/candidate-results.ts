@@ -272,7 +272,7 @@ export class CandidateResults {
       } else if (payload.kind === 'candidate_sequences') {
         session.axes.set(key, Object.fromEntries(payload.value.entries.map(entry => [referenceKey(entry.subject), { sequence: entry.sequence, source }])))
       } else if (payload.kind === 'alignment') {
-        session.alignments.set(key, { ...payload.value, source, output })
+        session.alignments.set(key, { ...payload.value, value_content_digest: reading.value_content_digest, source, output })
       }
       session.loaded.add(key)
       this.publish(session)

@@ -1,0 +1,20 @@
+SelectionObservationOptionsRequest:
+  type: object
+  additionalProperties: false
+  required: [workflow, ranking]
+  properties:
+    ranking:
+      type: boolean
+    workflow:
+      type: object
+      additionalProperties: false
+      required: [nodes, edges]
+      properties:
+        nodes:
+          type: array
+          maxItems: 2048
+          items: {$ref: '#/$defs/NodeInstance'}
+        edges:
+          type: array
+          maxItems: 8192
+          items: {$ref: '#/$defs/WorkflowEdge'}

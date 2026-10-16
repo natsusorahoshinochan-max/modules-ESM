@@ -39,8 +39,7 @@ class HistoryPreservationTests(unittest.TestCase):
 
     def workflow(self, project_id, nodes, edges=()):
         return {"schema_version": "2.1.0", "workflow_id": project_id,
-                "nodes": nodes, "edges": list(edges),
-                "observation_selectors": [], "selection_objectives": []}
+                "nodes": nodes, "edges": list(edges)}
 
     @staticmethod
     def node(node_id, node_type, parameters):

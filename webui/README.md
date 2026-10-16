@@ -133,6 +133,14 @@ local page: install its Chromium driver with `npx playwright install chromium`,
 then run `npm run test:result-interactions`. It does not start the application or
 read project data.
 
+`npm run test:historical-regions` exercises the module editor and result editor
+against published historical facts with separate alignment values. It verifies
+readable recorded regions and preserves the original exact Context selections.
+`npm run test:project-lifecycle` opens the application against an ephemeral public
+API fixture, creates and manually saves its first project, and checks the running
+project edit lock. These browser tests use the same Chromium driver and never
+read the installation's projects or results.
+
 模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；`npm run build:module-ui` 构建源码资产，wheel 构建自动生成包内资源。
 
 ### External module package

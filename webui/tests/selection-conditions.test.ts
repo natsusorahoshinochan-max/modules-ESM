@@ -18,7 +18,7 @@ const catalog: CatalogSnapshot = { availability: [], contracts: [
 function workflow(): Workflow {
   return { schema_version: '2.1.0', workflow_id: 'project', nodes: [
     { node_id: 'input', node_type_id: 'source', binding_id: 'source.direct', node_parameters: {}, binding_parameters: {} },
-  ], edges: [], observation_selectors: [], selection_objectives: [] }
+  ], edges: [] }
 }
 
 test('a condition owns its evaluation and threshold after saving and reopening', () => {
@@ -26,8 +26,8 @@ test('a condition owns its evaluation and threshold after saving and reopening',
   draft.condition = { kind: 'comparison', selection: { ...newObservation(), scoreInput: 'energy-input', scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'energy', methodId: 'measurement', partition: 'measured' }, operator: '<', threshold: -2 }
   const saved = saveSelectionDraft(workflow(), 'filter', draft)
   assert.deepEqual(saved.nodes[1].node_parameters, { condition: { kind: 'comparison', selection: { score_input: 'energy-input', metric_id: 'energy', method_id: 'measurement', source_partition: 'measured', context: { kind: 'intrinsic' } }, operator: '<', threshold: -2 } })
-  assert.deepEqual(saved.observation_selectors, [])
-  assert.deepEqual(saved.selection_objectives, [])
+  assert.equal(Object.hasOwn(saved, 'observation_selectors'), false)
+  assert.equal(Object.hasOwn(saved, 'selection_objectives'), false)
   const reopened = readSelectionDraft(JSON.parse(JSON.stringify(saved)), 'filter')
   assert.equal(reopened.condition?.kind, 'comparison')
   if (reopened.condition?.kind !== 'comparison') throw new Error('Expected a comparison')

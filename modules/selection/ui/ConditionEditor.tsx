@@ -1,5 +1,5 @@
 import type { CandidateReference, CatalogSnapshot, Workflow } from '../../../webui/src/protocol/client'
-import { ObservationContextEditor, type ScoreObservationReading } from './ObservationContextEditor'
+import { ObservationContextEditor, type AlignmentReading, type ScoreObservationReading } from './ObservationContextEditor'
 import { ObservationEditor, ScalarField } from './SelectionObservationEditor'
 import { newObservation, type ComparisonOperator, type SelectionSource } from './selection-authoring'
 import type { ConditionDraft } from './selection-conditions'
@@ -8,7 +8,7 @@ import { observationOptionKey } from './selection-observations'
 type Props = {
   value?: ConditionDraft; catalog: CatalogSnapshot; workflow: Workflow; nodeId: string
   scoreSources: Array<SelectionSource & { label: string }>; published: ScoreObservationReading[]
-  candidates: CandidateReference[]; onChange: (value?: ConditionDraft) => void
+  alignments?: AlignmentReading[]; candidates: CandidateReference[]; onChange: (value?: ConditionDraft) => void
 }
 const operators: ComparisonOperator[] = ['>', '>=', '<', '<=', '==', '!=']
 const comparison = (): ConditionDraft => ({ kind: 'comparison', selection: newObservation(), operator: '>=' })
@@ -19,7 +19,7 @@ export function ConditionEditor({ value, onChange, ...props }: Props) {
   if (!value) return <div className="selection-actions"><button type="button" onClick={() => onChange(comparison())}>添加比较</button><button type="button" onClick={() => onChange(group())}>添加分组</button><p>条件尚未完成，可以手动保存后继续编辑；完整配置后才能运行。</p></div>
   if (value.kind === 'comparison') return <fieldset className="selection-condition-comparison"><legend>指标阈值条件</legend>
     <ObservationEditor value={value.selection} index={0} {...props} ranking={false} weighted={false} onChange={(selection) => onChange({ ...value, selection })} />
-    <ObservationContextEditor key={`${value.selection.id}:${observationOptionKey(value.selection)}`} value={value.selection} workflow={props.workflow} catalog={props.catalog} nodeId={props.nodeId} observations={props.published} candidates={props.candidates} onChange={(selection) => onChange({ ...value, selection })} />
+    <ObservationContextEditor key={`${value.selection.id}:${observationOptionKey(value.selection)}`} value={value.selection} workflow={props.workflow} catalog={props.catalog} nodeId={props.nodeId} observations={props.published} alignments={props.alignments} candidates={props.candidates} onChange={(selection) => onChange({ ...value, selection })} />
     <label>比较<select aria-label="比较符" value={value.operator} onChange={(event) => onChange({ ...value, operator: event.target.value as ComparisonOperator })}>{operators.map((operator) => <option key={operator}>{operator}</option>)}</select></label>
     <ScalarField label="阈值（Metric 原单位）" value={value.threshold} onChange={(threshold) => onChange({ ...value, threshold })} />
     <div className="selection-actions"><button type="button" onClick={() => onChange({ kind: 'group', operator: 'and', children: [value, comparison()] })}>添加并列比较</button><button type="button" onClick={() => onChange(undefined)}>移除比较</button></div>

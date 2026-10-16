@@ -17,7 +17,7 @@ const catalog: CatalogSnapshot = { availability: [], contracts: [
 function workflow(): Workflow {
   return { schema_version: '2.1.0', workflow_id: 'project', nodes: [
     { node_id: 'input', node_type_id: 'source', binding_id: 'source.direct', node_parameters: {}, binding_parameters: {} },
-  ], edges: [], observation_selectors: [], selection_objectives: [] }
+  ], edges: [] }
 }
 
 test('node-owned raw top-k settings reopen and copied nodes can be edited independently', () => {
@@ -30,8 +30,8 @@ test('node-owned raw top-k settings reopen and copied nodes can be edited indepe
   assert.equal(reopened.direction, 'ascending')
   assert.equal(reopened.k, 3)
   assert.equal(reopened.observations[0].metricId, 'energy')
-  assert.deepEqual(saved.selection_objectives, [])
-  assert.deepEqual(saved.observation_selectors, [])
+  assert.equal(Object.hasOwn(saved, 'selection_objectives'), false)
+  assert.equal(Object.hasOwn(saved, 'observation_selectors'), false)
   const fragment = copyWorkflowFragment(saved, new Set(['input', 'rank']))
   let nextId = 0
   const copied = pasteWorkflowFragment(saved, fragment, { x: 0, y: 0 }, () => `copy-${nextId++}`).workflow
@@ -161,8 +161,8 @@ test('Pareto stores independent raw directions per evaluation and reopens withou
   const saved = saveSelectionDraft(workflow(), 'frontier', draft)
   const reopened = readSelectionDraft(JSON.parse(JSON.stringify(saved)), 'frontier')
   assert.deepEqual(reopened.observations.map((entry) => [entry.metricId, entry.direction]), [['yield', 'descending'], ['cost', 'ascending']])
-  assert.deepEqual(saved.selection_objectives, [])
-  assert.deepEqual(saved.observation_selectors, [])
+  assert.equal(Object.hasOwn(saved, 'selection_objectives'), false)
+  assert.equal(Object.hasOwn(saved, 'observation_selectors'), false)
   assert.equal(saved.edges.filter((edge) => edge.target_port === 'scores').length, 1)
   const parameters = saved.nodes.at(-1)!.node_parameters
   assert.equal(JSON.stringify(parameters).includes('weight'), false)
@@ -207,4 +207,59 @@ test('switching Pareto to a single raw metric drops discarded score dependencies
   const reopened = readSelectionDraft(saved, 'frontier')
   const sorted = saveSelectionDraft(saved, 'frontier', { ...reopened, operation: 'sort', direction: 'descending' })
   assert.deepEqual(sorted.edges.filter((edge) => edge.target_node_id === 'frontier' && edge.target_port === 'scores').map((edge) => edge.source_node_id), ['input'])
+})
+
+
+test('manual selection saves and reopens exact local references without global rules', () => {
+  const chosen = { candidate_id: 'chosen', data_type_id: 'protein.sequence', content_digest: 'sha256:original' }
+  const missing = { candidate_id: 'missing', data_type_id: 'protein.sequence', content_digest: 'sha256:missing' }
+  const draft = { ...createSelectionDraft('manual', { node_id: 'input', output_port: 'candidates' }), selectedCandidates: [chosen, missing] }
+  const saved = saveSelectionDraft(workflow(), 'manual', draft)
+  const reopened = readSelectionDraft(JSON.parse(JSON.stringify(saved)), 'manual')
+  assert.deepEqual(reopened.selectedCandidates, [chosen, missing])
+  assert.deepEqual(saved.nodes[1].node_parameters, { selected_candidates: [chosen, missing] })
+  assert.equal(Object.hasOwn(saved, 'selection_objectives'), false)
+  const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: saved, nodeId: 'manual', onChange: () => {}, candidateCollections: [{ source: draft.candidateSource!, items: [{ item_index: 0, reference: chosen, parent_ids: [], metadata: {}, sequence: 'AAA', has_structure: false }] }] }))
+  assert.match(view, /1 个已保存引用不在当前显示的候选集合中/)
+  assert.doesNotMatch(view, /多样性选择/)
+  assert.deepEqual(readSelectionDraft(saveSelectionDraft(saved, 'manual', { ...reopened, selectedCandidates: [] }), 'manual').selectedCandidates, [])
+})
+
+test('historical regional evaluations use exact published evidence for readable node and result choices without changing context', async () => {
+  const { ResultObservationEditor } = await import('../../modules/protein_io/ui/ResultFilter')
+  const subject = { candidate_id: 'historical', data_type_id: 'protein.structure', content_digest: 'sha256:subject' }
+  const reference = { candidate_id: 'reference', data_type_id: 'protein.structure', content_digest: 'sha256:reference' }
+  const profile = { kind: 'pairwise', subject_role: 'subject', reference_role: 'reference', pairing_mode: 'explicit_relation', normalization: 'reference-axis-residue-count' }
+  const base = { kind: 'pairwise', subject: { role: 'subject', candidate: subject }, reference: { role: 'reference', candidate: reference }, pairing_mode: 'explicit_relation', normalization: 'reference-axis-residue-count', subject_axis_content_digest: 'sha256:subject-axis', reference_axis_content_digest: 'sha256:reference-axis' }
+  const contexts = [{ ...base, evidence_content_digest: 'sha256:one' }, { ...base, evidence_content_digest: 'sha256:two' }]
+  const draft = createSelectionDraft('top_k')
+  draft.observations = [{ ...newObservation(), scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'similarity', methodId: 'alignment', partition: 'regions', context: profile, exactContexts: [{ subject, context: contexts[0], residue_axis: null }] }]
+  const scores = contexts.map((context) => ({ subject, metric: { contract_kind: 'metric', contract_id: 'similarity' }, method: { contract_kind: 'method', contract_id: 'alignment' }, source_partition: 'regions', context_profile: profile, context, residue_axis: null, value: 0.7, source: { node_id: 'input', output_port: 'scores', value_index: 0 } }))
+  const output = { node_id: 'comparison', output_port: 'evidence', port_type: { contract_kind: 'port_type', contract_id: 'structure_comparison.alignment_evidence' }, content_digest: 'sha256:whole-port', result_identity: 'sha256:result', value_count: 2, producer_provenance: {}, materialization: { run_id: 'run', resolution: 'executed' as const }, value_manifest_reference: 'manifest' }
+  const alignments = contexts.map((context, value_index) => ({ subject, reference, subject_axis_content_digest: base.subject_axis_content_digest, reference_axis_content_digest: base.reference_axis_content_digest, subject_region: [value_index ? 'A:8' : 'A:1'], reference_region: [value_index ? 'B:12' : 'B:5'], value_content_digest: context.evidence_content_digest, method: { contract_kind: 'method', contract_id: 'alignment' }, transform: { maps_from_role: 'subject', maps_to_role: 'reference', row_vector_rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: [0, 0, 0] }, rmsd: 0, coverage: 1, source: { node_id: 'comparison', output_port: 'evidence', value_index }, output }))
+  const original = JSON.stringify({ scores, alignments })
+  const saved = saveSelectionDraft(workflow(), 'rank', draft)
+  const node = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: saved, nodeId: 'rank', onChange: () => {}, scoreObservations: scores, alignments }))
+  const resultDraft = { ...draft.observations[0], scoreInput: JSON.stringify(['input', 'scores', 0]) }
+  const result = renderToStaticMarkup(createElement(ResultObservationEditor, { value: resultDraft, observations: scores, candidates: [subject], catalog, alignments, onChange: () => {} }))
+  for (const view of [node, result]) {
+    assert.match(view, /候选区域 A:1/)
+    assert.match(view, /参考区域 B:12/)
+  }
+  const unavailableEvidence = [
+    alignments.map(entry => ({ ...entry, value_content_digest: 'sha256:other-value', output: { ...output, content_digest: contexts[0].evidence_content_digest } })),
+    alignments.map(entry => ({ ...entry, subject: { ...subject, content_digest: 'sha256:different-subject-version' } })),
+    alignments.map(entry => ({ ...entry, reference: { ...reference, content_digest: 'sha256:different-reference-version' } })),
+    alignments.map(entry => ({ ...entry, subject_axis_content_digest: 'sha256:different-subject-axis' })),
+    alignments.map(entry => ({ ...entry, reference_axis_content_digest: 'sha256:different-reference-axis' })),
+    alignments.map(({ subject_region: _subjectRegion, reference_region: _referenceRegion, ...entry }) => ({ ...entry, residue_correspondence: [{ subject_residue_id: 'A:1', reference_residue_id: 'B:5' }] })),
+  ]
+  for (const alignments of unavailableEvidence) {
+    const view = renderToStaticMarkup(createElement(ResultObservationEditor, { value: resultDraft, observations: scores, candidates: [subject], catalog, alignments, onChange: () => {} }))
+    assert.match(view, /候选区域 未记录/)
+    assert.match(view, /参考区域 未记录/)
+    assert.doesNotMatch(view, /候选区域 A:1|候选区域 A:8/)
+  }
+  assert.equal(JSON.stringify({ scores, alignments }), original)
+  assert.deepEqual(readSelectionDraft(saved, 'rank').observations[0].exactContexts, [{ subject, context: contexts[0], residue_axis: null }])
 })

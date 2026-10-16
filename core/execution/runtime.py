@@ -17,10 +17,6 @@ from core.execution._run_runtime_queries import _RunQueries
 from core.execution._run_runtime_registry import _RunRegistry
 from core.execution._run_runtime_scope import _RunScopeAdmission
 from core.execution.scope import RunScopeRequest
-from core.execution._run_runtime_selection import (
-    _selection_error,
-    selection_consumer_result,
-)
 from core.execution.ledger import (
     AvailabilityBound,
     CancellationDecision,
@@ -36,7 +32,6 @@ from core.execution.ledger import (
     RunProjection,
     RunScopeBinding,
     RunStarted,
-    SelectionTerminal,
     V2RunError,
     run_cursor,
     run_timestamp,
@@ -47,7 +42,6 @@ from core.operation import AdmittedPort
 from core.project.manager import ProjectManager, ProjectMeta
 from core.project.adopted_input import read_adopted_snapshot
 from core.project.storage import StoragePathError
-from core.scoring.selection import SelectionError
 from core.workflow.authoring import (
     WorkflowAuthoringService,
 )
@@ -354,30 +348,7 @@ class V2RunService:
                 committed_values.update(committed.admitted_outputs)
             else:
                 unsuccessful_nodes.add(node.node_id)
-        selection_conclusions: tuple[SelectionTerminal, ...] = ()
-        if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
-            selection_consumers = {
-                node.node_id: node for node in plan.nodes
-            }
-            try:
-                selection_conclusions = tuple(
-                    SelectionTerminal(
-                        status="succeeded",
-                        result=selection_consumer_result(
-                            selection_consumers[node_id],
-                            committed_values,
-                        ),
-                    )
-                    for node_id in ledger.selection_consumer_ids
-                )
-            except SelectionError as error:
-                selection_conclusions = (
-                    SelectionTerminal(
-                        status="failed",
-                        error=_selection_error(error),
-                    ),
-                )
-        ledger.record(RunClosure(selection_conclusions))
+        ledger.record(RunClosure())
         record.mark_worker_completed()
         return receipt
 

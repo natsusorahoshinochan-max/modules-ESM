@@ -1,0 +1,9 @@
+node_type_id: authoring_fixture.source
+title: Declared prediction
+summary: External producer declaration inspected without execution.
+category: test
+inputs: []
+outputs:
+  - {name: facts, port_type_id: structure_prediction.confidence_facts, required: true, multiplicity: one, scientific_meaning: Facts carrying the original prediction Method.}
+node_parameters: {}
+parameter_groups: []

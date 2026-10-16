@@ -23,7 +23,6 @@ class RunExecutionScope:
     execution_node_ids: tuple[str, ...]
     reused_node_ids: tuple[str, ...]
     out_of_scope_node_ids: tuple[str, ...]
-    out_of_scope_selection_ids: tuple[str, ...]
     source_run_id: str | None = None
 
     def projection(self) -> dict[str, object]:
@@ -36,7 +35,6 @@ class RunExecutionScope:
             ),
             "reused_node_ids": list(self.reused_node_ids),
             "out_of_scope_node_ids": list(self.out_of_scope_node_ids),
-            "out_of_scope_selection_ids": list(self.out_of_scope_selection_ids),
             **({"source_run_id": self.source_run_id} if self.source_run_id else {}),
         }
 
@@ -48,6 +46,5 @@ class RunExecutionScope:
             execution_node_ids=tuple(value["execution_node_ids"]),
             reused_node_ids=tuple(value["reused_node_ids"]),
             out_of_scope_node_ids=tuple(value["out_of_scope_node_ids"]),
-            out_of_scope_selection_ids=tuple(value["out_of_scope_selection_ids"]),
             source_run_id=value.get("source_run_id"),
         )

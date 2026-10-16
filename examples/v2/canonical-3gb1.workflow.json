@@ -1019,7 +1019,5 @@
       "target_node_id": "generate-paired",
       "target_port": "protein_prompt"
     }
-  ],
-  "observation_selectors": [],
-  "selection_objectives": []
+  ]
 }

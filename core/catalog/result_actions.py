@@ -26,6 +26,7 @@ class ResultActionValue:
     """An immutable published input and its actual Candidate references."""
     body: bytes
     candidate_references: tuple[CandidateDataReference, ...]
+    value_content_digest: str
 
 
 ResultActionInputs = Mapping[str, Mapping[str, tuple[ResultActionValue, ...]]]

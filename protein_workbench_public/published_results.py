@@ -12,6 +12,7 @@ from datatypes.candidate import CandidateDataReference
 class PublishedResultValue(TypedDict):
     kind: str
     value: dict[str, Any]
+    value_content_digest: str
 
 
 class PublishedResultReader:
@@ -35,7 +36,8 @@ class PublishedResultReader:
         type_id = metadata["typed_value"]["port_type"]["contract_id"]
         reader = self._readers.get(type_id)
         if reader is not None:
-            return {"kind": reader.kind, "value": reader.read(body)}
+            return {"kind": reader.kind, "value": reader.read(body),
+                    "value_content_digest": metadata["typed_value"]["value_content_digest"]}
         raise V2RunError(
             "malformed_request", "Output has no specialized reading projection",
             details={"field_path": ["output_port"]},

@@ -1,16 +1,16 @@
 import type { CandidateReference, CatalogSnapshot, Workflow } from '../../../webui/src/protocol/client'
-import { ObservationContextEditor } from '../../selection/ui/ObservationContextEditor'
+import { ObservationContextEditor, type AlignmentReading } from '../../selection/ui/ObservationContextEditor'
 import type { ComparisonOperator, ObservationDraft } from '../../selection/ui/selection-authoring'
 import { locationKey, referenceKey, type ScoreView } from './result-explorer'
 import { resultObservation, type Predicate, type ResultFilterChoice } from './result-filter'
 
-const viewingWorkflow: Workflow = { schema_version: '2.1.0', workflow_id: 'result-view', nodes: [], edges: [], observation_selectors: [], selection_objectives: [] }
-type ContextProps = { observations: ScoreView[]; candidates: CandidateReference[]; catalog: CatalogSnapshot }
+const viewingWorkflow: Workflow = { schema_version: '2.1.0', workflow_id: 'result-view', nodes: [], edges: [] }
+type ContextProps = { alignments?: AlignmentReading[]; observations: ScoreView[]; candidates: CandidateReference[]; catalog: CatalogSnapshot }
 
-export function ResultObservationEditor({ value, observations, candidates, catalog, onChange }: ContextProps & { value: ObservationDraft; onChange: (value: ObservationDraft) => void }) {
+export function ResultObservationEditor({ value, observations, candidates, catalog, alignments, onChange }: ContextProps & { value: ObservationDraft; onChange: (value: ObservationDraft) => void }) {
   const subjects = new Set(candidates.map(referenceKey))
   const existing = observations.filter(entry => value.scoreSource && locationKey(entry.source) === value.scoreInput && subjects.has(referenceKey(entry.subject)))
-  return <ObservationContextEditor allowRelations={false} key={value.id} value={value} observations={existing} candidates={candidates} catalog={catalog} workflow={viewingWorkflow} nodeId="result-view" onChange={onChange} />
+  return <ObservationContextEditor allowRelations={false} key={value.id} value={value} observations={existing} alignments={alignments} candidates={candidates} catalog={catalog} workflow={viewingWorkflow} nodeId="result-view" onChange={onChange} />
 }
 
 export function ResultFilter({ value, choices, onChange, onRemove, ...context }: ContextProps & { value: Predicate; choices: ResultFilterChoice[]; onChange: (value: Predicate) => void; onRemove?: () => void }) {

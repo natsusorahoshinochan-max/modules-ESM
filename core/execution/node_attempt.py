@@ -322,12 +322,6 @@ class _NodeAttempt:
                 produced_observations=(
                     state.node._runtime.produced_observation_plan.observations
                 ),
-                selection_objectives=(
-                    state.node._runtime.selection_objectives
-                ),
-                observation_selectors=(
-                    state.node._runtime.observation_selectors
-                ),
                 environment=environment,
                 resources=resources,
                 resolved_definitions=state.node._runtime.resolved_definitions,

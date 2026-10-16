@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { PublicV2Client } from '../../../webui/src/protocol/client'
 import type { CatalogSnapshot, JsonObject, PublishedObservation, ResultLocation, Workflow } from '../../../webui/src/protocol/client'
 import { sourceKey, type ObservationDraft, type SelectionSource } from './selection-authoring'
@@ -7,7 +7,7 @@ export type ObservationOption = {
   key: string; label: string; partition: string; metricId: string;
   methodId: string; context: JsonObject;
 }
-const client = new PublicV2Client()
+export const SelectionAuthoringClient = createContext<Pick<PublicV2Client, 'authoringAction'>>(new PublicV2Client())
 
 /** Context profiles are closed Catalog records containing scalar facts. */
 export function sameContext(left: JsonObject, right: JsonObject): boolean {
@@ -31,12 +31,13 @@ export function contextLabel(context: JsonObject): string {
 }
 
 export function useObservationOptions(workflow: Workflow, catalog: CatalogSnapshot, ranking: boolean, scoreSource?: SelectionSource, published: Array<PublishedObservation & { source: ResultLocation }> = []): { observations: ObservationOption[]; error: string } {
+  const client = useContext(SelectionAuthoringClient)
   const [state, setState] = useState<{ observations: ObservationOption[]; error: string }>({ observations: [], error: '' })
   useEffect(() => {
     let active = true
     setState({ observations: [], error: '' })
     if (!scoreSource) return
-    void client.observationOptions(workflow, ranking).then(({ options }) => {
+    void client.authoringAction<{ options: Array<{ source: SelectionSource; partition: string; metric_id: string; method_id: string; context: JsonObject }> }>(workflow.workflow_id, 'selection.observation_options', { workflow: { nodes: workflow.nodes, edges: workflow.edges }, ranking }).then(({ options }) => {
       if (!active) return
       const values = options.filter((entry) => sourceKey(entry.source) === sourceKey(scoreSource)).map((entry) => {
         const value = { partition: entry.partition, metricId: entry.metric_id, methodId: entry.method_id, context: entry.context }
@@ -45,7 +46,7 @@ export function useObservationOptions(workflow: Workflow, catalog: CatalogSnapsh
       setState({ observations: [...new Map(values.map((entry) => [entry.key, entry])).values()], error: '' })
     }, (reason: unknown) => { if (active) setState({ observations: [], error: reason instanceof Error ? reason.message : String(reason) }) })
     return () => { active = false }
-  }, [workflow, catalog, ranking, scoreSource])
+  }, [client, workflow, catalog, ranking, scoreSource])
   const existing = published.filter((entry) => scoreSource && sourceKey(entry.source) === sourceKey(scoreSource)).map((entry) => {
     const value = { partition: entry.source_partition, metricId: entry.metric.contract_id, methodId: entry.method.contract_id, context: entry.context_profile }
     return { ...value, key: observationOptionKey(value), label: `${contractTitle(catalog, 'metric', value.metricId)} · ${contractTitle(catalog, 'method', value.methodId)} · ${contextLabel(value.context)} · ${value.partition}` }

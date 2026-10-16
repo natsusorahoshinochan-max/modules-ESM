@@ -5,7 +5,7 @@ import type { CandidateReference, CatalogSnapshot, PublishedStructure, Published
 export type CandidateView = ResultCandidate & { source: ResultLocation; output: PublishedOutput; sequenceSource?: ResultLocation }
 export type ScoreView = PublishedObservation & { source: ResultLocation }
 export type ResultCollection = { source: ResultLocation; output: PublishedOutput; title: string; total: number; items: CandidateView[] }
-export type AlignmentView = PublishedAlignment & { source: ResultLocation; output: PublishedOutput }
+export type AlignmentView = PublishedAlignment & { value_content_digest: string; source: ResultLocation; output: PublishedOutput }
 export type ResultFacts = { sequences: Record<string, { sequence: string; source: ResultLocation }>; collections: ResultCollection[]; scores: ScoreView[]; alignments: AlignmentView[]; definitions: CatalogSnapshot['contracts'] }
 export type ObservationGroup = { score: ScoreView; subjects: Map<string, ScoreView[]> }
 export type ResultIndex = ResultFacts & {
@@ -105,7 +105,7 @@ export function candidateExportFiles({ candidates, structures, index, run, compu
     }),
   ].join('\n'))
   files['computation-parameters.json'] = strToU8(JSON.stringify({
-    description: 'Saved computation settings. Match manifest candidate, sequence, observation and alignment source locations to outputs, then parameter_record_ids to records. Records identify original producer Runs, including cache replays; ambiguous outputs list all indistinguishable recorded producers without claiming a unique source. Node and Binding parameters are saved Workflow values; admitted_parameters contains the separately saved compiled values, or null when unavailable. No current defaults or Environment Configuration are added. Workflows preserve saved input connections, selectors and objectives; they do not imply every node executed.',
+    description: 'Saved computation settings. Match manifest candidate, sequence, observation and alignment source locations to outputs, then parameter_record_ids to records. Records identify original producer Runs, including cache replays; ambiguous outputs list all indistinguishable recorded producers without claiming a unique source. Node and Binding parameters are saved Workflow values; admitted_parameters contains the separately saved compiled values, or null when unavailable. No current defaults or Environment Configuration are added. Workflows preserve the original recorded graph and node settings; they do not imply every node executed.',
     project_id: run.project_id, run_id: run.run_id, workflow_commit_id: run.workflow_commit_id,
     ...computationParameters,
   }, null, 2))

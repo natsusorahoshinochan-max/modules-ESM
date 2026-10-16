@@ -222,8 +222,8 @@ class SelectionApplicationTests(unittest.TestCase):
 
     def test_editor_can_choose_a_source_with_multiple_or_missing_observations(self):
         workflow = self.workflow()
-        response = self.client.post(f'/api/v2/projects/{self.project}/workflow:observation-options',
-            json={'workflow': {'nodes': workflow['nodes'], 'edges': workflow['edges']}, 'ranking': False})
+        response = self.client.post(f'/api/v2/projects/{self.project}/authoring-actions/selection.observation_options',
+            json={'parameters': {'workflow': {'nodes': workflow['nodes'], 'edges': workflow['edges']}, 'ranking': False}})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual([(value['metric_id'], value['source']['node_id']) for value in response.json()['options']],
             [('selection_fixture.raw', 'measurements')])

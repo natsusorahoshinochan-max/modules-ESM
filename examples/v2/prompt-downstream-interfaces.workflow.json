@@ -138,7 +138,5 @@
       "target_node_id": "design-with-reference",
       "target_port": "sequence"
     }
-  ],
-  "observation_selectors": [],
-  "selection_objectives": []
+  ]
 }

@@ -115,7 +115,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 `selection.manual` 仍可作为普通模块操作存在：在其明确输入集合中匹配完整 `selected_candidates` 引用，保持输入顺序，空选择得到空集合。缺失或内容改变时报错，不自动换成同名或同序列候选。它不自行搜旧 Run 替换输入；历史结果应先通过明确采用能力成为输入。
 
-当前 `workflow:observation-options` 读取编译器的可用观察投影，只提交 `workflow.nodes`、`workflow.edges` 与 `ranking`。未完成 Selector/Objective 配置不能阻止来源枚举；完整配置在 Commit 边界处理。手动选择的 `candidate_selection_consumption` 及有序完整引用终局记录由现有编译和运行边界负责，空引用数组与没有该分支分别表达。
+当前 `selection.observation_options` authoring action 由 Selection 模块枚举所连来源的可用评价，只提交 `workflow.nodes`、`workflow.edges` 与 `ranking`。未完成规则不阻止来源枚举；完整配置在 Commit 边界由模块检查。所有筛选操作通过普通 Candidate Collection 输出保留原候选身份与顺序，运行记录使用通用节点成果和失败。
 
 现有结果页已移除“勾选保存为流程”、条件和 Top-N 转流程入口；不得以改名恢复。此要求不取消普通筛选节点、查看、导出、历史采用或局部 Prompt 采用，也不新增对外部插件的同类功能禁令。
 
@@ -149,7 +149,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 当前候选 ZIP 的文件格式化与打包由[结果导出](../modules/protein_io/ui/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。候选 ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份、输出端口、内容摘要和 value manifest 摘要定位原执行节点，排除重放节点，不把当前工作区或重放 Run 的配置冒充原计算参数。当前 Run 中实际执行的输出按原节点 ID 精确定位；缓存结果若仍对应多个内容完全相同的执行节点，则标记 `ambiguous` 并列出候选参数记录，不断言唯一来源。
 
-参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责。
+参数文件中的 `workflows` 是来源 Commit 原样保存的流程与配置，不表示其中每个节点都执行过。历史流程作为不透明记录读取，不按当前可执行 Workflow 解析或替换其原设置。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责。
 
 组分与附件通过公共 `PublishedResults.exportBundle` / `exportArtifact` 下载 ZIP，附带 `export-details.json` 记录模块提供的具体选择或附件来源。组分说明包含实际模型、链、残基和组分名称。附件的参数关联使用已有生产 Run、节点结果身份和附件内容身份，按实际执行节点读取原参数及已记录的准入参数；同 Run 和跨 Run 的缓存重放都不冒充原生产者。`publishing_workflow` 仅说明本次发布流程，不替代原计算参数。附件读取到打包保持同一会话，切换运行后迟到的响应不触发下载。
 

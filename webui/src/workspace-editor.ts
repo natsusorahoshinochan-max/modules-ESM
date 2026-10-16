@@ -47,7 +47,7 @@ type Session = {
   inputRequests: number
   inputs: Array<{ input: ProspectiveInput; publication: ProjectInputPublication }>
 }
-const blankWorkflow = (projectId: string): Workflow => ({ schema_version: '2.1.0', workflow_id: projectId, nodes: [], edges: [], observation_selectors: [], selection_objectives: [] })
+const blankWorkflow = (projectId: string): Workflow => ({ schema_version: '2.1.0', workflow_id: projectId, nodes: [], edges: [] })
 function same(left: unknown, right: unknown): boolean {
   if (left === right) return true
   if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(left) !== Array.isArray(right)) return false

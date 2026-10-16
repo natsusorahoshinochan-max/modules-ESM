@@ -15,7 +15,6 @@ from typing import Any, cast
 from core.execution.ledger.facts import (
     AvailabilityBound,
     CancellationRequested,
-    ContextSelectorEvidence,
     DerivedRunReference,
     EngineInvocationStarted,
     EngineInvocationTerminal,
@@ -25,7 +24,6 @@ from core.execution.ledger.facts import (
     NodeAttemptStarted,
     NodeAttemptTerminal,
     NodeDisposition,
-    ObservationSelectorEvidence,
     OperationAttemptStarted,
     OperationAttemptTerminal,
     OutputsPublished,
@@ -36,9 +34,6 @@ from core.execution.ledger.facts import (
     RunScopeBound,
     RunStarted,
     RunTerminal,
-    SelectionObjectiveEvidence,
-    SelectionResult,
-    SelectionTerminal,
     StructuredError,
     validate_fact_payload,
 )
@@ -55,10 +50,8 @@ from core.operation import (
     ProviderResidueProjection,
     ProviderResidueProjectionEntry,
 )
-from core.scoring.selection import SelectionInput
-from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.i_json import thaw_i_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,8 +194,6 @@ def _plan_node_to_canonical(value: PlanNodeEvidence) -> dict[str, Any]:
             _artifact_output_to_canonical(item)
             for item in value.artifact_outputs
         ]
-    if value.selection_consumer:
-        result["selection_consumer"] = True
     return result
 
 
@@ -247,7 +238,6 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
         method=method,
         execution_route=cast(Any, value["execution_route"]),
         artifact_outputs=parsed_artifacts,
-        selection_consumer=value.get("selection_consumer", False),
     )
 
 
@@ -363,223 +353,6 @@ def _artifact_from_canonical(value: object) -> PublishedArtifact:
     )
 
 
-def _selection_input_to_canonical(value: SelectionInput) -> dict[str, str]:
-    return {"node_id": value.node_id, "output_port": value.output_port}
-
-
-def _selection_input_from_canonical(value: object) -> SelectionInput:
-    raw = _mapping(value, {"node_id", "output_port"})
-    return SelectionInput(cast(str, raw["node_id"]), cast(str, raw["output_port"]))
-
-
-def _context_to_canonical(value: ContextSelectorEvidence) -> dict[str, Any]:
-    result = {"kind": value.kind}
-    for name in (
-        "calibration_metric", "calibration_value", "calibration_unit",
-        "population_id", "subject_role", "reference_role", "pairing_mode",
-        "normalization",
-    ):
-        observed = getattr(value, name)
-        if observed is not None:
-            result[name] = observed
-    return result
-
-
-def _context_from_canonical(value: object) -> ContextSelectorEvidence:
-    if not isinstance(value, Mapping) or "kind" not in value:
-        raise ValueError("Selection Context evidence is invalid")
-    fields_by_kind = {
-        "intrinsic": {"kind"},
-        "calibration": {
-            "kind",
-            "calibration_metric",
-            "calibration_value",
-            "calibration_unit",
-            "population_id",
-        },
-        "pairwise": {
-            "kind",
-            "subject_role",
-            "reference_role",
-            "pairing_mode",
-            "normalization",
-        },
-    }
-    kind = value["kind"]
-    fields = fields_by_kind.get(kind)
-    if type(kind) is not str or fields is None or not fields <= value.keys():
-        raise ValueError("Selection Context evidence is invalid")
-    return ContextSelectorEvidence(
-        **{name: value[name] for name in fields}
-    )
-
-
-def _objective_to_canonical(value: SelectionObjectiveEvidence) -> dict[str, Any]:
-    return {
-        "objective_id": value.objective_id,
-        "candidate_input": _selection_input_to_canonical(value.candidate_input),
-        "score_collection_input": _selection_input_to_canonical(value.score_collection_input),
-        "source_partition": value.source_partition,
-        "metric": _reference_to_canonical(value.metric),
-        "method": _reference_to_canonical(value.method),
-        "context_selector": _context_to_canonical(value.context_selector),
-        "utility_transform": _reference_to_canonical(value.utility_transform),
-        "utility_parameters": thaw_i_json(value.utility_parameters),
-        "declared_weight": value.declared_weight,
-        "effective_weight": value.effective_weight,
-        "match_cardinality": value.match_cardinality,
-        "missing_policy": value.missing_policy,
-    }
-
-
-def _objective_from_canonical(value: object) -> SelectionObjectiveEvidence:
-    fields = {
-        "objective_id", "candidate_input", "score_collection_input",
-        "source_partition", "metric", "method", "context_selector",
-        "utility_transform", "utility_parameters", "declared_weight",
-        "effective_weight", "match_cardinality", "missing_policy",
-    }
-    raw = _mapping(value, fields)
-    utility_parameters = raw["utility_parameters"]
-    if not isinstance(utility_parameters, Mapping):
-        raise ValueError("Selection Objective evidence is invalid")
-    return SelectionObjectiveEvidence(
-        objective_id=cast(str, raw["objective_id"]),
-        candidate_input=_selection_input_from_canonical(raw["candidate_input"]),
-        score_collection_input=_selection_input_from_canonical(raw["score_collection_input"]),
-        source_partition=cast(str, raw["source_partition"]),
-        metric=_reference_from_canonical(raw["metric"]),
-        method=_reference_from_canonical(raw["method"]),
-        context_selector=_context_from_canonical(raw["context_selector"]),
-        utility_transform=_reference_from_canonical(raw["utility_transform"]),
-        utility_parameters=cast(
-            Mapping[str, object],
-            freeze_i_json(utility_parameters),
-        ),
-        declared_weight=cast(float, raw["declared_weight"]),
-        effective_weight=cast(float, raw["effective_weight"]),
-        match_cardinality=cast(str, raw["match_cardinality"]),
-        missing_policy=cast(str, raw["missing_policy"]),
-    )
-
-
-def _selector_to_canonical(value: ObservationSelectorEvidence) -> dict[str, Any]:
-    return {
-        "selector_id": value.selector_id,
-        "candidate_input": _selection_input_to_canonical(value.candidate_input),
-        "score_collection_input": _selection_input_to_canonical(value.score_collection_input),
-        "source_partition": value.source_partition,
-        "metric": _reference_to_canonical(value.metric),
-        "method": _reference_to_canonical(value.method),
-        "context_selector": _context_to_canonical(value.context_selector),
-        "match_cardinality": value.match_cardinality,
-        "missing_policy": value.missing_policy,
-    }
-
-
-def _selector_from_canonical(value: object) -> ObservationSelectorEvidence:
-    fields = {
-        "selector_id", "candidate_input", "score_collection_input",
-        "source_partition", "metric", "method", "context_selector",
-        "match_cardinality", "missing_policy",
-    }
-    raw = _mapping(value, fields)
-    return ObservationSelectorEvidence(
-        selector_id=cast(str, raw["selector_id"]),
-        candidate_input=_selection_input_from_canonical(raw["candidate_input"]),
-        score_collection_input=_selection_input_from_canonical(raw["score_collection_input"]),
-        source_partition=cast(str, raw["source_partition"]),
-        metric=_reference_from_canonical(raw["metric"]),
-        method=_reference_from_canonical(raw["method"]),
-        context_selector=_context_from_canonical(raw["context_selector"]),
-        match_cardinality=cast(str, raw["match_cardinality"]),
-        missing_policy=cast(str, raw["missing_policy"]),
-    )
-
-
-def _selection_to_canonical(value: SelectionResult) -> dict[str, Any]:
-    result = {
-        "status": "succeeded",
-        "selection_node_id": value.selection_node_id,
-        "selection_method": _reference_to_canonical(value.selection_method),
-        "candidate_input": _selection_input_to_canonical(value.candidate_input),
-        "selected_collection_id": value.selected_collection_id,
-        "selected_candidate_ids": list(value.selected_candidate_ids),
-    }
-    if value.objectives:
-        result["objectives"] = [
-            _objective_to_canonical(item) for item in value.objectives
-        ]
-    if value.observation_selectors:
-        result["observation_selectors"] = [
-            _selector_to_canonical(item)
-            for item in value.observation_selectors
-        ]
-    if value.selected_candidate_references is not None:
-        result["selected_candidate_references"] = [
-            {
-                "candidate_id": item.candidate_id,
-                "data_type_id": item.data_type_id,
-                "content_digest": item.content_digest,
-            }
-            for item in value.selected_candidate_references
-        ]
-    return result
-
-
-def _selection_from_canonical(value: object) -> SelectionResult:
-    if not isinstance(value, Mapping) or value.get("status") != "succeeded":
-        raise ValueError("Selection result is invalid")
-    required = {
-        "status",
-        "selection_node_id",
-        "selection_method",
-        "candidate_input",
-        "selected_collection_id",
-        "selected_candidate_ids",
-    }
-    nested_fields = {
-        name
-        for name in ("objectives", "observation_selectors", "selected_candidate_references")
-        if name in value
-    }
-    if (
-        not required <= value.keys()
-        or len(nested_fields) != 1
-        or not isinstance(value["selected_candidate_ids"], list)
-    ):
-        raise ValueError("Selection result is invalid")
-    nested_key = next(iter(nested_fields))
-    if not isinstance(value[nested_key], list) or (
-        nested_key != "selected_candidate_references" and not value[nested_key]
-    ):
-        raise ValueError("Selection result is invalid")
-    return SelectionResult(
-        selection_node_id=cast(str, value["selection_node_id"]),
-        selection_method=_reference_from_canonical(value["selection_method"]),
-        candidate_input=_selection_input_from_canonical(
-            value["candidate_input"]
-        ),
-        selected_collection_id=cast(str, value["selected_collection_id"]),
-        selected_candidate_ids=tuple(
-            cast(list[str], value["selected_candidate_ids"])
-        ),
-        objectives=tuple(
-            _objective_from_canonical(item)
-            for item in value.get("objectives", [])
-        ),
-        observation_selectors=tuple(
-            _selector_from_canonical(item)
-            for item in value.get("observation_selectors", [])
-        ),
-        selected_candidate_references=(
-            tuple(CandidateDataReference(**item) for item in value["selected_candidate_references"])
-            if "selected_candidate_references" in value
-            else None
-        ),
-    )
-
-
 def _provenance_to_canonical(value: EngineInvocationProvenance) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if value.effective_randomness is not None:
@@ -666,7 +439,6 @@ _FACT_TYPE_BY_PAYLOAD = {
     OperationAttemptTerminal: "operation_attempt_terminal",
     NodeAttemptTerminal: "node_attempt_terminal",
     NodeDisposition: "node_disposition",
-    SelectionTerminal: "selection_terminal",
     RunTerminal: "run_terminal",
 }
 
@@ -684,7 +456,6 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
             "plan_nodes": [
                 _plan_node_to_canonical(item) for item in payload.plan_nodes
             ],
-            "selection_terminal_keys": list(payload.selection_terminal_keys),
         }
         if payload.execution_scope is not None:
             result["execution_scope"] = payload.execution_scope.projection()
@@ -793,13 +564,6 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
         if payload.resolution is not None:
             result["resolution"] = payload.resolution
         return result
-    if isinstance(payload, SelectionTerminal):
-        result = {"status": payload.status}
-        if payload.result is not None:
-            result["result"] = _selection_to_canonical(payload.result)
-        if payload.error is not None:
-            result["error"] = _error_to_canonical(payload.error)
-        return result
     if isinstance(payload, RunTerminal):
         return {"status": payload.status}
     raise TypeError("Unknown typed Ledger fact")
@@ -816,7 +580,6 @@ def _payload_from_canonical(kind: str, value: object) -> FactPayload:
             run_id=v["run_id"],
             workflow_commit_id=v["workflow_commit_id"],
             plan_nodes=_plan_evidence_from_canonical(v["plan_nodes"]),
-            selection_terminal_keys=tuple(v["selection_terminal_keys"]),
             execution_scope=(RunExecutionScope.from_projection(v["execution_scope"])
                              if "execution_scope" in v else None),
             derived_from=(
@@ -903,16 +666,6 @@ def _payload_from_canonical(kind: str, value: object) -> FactPayload:
             v["outcome"],
             tuple(v["blocked_by"]),
             v.get("resolution"),
-        )
-    if kind == "selection_terminal":
-        return SelectionTerminal(
-            v["status"],
-            (
-                _selection_from_canonical(v["result"])
-                if "result" in v
-                else None
-            ),
-            _error_from_canonical(v["error"]) if "error" in v else None,
         )
     if kind == "run_terminal":
         return RunTerminal(v["status"])

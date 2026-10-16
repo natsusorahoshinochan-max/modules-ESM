@@ -55,7 +55,7 @@
 | Artifact | 按声明媒体契约发布、可独立取回的文件成果，与 Typed Output 保持明确关联。 |
 | Run Evidence Ledger | 每次 Run 的有序持久事实来源，供运行投影和事件流使用；仅保留执行与解释结果所需记录。 |
 | Node Outcome Publication | 一次节点终结及其成果的持久发布；原子写入不等于可以丢弃批内已成功请求的结果。 |
-| Run Closure | 所有实际节点与筛选结论完成后的正常运行终结；进程重启对未完成 Run 记录 `interrupted`。 |
+| Run Closure | 所有实际节点完成后的正常运行终结；进程重启对未完成 Run 记录 `interrupted`。 |
 
 ## 数据、评价与区域
 
@@ -83,7 +83,7 @@
 | Score Observation | 将一个 Candidate 与一个 Metric、Method、Context 及实际评价值关联的结果。 |
 | Score Collection | 供分析、筛选和排序等操作消费的 Score Observations 集合。 |
 | Utility Transform | 把指定评价量映射成无量纲 `[0, 1]` 值的显式转换。 |
-| Selection Objective | 筛选节点拥有的评价选择与排序偏好；单指标使用原值和方向，加权排序使用指标提供模块声明的适用转换与权重。 |
+| Selection Rule | 筛选节点拥有的条件、评价选择与排序设置；单指标使用原值和方向，加权排序使用指标提供模块声明的适用转换与权重。 |
 | Structure Alignment Evidence | 已计算的结构对应、刚体变换、区域、归一化和 Method 等数据，供比较指标及展示使用，不要求扩建证据体系。 |
 | Candidate-associated Scientific Value | 显式携带主体完整引用的派生值，关联不依赖平行列表位置。 |
 

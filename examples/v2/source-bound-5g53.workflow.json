@@ -6346,7 +6346,5 @@
       "target_node_id": "generate-longer-16",
       "target_port": "protein_prompt"
     }
-  ],
-  "observation_selectors": [],
-  "selection_objectives": []
+  ]
 }
