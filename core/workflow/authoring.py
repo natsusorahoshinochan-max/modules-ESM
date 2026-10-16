@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.result_adoption import AdoptedObservation, with_adopted_definitions
+from core.project.adopted_input import read_adopted_snapshot
+from core.project.storage import StoragePathError, validate_identifier
+
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -453,12 +457,45 @@ class WorkflowAuthoringService:
                 details={"field_path": ["workflow", "workflow_id"]},
             )
 
+    def _compilation_request(self, project_id: str, workflow: WorkflowDocument, *, editing: bool = False) -> CompilationRequest:
+        declarations = {source.node_type_id: source for source in self._catalog.result_sources}
+        observations: dict[str, tuple[AdoptedObservation, ...]] = {}
+        definitions: dict[tuple[str, str], Mapping[str, Any]] = {}
+        for node in workflow.nodes:
+            source = declarations.get(node.node_type_id)
+            if source is None or 'project_input_ref' not in node.node_parameters:
+                continue
+            reference = node.node_parameters['project_input_ref']
+            try:
+                validate_identifier(reference, 'project_input_ref')
+                _, payload = self._projects.read_input(project_id, reference)
+            except (StoragePathError, FileNotFoundError) as error:
+                if editing:
+                    continue
+                raise WorkflowCompileError('project_input_not_found', 'Adopted Project Input is unavailable',
+                    node_id=node.node_id, field_path=('node_parameters', 'project_input_ref')) from error
+            snapshot = read_adopted_snapshot(payload)
+            if source.observations is not None:
+                observations[node.node_id] = source.observations(snapshot['canonical_value'].encode('utf-8'))
+            for saved in (snapshot, *snapshot['dependencies']):
+                for definition in saved['definitions']:
+                    key = (definition['contract_kind'], definition['contract_id'])
+                    if key in definitions and definitions[key] != definition:
+                        raise WorkflowCompileError('adopted_definition_conflict', f'Adopted inputs disagree on {key}')
+                    definitions[key] = definition
+        return CompilationRequest(workflow, observations, tuple(definitions.values()))
+
     def observation_options(self, project_id: str, workflow: WorkflowDocument, *, ranking: bool) -> list[dict[str, Any]]:
         from core.workflow.compiler import observation_options
 
         self._require_project(project_id)
         try:
-            return observation_options(workflow, self._catalog, ranking=ranking)
+            request = self._compilation_request(project_id, workflow, editing=True)
+            try:
+                catalog = with_adopted_definitions(self._catalog, request.adopted_definitions)
+            except ValueError as error:
+                raise WorkflowCompileError('adopted_definition_conflict', str(error)) from error
+            return observation_options(workflow, catalog, ranking=ranking, adopted_observations=request.adopted_observations)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
 
@@ -732,7 +769,7 @@ class WorkflowAuthoringService:
             "status": "unknown", "issues": [],
         }
         try:
-            plan = compile(CompilationRequest(workflow), self._catalog)
+            plan = compile(self._compilation_request(workflow_project_id, workflow), self._catalog)
             current_identity = self._science_with_input_contents(workflow_project_id, _scientific_identity(plan))
             original_identity = self._science_with_input_contents(project_id, original.scientific_identity)
         except WorkflowCompileError as error:
@@ -781,7 +818,7 @@ class WorkflowAuthoringService:
         if verified is not None:
             return verified
         try:
-            plan = compile(CompilationRequest(commit.workflow), self._catalog)
+            plan = compile(self._compilation_request(commit.project_id, commit.workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         return self._admit_existing_commit(commit, plan)
@@ -826,7 +863,7 @@ class WorkflowAuthoringService:
             self._latest_record_revision(project_id, "commits") + 1
         )
         try:
-            plan = compile(CompilationRequest(draft.workflow), self._catalog)
+            plan = compile(self._compilation_request(project_id, draft.workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         commit = self._commit_value(
@@ -883,7 +920,7 @@ class WorkflowAuthoringService:
             )
         self._validate_draft_submission(project_id, workflow)
         try:
-            plan = compile(CompilationRequest(workflow), self._catalog)
+            plan = compile(self._compilation_request(project_id, workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         project = self._projects.ensure_seed_project_v2(
@@ -935,7 +972,7 @@ class WorkflowAuthoringService:
                 details={"requested_project_id": workflow.workflow_id},
             )
         try:
-            plan = compile(CompilationRequest(workflow), self._catalog)
+            plan = compile(self._compilation_request(project_id, workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         inputs = {}

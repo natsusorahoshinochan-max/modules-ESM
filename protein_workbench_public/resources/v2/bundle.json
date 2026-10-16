@@ -7661,6 +7661,65 @@
         "bindings"
       ]
     },
+    "AdoptResultRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "source_project_id",
+        "source_run_id",
+        "node_id",
+        "output_port",
+        "value_index"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "AdoptResultResponse": {
+      "type": "object",
+      "required": [
+        "project_input_ref",
+        "source_node"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project_input_ref": {
+          "type": "string"
+        },
+        "source_node": {
+          "$ref": "#/$defs/JsonObject"
+        }
+      }
+    },
+    "ResultSourcesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
     "ModuleUiRunViewer": {
       "type": "object",
       "additionalProperties": false,
@@ -8531,6 +8590,48 @@
         "schema": "#/$defs/ModuleSettings",
         "success_status": 200
       },
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "adopt_result": {
+      "method": "POST",
+      "request_schema": "#/$defs/AdoptResultRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/AdoptResultResponse",
+        "success_status": 201
+      },
+      "route": "/api/v2/projects/{project_id}/inputs:adopt",
+      "status_mapping": {
+        "201": "response",
+        "default": "structured_error"
+      }
+    },
+    "adopted_input_metadata": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectInputMetadataRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/JsonObject",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/inputs/{project_input_ref}:adoption",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "result_sources": {
+      "method": "GET",
+      "request_schema": "#/$defs/ResultSourcesRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/JsonObject",
+        "success_status": 200
+      },
+      "route": "/api/v2/result-sources",
       "status_mapping": {
         "200": "response",
         "default": "structured_error"
