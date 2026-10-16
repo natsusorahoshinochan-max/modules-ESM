@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { CandidateReference, JsonObject, PublishedObservation, ResultLocation, Workflow } from '../../../webui/src/protocol/client'
 import { candidateReferenceKey, selectionSources, sourceKey, type ObservationDraft, type SelectionSource } from './selection-authoring'
 import type { CatalogSnapshot } from '../../../webui/src/protocol/client'
@@ -23,14 +22,12 @@ export function ObservationContextEditor({ value, workflow, catalog, nodeId, obs
   value: ObservationDraft; workflow: Workflow; catalog: CatalogSnapshot; nodeId: string
   observations: ScoreObservationReading[]; candidates: CandidateReference[]; allowRelations?: boolean; onChange: (value: ObservationDraft) => void
 }) {
-  const savedMode = value.exactContexts !== undefined ? 'exact' : value.relationInput ? 'relation' : value.reference ? 'reference' : 'unique'
-  const [mode, setMode] = useState(savedMode)
+  const mode = value.exactContexts !== undefined ? 'exact' : value.relationInput ? 'relation' : value.reference ? 'reference' : 'unique'
   const matching = observations.filter((entry) => value.scoreSource && sourceKey(entry.source) === sourceKey(value.scoreSource) && entry.metric.contract_id === value.metricId && entry.method.contract_id === value.methodId && entry.source_partition === value.partition && sameContext(entry.context_profile, value.context))
   const subjects = [...new Map([...candidates, ...matching.map((entry) => entry.subject), ...(value.exactContexts ?? []).map((entry) => entry.subject)].map((subject) => [candidateReferenceKey(subject), subject])).values()]
   const relations = selectionSources(workflow, catalog, nodeId, 'candidate.relation')
   const references = [...new Map([...matching.filter((entry) => entry.context.kind === 'pairwise').map((entry) => (entry.context.reference as { candidate: CandidateReference }).candidate), ...(value.reference ? [value.reference] : [])].map((reference) => [candidateReferenceKey(reference), reference])).values()]
   const changeMode = (next: string) => {
-    setMode(next)
     onChange({ ...value, reference: next === 'reference' ? value.reference : undefined, exactContexts: next === 'exact' ? [] : undefined, relationInput: next === 'relation' ? `input-${crypto.randomUUID()}` : undefined, relationSource: undefined })
   }
   const changeRelation = (source?: SelectionSource) => {
