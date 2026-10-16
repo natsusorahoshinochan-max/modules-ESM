@@ -29,7 +29,19 @@ export function readWeightedDraft(workflow: Workflow, nodeId: string): Selection
 
 export function saveWeightedDraft(workflow: Workflow, nodeId: string, draft: SelectionDraft): Workflow {
   const previous = workflow.nodes.find((entry) => entry.node_id === nodeId)
-  const objectives = draft.observations.map((value) => ({
+  const slots = new Map<string, string>()
+  const associate = (port: string, source?: SelectionSource, slot?: string) => {
+    if (!source) return slot
+    const key = JSON.stringify([port, source.node_id, source.output_port])
+    const existing = workflow.edges.find((edge) => edge.target_node_id === nodeId && edge.target_port === port && edge.source_node_id === source.node_id && edge.source_port === source.output_port)
+    if (!slots.has(key)) slots.set(key, existing?.target_slot ?? slot ?? `input-${crypto.randomUUID()}`)
+    return slots.get(key)
+  }
+  const observations = draft.observations.map((value) => ({
+    ...value, scoreInput: associate('scores', value.scoreSource, value.scoreInput ?? value.id),
+    relationInput: associate('relations', value.relationSource, value.relationInput),
+  }))
+  const objectives = observations.map((value) => ({
     selection: {
       ...(value.scoreInput ? { score_input: value.scoreInput } : {}), metric_id: value.metricId, method_id: value.methodId,
       source_partition: value.partition, context: structuredClone(value.context),
@@ -41,9 +53,9 @@ export function saveWeightedDraft(workflow: Workflow, nodeId: string, draft: Sel
     ...(value.weight === undefined ? {} : { weight: value.weight }),
   }))
   const old = (previous?.node_parameters.objectives ?? []) as WeightedObjective[]
-  const ownedSlots = new Set([...old.flatMap((entry) => [entry.selection?.score_input, entry.selection?.relation_input]), ...draft.observations.flatMap((entry) => [entry.scoreInput, entry.relationInput])].filter(Boolean))
+  const ownedSlots = new Set([...old.flatMap((entry) => [entry.selection?.score_input, entry.selection?.relation_input]), ...observations.flatMap((entry) => [entry.scoreInput, entry.relationInput])].filter(Boolean))
   const changingOperation = previous && previous.node_type_id !== 'selection.weighted_rank'
-  const selectedSource = (edge: Workflow['edges'][number]) => draft.observations.some((entry) => {
+  const selectedSource = (edge: Workflow['edges'][number]) => observations.some((entry) => {
     const source = edge.target_port === 'scores' ? entry.scoreSource : edge.target_port === 'relations' ? entry.relationSource : undefined
     return source?.node_id === edge.source_node_id && source.output_port === edge.source_port
   })
@@ -53,7 +65,7 @@ export function saveWeightedDraft(workflow: Workflow, nodeId: string, draft: Sel
     if (source) connections.set(`${port}:${slot ?? ''}`, { source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: port, ...(slot ? { target_slot: slot } : {}) })
   }
   connect('candidates', draft.candidateSource)
-  for (const value of draft.observations) {
+  for (const value of observations) {
     connect('scores', value.scoreSource, value.scoreInput)
     connect('relations', value.relationSource, value.relationInput)
   }

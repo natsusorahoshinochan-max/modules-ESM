@@ -47,6 +47,24 @@ test('weighted choices belong to the node and retain the exact evaluation withou
   assert.deepEqual(reopened.observations[0].scoreSource, { node_id: 'trials', output_port: 'scores' })
 })
 
+test('weighted evaluations share one connection per source and remain independently editable', () => {
+  const draft = createSelectionDraft('weighted_rank')
+  draft.observations = ['first', 'second'].map((metricId) => ({
+    ...newObservation(), metricId, methodId: 'trials', partition: 'measured', transformId: 'success.native',
+    scoreSource: { node_id: 'trials', output_port: 'scores' },
+    relationInput: `relation-${metricId}`, relationSource: { node_id: 'relationships', output_port: 'relation' },
+  }))
+  const saved = saveSelectionDraft(workflow, 'rank', draft)
+  assert.equal(saved.edges.filter((edge) => edge.target_port === 'scores').length, 1)
+  assert.equal(saved.edges.filter((edge) => edge.target_port === 'relations').length, 1)
+  const reopened = readSelectionDraft(JSON.parse(JSON.stringify(saved)), 'rank')
+  assert.equal(reopened.observations[0].scoreInput, reopened.observations[1].scoreInput)
+  assert.equal(reopened.observations[0].relationInput, reopened.observations[1].relationInput)
+  assert.notEqual(reopened.observations[0].id, reopened.observations[1].id)
+  const edited = saveSelectionDraft(saved, 'rank', { ...reopened, observations: reopened.observations.map((value, index) => index === 0 ? { ...value, weight: 3 } : value) })
+  assert.deepEqual(readSelectionDraft(edited, 'rank').observations.map((value) => value.weight), [3, 1])
+})
+
 test('an evaluation without a module scoring choice explains weighted unavailability', () => {
   const draft = createSelectionDraft('weighted_rank')
   draft.observations = [{ ...newObservation(), metricId: 'unconverted', methodId: 'trials', partition: 'measured', transformId: 'removed.choice' }]
