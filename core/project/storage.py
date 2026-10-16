@@ -121,3 +121,12 @@ def replace_file(
 ) -> Path:
     """Replace a rebuildable file without exposing a partial payload."""
     return _write_file(root, relative_parts, payload, replace=True)
+
+
+def replace_file_durable(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+) -> Path:
+    """Replace and durably acknowledge an application configuration file."""
+    return _write_file(root, relative_parts, payload, replace=True, durable=True)

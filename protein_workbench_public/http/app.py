@@ -59,7 +59,7 @@ def create_http_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         yield
-        await asyncio.to_thread(runtime.shutdown)
+        await asyncio.to_thread(_app.state.run_runtime.shutdown)
 
     app = FastAPI(
         title="Protein Workbench",
