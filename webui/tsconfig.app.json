@@ -26,6 +26,12 @@
       ],
       "react/*": [
         "./node_modules/@types/react/*"
+      ],
+      "fflate": [
+        "./node_modules/fflate"
+      ],
+      "3dmol": [
+        "./node_modules/3dmol"
       ]
     }
   },
