@@ -364,6 +364,8 @@ test('historical runs retain exact selection across refresh and project reopen',
   }
   await page.goto('/')
   await openProject(page, project.name)
+  const workspaceWrites: string[] = []
+  page.on('request', outgoing => { if (outgoing.method() === 'PUT' && outgoing.url().endsWith(`${prefix}/workspace`)) workspaceWrites.push(outgoing.url()) })
   await page.getByRole('button', { name: '运行历史', exact: true }).click()
   const history = page.getByRole('dialog', { name: '项目运行历史', exact: true })
   for (const run of completed) {
@@ -385,6 +387,7 @@ test('historical runs retain exact selection across refresh and project reopen',
   await page.getByRole('button', { name: '查看结果', exact: true }).click()
   await expect(page.locator('.result-stages')).toContainText(completed[0].run_id)
   await expect(page.locator('.result-stages')).not.toContainText(completed[1].run_id)
+  expect(workspaceWrites).toEqual([])
 })
 
 test('an active project run keeps editing locked while viewing a completed historical run', async ({ page, request }) => {
