@@ -1,0 +1,8 @@
+.structure-components { margin: 12px 0; padding: 12px; border: 1px solid #39413b; border-radius: 8px; }
+.structure-components p { font-size: 12px; color: #c4cec7; }
+.component-viewport { position: relative; width: 100%; height: 300px; min-height: 220px; }
+.component-list { max-height: 250px; overflow: auto; margin: 10px 0; }
+.component-list table { width: 100%; font-size: 12px; border-collapse: collapse; text-align: left; }
+.component-list th, .component-list td { padding: 7px; border-bottom: 1px solid #39413b; }
+.component-list small { display: block; }
+.component-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
