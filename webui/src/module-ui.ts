@@ -41,7 +41,9 @@ export async function loadNodeEditor(editor: RegisteredNodeEditor): Promise<Reac
         style.rel = 'stylesheet'; style.href = href
         document.head.append(style)
       }
-      const entry = await import(/* @vite-ignore */ extension.entry_url) as ModuleUiEntry
+      // Package assets are already browser ESM; preserve their declared URL through dev tooling.
+      const entryUrl = new URL(extension.entry_url, window.location.origin).href
+      const entry = await import(/* @vite-ignore */ entryUrl) as ModuleUiEntry
       return entry.register(host)
     })()
     modules.set(extension.entry_url, loaded)
