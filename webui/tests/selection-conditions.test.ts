@@ -124,3 +124,17 @@ test('unfinished conditions remain editable and removing a comparison removes it
   assert.deepEqual(removed.nodes[1].node_parameters, { condition: { kind: 'group', operator: 'and', children: [] } })
   assert.deepEqual(removed.edges, [])
 })
+
+test('switching to condition filtering discards abandoned evaluation dependencies', () => {
+  const saved = workflow()
+  saved.nodes.push({ node_id: 'chosen', node_type_id: 'selection.top_k', binding_id: 'selection.top_k.direct',
+    node_parameters: { selection: { score_input: 'old-scores', relation_input: 'old-relations' }, direction: 'descending', k: 1 }, binding_parameters: {} })
+  saved.edges.push(
+    { source_node_id: 'unneeded-score', source_port: 'scores', target_node_id: 'chosen', target_port: 'scores', target_slot: 'old-scores' },
+    { source_node_id: 'unneeded-relation', source_port: 'relations', target_node_id: 'chosen', target_port: 'relations', target_slot: 'old-relations' },
+  )
+  const draft = createSelectionDraft('filter', { node_id: 'input', output_port: 'candidates' })
+  draft.condition = { kind: 'comparison', selection: { ...newObservation(), scoreInput: 'chosen-scores', scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'energy', methodId: 'measurement', partition: 'raw' }, operator: '<', threshold: 0 }
+  const changed = saveSelectionDraft(saved, 'chosen', draft)
+  assert.deepEqual(changed.edges.map((edge) => [edge.source_node_id, edge.target_port]), [['input', 'candidates'], ['input', 'scores']])
+})

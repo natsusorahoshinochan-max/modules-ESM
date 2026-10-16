@@ -66,7 +66,8 @@ export function saveFilterDraft(workflow: Workflow, nodeId: string, draft: Selec
     }
   }
   const node: WorkflowNode = { node_id: nodeId, node_type_id: 'selection.filter', binding_id: 'selection.filter.direct', node_parameters: draft.condition ? { condition: write(draft.condition) } : {}, binding_parameters: {} }
-  const edges = workflow.edges.filter((edge) => edge.target_node_id !== nodeId || edge.target_port !== 'candidates' && !ownedSlots.has(edge.target_slot) && !connections.has(JSON.stringify([edge.target_port, edge.source_node_id, edge.source_port])))
+  const changingOperation = existing !== undefined && existing.node_type_id !== 'selection.filter'
+  const edges = workflow.edges.filter((edge) => edge.target_node_id !== nodeId || edge.target_port !== 'candidates' && !(changingOperation && ['scores', 'relations'].includes(edge.target_port)) && !ownedSlots.has(edge.target_slot) && !connections.has(JSON.stringify([edge.target_port, edge.source_node_id, edge.source_port])))
   if (draft.candidateSource) edges.push({ source_node_id: draft.candidateSource.node_id, source_port: draft.candidateSource.output_port, target_node_id: nodeId, target_port: 'candidates' })
   for (const { port, slot, source } of connections.values()) edges.push({ source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: port, target_slot: slot })
   return { ...workflow, nodes: existing ? workflow.nodes.map((value) => value.node_id === nodeId ? node : value) : [...workflow.nodes, node], edges }
