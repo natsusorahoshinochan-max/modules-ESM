@@ -1,5 +1,5 @@
 import { StructureViewer } from '../../../webui/src/StructureViewer'
-import type { PublishedStructure } from '../../../webui/src/protocol/client'
+import type { PublishedStructure, PublishedScientificValue } from '../../../webui/src/protocol/client'
 import type { ModuleViewerProps } from '../../../webui/src/module-ui'
 
 function Structure3D({ reading }: ModuleViewerProps) {
@@ -8,4 +8,8 @@ function Structure3D({ reading }: ModuleViewerProps) {
 function StructureText({ reading }: ModuleViewerProps) {
   return <section aria-label="已发布结构原文"><pre>{(reading.value as PublishedStructure).text}</pre></section>
 }
-export function register() { return { Structure3D, StructureText } }
+function Sequence({ reading }: ModuleViewerProps) {
+  const value = (reading as Extract<PublishedScientificValue, { kind: 'sequence' }>).value
+  return <section aria-label="已发布序列"><p>{value.sequence.length} 个序列位置</p><pre className="published-sequence">{value.sequence}</pre>{value.residue_ids === null ? <p>该序列未提供残基身份列表。</p> : <details><summary>查看已发布残基身份</summary><pre>{JSON.stringify(value.residue_ids, null, 2)}</pre></details>}</section>
+}
+export function register() { return { Structure3D, StructureText, Sequence } }

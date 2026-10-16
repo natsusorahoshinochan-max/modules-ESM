@@ -100,6 +100,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         extension_id="protein_io.viewers", resource_package=__package__,
         entry="ui/build/viewers.js", styles=("ui/build/viewers.css",), react_major=19,
         editors=(), viewers=(
+            ResultViewerDefinition("protein_io.sequence", "序列", "protein.sequence", "Sequence", True),
             ResultViewerDefinition("protein_io.structure.3d", "三维结构", "protein.structure", "Structure3D", True),
             ResultViewerDefinition("protein_io.structure.text", "结构原文", "protein.structure", "StructureText"),
         ),
