@@ -18,6 +18,7 @@ from core.project.objects import ProjectObjectStore
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.bootstrap import module_registrations
 from protein_workbench_public.http.app import create_http_app
+from protein_workbench_public.protocol import validate_schema
 from tests.scoring_fixture import registration
 
 
@@ -86,6 +87,13 @@ class ScoringChoiceTests(unittest.TestCase):
         availability = next(item for item in response.json()["availability"]
                             if item["binding"]["contract_id"] == "selection.weighted_rank.direct")
         self.assertTrue(availability["available"])
+
+    def test_binding_scientific_behaviors_are_valid_public_contract_descriptors(self):
+        response = self.client.get("/api/v2/catalog")
+        self.assertEqual(response.status_code, 200, response.text)
+        weighted = next(item['descriptor'] for item in response.json()['contracts']
+                        if item['reference']['contract_id'] == 'selection.weighted_rank.direct')
+        validate_schema('#/$defs/BindingContractDescriptor', weighted)
 
 
 if __name__ == "__main__":

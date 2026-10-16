@@ -367,6 +367,9 @@
             "direct"
           ]
         },
+        "factory_behavior": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
         "method": {
           "$ref": "#/$defs/ContractReference"
         },
@@ -392,6 +395,9 @@
               "type": "null"
             }
           ]
+        },
+        "parameter_dependencies": {
+          "$ref": "#/$defs/BehaviorReference"
         },
         "produced_observations": {
           "items": {
@@ -428,6 +434,7 @@
         "method",
         "binding_parameters",
         "execution_route",
+        "factory_behavior",
         "route_behavior",
         "availability_declaration",
         "deterministic",
