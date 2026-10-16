@@ -155,6 +155,13 @@ def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
         if replacement is None:
             continue
         node["binding_id"] = replacement
+        if replacement.startswith("esm3."):
+            node["binding_parameters"]["effective_seed"] = {
+                "generate-paired": 1603,
+                "generate-shorter-8": 5353008,
+                "generate-numbering-implied-12": 5353012,
+                "generate-longer-16": 5353016,
+            }[node["node_id"]]
         if binding == _REMOTE_ESMFOLD2_BINDING:
             local_esmfold2_node_ids.add(node["node_id"])
         replaced += 1
@@ -759,21 +766,22 @@ def _assert_5g53_science(
             "numbering-implied-12": 5353012,
             "longer-16": 5353016,
         }[branch]
-        assert workflow_nodes[f"generate-{branch}"]["node_parameters"] == {
-            "effective_seed": expected_seed,
-            "num_samples": 2,
-            "num_steps": 20,
-            "temperature": 0.7,
-            "top_p": 1.0,
-            "schedule": "cosine",
-            "strategy": "random",
-            "temperature_annealing": True,
+        assert workflow_nodes[f"generate-{branch}"]["node_parameters"] == {"num_samples": 2}
+        assert workflow_nodes[f"generate-{branch}"]["binding_parameters"] == {
+            **{prefix + name: value
+               for prefix in ("sequence_", "structure_")
+               for name, value in {"num_steps": 20, "temperature": 0.7,
+                                   "top_p": 1.0, "schedule": "cosine",
+                                   "strategy": "random", "temperature_annealing": True}.items()},
+            **({"effective_seed": expected_seed} if local_models else {}),
         }
         assert workflow_nodes[f"fold-{branch}"]["node_parameters"] == {
             "effective_seed": 5353999,
             "num_samples": 1,
         }
         expected_generation_parameters = {
+            "invalid_ids": (),
+            "condition_on_coordinates_only": True,
             "num_steps": 20,
             "temperature": 0.7,
             "top_p": 1.0,

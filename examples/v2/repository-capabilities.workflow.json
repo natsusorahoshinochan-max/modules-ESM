@@ -21,7 +21,6 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
       "node_parameters": {
-        "effective_seed": 3402,
         "num_samples": 2
       },
       "binding_parameters": {}
@@ -31,7 +30,6 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_open",
       "node_parameters": {
-        "effective_seed": 3403,
         "num_samples": 2
       },
       "binding_parameters": {}
@@ -41,17 +39,17 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.local_open",
       "node_parameters": {
-        "effective_seed": 3404,
         "num_samples": 2
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "effective_seed": 3404
+      }
     },
     {
       "node_id": "esm3-generate-sequence-biohub-medium",
       "node_type_id": "esm3.generate_sequence",
       "binding_id": "esm3.generate_sequence.biohub_medium",
       "node_parameters": {
-        "effective_seed": 3405,
         "num_samples": 2
       },
       "binding_parameters": {}
@@ -61,7 +59,6 @@
       "node_type_id": "esm3.generate_sequence",
       "binding_id": "esm3.generate_sequence.biohub_open",
       "node_parameters": {
-        "effective_seed": 3406,
         "num_samples": 2
       },
       "binding_parameters": {}
@@ -71,17 +68,17 @@
       "node_type_id": "esm3.generate_sequence",
       "binding_id": "esm3.generate_sequence.local_open",
       "node_parameters": {
-        "effective_seed": 3407,
         "num_samples": 2
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "effective_seed": 3407
+      }
     },
     {
       "node_id": "esm3-generate-structure-biohub-medium",
       "node_type_id": "esm3.generate_structure",
       "binding_id": "esm3.generate_structure.biohub_medium",
       "node_parameters": {
-        "effective_seed": 3408,
         "num_samples": 2
       },
       "binding_parameters": {}
@@ -91,7 +88,6 @@
       "node_type_id": "esm3.generate_structure",
       "binding_id": "esm3.generate_structure.biohub_open",
       "node_parameters": {
-        "effective_seed": 3409,
         "num_samples": 2
       },
       "binding_parameters": {}
@@ -101,10 +97,11 @@
       "node_type_id": "esm3.generate_structure",
       "binding_id": "esm3.generate_structure.local_open",
       "node_parameters": {
-        "effective_seed": 3410,
         "num_samples": 2
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "effective_seed": 3410
+      }
     },
     {
       "node_id": "folding-fold-esmfold2-local",

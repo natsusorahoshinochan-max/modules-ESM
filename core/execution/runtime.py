@@ -460,6 +460,17 @@ class V2RunService:
                 )
             yield
 
+    @contextmanager
+    def module_configuration_mutation(self) -> Iterator[None]:
+        """Keep the installation Catalog unchanged while Runs own execution resources."""
+        with self._worker_condition:
+            if self._reserved_projects or self._workers:
+                raise V2RunError(
+                    "module_change_active_runs", "Wait for active Runs before changing modules",
+                    details={},
+                )
+            yield
+
     def start_derived_background(
         self,
         project_id: str,
@@ -506,6 +517,14 @@ class V2RunService:
             while self._reserved_projects:
                 self._worker_condition.wait()
         self._node_attempt_factory.shutdown()
+
+    def project_runs(self, project_id: str) -> tuple[RunProjection, ...]:
+        """Read every admitted Run of an existing Project."""
+        self._projects.require_meta(project_id)
+        return tuple(
+            self.projection(project_id, run_id)
+            for run_id in self._registry.project_run_ids(project_id)
+        )
 
     def projection(self, project_id: str, run_id: str) -> RunProjection:
         return self._queries.projection(project_id, run_id)

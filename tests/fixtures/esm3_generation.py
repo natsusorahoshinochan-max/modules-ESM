@@ -137,7 +137,7 @@ def run_generation(
     num_samples: int,
     sequence: str | None = None,
     environment_overrides: dict[str, Any] | None = None,
-    generation_parameters: dict[str, Any] | None = None,
+    binding_parameters: dict[str, Any] | None = None,
     binding_route: str = "biohub_medium",
     sequence_mask_residue_ids: tuple[str, ...] = (),
     materialize_confidence: bool = False,
@@ -204,18 +204,16 @@ def run_generation(
                 binding_parameters={},
             )
         )
-    resolved_generation_parameters = {
-        "effective_seed": 1603,
-        "num_samples": num_samples,
-    }
-    resolved_generation_parameters.update(generation_parameters or {})
+    resolved_binding_parameters = dict(binding_parameters or {})
+    if binding_route == "local_open":
+        resolved_binding_parameters["effective_seed"] = 1603
     nodes.append(
         WorkflowNodeInstance(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
             binding_id=f"esm3.{operation}.{binding_route}",
-            node_parameters=resolved_generation_parameters,
-            binding_parameters={},
+            node_parameters={"num_samples": num_samples},
+            binding_parameters=resolved_binding_parameters,
         )
     )
     edges.append(
@@ -425,11 +423,8 @@ def run_generation_from_prompt_fixture(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
                 binding_id=f"esm3.{operation}.{binding_route}",
-                node_parameters={
-                    "effective_seed": 1603,
-                    "num_samples": num_samples,
-                },
-                binding_parameters={},
+                node_parameters={"num_samples": num_samples},
+                binding_parameters=({"effective_seed": 1603} if binding_route == "local_open" else {}),
             ),
         ),
         edges=(

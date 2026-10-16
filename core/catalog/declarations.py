@@ -29,6 +29,7 @@ from datatypes.exact_reference import (
 )
 from datatypes.identifier import validate_canonical_identifier
 
+from core.catalog.result_actions import ResultActionDefinition
 from core.catalog.errors import CatalogBuildError
 from core.catalog.observation import ProducedObservation, ObservationPropagation
 from datatypes.observation import observation_context_profile_descriptor
@@ -622,6 +623,7 @@ class ModulePackageRegistration:
     port_types: tuple[PortTypeDefinition, ...] = ()
     utility_transforms: tuple[UtilityTransformDefinition, ...] = ()
     authoring_capabilities: tuple[AuthoringCapabilityDefinition, ...] = ()
+    result_actions: tuple[ResultActionDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -633,6 +635,7 @@ class ModulePackageRegistration:
             "utility_transforms",
             "authoring_capabilities",
             "ui_extensions",
+            "result_actions",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
 

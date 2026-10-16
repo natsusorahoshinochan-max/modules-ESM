@@ -51,28 +51,18 @@ class ESM3GenerationOperation:
         self._adapter = adapter
         self._operation = operation
         self._method = method
-        self._generate = {
-            "generate_sequence": self._generate_sequence,
-            "generate_structure": self._generate_structure,
-            "generate_paired": self._generate_paired,
-        }[operation]
 
     @staticmethod
-    def _parameters(
-        parameters: Mapping[str, Any],
-    ) -> tuple[int, ESM3CallParameters]:
-        return (
-            parameters["num_samples"],
-            ESM3CallParameters(
-                num_steps=parameters["num_steps"],
-                temperature=parameters["temperature"],
-                top_p=parameters["top_p"],
-                schedule=parameters["schedule"],
-                strategy=parameters["strategy"],
-                temperature_annealing=parameters[
-                    "temperature_annealing"
-                ],
-            ),
+    def _parameters(parameters: Mapping[str, Any], prefix: str = "") -> ESM3CallParameters:
+        return ESM3CallParameters(
+            num_steps=parameters[prefix + "num_steps"],
+            temperature=parameters[prefix + "temperature"],
+            top_p=parameters[prefix + "top_p"],
+            schedule=parameters[prefix + "schedule"],
+            strategy=parameters[prefix + "strategy"],
+            temperature_annealing=parameters[prefix + "temperature_annealing"],
+            invalid_ids=tuple(parameters[prefix + "invalid_ids"]),
+            condition_on_coordinates_only=parameters[prefix + "condition_on_coordinates_only"],
         )
 
     @staticmethod
@@ -86,6 +76,8 @@ class ESM3GenerationOperation:
             "schedule": parameters.schedule,
             "strategy": parameters.strategy,
             "temperature_annealing": parameters.temperature_annealing,
+            "invalid_ids": list(parameters.invalid_ids),
+            "condition_on_coordinates_only": parameters.condition_on_coordinates_only,
         }
 
     @classmethod
@@ -101,6 +93,7 @@ class ESM3GenerationOperation:
         effective_call_seed: int | None,
         effective_num_steps: int,
         effective_num_steps_by_track: Mapping[str, int] | None = None,
+        parameters_by_track: Mapping[str, ESM3CallParameters] | None = None,
     ) -> dict[str, Any]:
         requested = cls._requested_parameters(parameters)
         steps_by_track = (
@@ -115,7 +108,8 @@ class ESM3GenerationOperation:
             "requested_generation_parameters": requested,
             "effective_generation_parameters": {
                 track: {
-                    **requested,
+                    **(requested if parameters_by_track is None else
+                       cls._requested_parameters(parameters_by_track[track])),
                     "num_steps": steps,
                 }
                 for track, steps in steps_by_track.items()
@@ -136,17 +130,23 @@ class ESM3GenerationOperation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         admitted_prompt = call.inputs["protein_prompt"]
         prompt = admitted_prompt.value
-        num_samples, parameters = self._parameters(call.node_parameters)
+        num_samples = call.node_parameters["num_samples"]
         effective_seed: int | None = call.effective_randomness.get(
             "effective_seed"
         )
         with self._adapter:
-            return self._generate(
-                prompt,
-                effective_seed=effective_seed,
-                admitted_prompt=admitted_prompt,
-                num_samples=num_samples,
-                parameters=parameters,
+            if self._operation == "generate_paired":
+                return self._generate_paired(
+                    prompt, effective_seed=effective_seed, admitted_prompt=admitted_prompt,
+                    num_samples=num_samples,
+                    sequence_parameters=self._parameters(call.binding_parameters, "sequence_"),
+                    structure_parameters=self._parameters(call.binding_parameters, "structure_"),
+                )
+            generate = (self._generate_sequence if self._operation == "generate_sequence"
+                        else self._generate_structure)
+            return generate(
+                prompt, effective_seed=effective_seed, admitted_prompt=admitted_prompt,
+                num_samples=num_samples, parameters=self._parameters(call.binding_parameters),
             )
 
     @staticmethod
@@ -374,7 +374,8 @@ class ESM3GenerationOperation:
         effective_seed: int | None,
         admitted_prompt: AdmittedPort,
         num_samples: int,
-        parameters: ESM3CallParameters,
+        sequence_parameters: ESM3CallParameters,
+        structure_parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
         self._require_sequence_mask(prompt)
         sequence_candidates: list[Candidate] = []
@@ -388,7 +389,8 @@ class ESM3GenerationOperation:
             try:
                 result = self._adapter.generate_pair(
                     prompt,
-                    parameters=parameters,
+                    sequence_parameters=sequence_parameters,
+                    structure_parameters=structure_parameters,
                     base_seed=effective_seed,
                     sample_index=sample_index,
                 )
@@ -411,7 +413,7 @@ class ESM3GenerationOperation:
                     sample_index=sample_index,
                     classification="sequence",
                     configured_base_seed=effective_seed,
-                    parameters=parameters,
+                    parameters=sequence_parameters,
                     call_track="sequence",
                     effective_call_seed=(
                         sequence_result.effective_call_seed
@@ -445,7 +447,7 @@ class ESM3GenerationOperation:
                         sample_index=sample_index,
                         classification="prompt_reconstruction",
                         configured_base_seed=effective_seed,
-                        parameters=parameters,
+                        parameters=sequence_parameters,
                         call_track="sequence",
                         effective_call_seed=(
                             sequence_result.effective_call_seed
@@ -480,7 +482,7 @@ class ESM3GenerationOperation:
                     sample_index=sample_index,
                     classification="sampled_structure",
                     configured_base_seed=effective_seed,
-                    parameters=parameters,
+                    parameters=structure_parameters,
                     call_track="structure",
                     effective_call_seed=(
                         structure_result.effective_call_seed
@@ -488,6 +490,7 @@ class ESM3GenerationOperation:
                     effective_num_steps=(
                         structure_result.effective_num_steps
                     ),
+                    parameters_by_track={"sequence": sequence_parameters, "structure": structure_parameters},
                     effective_num_steps_by_track={
                         "sequence": sequence_result.effective_num_steps,
                         "structure": structure_result.effective_num_steps,

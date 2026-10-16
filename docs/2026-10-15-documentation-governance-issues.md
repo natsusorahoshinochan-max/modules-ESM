@@ -12,10 +12,10 @@
 
 ## 实现待对齐
 
-### DOC-011｜远程 ESM3 步数范围与固定官方资料不一致
+### DOC-011｜ESM3 路线步数声明的集成验收待完成
 
-- **当前证据**：[官方 generate 快照](biohub-api-reference/v1/endpoints/generate.md)第 30、53 行限定 1–100；[序列生成声明](../modules/esm3/definitions/generate_sequence.yaml)第 56–63 行及另两种生成节点允许到 2048。
-- **状态**：须按实际调用路线核对并正确声明范围，本地与远程不能混用；未复验线上行为，不能声称远端当前必然拒绝。参数开放要求见[参数审查](tool-parameter-exposure-audit.md)。
+- **当前实现**：[Binding 声明](../modules/esm3/package.py)按官方远程快照限制 Biohub 1–100 步，本地正整数不套用远程上限，保留 SDK 有效步数处理。
+- **待核验**：完整非 Provider 门禁与 Biohub 真实验收；本地重模型执行排除，保留不加载模型的契约检查。
 
 ### DOC-019｜历史运行列表与历史结果采用尚未证实完整
 
@@ -60,10 +60,10 @@
 - **当前证据**：[align_pairs](../modules/structure_comparison/definitions/align_pairs.yaml)第 1–16 行只接收完整轴，[轴解析声明](../modules/structure_transform/definitions/resolve_candidate_residue_axes.yaml)未提供区域选择；已有专用 inserted-loop 评价不能证明通用组合已完整覆盖。
 - **状态**：按[架构](architecture.md)与[模块能力](module-capabilities.md)核对真实场景覆盖。不同表示本身不证明残基错配，不把模块内部区域处理放进载体。
 
-### DOC-039｜ESM3 适用生成参数仍隐藏或缺乏限制依据
+### DOC-039｜ESM3 参数接入的完整验收待完成
 
-- **当前证据**：[Adapter](../modules/esm3/adapter.py)第 435–444 行未开放 invalid_ids 并固定 condition_on_coordinates_only；生成节点 temperature 上限 10 未找到官方依据，top_p 允许 0 而固定远程快照为 `(0,1]`；paired 两次调用共用配置。
-- **状态**：按当前功能和调用路线开放适用参数，正确传入。默认温度 1 有固定 SDK 依据；远端未支持的 seed 不能伪造。细节见[参数审查](tool-parameter-exposure-audit.md)，步数范围另见 DOC-011。
+- **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
+- **待核验**：当前调用方、示例与参数记录的完整集成门禁和 Biohub 真实验收；见[参数审查](tool-parameter-exposure-audit.md)。不将不加载模型的契约检查记为本地重模型通过。
 
 ### DOC-040｜ESMFold2 适用推理参数仍固定
 
@@ -75,11 +75,11 @@
 - **当前证据**：[运行时](../modules/folding/simplefold_runtime.py)第 260–268 行固定 tau=.1；[Binding](../modules/folding/package.py)第 424–435 行将步数限制在 1–50，固定上游 CLI 公开步数及 tau，示例采用 500 步。
 - **状态**：开放适用参数并移除无依据限制。tau=.1 有默认依据；不将折叠采样参数套用于不重新采样的已有结构 confidence 操作。见[参数审查](tool-parameter-exposure-audit.md)。
 
-### DOC-045｜结构导出仍缺用户选择格式转换
+### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)按原格式输出，尚未提供 Q34 要求的用户选择格式转换。
-- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；导入或原格式导出通过不等于两条导出路径的选择转换已完成。
+- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
+- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；节点四种源/目标组合已通过本次诊断；结果 action 与浏览器选择入口的完整验证仍待完成，不将前者当作后者已验收。
 
 ### DOC-046｜跳过批内成功请求的主动续算仍缺
 

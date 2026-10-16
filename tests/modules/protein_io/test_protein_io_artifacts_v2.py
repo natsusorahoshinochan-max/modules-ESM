@@ -49,6 +49,7 @@ def _run_import_export(
     *,
     value_kind: str,
     payload: bytes,
+    export_parameters: dict[str, Any] | None = None,
 ) -> tuple[V2RunService, str, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(module_registrations())
     projects = ProjectManager(
@@ -73,7 +74,7 @@ def _run_import_export(
             node_parameters=(
                 {"project_input_ref": f"{value_kind}-input"}
                 if role == "import"
-                else {}
+                else (export_parameters or {})
             ),
             binding_parameters={},
         )
@@ -394,3 +395,61 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         disposition["resolution"] == "cache_replayed"
         for disposition in projections[1]["node_dispositions"]
     )
+
+
+@pytest.mark.parametrize("source_format", ["pdb", "mmcif"])
+@pytest.mark.parametrize("target_format", ["pdb", "mmcif"])
+def test_structure_export_converts_selected_format_and_retains_atom_identity(
+    tmp_path: Path, source_format: str, target_format: str,
+) -> None:
+    from io import StringIO
+    from Bio.PDB import PDBParser, MMCIFParser
+
+    pdb = (
+        "ATOM      1  CA AGLY B  42A      1.000   2.000   3.000  0.50 20.00           C  \n"
+        "HETATM    2 ZN    ZN C   7       4.000   5.000   6.000  1.00 30.00          ZN2+\n"
+        "END\n"
+    )
+    cif = """data_export
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_alt_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.pdbx_PDB_ins_code
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+_atom_site.pdbx_formal_charge
+_atom_site.auth_seq_id
+_atom_site.auth_asym_id
+_atom_site.pdbx_PDB_model_num
+ATOM 1 C CA A GLY B 1 1 A 1 2 3 0.5 20 ? 42 B 1
+HETATM 2 ZN ZN . ZN C 2 . ? 4 5 6 1 30 2 7 C 1
+"""
+    native = pdb if source_format == "pdb" else cif
+    service, project_id, projection, _ = _run_import_export(
+        tmp_path, value_kind="structure", payload=native.encode(),
+        export_parameters={"format": target_format},
+    )
+    assert projection["status"] == "succeeded"
+    artifact = projection["artifact_index"][0]
+    assert artifact["media_type"] == "chemical/x-" + target_format
+    _, body = service.artifact(project_id, projection["run_id"], artifact["artifact_reference"])
+    parser = PDBParser(QUIET=True) if target_format == "pdb" else MMCIFParser(QUIET=True)
+    parsed = parser.get_structure("export", StringIO(body.decode()))
+    atoms = list(parsed.get_atoms())
+    assert [(a.parent.parent.id, a.parent.id[1:], a.parent.resname, a.name, a.altloc) for a in atoms] == [
+        ("B", (42, "A"), "GLY", "CA", "A"), ("C", (7, " "), "ZN", "ZN", " "),
+    ]
+    assert [tuple(a.coord) for a in atoms] == [(1, 2, 3), (4, 5, 6)]
+    assert [a.occupancy for a in atoms] == [0.5, 1]
+    if source_format == target_format:
+        assert body.decode() == native

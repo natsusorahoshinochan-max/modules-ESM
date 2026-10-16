@@ -346,3 +346,43 @@ test('missing Node Types and Bindings open as placeholders and manual save prese
   await expect(run.getByRole('alert')).toBeVisible()
   await expect(run.getByRole('button', { name: '开始运行已确认范围', exact: true })).toHaveCount(0)
 })
+
+test('historical runs retain exact selection across refresh and project reopen', async ({ page, request }) => {
+  const { project, workflow } = await createWorkspace(request)
+  const other = await createWorkspace(request)
+  const prefix = `/api/v2/projects/${project.id}`
+  const completed: Array<{ run_id: string; status: string }> = []
+  for (const bad of [false, true]) {
+    if (bad) {
+      const input = await (await request.post(`${prefix}/inputs`, { data: { filename: 'multiple.fa', content_base64: Buffer.from('>a\nACDE\n>b\nGGGG\n').toString('base64') } })).json()
+      workflow.nodes.push({ ...workflow.nodes[0], node_id: 'invalid-import', node_parameters: { project_input_ref: input.project_input_ref } })
+    }
+    const commit = await (await request.post(`${prefix}/workflow:commit`, { data: { workflow } })).json()
+    const receipt = await (await request.post(`${prefix}/runs`, { data: { workflow_commit_id: commit.workflow_commit_id, client_request_id: crypto.randomUUID(), scope: { mode: 'full', node_ids: [] } } })).json()
+    await expect.poll(async () => (await (await request.get(`${prefix}/runs/${receipt.run_id}`)).json()).status).toBe(bad ? 'failed' : 'succeeded')
+    completed.push({ run_id: receipt.run_id, status: bad ? 'failed' : 'succeeded' })
+  }
+  await page.goto('/')
+  await openProject(page, project.name)
+  await page.getByRole('button', { name: '运行历史', exact: true }).click()
+  const history = page.getByRole('dialog', { name: '项目运行历史', exact: true })
+  for (const run of completed) {
+    const row = history.getByRole('listitem').filter({ hasText: run.run_id })
+    await expect(row).toContainText(run.status)
+    await row.getByRole('button', { name: '打开运行', exact: true }).click()
+    await expect(row.getByRole('button', { name: '打开运行', exact: true })).toHaveAttribute('aria-current', 'true')
+    await expect(history.getByRole('region', { name: '选中运行状态' })).toContainText(run.status)
+  }
+  const first = history.getByRole('listitem').filter({ hasText: completed[0].run_id })
+  await first.getByRole('button', { name: '打开运行', exact: true }).click()
+  await history.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.reload()
+  await expect(page.locator('.project-identity strong')).toHaveText(project.name)
+  await expect(page.locator('.run-progress-id')).toHaveText(completed[0].run_id)
+  await openProject(page, other.project.name)
+  await openProject(page, project.name)
+  await expect(page.locator('.run-progress-id')).toHaveText(completed[0].run_id)
+  await page.getByRole('button', { name: '查看结果', exact: true }).click()
+  await expect(page.locator('.result-stages')).toContainText(completed[0].run_id)
+  await expect(page.locator('.result-stages')).not.toContainText(completed[1].run_id)
+})

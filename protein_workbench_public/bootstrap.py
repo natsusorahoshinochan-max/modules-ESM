@@ -16,7 +16,9 @@ from core.catalog.authoring import build_authoring_capability_projection
 from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.model import FrozenCatalog
 from core.workflow.document import WorkflowDocument
-from protein_workbench_public.module_registry import DEFAULT_MODULES, installed_modules
+from protein_workbench_public.module_registry import DEFAULT_MODULES, InstalledModule, installed_modules, save_installed_modules
+from protein_workbench_public.module_management import ModuleManager
+from protein_workbench_public.http.module_routes import register_module_routes
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.results.cache import ProjectReplayIndex
@@ -59,7 +61,7 @@ def _install_teaching_resources(
     load_example_results: bool,
 ) -> None:
     """Install available teaching content only when its module contracts are present."""
-    if not catalog.contracts or find_spec("examples") is None:
+    if not any(contract.contract_kind == "node_type" for contract in catalog.contracts) or find_spec("examples") is None:
         return
     resource_root = files("examples").joinpath("v2")
     canonical_resource = resource_root.joinpath("canonical-3gb1.workflow.json")
@@ -90,8 +92,51 @@ def create_application(
     load_example_results: bool = True,
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
+    app = _compose_application(
+        installed_modules(application_storage_roots().data),
+        v2_environment_configuration=v2_environment_configuration,
+        load_example_results=load_example_results,
+    )
+
+    def activate(packages: tuple[InstalledModule, ...]) -> None:
+        configured = v2_environment_configuration
+        if configured is not None:
+            active_bindings = {
+                binding.binding_id for package in packages if package.enabled
+                for binding in package.registration().bindings
+            }
+            configured = {key: value for key, value in configured.items() if key in active_bindings}
+        replacement = _compose_application(
+            packages, v2_environment_configuration=configured,
+            load_example_results=load_example_results,
+        )
+        try:
+            save_installed_modules(application_storage_roots().data, packages)
+        except OSError:
+            replacement.state.run_runtime.shutdown()
+            raise
+        old_runtime = app.state.run_runtime
+        app.router.routes = [*replacement.router.routes, *module_routes]
+        app.state = replacement.state
+        app.state.module_manager = manager
+        old_runtime.shutdown()
+
+    manager = ModuleManager(application_storage_roots().data, lambda: app.state.run_runtime, activate)
+    previous_route_count = len(app.router.routes)
+    register_module_routes(app, manager)
+    module_routes = app.router.routes[previous_route_count:]
+    app.state.module_manager = manager
+    return app
+
+
+def _compose_application(
+    packages: tuple[InstalledModule, ...],
+    *,
+    v2_environment_configuration: Mapping[str, Mapping[str, Any]] | None,
+    load_example_results: bool,
+) -> FastAPI:
     storage = application_storage_roots()
-    registrations = tuple(package.registration() for package in installed_modules(storage.data) if package.enabled)
+    registrations = tuple(package.registration() for package in packages if package.enabled)
     catalog = build_frozen_catalog(registrations)
     authoring_projection = build_authoring_capability_projection(
         registrations,

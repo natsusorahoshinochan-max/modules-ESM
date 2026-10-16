@@ -73,6 +73,10 @@ class _RunRegistry:
     ) -> None:
         self._runs[(project_id, run_id)] = record
 
+    def project_run_ids(self, project_id: str) -> tuple[str, ...]:
+        """Return registered, admitted Runs, including restored history."""
+        return tuple(run_id for owner, run_id in tuple(self._runs) if owner == project_id)
+
     def active_run_ids(self, project_id: str) -> tuple[str, ...]:
         return tuple(
             run_id for (owner, run_id), record in tuple(self._runs.items())
