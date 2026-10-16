@@ -65,10 +65,10 @@
 - **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
 - **待核验**：当前调用方、示例与参数记录的完整集成门禁和 Biohub 真实验收；见[参数审查](tool-parameter-exposure-audit.md)。不将不加载模型的契约检查记为本地重模型通过。
 
-### DOC-040｜ESMFold2 适用推理参数仍固定
+### DOC-040｜ESMFold2 参数接入的完整验收待完成
 
-- **当前证据**：[远程调用](../modules/folding/esmfold2_remote.py)第 77–85 行及[本地调用](../modules/folding/esmfold2_local.py)第 125–136 行固定步数、循环、dropout、mask 和 MSA 配置；[节点声明](../modules/folding/definitions/fold.yaml)第 22–44 行仅开放部分参数。
-- **状态**：按各官方入口的适用条件整改，不因参数开放新增模型路线或全部输出模式；本地其他参数的适用性和默认步数依据仍需核对。见[参数审查](tool-parameter-exposure-audit.md)。
+- **当前实现**：[Binding](../modules/folding/package.py)已声明六项适用推理参数，由远程和本地 Adapter 分别传入官方接口；范围、默认值和 null 语义按各路线区分。未展示标准本地模型实际忽略的 sampler overrides。
+- **待核验**：完整集成门禁及 Biohub 非默认参数真实验收；本地重模型执行排除，保留不加载模型的契约检查。具体范围见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与待验收范围)。
 
 ### DOC-041｜SimpleFold 的 tau 与步数范围仍受封装限制
 

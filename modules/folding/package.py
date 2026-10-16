@@ -259,6 +259,47 @@ def _build_simplefold_confidence(
     )
 
 
+def _esmfold2_parameters(*, local: bool) -> dict[str, Any]:
+    """Inference controls consumed by the selected official folding route."""
+    fraction = {"type": "number", "minimum": 0, "maximum": 1}
+    nullable_fraction = {**fraction, "type": ["number", "null"]}
+    specifications = {
+        "num_sampling_steps": (
+            {"type": "integer", "minimum": 1,
+             **({} if local else {"maximum": 100})},
+            200 if local else 100,
+            "Diffusion ODE solver steps; default from the selected official entry point.",
+        ),
+        "num_loops": (
+            {"type": "integer", "minimum": 0,
+             **({} if local else {"maximum": 20})},
+            20, "Trunk refinement loops.",
+        ),
+        "lm_dropout": (
+            nullable_fraction if local else fraction, 0.3,
+            "LM pair-embedding dropout fraction; local null disables dropout.",
+        ),
+        "lm_mask_pct": (
+            nullable_fraction if local else fraction, None if local else 0.1,
+            "Masked residue fraction; local null uses checkpoint configuration, remote default is for the fast model.",
+        ),
+        "msa_max_depth": (
+            {"type": ["integer", "null"], "minimum": 1,
+             **({} if local else {"maximum": 16384})},
+            1024, "Maximum MSA rows per loop; null disables subsampling. Applies when the input carries an MSA.",
+        ),
+        "msa_column_mask_rate": (
+            fraction, 0.1,
+            "Masked MSA column fraction in non-query rows; applies when the input carries an MSA.",
+        ),
+    }
+    return {
+        name: {"parameter_scope": "scientific", "scientific_meaning": meaning,
+               "value_contract": contract, "default": default}
+        for name, (contract, default, meaning) in specifications.items()
+    }
+
+
 def _binding(route: str) -> ExecutionBindingDefinition:
     if route == "remote":
         binding_id = "folding.fold.esmfold2_remote"
@@ -364,7 +405,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "method",
             method_id,
         ),
-        binding_parameters={},
+        binding_parameters=_esmfold2_parameters(local=route == "local"),
         environment_fields=(
             _BIOHUB_ENVIRONMENT_FIELDS
             if route == "remote"

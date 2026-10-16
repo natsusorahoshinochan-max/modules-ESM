@@ -70,20 +70,11 @@ def decode_remote_fold_result(
     )
 
 
-def fixed_folding_config() -> Any:
-    """Build the Method-fixed remote configuration with complete confidence."""
+def folding_config(parameters: Mapping[str, Any]) -> Any:
+    """Translate admitted inference controls, retaining required confidence output."""
     from esm.sdk.api import FoldingConfig
 
-    return FoldingConfig(
-        include_pae=True,
-        include_embeddings=False,
-        num_sampling_steps=100,
-        num_loops=20,
-        lm_dropout=0.3,
-        lm_mask_pct=0.1,
-        msa_max_depth=1024,
-        msa_column_mask_rate=0.1,
-    )
+    return FoldingConfig(include_pae=True, include_embeddings=False, **parameters)
 
 
 def build_remote_engine(environment: Mapping[str, Any]) -> Any:
@@ -118,6 +109,7 @@ class BiohubESMFold2Adapter:
         self,
         *,
         sequence: ProteinSequence,
+        parameters: Mapping[str, Any],
         derived_call_seed: int,
         engine_role: str,
     ) -> ESMFold2AdapterResult:
@@ -127,7 +119,7 @@ class BiohubESMFold2Adapter:
         del derived_call_seed
         engine = build_remote_engine(self._environment)
         try:
-            config = fixed_folding_config()
+            config = folding_config(parameters)
             with self._resources.engine_invocation(
                 engine_role=engine_role,
                 invocation_provenance=EngineInvocationProvenance(

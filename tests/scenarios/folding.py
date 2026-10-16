@@ -42,6 +42,7 @@ def _run_fold(
     environment_overrides: dict[str, Any] | None = None,
     source_sequence: str = "AG",
     num_samples: int = 1,
+    binding_parameters: dict[str, Any] | None = None,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
@@ -69,7 +70,7 @@ def _run_fold(
             "effective_seed": 1603,
             "num_samples": num_samples,
         },
-        binding_parameters={},
+        binding_parameters=binding_parameters or {},
     )
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",

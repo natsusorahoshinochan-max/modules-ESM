@@ -887,3 +887,29 @@ test('node groups preserve editing context, parameter Escape and independent cop
   await page.getByRole('button', { name: '返回上层 · Tab' }).click()
   await expect(page.getByRole('button', { name: '进入组 节点组', exact: true })).toHaveCount(1)
 })
+
+
+test('ESMFold2 nullable numeric settings survive explicit save without model execution', async ({ page }) => {
+  await page.goto('/')
+  await enterExampleStage(page, 3)
+  const foldNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Fold protein sequences' }) }).first()
+  await foldNode.locator('summary[aria-label="编辑参数"]').click()
+  const depth = foldNode.getByLabel('模型参数 · msa_max_depth')
+  await depth.fill('null')
+  await depth.blur()
+  await foldNode.getByLabel('模型参数 · num_sampling_steps').fill('37')
+  await foldNode.getByLabel('模型参数 · num_sampling_steps').blur()
+  const copying = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(':copy'))
+  await page.getByRole('button', { name: '保存项目', exact: true }).click()
+  const project = await (await copying).json() as { id: string; latest_run_id: string | null }
+  expect(project.latest_run_id).toBeNull()
+  const readParameters = async () => {
+    const workspace = await (await page.request.get(`/api/v2/projects/${project.id}/workspace`)).json() as { draft: { workflow: Workflow } }
+    return workspace.draft.workflow.nodes.find(node => node.node_id === 'fold-stage-one')!.binding_parameters
+  }
+  await expect.poll(readParameters).toMatchObject({ msa_max_depth: null, num_sampling_steps: 37 })
+  await depth.fill('2048')
+  await depth.blur()
+  await page.getByRole('button', { name: '保存项目', exact: true }).click()
+  await expect.poll(readParameters).toMatchObject({ msa_max_depth: 2048, num_sampling_steps: 37 })
+})

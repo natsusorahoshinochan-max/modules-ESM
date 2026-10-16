@@ -91,6 +91,7 @@ class ESMFold2FoldingImplementation:
                 try:
                     adapter_result = self._adapter.fold(
                         sequence=parent.sequence,
+                        parameters=call.binding_parameters,
                         derived_call_seed=call_seed,
                         engine_role=(
                             f"fold_parent_{parent.slot}_sample_{sample_index}"

@@ -70,7 +70,7 @@ function parameterInputValue(raw: string, valueType: string): unknown {
     return value
   }
   if (valueType === 'boolean') return raw === 'true'
-  if (valueType === 'array' || valueType === 'object') return JSON.parse(raw)
+  if (valueType === 'array' || valueType === 'object' || valueType === 'json') return JSON.parse(raw)
   return raw
 }
 

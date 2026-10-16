@@ -90,6 +90,11 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
         route="remote",
         client=RecordingClient(),
         source_sequence=SEQUENCE_3GB1,
+        binding_parameters={
+            "num_sampling_steps": 37, "num_loops": 8,
+            "lm_dropout": 0.2, "lm_mask_pct": 0.04,
+            "msa_max_depth": None, "msa_column_mask_rate": 0.25,
+        },
     )
 
     assert projection["status"] == "succeeded"
@@ -99,12 +104,12 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
         "config_type": "esm.sdk.api.FoldingConfig",
         "include_pae": True,
         "include_embeddings": False,
-        "num_sampling_steps": 100,
-        "num_loops": 20,
-        "lm_dropout": 0.3,
-        "lm_mask_pct": 0.1,
-        "msa_max_depth": 1024,
-        "msa_column_mask_rate": 0.1,
+        "num_sampling_steps": 37,
+        "num_loops": 8,
+        "lm_dropout": 0.2,
+        "lm_mask_pct": 0.04,
+        "msa_max_depth": None,
+        "msa_column_mask_rate": 0.25,
     }]
     structures, observations, facts = _fold_outputs(
         service,
@@ -233,6 +238,7 @@ def test_local_esmfold2_v2_native_result_translation(
             self,
             *,
             sequence: str,
+            parameters: dict[str, Any],
             effective_seed: int,
         ) -> MolecularComplexResult:
             self.calls.append((sequence, effective_seed))
@@ -431,11 +437,11 @@ def test_local_esmfold2_v2_invokes_configured_models(
     assert provider_call["sequences"] == (("A", "AG"),)
     assert provider_call["fold_parameters"] == {
         "num_loops": 20,
-        "num_sampling_steps": 100,
+        "num_sampling_steps": 200,
         "num_diffusion_samples": 1,
         "seed": metadata["effective_call_seed"],
         "lm_dropout": 0.3,
-        "lm_mask_pct": 0.1,
+        "lm_mask_pct": None,
         "msa_max_depth": 1024,
         "msa_column_mask_rate": 0.1,
         "complex_id": "protein-workbench-fold",
