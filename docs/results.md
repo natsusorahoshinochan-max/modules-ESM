@@ -83,7 +83,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 当前 `workflow:observation-options` 读取编译器的可用观察投影，只提交 `workflow.nodes`、`workflow.edges` 与 `ranking`。未完成 Selector/Objective 配置不能阻止来源枚举；完整配置在 Commit 边界处理。手动选择的 `candidate_selection_consumption` 及有序完整引用终局记录由现有编译和运行边界负责，空引用数组与没有该分支分别表达。
 
-现有结果页已移除“勾选保存为流程”、条件和 Top-N 转流程入口，相关应用旅程回归通过；不得以改名恢复。此要求不取消普通筛选节点、查看、导出、历史采用或局部 Prompt 采用，也不新增对外部插件的同类功能禁令。
+现有结果页已移除“勾选保存为流程”、条件和 Top-N 转流程入口；不得以改名恢复。此要求不取消普通筛选节点、查看、导出、历史采用或局部 Prompt 采用，也不新增对外部插件的同类功能禁令。
 
 ## 当前结果读取边界
 
@@ -113,20 +113,19 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份、输出端口、内容摘要和 value manifest 摘要定位原执行节点，排除重放节点，不把当前工作区或重放 Run 的配置冒充原计算参数。当前 Run 中实际执行的输出按原节点 ID 精确定位；缓存结果若仍对应多个内容完全相同的执行节点，则标记 `ambiguous` 并列出候选参数记录，不断言唯一来源。
 
-参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责，完整验证仍待当前冻结源码矩阵完成。
+参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责。
 
 ## 当前差距与核对
 
 | 范围 | 当前状态 |
 |---|---|
-| 单条 FASTA | 单条入口拒绝多条记录并提示批量入口，模块及应用旅程回归通过 |
+| 单条 FASTA | 单条入口拒绝多条记录并提示批量入口 |
 | 历史 Run 查看 | 项目运行列表与单 Run 选择；按原 Run/Commit 读取状态与保留结果，选择可刷新恢复 |
 | 历史/跨项目采用及来源删除独立 | 节点级复用和输入复制不代表完整采用；采用及来源删除后的可用性尚未证实 |
-| 结构格式、多构象、非蛋白组分 | PDB/mmCIF 导入及原格式输出回归通过；新增格式转换的完整验证、构象选择/拆分及完整组分操作仍待完成 |
+| 结构格式、多构象、非蛋白组分 | 已支持 PDB/mmCIF 导入与格式转换；构象选择/拆分及完整组分操作仍待完成 |
 | 模块查看器 | 内置读取和固定分派须按模块契约开放；多个查看器切换尚待实现 |
-| 结果页转流程 | 已删除入口及节点生成路径，应用旅程回归通过 |
+| 结果页转流程 | 已删除入口及节点生成路径 |
 | ESMC 输出 | 实际 logits 可选输出尚未对齐，不能以矩阵尺寸冒充数值；见[模块能力](module-capabilities.md) |
-| 批次成功结果与续算 | 失败时保留完成结果的受控回归通过；真实工具成功调用不替代失败路径验证；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
-| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，以及来源 Run/Commit 参数文件；当前冻结源码完整验证待完成 |
+| 批次成功结果与续算 | 失败时保留已完成结果；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
+| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，以及来源 Run/Commit 参数文件 |
 
-后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)在本机执行对应检查；本规范不记录旧验收通过数。

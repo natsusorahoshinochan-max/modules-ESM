@@ -22,8 +22,8 @@ Protein-Sol 官方包读取核对日期为 2026-10-16，ZIP SHA-256 为 `4df32c6
 | SimpleFold | 固定提交 `c7a5570a6be9f5c695126e27c804e77567209934` 的 [encode_sequence](../repositories/ml-simplefold/src/simplefold/utils/esm_utils.py)将未识别字符编码为 `X`；[residue_constants](../repositories/ml-simplefold/src/simplefold/utils/residue_constants.py)包含标准20种加未知类型。该内部编码事实不证明任意特殊残基可原样通过实际折叠、输出与残基轴构建；不能据此放开所有符号或添加 Workbench 猜测转换。当前共用标准20种限制的完整路线依据仍未解决。 |
 | Biohub ESMC | [encode 固定接口](biohub-api-reference/v1/endpoints/encode.md)没有给出完整特殊残基准入表。当前入口直接传递共用序列，不应将其接纳 `J` 的实现事实宣称为官方可表示保证；仍需核对实际路线的 tokenizer/服务契约。 |
 
-这些未决点保留在 [DOC-010](2026-10-15-documentation-governance-issues.md#doc-010部分输入字符与长度限制的官方依据仍需核对)，不把缺少证据改写为禁止或允许的新需求。不得通过加载本次排除的本地 ESM-3、SimpleFold、ESMFold2 模型来填补证据；不加载模型的静态与契约检查不等于真实模型通过。
+这些未决点保留在 [DOC-010](2026-10-15-documentation-governance-issues.md#doc-010部分输入字符与长度限制的官方依据仍需核对)，不把缺少证据改写为禁止或允许的新需求。接口依据核对不等于实际模型执行。
 
 ## 导入与验证边界
 
-单条 FASTA 的拒绝多记录与 PDB/mmCIF 输入检查已由当前源码支持，见[输入说明](results.md)。这是解析现状的纠正，不改变已确认的导入要求。字符与长度的资料核对不等于真实 Provider 验收；评分行为调整须经过[当前验证门槛](backend-verification.md)，包括获准的真实 ProteinMPNN 路线。不会用受控 Provider 代替真实验收。
+单条 FASTA 的拒绝多记录与 PDB/mmCIF 输入检查已由当前源码支持，见[输入说明](results.md)。这是解析现状的纠正，不改变已确认的导入要求。字符与长度的资料核对不证明全部 Provider 行为已实现。

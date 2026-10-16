@@ -22,9 +22,9 @@
 
 ### SimpleFold 折叠
 
-折叠 Binding 公开正整数 `num_steps`（默认 500，无额外上限）与非负数 `tau`（默认 0.1，无额外上限），经 Operation、Adapter 原样传到官方 `InferenceWrapper`。默认值依据[固定上游 CLI](../repositories/ml-simplefold/src/simplefold/cli.py)，[官方示例](../repositories/ml-simplefold/README.md)使用 500 步和 tau 0.01；所调用 Torch sampler 对 tau 开平方，因此不接受负数。独立 confidence 操作不采样，不新增这两个参数。界面根据 Binding 声明编辑和保存计算参数，保留已保存的显式值。契约验证不加载模型；本地 SimpleFold 真实执行明确排除，不能记为通过。
+折叠 Binding 公开正整数 `num_steps`（默认 500，无额外上限）与非负数 `tau`（默认 0.1，无额外上限），经 Operation、Adapter 原样传到官方 `InferenceWrapper`。默认值依据[固定上游 CLI](../repositories/ml-simplefold/src/simplefold/cli.py)，[官方示例](../repositories/ml-simplefold/README.md)使用 500 步和 tau 0.01；所调用 Torch sampler 对 tau 开平方，因此不接受负数。独立 confidence 操作不采样，不新增这两个参数。界面根据 Binding 声明编辑和保存计算参数，保留已保存的显式值。
 
-### ESMFold2 当前参数接入与待验收范围
+### ESMFold2 当前参数接入与适用范围
 
 [Binding 声明](../modules/folding/package.py)向两条路线开放 `num_sampling_steps`、`num_loops`、`lm_dropout`、`lm_mask_pct`、`msa_max_depth`、`msa_column_mask_rate`；Operation 将已准入配置交给各 Adapter，分别传到官方 `FoldingConfig` 和本地 builder。
 
@@ -32,7 +32,7 @@
 |---|---|---|
 | 采样步数 | 1–100，默认 100 | 正整数，无远程上限，默认 200 来自所调用 builder |
 | 循环次数 | 0–20，默认 20 | 非负整数，无远程上限，默认 20 |
-| LM dropout | `[0,1]`，默认 0.3 | `[0,1]` 或 null；默认 0.3，null 关闭 |
+| LM dropout | `[0,1]`，默认 0.3 | `[0,1]` 或 null；默认 0.3，null 或 0 保留 checkpoint 配置 |
 | LM mask | `[0,1]`，默认 0.1（fast 模型） | `[0,1]` 或 null；默认 null 使用 checkpoint 配置 |
 | MSA depth | 1–16384 或 null，默认 1024 | 正整数或 null，默认 1024；null 不进行行抽样 |
 | MSA column mask | `[0,1]`，默认 0.1 | `[0,1]`，默认 0.1 |
@@ -41,9 +41,9 @@ MSA 设置只影响带 MSA 的输入，不因此新增 MSA 输入模式。`inclu
 
 依据：[官方远程快照](biohub-api-reference/v1/endpoints/fold.md)、[SDK 配置](../repositories/esm/esm/sdk/api.py)、[本地 builder](../repositories/esm/esm/models/esmfold2/processor.py)。本地模型由 [Adapter](../modules/folding/esmfold2_local.py)选择标准 `ESMFold2Model`，其版本固定在 [pyproject.toml](../pyproject.toml)。已核对该固定安装源码：标准模型 `forward` 不消费 builder 转发的 `noise_scale`、`step_scale`、`max_inference_sigma`、`early_exit`，因此不展示这些无效控制，也不切换到实验模型。
 
-当前已接入参数和 numeric/null 编辑；完整集成门禁和 Biohub 非默认参数真实验收待完成。本地 ESMFold2 重模型执行明确排除，保留 SDK/builder 边界的不加载模型契约检查。
+当前已接入参数和 numeric/null 编辑；调用方须保留所选路线的参数语义。
 
-### ESM3 当前参数接入与待验收范围
+### ESM3 当前参数接入与适用范围
 
 [Binding 声明](../modules/esm3/package.py)拥有路线采样参数：`num_steps`、`temperature`、`top_p`、`schedule`、`strategy`、`temperature_annealing`、`invalid_ids` 与 `condition_on_coordinates_only`。配对生成分别使用 `sequence_*`、`structure_*`，传给两次调用，不再共用一套设置；单轨道使用不带前缀的字段。`num_samples` 仍为节点批次参数。
 
@@ -51,7 +51,7 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 
 依据：[固定 SDK 参数](../repositories/esm/esm/sdk/api.py)、[本地 nucleus sampling](../repositories/esm/esm/utils/sampling.py)、[官方远程快照](biohub-api-reference/v1/endpoints/generate.md)。`only_compute_backbone_rmsd` 仅影响当前不保留的 cRMSD，不新增对应输出或模式。
 
-当前已调整声明、Adapter 与调用方；完整适用门禁与 Biohub 真实验收仍待本次集成验证，本地重模型执行明确排除。参数契约检查不代替真实 Provider 验收。
+当前已调整声明、Adapter 与调用方。
 
 ### SoluProt 非标准字符处理
 
@@ -87,4 +87,4 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 
 ## 结论
 
-ESM3 生成条件及采样参数已调整接入，等待完整集成验收；ESMFold2 推理参数已接入并等待完整验收；SimpleFold 的 tau 和步数范围已接入，真实模型执行排除。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。
+ESM3 生成条件及采样参数、ESMFold2 推理参数、SimpleFold 的 tau 和步数范围已接入。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。

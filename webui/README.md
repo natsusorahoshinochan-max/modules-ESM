@@ -1,7 +1,7 @@
 # Protein Workbench WebUI
 
 The application has one entry at `/`. This guide describes how to start the
-current implementation and verify frontend changes. Product requirements and
+current implementation. Product requirements and
 implementation gaps are maintained in the [workspace](../docs/workspace.md),
 [results](../docs/results.md), and [Prompt editing](../docs/prompt-editing.md)
 specifications, under the [current governance decisions](../docs/documentation-governance-decisions.md).
@@ -83,9 +83,6 @@ events. Both must appear under the same browser origin. Vite's
 it does not configure the server that hosts `dist/`. Keep the application within
 its trusted single-user, loopback deployment model.
 
-The repository's remote-only build and test policy applies to contributor
-verification, not to where users may install or run the application.
-
 ## Application behavior
 
 Open `http://127.0.0.1:5173`. The current app discovers the protected 3GB1 teaching
@@ -122,94 +119,19 @@ Edits now remain in memory until an explicit save. Navigation offers save,
 discard or cancel for unsaved work; Run offers save-and-run. A teaching example
 becomes a personal Project only on first explicit save. Running Projects reject
 modification while remaining readable. Result-to-workflow actions have been
-removed. These changes passed the frozen snapshot’s non-Provider regressions;
-see the current [verification scope](../docs/testing.md).
+removed.
 
-The app still mainly opens the latest Run and lacks complete module settings/viewer integration. The new structure format
-selection and conversion paths await full verification. Full
-historical/cross-project input adoption and source-independent availability
-remain to be verified. Failed batches can publish completed results for reading
-without making the Node successful or sending those outputs downstream; this
-passed controlled failure regressions. The permitted real Provider success
-checks passed; they do not constitute live failure-injection coverage. All six real browser journeys and the FASTA report check also passed.
-This completes the authorized test-governance scope, not the full 19-tier
-Campaign or the missing product interfaces listed below.
-Node-level continuation remains distinct from the
+Complete module settings/viewer integration, historical/cross-project input
+adoption and source-independent availability remain incomplete. Failed batches
+can publish completed results without making the Node successful or sending
+those outputs downstream. Node-level continuation remains distinct from the
 required continuation of unfinished requests within a batch. See
 [execution](../docs/execution.md) and the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
 
-## Verification
+Existing test components and gates are retired. See [AGENTS.md](../AGENTS.md#测试)
+for the current decision.
 
-For read-only review and explanatory text/link changes, inspect content and
-references without running executable verification. For behavior changes, use
-the complete [backend execution policy and gates](../docs/backend-verification.md#execution-policy)
-and these frontend entry points. This document records commands, not a claim
-that the current working tree has passed them.
-
-Run all verification on the local machine, using its Python 3.12 `.venv`,
-installed frontend dependencies and an explicitly specified private Execution
-Profile. Remote-service Providers continue to call their configured official
-APIs. Local ESM-3, SimpleFold and ESMFold2 execution is excluded; retain
-model-free browser contracts and report real journeys requiring those routes as
-excluded, never passed. Other local models and Biohub routes remain required.
-The [backend scope](../docs/backend-verification.md#current-model-verification-scope)
-also applies to real browser journeys. From the verification snapshot's `webui/` directory:
-
-```bash
-npm run typecheck
-npm run typecheck:tests
-npm run lint
-npm run test:logic
-npm run test:components
-npm run test:e2e
-npm run test:empty-carrier
-npm run build
-```
-
-Collect each command's exit status independently; one failure must not suppress
-other independent checks. `typecheck:tests` includes every test, controlled host,
-and Playwright configuration, including `real-tests/`.
-
-| Entry | Responsibility | Resources |
-| --- | --- | --- |
-| `test:logic` | State owners and data transformations in `tests/logic` | Node only; no browser, Vite or backend |
-| `test:components` | Component interactions in `tests/components` | Controlled hosts in `tests/support`, Vite on 5181; no backend |
-| `test:e2e` | Application and protocol journeys in `tests/journeys` | Production application, isolated backend on 8180 and Vite on 5179 |
-| `test:empty-carrier` | Empty production startup, project creation, manual save and reopen | Empty persisted module inventory; backend on 8182 and Vite on 5182 |
-| Real configuration | Actual Provider browser journeys in `real-tests` | Supervised built service and configured Providers |
-
-Support files provide mounting, navigation and interaction helpers; no collected
-spec is a shared library. Controlled hosts prove component behavior, not project
-persistence or complete application journeys. Existing published teaching results
-prove offline reading only, not a fresh Provider invocation.
-
-The edit contracts assert that edits remain in memory and teaching edits do not
-create personal projects. Explicit manual-save, exit choices and save-before-run
-passed frozen-snapshot application regressions, including save failures
-and teaching first-save/reopen. Browser close uses the native unsaved-change
-prompt; the three-way choice applies to in-application navigation. Tests must exercise the real interface, not
-synthesize it in a host or substitute an API write for a user save. Random
-inserted residues must remain editable and deletable; built-in result
-save-as-workflow actions must be absent. Correct expectations must not be
-skipped or weakened.
-
-User module installation/enable/disable/uninstall, missing
-module recovery, historical/cross-project adoption surviving source deletion,
-batch continuation, external UI/multiple viewers and application settings still
-need complete application interfaces and journeys. Existing component/protocol
-coverage does not certify these user chains. Current product differences remain
-in the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
-
-Real Provider journeys have a separate
-`playwright.real.config.ts`; they require an explicitly supervised built WebUI
-service and the prepared FASTA Project. See the
-[real FASTA journey procedure](../docs/backend-verification.md#real-fasta-webui-journey)
-for preparation, report collection and its required original full Run identity.
-Set `PROTEIN_WORKBENCH_REAL_UI_URL` and `PROTEIN_WORKBENCH_REAL_FASTA_PROJECT_ID`
-for the prepared service and Project, then run
-`npx playwright test --config playwright.real.config.ts` on the verification host.
-
-模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；外部编辑器旅程通过 `npm run test:module-ui` 在独立公共应用上验证。后端源码资产读取检查前执行 `npm run build:module-ui`，wheel 构建自动生成包内资源。
+模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；`npm run build:module-ui` 构建源码资产，wheel 构建自动生成包内资源。
 
 ### External module package
 
@@ -223,9 +145,4 @@ dependencies must already be provided by that environment. Installation does not
 download scientific models or execute them. Uninstall before replacing a package;
 reinstallation imports the new distribution files.
 
-`npm run test:empty-carrier` covers startup without modules, explicit Project
-persistence and the user wheel-install / disable / enable / uninstall / restore
-chain with a deterministic external operation. It runs under the same explicit
-private Execution Profile policy as the other browser journeys.
-
-所有 Playwright 入口使用 `tsconfig.test.json` 将 React 运行时解析到 WebUI 工具链依赖，使位于 `modules/*/ui` 的源码也使用同一安装包；应用类型检查仍使用 `tsconfig.app.json`。模块资产在浏览器中按声明的绝对 URL 导入，不接受开发服务器额外添加的协议查询参数。
+模块资产在浏览器中按声明的绝对 URL 导入，不接受开发服务器额外添加的协议查询参数。

@@ -17,7 +17,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
     "build>=1.2",
 ]
 
@@ -51,6 +50,3 @@ soluprot_assets = [
     "tmhmm-2.0d/lib/*",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]

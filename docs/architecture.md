@@ -89,7 +89,7 @@ Score Observation 保留 Metric、Method、Context、主体、区域及来源。
 
 结构比较、结构处理和指标分析须共用可表达指定链上不连续区域的约定，并保持真实编号和对应。当前若干专用表达与全轴接口尚未形成完整共用契约；不能把某个旧节点只接完整轴写成产品不支持局部区域，也不能因此自行确定新节点数量或参数格式。
 
-预测残基轴来自实际预测输入，不从输出 PDB 反推。预测结构与置信度事实通过 Prediction Key 和内容身份关联，之后物化为 Candidate-associated 评价；独立结构评价不冒充重新折叠。当前共享[折叠输出构造](../modules/folding/_output_construction.py)维护 parent/sample 顺序、真实父项、预测轴及匹配置信度。折叠操作可在明确运行失败时提交已完成请求的输出，节点保持失败；ESM3 生成也保留已完成样本及联合生成中已完成的序列。对应受控失败回归已通过；获准真实 Provider 的成功调用不替代失败路径验证，见[执行](execution.md#批内失败与主动继续)。
+预测残基轴来自实际预测输入，不从输出 PDB 反推。预测结构与置信度事实通过 Prediction Key 和内容身份关联，之后物化为 Candidate-associated 评价；独立结构评价不冒充重新折叠。当前共享[折叠输出构造](../modules/folding/_output_construction.py)维护 parent/sample 顺序、真实父项、预测轴及匹配置信度。折叠操作可在明确运行失败时提交已完成请求的输出，节点保持失败；ESM3 生成也保留已完成样本及联合生成中已完成的序列。失败处理见[执行](execution.md#批内失败与主动继续)。
 
 统计含义由具体方法明确：当前[整体 pLDDT 均值](../modules/structure_prediction/implementation.py)使用非空值，[专用区域方法](../modules/structure_comparison/inserted_loop.py)要求范围内值全部存在。两者不能用一个含糊的“平均值”概述替代，也不因规则不同直接认定错误。区域、缺值和有效数量说明按实际方法保留，不另设统一默认。
 
@@ -118,4 +118,4 @@ Canonical source 输出的身份编排先准入源值，再编码构造身份；
 - ProteinMPNN 从头重做；参数开放、结构格式、构象及 ESMC 输出等具体差距在[模块能力](module-capabilities.md)维护。
 - 手动保存、教学实例、缺失模块与历史结果复用见[工作区](workspace.md)，结果读取及导出见[结果](results.md)。
 
-上述差距不是新的已实现声明。源码只用于解释实现；修改按任务授权执行，验证按[后端验证](backend-verification.md)及 WebUI 入口在远端完成。
+上述差距不是新的已实现声明。源码只用于解释实现；修改按任务授权与已确认要求执行。

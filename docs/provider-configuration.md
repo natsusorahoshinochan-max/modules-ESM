@@ -66,8 +66,7 @@ Adapter 绑定已配置的目录，调用时使用临时工作目录容纳 Provi
 
 当前 Binding 的首次 Cache miss 或显式 bypass 进入 Provider 前执行 Readiness；同一 Run 中复用该 Binding 的结论。启动 Availability 是独立诊断，不替代这一运行前检查。检查限制于所需文件、目录、可执行文件、源码或包的可发现性及该路线所需设备等前提。
 
-Readiness 不负责 Git revision、PEP 610 安装来源或模型哈希证明，也不通过运行模型来宣称科学输出已正确。调用与模型加载属于实际 Provider 入口；真实 Provider 验证按[后端验证规范](backend-verification.md)。环境配置通过其责任边界接纳后，内部组件按契约使用，不重复开展防御性验证或搜索备用资源。
+Readiness 不负责 Git revision、PEP 610 安装来源或模型哈希证明，也不通过运行模型来宣称科学输出已正确。调用与模型加载属于实际 Provider 入口。环境配置通过其责任边界接纳后，内部组件按契约使用，不重复开展防御性验证或搜索备用资源。
 
 当前采用[本地 Torch 设备策略](../core/local_torch_device.py)的路线在 Linux/Windows 上使用 CUDA，在 macOS 上使用 CPU；CUDA 路线不自动退回 CPU。本地 ESMFold2 的 ESMC 使用 FP32。设备和安装形式不是新科学 Method 的自动划分依据，也不增加跨设备数值等价验证。此处描述已有策略，不扩展为未确认的用户设备切换功能。
 
-开发中的测试、构建和 Provider 验证只能在指定远端验证机执行，并遵循完整[执行政策](backend-verification.md#execution-policy)。用户部署路径由其后端环境决定，不能用验证机的私有绝对路径代替。

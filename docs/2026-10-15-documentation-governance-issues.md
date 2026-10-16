@@ -6,16 +6,16 @@
 
 ## 核验边界
 
-本清单结合当前源码静态证据与 2026-10-16 的冻结源码本地验证结果；条目明确标注已运行的覆盖，未标注者不表示已通过运行核验。用户已授权本次测试治理在本机验证，但不运行本地 ESM-3、SimpleFold、ESMFold2 实际模型；纯契约测试不等于实际模型调用。完整非 Provider 门禁、获准的 10 个完整 Provider tier 及 5 项源码回归子集已通过；六项真实浏览器旅程与 FASTA 报告检查也已通过。本次授权范围内测试组件治理完成；未执行的模型路线不记为通过，不能据此宣称完整 Campaign 验收或本清单缺失功能已实现。验证范围与当前覆盖见[测试组件](testing.md)。Biohub 接口说明以固定官方快照和本地 SDK 为核查材料；本次线上调用通过不代表全部接口与参数边界均已复验；专利法律状态与第三方分发授权未重新核验。
+本清单依据当前源码与固定官方接口资料记录实现差异。现有测试组件和门禁已废弃，不作为需求或交付依据，见 [AGENTS.md](../AGENTS.md#测试)。专利法律状态与第三方分发授权未重新核验。
 
-下列实现差异在代码修正并完成适用验证之前仍保留。代码文件链接用于定位，具体类、函数和字段比随编辑变化的行号更可靠。
+下列实现差异在业务实现对齐之前仍保留。代码文件链接用于定位，具体类、函数和字段比随编辑变化的行号更可靠。
 
 ## 实现待对齐
 
-### DOC-011｜ESM3 路线步数声明的集成验收待完成
+### DOC-011｜ESM3 路线步数声明的调用链待核对
 
 - **当前实现**：[Binding 声明](../modules/esm3/package.py)按官方远程快照限制 Biohub 1–100 步，本地正整数不套用远程上限，保留 SDK 有效步数处理。
-- **待核验**：完整非 Provider 门禁与 Biohub 真实验收；本地重模型执行排除，保留不加载模型的契约检查。
+- **待核对**：路线步数及 SDK 有效步数在当前业务调用方中的传递。
 
 ### DOC-019｜历史结果采用与来源删除独立性尚未证实完整
 
@@ -27,8 +27,7 @@
 
 - **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
 - **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 24–90 行固定导入和注册功能包；[provider_environment](../protein_workbench_public/provider_environment.py)仍按具体 Binding 与工具装配环境配置。
-- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现，当前变更的运行验收另行收集。缺失模块的教学副本首次保存仍依赖 Catalog 发现输入，须完善输入依赖持久化；不能猜测引用或丢失所需输入。
-- **局部运行核验**：[项目组合测试](../tests/journeys/test_project_journeys.py)的 `test_missing_module_project_is_preserved_until_catalog_restoration` 本地通过，证明注入缺失 Catalog 时项目内容保留、恢复 Catalog 后可继续使用；不证明前端缺失占位或用户安装、启用、卸载链已实现。
+- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现，缺失模块的教学副本首次保存仍依赖 Catalog 发现输入，须完善输入依赖持久化；不能猜测引用或丢失所需输入。
 - **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前固定装配。用户安装管理及通用设置未证实完整，不能以仓库目录结构限制外部模块。
 
 ### DOC-028｜Prompt 合并要求项目用户维护内部身份
@@ -60,44 +59,44 @@
 - **当前证据**：[align_pairs](../modules/structure_comparison/definitions/align_pairs.yaml)第 1–16 行只接收完整轴，[轴解析声明](../modules/structure_transform/definitions/resolve_candidate_residue_axes.yaml)未提供区域选择；已有专用 inserted-loop 评价不能证明通用组合已完整覆盖。
 - **状态**：按[架构](architecture.md)与[模块能力](module-capabilities.md)核对真实场景覆盖。不同表示本身不证明残基错配，不把模块内部区域处理放进载体。
 
-### DOC-039｜ESM3 参数接入的完整验收待完成
+### DOC-039｜ESM3 参数接入的调用链待核对
 
 - **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
-- **待核验**：当前调用方、示例与参数记录的完整集成门禁和 Biohub 真实验收；见[参数审查](tool-parameter-exposure-audit.md)。不将不加载模型的契约检查记为本地重模型通过。
+- **待核对**：当前调用方、示例与参数记录是否完整对齐官方接口，见[参数审查](tool-parameter-exposure-audit.md)。
 
-### DOC-040｜ESMFold2 参数接入的完整验收待完成
+### DOC-040｜ESMFold2 参数接入的调用链待核对
 
 - **当前实现**：[Binding](../modules/folding/package.py)已声明六项适用推理参数，由远程和本地 Adapter 分别传入官方接口；范围、默认值和 null 语义按各路线区分。未展示标准本地模型实际忽略的 sampler overrides。
-- **待核验**：完整集成门禁及 Biohub 非默认参数真实验收；本地重模型执行排除，保留不加载模型的契约检查。具体范围见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与待验收范围)。
+- **待核对**：非默认参数的调用方与官方接口语义，见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与适用范围)。
 
 ### DOC-041｜SimpleFold 折叠参数已接入
 
 - **当前实现**：[Binding](../modules/folding/package.py)公开 tau 与无额外上限的正整数步数，默认值分别为固定官方 CLI 的 0.1 和 500；[运行时](../modules/folding/simplefold_runtime.py)原样传入官方 wrapper。
-- **核验范围**：使用不加载模型的声明与 Adapter 契约检查；本地 SimpleFold 实际模型执行排除。独立 confidence 操作不新增不适用的采样参数，见[参数审查](tool-parameter-exposure-audit.md)。
+- **范围**：独立 confidence 操作不新增不适用的采样参数，见[参数审查](tool-parameter-exposure-audit.md)。
 
 ### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
 - **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
-- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；节点四种源/目标组合已通过本次诊断；结果 action 与浏览器选择入口的完整验证仍待完成，不将前者当作后者已验收。
+- **待核对**：结果 action 与浏览器格式选择入口的完整业务路径。
 
 ### DOC-046｜跳过批内成功请求的主动续算仍缺
 
 - **要求**：批内保留已成功请求；一个请求用完适用重试后失败，停止剩余请求；用户可在相同输入和参数下继续失败及未开始请求，失败节点下游仍阻塞。
 - **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。[重跑派生](../core/execution/_run_runtime_derived.py)仍按节点重跑。
-- **状态**：批内保留、停止、持久重开和依赖阻断的受控失败回归通过；获准真实 Provider 的成功调用通过不替代线上故障注入验证。Q41 跳过成功请求的主动续算接口仍未完成，不增加自动重试或接纳残缺响应。
+- **状态**：Q41 跳过成功请求的主动续算接口仍未完成，不增加自动重试或接纳残缺响应。
 
-### DOC-047｜空载体生产启动与项目旅程待验收
+### DOC-047｜空载体生产启动与项目使用路径待核对
 
 - **要求**：空载体独立可用；默认模块与教学实例仍按产品要求提供。
 - **当前实现**：[bootstrap](../protein_workbench_public/bootstrap.py)读取安装清单，空 Catalog 不安装教学项目；有教学文件且所需节点与 Binding 存在时才安装，编译错误不被吞掉。前端无教学项目时可进入个人项目或创建入口。
-- **状态**：生产空清单的协议与浏览器旅程已添加，尚待冻结源码验证；应用内模块管理入口仍待接入。默认教学入口、原件保护及首次手动保存副本仍须保持通过。
+- **待核对**：空载体与应用内模块管理的完整业务路径；保留默认教学入口、原件保护及首次手动保存副本行为。
 
 ### DOC-050｜结果 ZIP 的计算参数关联
 
 - **要求**：导出附带已经记录的计算参数，供离开软件后查看。
 - **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../webui/src/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
-- **状态**：已添加修改工作区后混合导出、缓存原来源及原记录缺失的浏览器下载旅程；当前冻结源码验证待完成。格式及导出边界见[导出约定](results.md#导出)。
+- **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
 
 ### DOC-051｜多构象选择及拆分尚未提供
 
@@ -112,7 +111,7 @@
 - **要求**：Q13 禁止自动保存，未保存退出时提供保存后退出、放弃和取消；Q17 的后端 Run 生命周期独立。
 - **当前证据**：[App](../webui/src/App.tsx) 的应用内 `askUnsaved('leave')` 提供三项，浏览器 `beforeunload` 处理器仅请求原生确认。[官方限制、数据影响与可行选择](workspace.md#浏览器退出边界与未决要求)已核实，原生确认不能添加保存动作，也不保证所有关闭路径都会触发。
 - **未决边界**：是否批准网页关闭/刷新仅提供尽力原生提醒、需取消离开后手动保存的例外，或另行扩展可控窗口的宿主形态。两者均未获批准；不得将技术限制写成新需求。
-- **交付与验收**：[#123](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/123)只交付核实结论；[#124](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留 Q13 浏览器部分未完成的结论，待产品裁定。未执行新的浏览器验证，应用内旅程不能替代浏览器关闭验收。
+- **交付与验收**：[#123](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/123)只交付核实结论；[#124](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留 Q13 浏览器部分未完成的结论，待产品裁定。应用内退出选择不等同于浏览器关闭行为。
 
 ### DOC-010｜部分输入字符与长度限制的官方依据仍需核对
 

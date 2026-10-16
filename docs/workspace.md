@@ -34,7 +34,7 @@ Q13 的保存后退出、放弃、取消三项要求保持有效。以下是 [#1
 - **需要产品裁定的网页例外**：是否接受“应用内三项；浏览器自身关闭/刷新仅尽力原生提醒，保存需取消离开后操作”，以及提示不出现时未保存编辑可能丢失的边界。批准前，Q13 浏览器部分保持未完成，不能通过修改测试预期消除差异。
 - **若关闭窗口也必须直接三选一**：需另行裁定是否扩展为可控制窗口关闭的桌面宿主；例如 [Electron 的 close 事件](https://www.electronjs.org/docs/latest/api/browser-window#event-close)允许取消关闭，可进一步设计先选择、等保存确认后再关闭的路径。该方向涉及交付形态变更，尚未批准、实现或验证；也不构成进程被强制终止时不丢编辑的保证。
 
-[#124 整体验收](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留这项未决差异，取得裁定后再按选定范围验收。现有 [project-workspace 旅程](../webui/tests/journeys/project-workspace.spec.ts)覆盖应用内项目切换的保存、放弃和取消；这些断言不证明原生浏览器框有三项选择。本次仅核对源码、现有断言和官方引用，没有执行测试、浏览器检查或 Provider 验证。
+[#124](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留这项未决差异，取得裁定后再按选定范围实现。应用内项目切换的三项选择不证明原生浏览器框也提供三项选择。
 
 ## 持久化接口与保存失败
 
@@ -99,13 +99,12 @@ Draft/UI 内容先追加，最终 workspace record 发布后成为当前工作�
 
 | 已确认要求 | 当前实现差距 | 核对入口 |
 |---|---|---|
-| 手动保存、未保存退出提醒、保存并运行 | 已实现内存编辑、显式保存与应用内退出选择；相关保存与应用内退出旅程回归通过；浏览器原生提醒不能满足三项要求，产品边界仍待裁定 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[App](../webui/src/App.tsx) |
-| 同一项目运行期间禁改 | 前端编辑 owner 与后端修改边界限制修改，结果阅读仍可用；对应载体与应用旅程回归通过 | [App](../webui/src/App.tsx) |
+| 手动保存、未保存退出提醒、保存并运行 | 已实现内存编辑、显式保存与应用内退出选择；浏览器原生提醒不能满足三项要求，产品边界仍待裁定 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[App](../webui/src/App.tsx) |
+| 同一项目运行期间禁改 | 前端编辑 owner 与后端修改边界限制修改，结果阅读仍可用 | [App](../webui/src/App.tsx) |
 | 缺少模块仍能打开并保留项目 | 画布以缺失占位展示未知 Node Type/Binding，保留原始配置、连线与布局；手动保存个人项目不依赖运行编译。模块恢复后的完整用户管理链仍需验收；缺失模块教学副本首次保存的输入依赖发现尚待对齐 | [workflow-authoring](../webui/src/workflow-authoring.ts) |
-| 首次手动保存教学副本 | 首次显式保存一次发布完整个人项目，不带教学运行；命名版本修改亦显式保存；首次保存、重新打开及原件保护回归通过 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[authoring](../core/workflow/authoring.py) |
+| 首次手动保存教学副本 | 首次显式保存一次发布完整个人项目，不带教学运行；命名版本修改亦显式保存 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[authoring](../core/workflow/authoring.py) |
 | 运行历史及历史/跨项目输入采用 | 运行历史可选择单个已保存 Run，刷新及重新打开项目恢复查看选择；浏览不保存流程。历史/跨项目采用及来源删除后的独立可用性仍需核对 | [App](../webui/src/App.tsx)、[结果规范](results.md) |
 | 官方/外部模块、React 专用界面、多个查看器及应用设置 | 固定装配和专用分派尚未形成完整模块接入路径 | [架构](architecture.md)、[Provider 配置](provider-configuration.md) |
 
-内容与链接核对不代表运行验收通过。涉及行为修改时，按[WebUI 验证入口](../webui/README.md#verification)与[后端验证](backend-verification.md#execution-policy)在本机执行对应检查。
 
 复制项目按当前节点声明识别需要独立保存的 Project Inputs；模块缺失时使用该项目已保存 Commit 中的节点声明。目标项目保存所引用输入的独立字节，源项目删除不会使其失效。若不完整 Draft 的缺失节点从未留下可用声明，仍可打开和保存原项目，但复制会明确报告依赖声明不可用，须恢复模块后再复制；不会猜测参数或复制全部输入。

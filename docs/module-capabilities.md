@@ -8,7 +8,7 @@
 
 | 已确认的功能职责 | 当前相关代码 | 已存在的能力及边界 |
 |---|---|---|
-| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出，相关非 Provider 回归通过。用户选择格式转换、多构象选择及拆分仍需实现。 |
+| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出。用户选择格式转换、多构象选择及拆分仍需实现。 |
 | 序列与设计条件编辑 | [`prompt_authoring`](../modules/prompt_authoring/definitions/)、[`residue_data`](../modules/residue_data/definitions/) | Prompt 组合、拆解与编辑，带残基身份的轨道及序列物化。随机插入和局部采用按[Prompt 编辑要求](prompt-editing.md)落实，内部位置映射由模块处理。 |
 | 序列生成与设计 | [`esm3`](../modules/esm3/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/) | ESM-3 的序列、结构轨道和配对生成；ProteinMPNN 按骨架与约束生成序列，并保留真实生成父结构和逐次调用 seed。 |
 | 结构预测 | [`folding`](../modules/folding/definitions/) | ESMFold2 本地/远程与 SimpleFold 折叠，保留对应结构与预测置信度。 |
@@ -26,7 +26,7 @@ ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean e
 
 没有残基身份的独立序列按完整骨架残基轴的位置顺序对应，长度必须相同；已有显式身份时必须与所选轴一致，不猜测或静默重排。Adapter 将轴的每个共价片段映射为工具安全链名和连续编号，保留原链和残基身份对应。PDB 或 mmCIF 的来源格式不改变这一工具输入合同。
 
-设计开放 seed、数量、温度、骨架噪声及声明的设计约束；评价开放 seed 与骨架噪声。评分默认 seed 42 是本模块的明确可重复默认值，零也作为精确 seed；噪声默认 0 与固定上游一致。数量、温度、噪声不施加工具无依据的额外上限。默认模型仍为 `v_48_020`，本次不新增计算模式。源码与声明已更新，非 Provider 回归及真实 ProteinMPNN 安装产物和源码验收通过；范围见[测试说明](testing.md)。这不证明全部 Q26 参数开放或未确认的额外输出已经完成。
+设计开放 seed、数量、温度、骨架噪声及声明的设计约束；评价开放 seed 与骨架噪声。评分默认 seed 42 是本模块的明确可重复默认值，零也作为精确 seed；噪声默认 0 与固定上游一致。数量、温度、噪声不施加工具无依据的额外上限。默认模型仍为 `v_48_020`，本次不新增计算模式。源码与声明已更新。这不证明全部 Q26 参数开放或未确认的额外输出已经完成。
 
 ### ProteinMPNN 输出范围
 
@@ -59,11 +59,11 @@ ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean e
 
 ## ESMFold2 推理参数
 
-ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由所选 Binding 声明并传给对应官方接口；远程范围不用于限制本地路线。nullable 数值保留为数值或 null，不转为字符串。MSA 参数只影响带 MSA 的输入，不新增输入模式；本地标准模型不消费的 sampler overrides 不作为可用控制。路线默认值及待验收边界见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与待验收范围)。
+ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由所选 Binding 声明并传给对应官方接口；远程范围不用于限制本地路线。nullable 数值保留为数值或 null，不转为字符串。MSA 参数只影响带 MSA 的输入，不新增输入模式；本地标准模型不消费的 sampler overrides 不作为可用控制。路线默认值及适用范围见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与适用范围)。
 
 ## ESM-3 生成参数
 
-单轨道生成的采样设置属于所选 Binding；配对生成使用独立 `sequence_*` 与 `structure_*` 设置。两次调用分别保留实际请求参数及 SDK 有效步数，包含禁止采样 token ID 与坐标条件开关。仅本地 Binding 提供有效 seed，Biohub 随机性由 Provider 控制。当前配置及路线范围见[参数审查](tool-parameter-exposure-audit.md#esm3-当前参数接入与待验收范围)；完整集成与 Biohub 真实验收状态尚待核验，本地重模型不运行。
+单轨道生成的采样设置属于所选 Binding；配对生成使用独立 `sequence_*` 与 `structure_*` 设置。两次调用分别保留实际请求参数及 SDK 有效步数，包含禁止采样 token ID 与坐标条件开关。仅本地 Binding 提供有效 seed，Biohub 随机性由 Provider 控制。当前配置及路线范围见[参数审查](tool-parameter-exposure-audit.md#esm3-当前参数接入与适用范围)。
 
 ## ESM-3 条件翻译
 

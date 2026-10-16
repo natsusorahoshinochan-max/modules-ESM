@@ -19,7 +19,7 @@ python3.12 -m venv "$SOLUPROT_BUILD_ROOT/environment"
   --outdir "$SOLUPROT_BUILD_ROOT/dist" "$SOLUPROT_BUILD_ROOT/source"
 ```
 
-将生成的 `soluprot-1.1.0-py3-none-any.whl` 安装到需要使用它的环境。开发构建及验证遵守[远端执行政策](../../docs/backend-verification.md#execution-policy)；具体用户部署路径由其后端机器决定。
+将生成的 `soluprot-1.1.0-py3-none-any.whl` 安装到需要使用它的环境。具体用户部署路径由其后端机器决定。
 
 `py3-none-any` 文件名描述当前无 CPython ABI extension 的 Python 包和数据打包方式，不承诺 full 模式可以在任意平台运行。full 模式目前随包提供 `Darwin_arm64` 和 `Linux_x86_64` decoder，不支持 Intel macOS 或 Linux ARM64。no-TM 使用另一套模型，不运行 TMHMM，仍依赖目标平台可用的 USEARCH。
 
@@ -70,4 +70,3 @@ soluprot \
 
 输出 CSV 包含运行行标识、FASTA 标识及 `soluble` 值；具体列名和命令参数以 [`cli.py`](soluprot_core/cli.py)为准。模型读取和预测实现见 [`model.py`](soluprot_core/model.py)与 [`features.py`](soluprot_core/features.py)。
 
-测试及真实 Provider 验收使用[后端验证规范](../../docs/backend-verification.md)，在指定远端验证机执行。独立包测试不能替代 Workbench 对真实 USEARCH/TMHMM 组合及当前输出合同的验收。

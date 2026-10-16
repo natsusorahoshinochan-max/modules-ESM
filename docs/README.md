@@ -16,8 +16,6 @@
 | 功能模块职责与当前工具调用能力 | [模块能力](module-capabilities.md) |
 | 官方 Biohub 请求与项目适配范围 | [Biohub 资料入口](biohub-api-reference/README.md) |
 | 核对当前参数开放差异 | [参数审查](tool-parameter-exposure-audit.md) |
-| 测试职责、共享支持与当前覆盖边界 | [测试组件](testing.md) |
-| 贡献者执行验证 | [后端验证](backend-verification.md)、[WebUI 验证](../webui/README.md#verification) |
 | 查看随包示例的当前用途 | [示例说明](../examples/v2/README.md) |
 | 查阅第三方技术与专利研究 | [研究资料](research/README.md) |
 
@@ -28,3 +26,5 @@
 项目用户通过模块和节点组合操作。模块开发者负责工具调用、参数转换及内部对应；载体提供通用管理、执行和数据传递。现行职责不按模型名称或已有包数量划定。
 
 文档更新直接替换失效内容，不保留 AI 对话、任务流水、失效方案或旧验收档案。原始研究数据、用户项目和运行结果不属于旧文档清理对象。固定上游文档保留其来源身份，不作为 Workbench 全部能力的承诺。
+
+现有测试组件与门禁已废弃；后续测试从零编写，见 [AGENTS.md](../AGENTS.md#测试)。

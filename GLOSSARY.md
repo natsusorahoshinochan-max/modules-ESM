@@ -12,7 +12,7 @@
 | 功能模块 | 围绕用户任务提供操作、节点及专用界面的功能单位；可以提供多个节点、使用多个工具。 |
 | 工具 / Provider | 模块内部使用的模型、算法、外部服务或程序，不决定功能模块划分。 |
 | Module Package | 模块的扩展交付单位，提供节点、数据类型、执行实现及所需界面等声明。官方与外部包遵守相同规范，不限定为仓库内源码。 |
-| Module Package Registration | 当前后端生产注册契约，向 Catalog 提供 Node Types、Bindings、Methods、Port Types、Metrics、Utility Transforms 和运行条件等声明。测试用例独立于生产注册。 |
+| Module Package Registration | 当前后端生产注册契约，向 Catalog 提供 Node Types、Bindings、Methods、Port Types、Metrics、Utility Transforms 和运行条件等声明。 |
 | Adapter | 工具边界的翻译实现，将模块输入和参数按工具接口传入，接回所需结果及已定义的运行失败。 |
 | Environment Configuration | 凭据、服务地址、模型及外部程序位置等运行配置，与每次计算的节点参数分开。应用内设置的接入情况见架构文档。 |
 | Provider Asset Closure | 一个 Binding 实际运行需要的文件和源位置集合；不是源码、检查点或安装身份的证明系统。 |
@@ -86,13 +86,3 @@
 | Structure Alignment Evidence | 已计算的结构对应、刚体变换、区域、归一化和 Method 等数据，供比较指标及展示使用，不要求扩建证据体系。 |
 | Candidate-associated Scientific Value | 显式携带主体完整引用的派生值，关联不依赖平行列表位置。 |
 
-## 验证
-
-| 术语 | 含义 |
-|---|---|
-| Contract Test Kit | 执行代表性模块用例、返回实际输出与关联运行记录的测试辅助。各所属测试负责具体预期。 |
-| Acceptance Campaign | 使用一个确定构建产物和私有配置，串行执行现行完整验收矩阵的一次正式运行。 |
-| Execution Profile | 验证所需运行位置、凭据文件位置及传输配置的私有映射，不包含令牌正文。 |
-| Acceptance Result | 正式验收中某个档位通过其断言后保留的结果；失败或中断的诊断输出不等于通过。 |
-
-验证规则与完整门禁只在[后端验证](docs/backend-verification.md)和[WebUI 说明](webui/README.md)维护。保存、结果查看与具体模块行为分别见[工作区](docs/workspace.md)、[结果](docs/results.md)、[模块能力](docs/module-capabilities.md)。

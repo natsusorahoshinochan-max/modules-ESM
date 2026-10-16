@@ -10,4 +10,4 @@
 
 这些数据仅支持其中明确记载的模型、输入、SDK 与调用组合，不证明当前模型能力、当前实现状态或新源码的验收通过。JSON 内的来源元信息按原始数据保留；精确执行源码身份尚未核实，不能仅据该自述认定已恢复当时的完整执行身份。见[治理问题清单](../../2026-10-15-documentation-governance-issues.md)。
 
-当前接口规则见[Biohub 接入说明](../product-contract-supplement.md)，执行验证使用[后端验证规范](../../backend-verification.md)。
+当前接口规则见[Biohub 接入说明](../product-contract-supplement.md)。
