@@ -79,7 +79,8 @@ def test_startup_admits_only_the_examples_selected_scientific_definitions(
     # Supply real declarations at the production package-registration seam;
     # Catalog compilation, installation, admission, and persistence stay real.
     with monkeypatch.context() as changed:
-        changed.setattr(bootstrap, "module_registrations", lambda: changed_registrations)
+        for registration in changed_registrations:
+            changed.setattr(f"{registration.package_module}.package.MODULE_PACKAGE", registration)
         changed_app = create_application(v2_environment_configuration={})
         if affects_example:
             with pytest.raises(WorkflowAuthoringError) as raised:

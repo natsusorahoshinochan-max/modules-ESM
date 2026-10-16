@@ -40,7 +40,7 @@ export function ProjectWorkspaceDialog({ api, currentProjectId, beforeAction, on
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
   const [workspaceLoadError, setWorkspaceLoadError] = useState('')
   const project = (tab === 'active' ? projects : deletedProjects).find((entry) => entry.id === selectedId)
-  const name = nameDraft?.projectId === selectedId ? nameDraft.value : project?.name ?? ''
+  const name = nameDraft && nameDraft.projectId === selectedId ? nameDraft.value : project?.name ?? ''
 
   const refresh = useCallback(async () => {
     const [active, deleted] = await Promise.all([api.projects(), api.deletedProjects()])

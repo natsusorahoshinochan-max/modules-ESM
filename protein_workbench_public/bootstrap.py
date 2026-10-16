@@ -59,7 +59,7 @@ def _install_teaching_resources(
     load_example_results: bool,
 ) -> None:
     """Install available teaching content only when its module contracts are present."""
-    if not catalog.contracts or find_spec("examples") is None:
+    if not any(contract.contract_kind == "node_type" for contract in catalog.contracts) or find_spec("examples") is None:
         return
     resource_root = files("examples").joinpath("v2")
     canonical_resource = resource_root.joinpath("canonical-3gb1.workflow.json")

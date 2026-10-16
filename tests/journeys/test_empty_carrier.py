@@ -16,7 +16,9 @@ def test_empty_carrier_saves_and_reopens_project(
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     (tmp_path / "modules.json").write_text(json.dumps({"packages": []}))
     with TestClient(create_application()) as client:
-        assert client.get("/api/v2/catalog").json()["contracts"] == []
+        contracts = client.get("/api/v2/catalog").json()["contracts"]
+        assert not any(contract["reference"]["contract_kind"] in {"node_type", "binding"} for contract in contracts)
+        assert client.get("/api/v2/authoring-capabilities").json()["capabilities"] == []
         assert client.get("/api/v2/projects").json()["projects"] == []
         created = client.post("/api/v2/projects", json={"name": "Empty carrier"})
         assert created.status_code == 201, created.text

@@ -366,10 +366,10 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         folding,
     )
     controlled_registrations = controlled_module_registrations()
-    monkeypatch.setattr(
-        "protein_workbench_public.bootstrap.module_registrations",
-        lambda: controlled_registrations,
-    )
+    for registration in controlled_registrations:
+        monkeypatch.setattr(
+            f"{registration.package_module}.package.MODULE_PACKAGE", registration,
+        )
     app = create_application(
         v2_environment_configuration=controlled_configuration,
     )
