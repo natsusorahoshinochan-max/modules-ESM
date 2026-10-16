@@ -448,3 +448,38 @@ def test_real_proteinmpnn_scores_signed_insertion_and_gap_axis(
             "provider_position": 3,
         },
     ]
+
+
+def test_real_proteinmpnn_scores_official_unknown_sequence_token(
+    tmp_path: Path,
+    pdb_3gb1: ProteinStructure,
+) -> None:
+    """The official score alphabet includes X without replacing that position."""
+    resources = _RunResources(tmp_path)
+    adapter = LocalProteinMPNNAdapter(
+        environment={
+            "device": expected_local_torch_device(),
+            "provider_root": Path(
+                os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+            ).resolve(),
+        },
+        resources=resources,
+    )
+    axis = resolve_residue_axis(pdb_3gb1)
+    native = axis.sequence
+    sequence = ProteinSequence(
+        native[:5] + "X" + native[6:], axis.layout.residue_ids,
+    )
+
+    score = adapter.score(
+        residue_axis=axis,
+        sequence=sequence,
+        seed=703,
+        backbone_noise=0,
+    )
+
+    assert math.isfinite(score) and score >= 0
+    assert sequence.sequence == native[:5] + "X" + native[6:]
+    assert sequence.residue_ids == axis.layout.residue_ids
+    assert len(resources.public_invocations) == 1
+    assert resources.public_invocations[0]["engine_role"] == "score_subject"

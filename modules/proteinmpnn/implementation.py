@@ -45,8 +45,10 @@ def _require_sequence_axis(
     sequence: ProteinSequence,
     residue_axis: ResolvedStructureResidueAxis,
     subject: str,
+    *,
+    alphabet: frozenset[str],
 ) -> None:
-    if not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS or (
+    if not set(sequence.sequence) <= alphabet or (
         len(sequence.sequence) != residue_axis.layout.length
         or (
             sequence.residue_ids is not None
@@ -174,7 +176,10 @@ class ProteinMPNNDesignImplementation:
             _axis_reference,
         ) in enumerate(parents):
             if reference is not None:
-                _require_sequence_axis(reference, residue_axis, "reference")
+                _require_sequence_axis(
+                    reference, residue_axis, "reference",
+                    alphabet=_CANONICAL_AMINO_ACIDS,
+                )
             if (
                 constraints is not None
                 and constraints.layout != residue_axis.layout
@@ -284,7 +289,10 @@ class ProteinMPNNScoreImplementation:
             axis_reference,
         ) = self._evaluation_pair(call)
         sequence = cast(ProteinSequence, sequence_candidate.data)
-        _require_sequence_axis(sequence, residue_axis, "scoring")
+        _require_sequence_axis(
+            sequence, residue_axis, "scoring",
+            alphabet=_CANONICAL_AMINO_ACIDS | {"X"},
+        )
         score = self._adapter.score(
             residue_axis=residue_axis,
             sequence=sequence,
