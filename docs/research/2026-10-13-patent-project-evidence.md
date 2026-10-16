@@ -2,7 +2,7 @@
 
 本文件为技术交底提供项目自身的要求、实现位置及缺证范围。项目行为以[当前有效决策](../documentation-governance-decisions.md)为准，术语见 [GLOSSARY.md](../../GLOSSARY.md)。现有代码只证明实现机制，不证明符合全部要求或通过运行验证。
 
-本地实现定位对应源码基线 `7577542009ad1f1b5ae0c2a7b9c69c6a881f9410`。源码阅读不能证明首次公开时间、原创贡献、专利区别或法律效力。外部公开证据及其日期见[检索总览](2026-10-13-patent-search-summary.md)。
+项目实现定位以当前源码与[领域说明](../README.md)为准；正式交底时仍需确定所使用的源码版本及实际运行材料。源码阅读不能证明首次公开时间、原创贡献、专利区别或法律效力。外部公开证据及其日期见[检索总览](2026-10-13-patent-search-summary.md)。
 
 ## 整体对象与角色
 
@@ -16,14 +16,14 @@
 
 | 项目 | 当前要求 | 可核查的实现与差异 |
 |---|---|---|
-| 安装与管理 | 用户选择插件包后安装并启用，可以禁用、卸载；官方模块默认附带并启用 | [bootstrap](../../protein_workbench_public/bootstrap.py) 显式导入模块并构造注册列表；此路径不是用户插件管理功能的完成证明 |
+| 安装与管理 | 用户选择插件包后安装并启用，可以禁用、卸载；官方模块默认附带并启用 | [bootstrap](../../protein_workbench_public/bootstrap.py) 从安装清单装配启用模块；[模块管理器](../../protein_workbench_public/module_management.py)与公共界面提供 wheel 安装、启停、卸载及随附模块恢复，见[工作区](../workspace.md#教学实例与默认入口) |
 | 注册模型 | 模块按统一契约接入节点、数据和专用界面；官方与外部模块同等接入 | [ModulePackageRegistration](../../core/catalog/declarations.py) 聚合节点、Method、Binding、数据类型、Metric、Utility 和编辑能力；[Builder](../../core/catalog/builder.py) 构造冻结目录 |
-| 专用界面 | React 接口；同一数据可有多个查看器并由用户切换 | [App](../../webui/src/App.tsx) 和[后端结果读取](../../protein_workbench_public/http/run_routes.py) 仍有固定分派，完整外部接入待修正 |
-| 运行配置 | 模块声明配置项，应用内提供凭据、后端模型位置及服务地址等设置 | [Environment](../../core/execution/environment.py) 按 Binding 声明接纳配置；[模块设置](../../protein_workbench_public/module_settings.py)按声明保存私有配置并供后续运行使用；实际 Provider 与界面覆盖仍需分别核对 |
-| 空载体 | 无科学模块时仍可创建、打开、保存项目并管理模块 | 固定生产装配不能单独证明空载体独立使用已经满足 |
+| 专用界面 | React 接口；同一数据可有多个查看器并由用户切换 | 编辑器、值查看器与 Run 查看器使用[公共模块 UI](../module-ui.md)；后端读取按模块声明分派，默认查看器与切换由载体提供 |
+| 运行配置 | 模块声明配置项，应用内提供凭据、后端模型位置及服务地址等设置 | [Environment](../../core/execution/environment.py) 按 Binding 声明接纳配置；[模块设置](../../protein_workbench_public/module_settings.py)与应用内“运行设置”按声明保存配置，后续运行交给 Adapter 使用，见[Provider 配置](../provider-configuration.md) |
+| 空载体 | 无科学模块时仍可创建、打开、保存项目并管理模块 | 空安装清单构建空 Catalog 并跳过科学教学安装；前端仍提供项目与模块管理入口，见[工作区](../workspace.md#教学实例与默认入口) |
 | 参数开放 | 已提供功能适用且影响结果的官方输入参数可配置 | 现有差异见[参数开放审查](../tool-parameter-exposure-audit.md)；不是新增工具模式的授权 |
 
-当前固定目录和公共协议是实现事实。不能把它们说成已完成安装管理，也不能把它们当作取消上述要求的理由。公开 Catalog 读取接口不等于模块注册或设置界面。
+安装清单、公共管理接口、模块界面和配置入口分别承担装配与交互，不能仅凭 Catalog 读取接口推断全部接入能力。各入口的行为测试及其范围见[测试说明](../../tests/README.md)，受控测试不证明任意外部模块或真实科学工具均已验证。
 
 ## 已有编排与执行机制
 
@@ -36,7 +36,7 @@
 | 执行与复用 | 结果身份用于核对复用；缓存命中与实际工具进入有不同记录；输出与节点终态通过耐久发布保存 | [Node Attempt](../../core/execution/node_attempt.py)、[结果身份](../../core/execution/_node_attempt_identity.py)、[发布](../../core/execution/_node_attempt_publication.py)、[Ledger](../../core/execution/ledger/ledger.py) |
 | 范围执行 | 指定来源 Run，按当前结果身份复用已发布节点结果并执行请求范围 | [范围处理](../../core/execution/_run_runtime_scope.py)、[运行说明](../execution.md) |
 
-上述源码定位不是当前 HEAD 的验收报告。节点级复用和重跑不等同于已满足“保留批内成功结果、跳过成功请求主动续算”。已有运行记录也不等同于已提供历史列表、跨项目采用或完整结果导出。
+上述源码定位不是整个项目的验收报告。当前批内成功结果保留与主动续算见[执行说明](../execution.md#批内失败与主动继续)，历史列表、跨项目采用及导出见[结果说明](../results.md)。这些功能各有独立入口和测试范围，不能仅凭节点重跑、缓存或运行记录推断其完成情况。
 
 ## 蛋白质数据处理的已有实现
 
@@ -54,13 +54,13 @@
 
 [结构比较](../../modules/structure_comparison/implementation.py) 根据显式 subject/reference 配对，生成对齐及 RMSD、TM-score 等结果；[指标投影](../../modules/structure_comparison/metrics.py) 与[方法声明](../../modules/structure_comparison/definitions/methods.yaml) 描述已有含义。BLOSUM62、SVD、TM-align 等既有算法不是本项目原创的证明。
 
-评价关系与生成来源必须分开。ProteinMPNN 评分的唯一原始父结构限制是已确认缺陷；整个 ProteinMPNN 接入需重做。不得将当前限制写成所有候选评价的必需条件，也不得伪造来源关系以满足旧实现。
+评价关系与生成来源必须分开。当前 ProteinMPNN 评分已接受独立序列与用户选定骨架，并保存本次评价的明确对应，见[当前实现说明](../module-capabilities.md#proteinmpnn-设计与评价)。有效决策中的[ProteinMPNN 重做要求](../documentation-governance-decisions.md#proteinmpnn-功能重做)仍保留；当前实现事实不自动证明该要求已全部完成，也不授权伪造生成来源。
 
 ### 指标与筛选
 
 [Selection 编译](../../core/workflow/_compiler/selection.py) 和[求值](../../core/scoring/selection.py) 体现 Metric、Method、Context、候选引用及显式 Utility 的既有处理。相关说明见[结果与筛选](../results.md)。这些机制不能证明生物实验表现提高，也不能自动决定未来所有模块必须使用同样内部表示。
 
-缺少必需分数时默认停止对应筛选。用户可通过画布组合整批或分组范围的筛选与排序；不能因现有示例给出固定 Top-N，就将该规则变成载体限制。结果页“保存为流程”已决定删除，当前代码仍待移除，不作为未来实施例的要求。
+缺少必需分数时默认停止对应筛选。用户可通过画布组合整批或分组范围的筛选与排序；不能因现有示例给出固定 Top-N，就将该规则变成载体限制。结果页“保存为流程”入口及节点生成路径已移除；普通筛选节点与历史结果采用仍分别提供，见[结果说明](../results.md#筛选排序与手动选择)。
 
 ## 可使用的实例与缺证
 
@@ -68,7 +68,7 @@
 
 技术交底尚需以下事实材料：
 
-- 一个符合当前接入要求的自定义模块完整实例，含模块源码、注册与安装、专用界面、配置、节点连接及实际结果；现有固定装配实例不能替代。
+- 围绕具体交底版本整理自定义模块实例的源码、wheel 安装、专用界面、配置、节点连接及运行附件。现有[独立外部测试模块](../../tests/lifecycle-wheel/)和[测试说明](../../tests/README.md#独立模块安装与恢复)提供确定性接入材料；其覆盖范围不等于真实科学工具的完整运行材料。
 - 固定版本的完整运行输入、参数、输出及可读说明。真实工具接受了哪些输入、哪些参数，应按官方接口和实际调用说明；不补造未记录的信息。
 - 若主张效率、正确性或其他技术效果，提供对应错误类别、比较条件和数据。测试数量、类名或目录数量不能代替效果证据。
 - 各拟保护机制的公开内容、公众可访问日期、自然人贡献和相关申请材料。本地 commit 日期不能证明公众当时已经能够取得内容。

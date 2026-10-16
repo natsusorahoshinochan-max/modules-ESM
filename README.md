@@ -37,7 +37,7 @@ from confirmed requirements and official interfaces, as specified in [AGENTS.md]
 
 - `core/` owns runtime, Workflow, Project, and necessary execution records.
 - `datatypes/` owns shared provider-independent values; it does not limit the types modules may declare.
-- `modules/<package>/` contains repository-owned Module Package sources. External modules follow the same extension contract; the current fixed assembly and missing installer remain implementation gaps.
+- `modules/<package>/` contains repository-owned Module Package sources. Official and external modules use the same extension contract; the application provides wheel installation, enable/disable, uninstall, and bundled-package restoration through module management. See [workspace operations](docs/workspace.md#教学实例与默认入口).
 - `protein_workbench_public/` owns the current public protocol and server.
 - `examples/v2/` contains maintained Workflows, structure inputs, and bundled WebUI results.
 - [`webui/`](webui/README.md) contains the React WebUI; its production build is deployed separately from the backend wheel.

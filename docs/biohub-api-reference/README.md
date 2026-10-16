@@ -10,9 +10,9 @@
 
 ## 项目接入与原始数据
 
-- [Biohub / ESM 接入说明](product-contract-supplement.md)：现有模型路线、输入翻译、结果含义及已确认的待对齐部分。
-- [Provider 配置](../provider-configuration.md)：当前部署入口，以及尚未实现的应用内配置要求。
-- [工具参数开放审查](../tool-parameter-exposure-audit.md)：参数限制、固定值及核验范围。
+- [Biohub / ESM 接入说明](product-contract-supplement.md)：模型路线、输入翻译、结果含义与接入约定；其中参数开放的实现状态见下列参数审查。
+- [Provider 配置](../provider-configuration.md)：当前应用内模块运行设置、部署配置及各路线前提。
+- [工具参数开放审查](../tool-parameter-exposure-audit.md)：当前可配置参数、路线默认值、限制及核验范围。ESM3 paired 已分别配置序列与结构阶段，`invalid_ids`、坐标条件开关及 ESMFold2 适用推理参数均已接入。
 - [原始生成观测数据](research/README.md)：保留的 JSON 与 PDB 数据及其适用范围，不作为当前验收记录。
 
 接口核对依据官方规范，不从原始观测中推导新的能力限制、重试、兼容解析或回退路线。

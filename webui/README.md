@@ -109,17 +109,19 @@ alignment results. Focus, export selection and same-Run comparison are independe
 The current ZIP exporter writes FASTA, Scores, metadata and structure files in the selected PDB or mmCIF format. Same-format export preserves source text; conversion leaves stored results unchanged. [Results](../docs/results.md) defines the required history,
 reuse, structure formats, viewers and parameter export behavior.
 
-Edits now remain in memory until an explicit save. Navigation offers save,
-discard or cancel for unsaved work; Run offers save-and-run. A teaching example
+Edits remain in memory until an explicit save. Navigation offers discard or
+cancel for unsaved work; cancel navigation to save manually. Run offers save-and-run. A teaching example
 becomes a personal Project only on first explicit save. Running Projects reject
 modification while remaining readable. Result-to-workflow actions have been
 removed.
 
-Complete module settings/viewer integration, historical/cross-project input
-adoption and source-independent availability remain incomplete. Failed batches
-can publish completed results without making the Node successful or sending
-those outputs downstream. Node-level continuation remains distinct from the
-required continuation of unfinished requests within a batch. See
+Module settings and viewers use the public module interfaces. Historical results
+can be adopted within or across Projects; the adopted input remains available
+after the source Project is permanently deleted. Failed batches retain completed
+results without making the Node successful or sending those outputs downstream.
+The **继续批次** action continues failed and unstarted requests with the original
+inputs and parameters, skipping successful requests. It is distinct from a
+node-level rerun. See
 [execution](../docs/execution.md) and the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
 
 The previous test framework and gates are retired. See [AGENTS.md](../AGENTS.md#测试)

@@ -16,7 +16,7 @@
 |---|---|---|
 | ESM3及fold样本数 | 项目上限100。 | 这是批量编排限制，不是单次官方请求参数。依据未明确，不声称工具无限支持。 |
 
-证据：[本地 ESMFold2 入口](../repositories/esm/esm/models/esmfold2/processor.py#L327)。
+限制位置：[ESM3 序列生成](../modules/esm3/definitions/generate_sequence.yaml)、[结构生成](../modules/esm3/definitions/generate_structure.yaml)、[联合生成](../modules/esm3/definitions/generate_paired.yaml)与[折叠节点](../modules/folding/definitions/fold.yaml)的样本数参数声明。上游单次请求接口不提供该项目批量上限的依据。
 
 ## 当前参数接入与适用范围
 

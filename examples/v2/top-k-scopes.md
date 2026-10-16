@@ -31,7 +31,7 @@
 另一条流程只对 A 组产生评分，仍把整批候选送入整批 Top-k。整批与 B 分支明确失败，A 分支成功，已经产生的两条评分保持原值；没有补算、填值或悄悄排除 B 组。
 
 ```sh
-.venv/bin/python -m pytest tests/test_topk_scopes.py -q
+.venv/bin/python -m unittest discover -s tests -p test_topk_scopes.py
 ```
 
 这条示例不调用模型。应用中的普通节点与 Selection 编辑器使用相同 Workflow/Objective 契约；结果页没有“保存为流程”入口。

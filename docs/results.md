@@ -115,11 +115,13 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 ## 导出
 
-无需先保存筛选或重新计算即可导出所选现有结果。用户结果下载统一为 ZIP，包含所选格式的数据和已经记录的计算参数说明；结果页组分导出与导出节点的附件下载遵守同样约定。模块提供实际数据与选择含义，载体提供公共打包入口，已发布 Artifact 的原始媒体和计算数据不变。支持纯序列和混合候选；内容包含现有序列、结构、分数、完整 parent refs、观察定义、真实 Run/Commit/输出来源，并列出无结构、无序列证据项。原始观察不混入仅供 UI 分组的 Context Profile。
+无需先保存筛选或重新计算即可导出所选现有结果。用户结果下载统一为 ZIP，包含所选格式的数据和已经记录的计算参数说明；结果页组分导出与导出节点的附件下载遵守同样约定。模块提供实际数据与选择含义，载体提供公共打包入口，已发布 Artifact 的原始媒体和计算数据不变。
+
+候选 ZIP 支持纯序列和混合候选，包含现有序列、结构、分数、完整 parent refs、观察定义、真实 Run/Commit/输出来源，并列出无结构、无序列证据项。原始观察不混入仅供 UI 分组的 Context Profile。以下候选文件格式不要求组分包或普通附件包也包含候选 manifest、FASTA 或评分 CSV。
 
 应附带已经记录的原计算参数，保证离开软件后可读；只写 Commit ID 或 Method 定义不足以替代实际节点/Binding 参数。不补造未记录数据，不新增日志或证据体系。结构须提供 PDB/mmCIF 选择，并保留所选非蛋白组分。
 
-当前 ZIP 格式化由[结果导出](../modules/protein_io/ui/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份、输出端口、内容摘要和 value manifest 摘要定位原执行节点，排除重放节点，不把当前工作区或重放 Run 的配置冒充原计算参数。当前 Run 中实际执行的输出按原节点 ID 精确定位；缓存结果若仍对应多个内容完全相同的执行节点，则标记 `ambiguous` 并列出候选参数记录，不断言唯一来源。
+当前候选 ZIP 的文件格式化与打包由[结果导出](../modules/protein_io/ui/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。候选 ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份、输出端口、内容摘要和 value manifest 摘要定位原执行节点，排除重放节点，不把当前工作区或重放 Run 的配置冒充原计算参数。当前 Run 中实际执行的输出按原节点 ID 精确定位；缓存结果若仍对应多个内容完全相同的执行节点，则标记 `ambiguous` 并列出候选参数记录，不断言唯一来源。
 
 参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责。
 
@@ -131,11 +133,11 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 |---|---|
 | 单条 FASTA | 单条入口拒绝多条记录并提示批量入口 |
 | 历史 Run 查看 | 项目运行列表与单 Run 选择；按原 Run/Commit 读取状态与保留结果，选择可刷新恢复 |
-| 历史/跨项目采用及来源删除独立 | 统一 Project Input 采用 API 与画布入口；Candidate/Score 保存原值、依赖、定义及参数；来源删除后可重开运行；项目副本保留独立输入，不复制 Run |
+| 历史/跨项目采用及来源删除独立 | 统一 Project Input 采用 API 与画布入口，类型由模块显式声明；Candidate/Score 保存原值、依赖、定义及参数；来源删除后可重开运行；项目副本保留独立输入，不复制 Run |
 | 结构格式、多构象、非蛋白组分 | 已支持 PDB/mmCIF 导入、构象选择/拆分及格式转换；候选详情支持全原子组分查看、选择与两种格式导出 |
 | 模块查看器 | 已注册结构、序列与 Prompt 查看器并支持切换；候选分页及关联分数、对齐面板通过同一模块公共读取和 Run 查看器接口接入 |
 | 结果页转流程 | 已删除入口及节点生成路径 |
 | ESMC 输出 | 可选 embedding、实际逐位置 logits，模块数值查看器及原值读取；见[模块能力](module-capabilities.md) |
-| 批次成功结果与续算 | ESMFold2、ESM3 和 SimpleFold 在已定义失败时保留完成结果，提供固定原输入和参数、跳过成功请求的主动续算，见[执行规范](execution.md) |
+| 批次成功结果与续算 | ESMFold2、ESM3、SimpleFold 和 ProteinMPNN 设计在各自已定义失败时保留完成结果，提供固定原输入和参数、跳过成功请求的主动续算，见[执行规范](execution.md) |
 | 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，以及来源 Run/Commit 参数文件 |
 
