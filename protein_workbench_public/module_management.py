@@ -64,11 +64,14 @@ class ModuleManager:
         self._activate(packages, lambda: save_installed_modules(self._data_root, packages), None)
 
     def apply_environment(
-        self, configuration: Mapping[str, Mapping[str, Any]], persist: Callable[[], None],
+        self,
+        configuration: Callable[[], Mapping[str, Mapping[str, Any]]],
+        persist: Callable[[Mapping[str, Mapping[str, Any]]], None],
     ) -> None:
         """Publish environment settings through the same idle service replacement boundary."""
         with self._lock, self._runtime().module_configuration_mutation():
-            self._activate(installed_modules(self._data_root), persist, configuration)
+            updated = configuration()
+            self._activate(installed_modules(self._data_root), lambda: persist(updated), updated)
 
     def install_bundled(self, package_id: str) -> dict[str, Any]:
         with self._lock, self._runtime().module_configuration_mutation():

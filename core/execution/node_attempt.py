@@ -48,6 +48,7 @@ from core.execution.resources import LocalProviderMemory, RunResources
 from core.execution.results.cache import ResultIndexError
 from core.execution.results.store import ResultIntegrityError, ResultStore
 from core.operation import (
+    ReadinessResult,
     OperationCall,
     OperationFailedWithOutputs,
     OperationContext,
@@ -131,7 +132,13 @@ class _NodeAttempt:
         declaration = node._runtime.readiness_declaration
         environment = self._environment.for_binding(binding_id)
         observed_at = _utc_now()
-        result = declaration.check(environment)
+        missing_configuration = any(
+            name not in environment.values for name in node._runtime.required_environment_fields
+        )
+        result = (
+            ReadinessResult(False, reason_code="environment_configuration_incomplete")
+            if missing_configuration else declaration.check(environment)
+        )
         ledger.record(
             ReadinessAttestation(
                 binding=_exact_reference(node.binding),

@@ -54,20 +54,14 @@ Install Provider Python dependencies when you need model execution:
 ```
 
 This installs Python dependencies, not model weights or all external executables.
-The current implementation reads configuration from environment variables before
-backend startup. Follow [Provider configuration](../docs/provider-configuration.md#当前配置入口)
-for each selected route's credentials, absolute paths on the backend machine,
-native tools and required platform/device. Setting a directory variable does not
-install the Provider. Missing model configuration prevents the corresponding
-operations from running, not browsing already published example results.
-Credentials must remain outside Git.
-
-An application settings interface is a confirmed requirement: modules declare
-their settings, and the carrier displays, saves and supplies them. It is not yet
-provided by the environment-variable path above. See [Provider configuration](../docs/provider-configuration.md)
-for the current setup and its gap from that requirement. Model downloads and
-automatic environment installation are outside this decision; per-calculation
-parameters remain in Node/Binding controls.
+Open **模块管理 → 运行设置** to save module-declared credentials, service addresses,
+and absolute paths on the backend machine. Settings persist across application
+restarts and are used for subsequent Runs. Saving settings requires an idle
+runtime; incomplete settings can be saved, but the corresponding operation
+reports missing configuration before entering its Provider. See
+[Provider configuration](../docs/provider-configuration.md#当前配置入口) for each route.
+Credentials remain outside Git and Workflow parameters. Model downloads and
+automatic environment installation are not provided.
 
 ## Deploy built frontend assets
 

@@ -65,6 +65,6 @@ The backend derives `projects/`, `cache/`, `outputs/`, `runs/`, and Provider run
 state from that root, so storage identity does not depend on the launch directory.
 The configured value is expanded once and must be absolute.
 
-Local ESM-3 additionally requires `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT` to name the
-absolute root of the configured complete `esm3_sm_open_v1` snapshot. The backend
+Local ESM-3 requires the `model_snapshot_path` field in application module settings
+to name the absolute root of the complete `esm3_sm_open_v1` snapshot. The backend
 does not search Hugging Face cache layouts for that snapshot.

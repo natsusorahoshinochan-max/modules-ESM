@@ -31,9 +31,8 @@ from protein_workbench_public.http.app import create_http_app
 from protein_workbench_public.application_environment import (
     application_storage_roots,
 )
-from protein_workbench_public.provider_environment import (
-    provider_environment_configuration,
-)
+from protein_workbench_public.module_settings import ModuleSettings, read_module_settings
+from protein_workbench_public.http.module_settings_routes import register_module_settings_routes
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from protein_workbench_public.example_results import (
     install_bundled_example_results,
@@ -86,15 +85,14 @@ def _install_teaching_resources(
 
 def create_application(
     *,
-    v2_environment_configuration: (
-        Mapping[str, Mapping[str, Any]] | None
-    ) = None,
     load_example_results: bool = True,
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
+    data_root = application_storage_roots().data
+    configured = read_module_settings(data_root)
     app = _compose_application(
         installed_modules(application_storage_roots().data),
-        v2_environment_configuration=v2_environment_configuration,
+        v2_environment_configuration=configured,
         load_example_results=load_example_results,
     )
 
@@ -102,7 +100,7 @@ def create_application(
         packages: tuple[InstalledModule, ...], persist: Callable[[], None],
         environment: Mapping[str, Mapping[str, Any]] | None,
     ) -> None:
-        configured = environment if environment is not None else v2_environment_configuration
+        configured = environment if environment is not None else read_module_settings(data_root)
         if configured is not None:
             active_bindings = {
                 binding.binding_id for package in packages if package.enabled
@@ -127,6 +125,7 @@ def create_application(
     manager = ModuleManager(application_storage_roots().data, lambda: app.state.run_runtime, activate)
     previous_route_count = len(app.router.routes)
     register_module_routes(app, manager)
+    register_module_settings_routes(app, ModuleSettings(data_root, manager))
     module_routes = app.router.routes[previous_route_count:]
     app.state.module_manager = manager
     return app
@@ -156,13 +155,13 @@ def _compose_application(
         catalog,
     )
     _install_teaching_resources(projects, authoring, catalog, load_example_results=load_example_results)
-    if v2_environment_configuration is None:
-        active_bindings = {contract.contract_id for contract in catalog.contracts if contract.contract_kind == "binding"}
-        configured = provider_environment_configuration() if active_bindings else {}
-        v2_environment_configuration = {
-            binding_id: values for binding_id, values in configured.items()
-            if binding_id in active_bindings
-        }
+    active_bindings = {binding.binding_id: binding for registration in registrations for binding in registration.bindings}
+    configured = read_module_settings(storage.data) if v2_environment_configuration is None else v2_environment_configuration
+    v2_environment_configuration = {
+        binding_id: values for binding_id, values in configured.items()
+        if binding_id in active_bindings
+        and all(not field.required or field.name in values for field in active_bindings[binding_id].environment_fields)
+    }
     environment = admit_environment_configuration(
         catalog,
         v2_environment_configuration,
