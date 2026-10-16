@@ -26,9 +26,9 @@
 ### DOC-020｜用户插件管理与空载体能力尚未完整接入
 
 - **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
-- **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 24–90 行固定导入和注册功能包；[provider_environment](../protein_workbench_public/provider_environment.py)仍按具体 Binding 与工具装配环境配置。
+- **当前实现**：[模块清单](../protein_workbench_public/module_registry.py)管理启用包；[模块设置](../protein_workbench_public/module_settings.py)按 Binding 声明保存凭据、路径和服务地址，并在空闲时替换后续运行配置。远程 Adapter 使用保存的服务地址；缺少必需配置时 Readiness 明确失败。
 - **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现，缺失模块的教学副本首次保存仍依赖 Catalog 发现输入，须完善输入依赖持久化；不能猜测引用或丢失所需输入。
-- **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前固定装配。用户安装管理及通用设置未证实完整，不能以仓库目录结构限制外部模块。
+- **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前实现。设置保存重开、并发字段保存及远程 SDK 参数链已有新公共 API 测试；设置界面保存及刷新重开已有独立浏览器测试；真实本地和远程 Provider 调用仍需核对，不能以边界替身测试宣称真实模型验收。
 
 ### DOC-028｜Prompt 合并要求项目用户维护内部身份
 

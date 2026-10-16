@@ -410,6 +410,7 @@ class EnvironmentFieldDeclaration:
     name: str
     value_category: Literal[
         "json_value",
+        "string",
         "filesystem_path",
         "credential_handle",
     ]

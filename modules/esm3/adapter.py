@@ -72,13 +72,14 @@ def build_biohub_esm3_client(
     *,
     model_name: str,
     credential_handle: object,
+    service_url: str,
 ) -> Any:
     """Construct the configured SDK client from trusted deployment values."""
     from esm.sdk import client
 
     return client(
         model=model_name,
-        url="https://biohub.ai",
+        url=service_url,
         token=credential_handle,
         request_timeout=150,
     )
@@ -805,6 +806,7 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
         client = build_biohub_esm3_client(
             model_name=self._model_name,
             credential_handle=self._environment["credential_handle"],
+            service_url=self._environment.get("service_url", "https://biohub.ai"),
         )
         self._resolved_client = client
         return client
