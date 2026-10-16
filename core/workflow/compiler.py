@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from core.catalog.result_adoption import AdoptedObservation
 from typing import Any, cast
 
 from datatypes.i_json import thaw_i_json
@@ -57,6 +58,7 @@ class CompilationRequest:
     """One admitted Workflow."""
 
     workflow: WorkflowDocument
+    adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]] = field(default_factory=dict)
 
 
 def _admit_parameter_values(
@@ -230,6 +232,7 @@ def compile(
     graph = _admit_workflow_graph(workflow, plan_nodes)
     _validate_selection_capabilities(
         workflow,
+        adopted_observations=request.adopted_observations,
         graph=graph,
         catalog=catalog,
     )
@@ -474,7 +477,7 @@ def compile(
     return plan
 
 
-def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, ranking: bool) -> list[dict[str, Any]]:
+def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, ranking: bool, adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]] | None = None) -> list[dict[str, Any]]:
     """Project the compiler's observation facts for an unfinished editor graph."""
     from core.workflow._compiler.selection_capabilities import _derive_observation_capabilities, selectable_observation
 
@@ -486,7 +489,7 @@ def observation_options(workflow: WorkflowDocument, catalog: FrozenCatalog, *, r
         for node in workflow.nodes
     }
     graph = _admit_workflow_graph(workflow, plan_nodes, require_complete=False)
-    capabilities = _derive_observation_capabilities(graph, catalog=catalog)
+    capabilities = _derive_observation_capabilities(graph, catalog=catalog, adopted_observations=adopted_observations)
     options = []
     for (node_id, output_port), values in capabilities.items():
         for value in values:

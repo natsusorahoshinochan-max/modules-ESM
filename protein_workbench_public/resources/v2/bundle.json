@@ -7836,6 +7836,11 @@
           "$ref": "#/$defs/JsonObject"
         }
       }
+    },
+    "ResultSourcesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
     }
   },
   "bundle_discovery": {
@@ -8740,6 +8745,20 @@
         "success_status": 200
       },
       "route": "/api/v2/projects/{project_id}/inputs/{project_input_ref}:adoption",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "result_sources": {
+      "method": "GET",
+      "request_schema": "#/$defs/ResultSourcesRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/JsonObject",
+        "success_status": 200
+      },
+      "route": "/api/v2/result-sources",
       "status_mapping": {
         "200": "response",
         "default": "structured_error"

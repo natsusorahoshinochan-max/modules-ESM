@@ -6,6 +6,7 @@ from typing import Any
 
 from core.catalog.observation import ObservationPropagationFilter
 from datatypes.observation import ObservationContextProfile
+from core.catalog.result_adoption import AdoptedObservation
 from datatypes.observation import PairwiseContextProfile
 from datatypes.i_json import canonical_json_bytes
 from core.catalog.model import FrozenCatalog
@@ -98,10 +99,12 @@ def _validate_selection_capabilities(
     *,
     graph: _AdmittedWorkflowGraph,
     catalog: FrozenCatalog,
+    adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]] | None = None,
 ) -> None:
     capabilities = _derive_observation_capabilities(
         graph,
         catalog=catalog,
+        adopted_observations=adopted_observations,
     )
     _validate_selection_objectives(
         workflow,
@@ -325,6 +328,7 @@ def _derive_observation_capabilities(
     graph: _AdmittedWorkflowGraph,
     *,
     catalog: FrozenCatalog,
+    adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]] | None = None,
 ) -> dict[tuple[str, str], tuple[_ObservationCapability, ...]]:
     """Derive exact output capabilities from closed fixed/propagation contracts."""
     capabilities: dict[
@@ -332,6 +336,14 @@ def _derive_observation_capabilities(
         tuple[_ObservationCapability, ...],
     ] = {}
     for node_id in graph.node_order:
+        for observation in (adopted_observations or {}).get(node_id, ()):
+            key = (node_id, observation.output_port)
+            capabilities[key] = (*capabilities.get(key, ()), _ObservationCapability(
+                source_partition=observation.source_partition, metric=observation.metric,
+                method=observation.method, context_profile=observation.context_profile,
+                subject_grain='candidate', source_role='subject',
+                guaranteed_multiplicity=observation.guaranteed_multiplicity,
+                subject_source=None, reference_source=None, pairing_source=None))
         plan = catalog.produced_observation_plan(graph.nodes_by_id[node_id].binding_id)
         for declaration in plan.observations:
             method_source = (

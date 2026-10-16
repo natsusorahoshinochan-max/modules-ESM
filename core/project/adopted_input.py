@@ -27,6 +27,7 @@ class AdoptedSnapshot(TypedDict):
     candidate_data: list[AdoptedCandidateReference]
     source: AdoptedSource
     parameters: dict[str, Any]
+    dependencies: list["AdoptedSnapshot"]
 
 
 @dataclass(frozen=True, slots=True)

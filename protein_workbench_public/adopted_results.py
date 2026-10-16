@@ -3,13 +3,15 @@ from typing import Any
 
 from core.catalog.model import FrozenCatalog
 from core.execution.runtime import V2RunService
+from core.execution.ledger import V2RunError
 from core.project.manager import ProjectManager
-from core.project.adopted_input import AdoptedSource, read_adopted_snapshot
-from core.workflow.authoring import WorkflowAuthoringService
+from core.project.adopted_input import AdoptedSource, AdoptedSnapshot, read_adopted_snapshot
+from collections.abc import Iterator
+from core.workflow.authoring import WorkflowAuthoringService, WorkflowAuthoringError
 from datatypes.i_json import thaw_i_json
 
 
-def original_parameters(
+def _original_parameters(
     source: AdoptedSource, *, runtime: V2RunService,
     authoring: WorkflowAuthoringService, projects: ProjectManager, catalog: FrozenCatalog,
 ) -> dict[str, Any]:
@@ -47,6 +49,46 @@ def original_parameters(
                 'node_parameters': original_admitted['node_parameters'],
                 'binding_parameters': original_admitted['binding_parameters'],
             },
+            'definitions': [] if original_admitted is None else original_admitted['result_identity_plan_facts']['resolved_result_contracts'],
         })
     return {'status': 'recorded' if len(records) == 1 else 'ambiguous' if records else 'unavailable',
             'records': records}
+
+
+def original_parameters(
+    source: AdoptedSource, *, runtime: V2RunService,
+    authoring: WorkflowAuthoringService, projects: ProjectManager, catalog: FrozenCatalog,
+) -> dict[str, Any]:
+    try:
+        return _original_parameters(source, runtime=runtime, authoring=authoring, projects=projects, catalog=catalog)
+    except (V2RunError, WorkflowAuthoringError) as error:
+        if error.code not in {'run_not_found', 'workflow_commit_not_found'}:
+            raise
+        return {'status': 'unavailable', 'records': []}
+
+
+def dependency_values(source: AdoptedSource, *, runtime: V2RunService,
+                      authoring: WorkflowAuthoringService, projects: ProjectManager,
+                      catalog: FrozenCatalog) -> Iterator[AdoptedSnapshot]:
+    """Expose published values to the module that owns dependency selection."""
+    run = runtime.projection(source['source_project_id'], source['source_run_id'])
+    commit = authoring.load_commit(source['source_project_id'], workflow_commit_id=run.workflow_commit_id)
+    source_nodes = {declaration.node_type_id for declaration in catalog.result_sources}
+    for node in commit.workflow.nodes:
+        if node.node_type_id in source_nodes:
+            _, payload = projects.read_input(source['source_project_id'], node.node_parameters['project_input_ref'])
+            snapshot = read_adopted_snapshot(payload)
+            yield snapshot
+            yield from snapshot['dependencies']
+    for publication in run.publications:
+        for output in publication.outputs:
+            for value_index in range(output.value_count):
+                location: AdoptedSource = {**source, 'node_id': publication.node_id,
+                    'output_port': output.output_port, 'value_index': value_index}
+                metadata, canonical, references = runtime.published_value(
+                    source['source_project_id'], source['source_run_id'], publication.node_id, output.output_port, value_index)
+                yield {'port_type_id': output.port_type.contract_id, 'canonical_value': canonical.decode('utf-8'),
+                    'content_digest': metadata['typed_value']['value_content_digest'],
+                    'candidate_data': [{'candidate_id': ref.candidate_id, 'data_type_id': ref.data_type_id,
+                                        'content_digest': ref.content_digest} for ref in references],
+                    'source': location, 'parameters': {}, 'dependencies': []}

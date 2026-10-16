@@ -130,3 +130,24 @@ class ResultAdoption(unittest.TestCase):
                 restored = client.get(target_run + '/outputs/adopted/value/values/0')
                 self.assertEqual(restored.status_code, 200, restored.text)
                 self.assertEqual(restored.content, original)
+
+                metadata = client.get(f"/api/v2/projects/{target}/inputs/{adopted.json()['project_input_ref']}:adoption").json()
+                self.assertEqual(len(metadata['dependencies']), 1)
+                self.assertEqual(metadata['dependencies'][0]['port_type_id'], 'candidate.collection')
+                self.assertIn('ACDE', metadata['dependencies'][0]['canonical_value'])
+                options = client.post(f'/api/v2/projects/{target}/workflow:observation-options', json={
+                    'workflow': {'nodes': [node], 'edges': []}, 'ranking': False})
+                self.assertEqual(options.status_code, 200, options.text)
+                self.assertEqual([(item['metric_id'], item['method_id']) for item in options.json()['options']],
+                                 [('adoption_demo.value', 'adoption_demo.method')])
+
+    def test_unfinished_adopted_score_node_has_no_observation_options(self):
+        with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            with TestClient(create_application(load_example_results=False)) as client:
+                project = client.post('/api/v2/projects', json={'name': 'Unfinished'}).json()['id']
+                response = client.post(f'/api/v2/projects/{project}/workflow:observation-options', json={
+                    'workflow': {'nodes': [{'node_id': 'source', 'node_type_id': 'selection.adopt_scores',
+                        'binding_id': 'selection.adopt_scores.direct', 'binding_parameters': {},
+                        'node_parameters': {'project_input_ref': ''}}], 'edges': []}, 'ranking': False})
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()['options'], [])

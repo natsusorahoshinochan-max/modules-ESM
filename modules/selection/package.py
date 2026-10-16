@@ -7,6 +7,7 @@ from core.project.adopted_input import AdoptedInputOperation
 
 from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_scores
+from .adopted_scores import adopted_observations, adopted_dependencies
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
@@ -140,7 +141,7 @@ _ADOPT_BINDING = ExecutionBindingDefinition(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    result_sources=(ResultSourceDefinition("score.collection", "selection.adopt_scores", "selection.adopt_scores.direct"),),
+    result_sources=(ResultSourceDefinition("score.collection", "selection.adopt_scores", "selection.adopt_scores.direct", observations=adopted_observations, dependencies=adopted_dependencies),),
     result_readers=(
         ResultReaderDefinition("score.collection", "scores", read_scores),
     ),
