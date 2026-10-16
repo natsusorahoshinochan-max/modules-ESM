@@ -11,25 +11,26 @@
     "prebuild": "npm run build:module-ui"
   },
   "dependencies": {
+    "@radix-ui/react-context-menu": "2.3.7",
+    "@radix-ui/react-dialog": "1.1.23",
+    "@radix-ui/react-dropdown-menu": "2.1.24",
     "@xyflow/react": "^12.8.6",
     "3dmol": "^2.5.3",
+    "ag-grid-community": "36.2.0",
+    "ag-grid-react": "36.2.0",
     "fflate": "^0.8.3",
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "@radix-ui/react-dialog": "1.1.23",
-    "@radix-ui/react-dropdown-menu": "2.1.24",
-    "@radix-ui/react-context-menu": "2.3.7",
-    "ag-grid-community": "36.2.0",
-    "ag-grid-react": "36.2.0"
+    "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "22.20.4",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
+    "esbuild": "0.28.2",
     "typescript": "~5.8.3",
-    "vite": "^7.1.4",
-    "esbuild": "0.28.2"
+    "vite": "^7.1.4"
   }
 }
