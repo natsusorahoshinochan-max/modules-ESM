@@ -973,6 +973,10 @@ def build_frozen_catalog(
             viewer_ids.add(viewer.viewer_id)
     if any(count != 1 for count in viewer_defaults.values()):
         raise CatalogBuildError("Each viewed Port Type must declare exactly one default result viewer")
+    value_previews = tuple(preview for registration in registration_tuple for preview in registration.value_previews)
+    preview_ids = [preview.projection_id for preview in value_previews]
+    if len(set(preview_ids)) != len(preview_ids):
+        raise CatalogBuildError("Value preview projection IDs must be unique")
     return FrozenCatalog(
         tuple(
             entry
@@ -982,6 +986,7 @@ def build_frozen_catalog(
         availability=tuple(availability_snapshots),
         availability_observed_at=observation_time,
         ui_extensions=ui_extensions,
+        value_previews=value_previews,
         result_actions=result_actions,
         result_readers=result_readers,
         result_sources=tuple(source for package in registration_tuple for source in package.result_sources),

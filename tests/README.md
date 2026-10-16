@@ -183,9 +183,31 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5237 npx playwright test tests/regions.spec.
 ```
 
 验证模块区域选择、取消、手动保存重开、缺值设置，以及持久区域对齐/统计查看。服务器仅增加全新 `region_observations` 外部测试模块作为已有测量数据来源；它不模拟模型质量。
+## Prompt 模块编辑与局部采用
+
+`.venv/bin/python -m unittest discover -s tests -p test_prompt_editor.py` 覆盖公共模块声明、工具投影按启用状态变化、编辑预览保存重开与受控 ESM3 SDK 输入。无需本地模型，不调用线上服务。
+
+使用默认官方模块、独立临时数据目录启动正常后端与前端后，在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5207 npx playwright test tests/prompt-editor.spec.ts --workers=1 --reporter=line --output=/tmp/prompt-editor-results
+```
+
+覆盖模块编辑确认与手动保存分离、重开、随机新增残基继续编辑和删除、放弃、结构临时移动取消，以及无需输入内部身份的局部轨道采用。
+
 ## 可组合 Top-k 范围
 
 `.venv/bin/python -m pytest tests/test_topk_scopes.py -q` 通过公共 API 执行整批及按骨架范围的 Top-k。独立导入序列与结构，使用普通关系操作表达评价对象；显式外部测试模块提供四个已知评分，不调用 Provider。覆盖完整 Candidate 和骨架关联保持、同一评分源复用，以及缺少本范围必需评分时对应筛选失败、已评分分支仍成功。
+
+## Provider 参数传递
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_provider_parameters.py
+```
+
+仅使用现有 Python 3.12、httpx、Torch 和固定 ESM/SimpleFold SDK。覆盖 Biohub ESM3 两阶段各自的非默认生成设置、远程 ESMFold2 六项推理参数、本地 ESMFold2 builder 的路线参数与 null 值，以及 SimpleFold wrapper 的 tau 和大于50的步数。公共 Catalog 同时确认独立 confidence 不声明采样参数。
+
+远程调用用官方 SDK 边界替身；本地 ESMFold2 的模型/CCD 加载由外部边界替代，SimpleFold 在 wrapper 构造入口记录参数后立即停止。不会加载重模型或发送网络请求，不表示本地 ESM-3、ESMFold2、SimpleFold 真实模型已运行，也不覆盖完整界面编辑链。
 
 ## 非蛋白组分查看与导出
 
