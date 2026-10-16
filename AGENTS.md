@@ -1,50 +1,66 @@
-# Repository Guidelines
+# 仓库规则
+
+## 开始工作
+
+当前代码是屎山，正在重新设计和重构。
+
+审查或修改前先读：
+
+- [有效决策](docs/documentation-governance-decisions.md)：以已确认要求为准，不从现有实现反推需求。
+- [问题清单](docs/2026-10-15-documentation-governance-issues.md)：用于排查；未核实项不算需求或已确认缺陷。
+- [文档索引](docs/README.md)：查找相关领域说明。
+
+## 修改代码
+
+按用户要求和工具官方接口正确传递输入与参数，这是本项目判断科学性的标准。
+
+修改时一并更新调用方、示例和文档，删除被替代的代码。不做历史兼容，不加兼容层、别名、旧解析器、双轨实现或尚无用途的抽象。
+
+保留用户已保存的工作、运行结果和原始研究数据。已采用的输入必须在来源项目删除后仍然可用。
+
+使用 [GLOSSARY.md](GLOSSARY.md) 的术语；与确认要求冲突时修正文档。
+
+## 测试
+
+保留 TDD。测试预期来自已确认需求和官方接口；通过已确认的公共边界，每次推进一个行为的红—绿循环，再按需要重构。已有实现先补行为测试，不人为破坏代码制造失败。
+
+旧测试组件和门禁已删除，不恢复或复用旧断言、夹具和执行框架。新测试按当前业务需要从零编写，只建立必要入口，不预建通用测试体系；运行受影响的新测试，不反复执行无关检查。
+
+## 架构
+
+载体负责模块管理、编排、运行、保存和数据传递。模块提供具体操作和专用界面，在内部调用工具。一个模块可提供多个节点，一个工具可供多个模块使用。官方与外部模块遵守相同的公共接口。
+
+- `core/` 只负责运行时和必要执行记录，不放工具专用科学逻辑，不扩建证据体系。
+- `datatypes/` 定义 Provider 无关的共享值；模块也可通过扩展契约声明类型。
+- `modules/<package>/` 存放仓库自有模块，外部插件无需进入仓库。
+- Adapter 负责向 Provider 转换输入和参数。
+- `protein_workbench_public/` 负责公共协议，不硬编码科学模块的读取或交互。
+- `repositories/` 保持固定上游源码不变，项目自有 SoluProt-next Provider 除外。
+
+## 信任与失败
+
+这是受信任的单用户应用，仅限本机回环地址。契约边界校验一次，内部直接使用；不加认证、多租户、沙箱或对抗性防御。
+
+遵循 Biohub 官方 API，假定合规请求得到合规响应。不猜结构、修补响应、交叉核验 Provider 或增加备用端点。
 
 ## 文档
 
-文档和代码注释只保留当前有效内容，明确区分已确认要求、实际实现状态和未解决差异。代码用于证明实现情况，不用于推翻已确认要求；已确认要求也不代表实现已经完成。
+文档和注释只保留当前内容，分清要求、实现和未解决的问题。确认要求不等于完成实现，代码也不能推翻要求。
 
-更新时直接替换失效内容，不保留 AI 对话记录、开发流水账、失效开发阶段叙事、旧方案或旧验收档案。可以记录当前问题、证据位置和核验范围；问题解决后更新当前结论，不保留演变流水。未经确认的实现偏差不得写成新需求。
+直接替换失效内容，不留对话、流水账、旧方案或旧验收档案。未解决的问题可记录证据和核查范围，解决后更新结论。未经确认的实现偏差不得写成需求。
 
-## 当前工作：测试组件治理
+不得提交 `.local/`、`keys/`、环境目录或客户端构建产物。
 
-当前工作面向测试组件的治理，检查测试、夹具、共用测试支持和验证入口是否准确覆盖当前要求，识别过时断言、重复检查、错误模拟和覆盖缺口。开始审查或修改测试组件前，阅读以下依据：
+## Agent skills
 
-- [当前有效决策](docs/documentation-governance-decisions.md)：用户已确认的产品要求、开发约束和范围边界，是判断目标行为的依据。
-- [文档治理问题清单](docs/2026-10-15-documentation-governance-issues.md)：已发现问题、证据及处理状态，是排查入口；其中疑点和未核实事项不是已确认需求或已证明缺陷。
-- [文档索引](docs/README.md)：现行架构、执行、工作区、结果、Prompt、模块与配置说明。
-- [后端验证](docs/backend-verification.md)与 [WebUI 验证](webui/README.md#verification)：测试职责、验证入口与远端执行要求。
+### Issue tracker
 
-以当前有效要求判断测试是否正确，不以现有测试通过或现有实现反推需求。区分测试本身的问题与测试暴露的实现缺陷；不通过删除有效断言、增加跳过或放宽预期掩盖实现问题。测试组件的具体修改按用户授权的任务范围执行，不因测试治理自动扩大为应用功能重构。
+使用 GitHub Issues 跟踪任务；读写问题前参阅 `docs/agents/issue-tracker.md`。
 
-同步维护相关说明与未解决问题，不保留治理流水或已解决项历史。只读审查不运行测试；需要执行验证时遵守下方 Verification 及其引用规则。保留仍有效的测试覆盖，不删除用户项目、运行结果或原始研究数据。
+### Triage labels
 
-## Priorities
+使用五个默认 triage 标签；分类或修改标签前参阅 `docs/agents/triage-labels.md`。
 
-本项目对科学性的定义是：正确传参数。按照用户要求和工具官方接口正确传递输入与参数。使用 [GLOSSARY.md](GLOSSARY.md) 中与当前有效要求一致的术语；发现冲突时明确指出并修正文档，不以旧定义限制已确认功能。
+### Domain docs
 
-There is no historical compatibility obligation. Do not add shims, aliases, legacy parsers, dual paths, deprecation layers, or speculative abstractions. When changing code, change all current producers, consumers, tests, examples, and documentation together; delete superseded code. Superseded development artifacts may be invalidated without compatibility support. This does not permit silent loss of saved user work or invalidating an adopted input when its source project is deleted.
-
-## Architecture
-
-载体负责模块管理、流程编排、运行、保存和数据传递等通用能力。功能模块提供具体操作及专用界面；模型、算法和外部服务由模块内部调用。一个模块可以提供多个节点，同一工具可以服务多个模块。官方与外部模块遵守同一套接入规范，官方功能不绕过公共接口。
-
-`core/` owns runtime and necessary execution records, not tool-specific scientific behavior or a mandate to expand evidence systems. `datatypes/` defines shared provider-independent values; modules may declare their own data types through the extension contract. Repository-owned module sources live in `modules/<package>/`; provider translation belongs in Adapters. This source layout does not require external plugins to become repository source. `protein_workbench_public/` owns the public protocol, not hard-coded scientific-module reading or interaction paths. Treat `repositories/` as pinned upstream, except for the project-owned SoluProt-next Provider source.
-
-## Trust Model
-
-This is a trusted, single-user, loopback-only application. Components trust values after validation by their contract-owning boundary. Validate once; do not add repeated checks, authentication, authorization, multi-tenancy, adversarial handling, sandboxing, or hosted-service hardening.
-
-Biohub and its official API specification are authoritative. Assume conforming requests receive conforming responses. Adapters must translate inputs and parameters according to the official API specification. Do not guess schemas, repair or reject responses, cross-check providers, add fallback endpoints, or handle hypothetical malformed responses. Follow documented operational outcomes exactly.
-
-Fail fast on local invariant violations. Avoid broad catches, silent coercion, guessed defaults, catch-and-continue behavior, and undocumented retries or fallbacks. Retain checks only for correct parameter passing, explicit contracts, durable writes, accidental data loss, and credential hygiene.
-
-Distinguish local invariant violations from defined operational failures. Apply the current execution requirements for failure handling, result retention, and user-initiated continuation; never record a failure as success.
-
-## Verification
-
-For read-only audits and changes limited to explanatory text, links, or formatting, check content and references without running executable verification. For changes affecting executable examples, configuration, or code behavior, read and follow the complete execution policy and verification gates in [backend verification](docs/backend-verification.md#execution-policy); this scope distinction does not reduce required gates. For WebUI changes, also use the verification entry points in [webui/README.md](webui/README.md).
-
-Run tests, type checks, builds, browser checks, and Providers only on the remote verification host. Use Python 3.12, typed code, and pytest. Test correct parameter passing and current package contracts. Mocks cannot replace required real-provider acceptance. The backend verification gate is independent of the WebUI. Keep execution commands and the verification matrix in the linked verification documents rather than duplicating a partial gate here.
-
-Never commit `.local/`, `keys/`, environments, or client build output.
+采用 single-context 布局；探索代码前按 `docs/agents/domain.md` 阅读领域文档。
