@@ -77,7 +77,7 @@ class TopKScopes(unittest.TestCase):
         deadline = time.monotonic() + 10
         while True:
             result = client.get(run).json()
-            if result['status'] not in ('pending', 'running'):
+            if result['status'] not in ('admitted', 'running'):
                 return run, result
             self.assertLess(time.monotonic(), deadline)
             time.sleep(.01)
