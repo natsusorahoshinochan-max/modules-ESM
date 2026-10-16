@@ -7426,105 +7426,6 @@
       ],
       "type": "object"
     },
-    "ModuleSettingsRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {},
-      "required": []
-    },
-    "UpdateModuleSettingsRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "binding_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "values": {
-          "type": "object"
-        }
-      },
-      "required": [
-        "binding_id",
-        "values"
-      ]
-    },
-    "ModuleSettings": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema_namespace": {
-          "const": "protein-workbench-public/v2"
-        },
-        "bindings": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "package_id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "binding_id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "fields": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "value_category": {
-                      "enum": [
-                        "filesystem_path",
-                        "json_value",
-                        "credential_handle",
-                        "string"
-                      ]
-                    },
-                    "required": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "name",
-                    "value_category",
-                    "required"
-                  ]
-                }
-              },
-              "values": {
-                "type": "object"
-              },
-              "configured_secrets": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "required": [
-              "package_id",
-              "binding_id",
-              "fields",
-              "values",
-              "configured_secrets"
-            ]
-          }
-        }
-      },
-      "required": [
-        "schema_namespace",
-        "bindings"
-      ]
-    },
     "AdoptResultRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -7583,33 +7484,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {}
-    },
-    "ModuleUiRunViewer": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "viewer_id",
-        "title",
-        "port_type_ids",
-        "component"
-      ],
-      "properties": {
-        "viewer_id": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "port_type_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "component": {
-          "type": "string"
-        }
-      }
     }
   },
   "bundle_discovery": {
@@ -8456,34 +8330,6 @@
         "404": "structured_error",
         "409": "structured_error",
         "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "module_settings": {
-      "method": "GET",
-      "route": "/api/v2/module-settings",
-      "request_schema": "#/$defs/ModuleSettingsRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ModuleSettings",
-        "success_status": 200
-      },
-      "status_mapping": {
-        "200": "response",
-        "default": "structured_error"
-      }
-    },
-    "update_module_settings": {
-      "method": "PATCH",
-      "route": "/api/v2/module-settings/{binding_id}",
-      "request_schema": "#/$defs/UpdateModuleSettingsRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ModuleSettings",
-        "success_status": 200
-      },
-      "status_mapping": {
-        "200": "response",
         "default": "structured_error"
       }
     },
