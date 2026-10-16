@@ -96,7 +96,7 @@ When no teaching Project is installed, the app opens an existing personal Projec
 or offers creation and opening. An empty installed package inventory still exposes
 the canvas and manual Project persistence. The production inventory is
 `modules.json` under the application data root, with a `packages` array of
-`package_module` and boolean `enabled` entries. A missing inventory uses the
+`package_id`, `package_module`, boolean `enabled`, and nullable `source_root` entries. A missing inventory uses the
 bundled enabled packages; `{"packages": []}` selects an empty carrier. This
 composition contract is not yet an in-application package manager. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
 describes what ships in the backend package.

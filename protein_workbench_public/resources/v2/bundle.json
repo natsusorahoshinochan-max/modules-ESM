@@ -1629,6 +1629,105 @@
       ],
       "type": "object"
     },
+    "ModuleEnableRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled_package_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "enabled_package_ids"
+      ],
+      "type": "object"
+    },
+    "ModuleEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "origin": {
+          "enum": [
+            "bundled",
+            "external"
+          ]
+        },
+        "package_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "package_module": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "package_id",
+        "package_module",
+        "enabled",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "ModuleErrorDetails": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "ModuleInventory": {
+      "additionalProperties": false,
+      "properties": {
+        "bundled_packages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "package_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "package_module": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "package_id",
+              "package_module"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/ModuleEntry"
+          },
+          "type": "array"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "modules",
+        "bundled_packages"
+      ],
+      "type": "object"
+    },
+    "ModuleInventoryRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
     "NodeAttemptStartedEvent": {
       "additionalProperties": false,
       "properties": {
@@ -3913,28 +4012,28 @@
               "type": "integer"
             },
             "target_residues": {
-              "type": "array",
               "items": {
-                "type": "object",
                 "additionalProperties": false,
+                "properties": {
+                  "origin": {
+                    "enum": [
+                      "source",
+                      "inserted"
+                    ],
+                    "type": "string"
+                  },
+                  "residue_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
                 "required": [
                   "residue_id",
                   "origin"
                 ],
-                "properties": {
-                  "residue_id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "origin": {
-                    "type": "string",
-                    "enum": [
-                      "source",
-                      "inserted"
-                    ]
-                  }
-                }
-              }
+                "type": "object"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -5538,14 +5637,14 @@
     "ResultStructure": {
       "additionalProperties": false,
       "properties": {
-        "text": {
-          "type": "string"
-        },
         "format": {
           "enum": [
             "pdb",
             "mmcif"
           ],
+          "type": "string"
+        },
+        "text": {
           "type": "string"
         }
       },
@@ -7608,6 +7707,34 @@
         "default": "structured_error"
       }
     },
+    "module_enable": {
+      "method": "PUT",
+      "request_schema": "#/$defs/ModuleEnableRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleInventory",
+        "success_status": 200
+      },
+      "route": "/api/v2/modules",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "module_inventory": {
+      "method": "GET",
+      "request_schema": "#/$defs/ModuleInventoryRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleInventory",
+        "success_status": 200
+      },
+      "route": "/api/v2/modules",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
     "name_workflow_version": {
       "method": "POST",
       "request_schema": "#/$defs/ProjectRenameRequest",
@@ -8126,6 +8253,18 @@
         "code": "malformed_request",
         "details_schema": "#/$defs/MalformedRequestDetails",
         "http_status": 400,
+        "retryable": false
+      },
+      "module_change_active_runs": {
+        "code": "module_change_active_runs",
+        "details_schema": "#/$defs/ModuleErrorDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "module_configuration_rejected": {
+        "code": "module_configuration_rejected",
+        "details_schema": "#/$defs/ModuleErrorDetails",
+        "http_status": 422,
         "retryable": false
       },
       "node_execution_failed": {

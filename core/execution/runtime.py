@@ -460,6 +460,17 @@ class V2RunService:
                 )
             yield
 
+    @contextmanager
+    def module_configuration_mutation(self) -> Iterator[None]:
+        """Keep the installation Catalog unchanged while Runs own execution resources."""
+        with self._worker_condition:
+            if self._reserved_projects or self._workers:
+                raise V2RunError(
+                    "module_change_active_runs", "Wait for active Runs before changing modules",
+                    details={},
+                )
+            yield
+
     def start_derived_background(
         self,
         project_id: str,
