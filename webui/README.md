@@ -122,7 +122,7 @@ those outputs downstream. Node-level continuation remains distinct from the
 required continuation of unfinished requests within a batch. See
 [execution](../docs/execution.md) and the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
 
-Existing test components and gates are retired. See [AGENTS.md](../AGENTS.md#测试)
+The previous test framework and gates are retired. See [AGENTS.md](../AGENTS.md#测试)
 for the current decision.
 
 模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；`npm run build:module-ui` 构建源码资产，wheel 构建自动生成包内资源。
