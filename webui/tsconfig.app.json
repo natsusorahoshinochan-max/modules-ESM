@@ -32,6 +32,15 @@
       ],
       "3dmol": [
         "./node_modules/3dmol"
+      ],
+      "lucide-react": [
+        "./node_modules/lucide-react"
+      ],
+      "ag-grid-react": [
+        "./node_modules/ag-grid-react"
+      ],
+      "ag-grid-community": [
+        "./node_modules/ag-grid-community"
       ]
     }
   },

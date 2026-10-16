@@ -96,7 +96,7 @@ class PromptAuthoringSnapshot:
     baseline_diagnostics: tuple[PromptAuthoringDiagnostic, ...]
     random_selections: tuple[Mapping[str, Any], ...]
     merge_targets: tuple[Mapping[str, Any], ...] = ()
-    protein_prompt: ProteinPrompt | None = None
+    tool_projections: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +114,7 @@ class PromptAuthoringPreview:
     baseline_diagnostics: tuple[PromptAuthoringDiagnostic, ...]
     summary: Mapping[str, Any]
     merge_targets: tuple[Mapping[str, Any], ...] = ()
-    protein_prompt: ProteinPrompt | None = None
+    tool_projections: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1225,7 +1225,14 @@ class PromptAuthoringService:
             baseline_diagnostics=baseline_diagnostics,
             random_selections=self._project_random_trace(trace),
             merge_targets=self._project_merge_targets(merge_targets),
-            protein_prompt=prompt,
+            tool_projections=self._tool_projections(prompt),
+        )
+
+    def _tool_projections(self, prompt: ProteinPrompt) -> tuple[Mapping[str, Any], ...]:
+        return tuple(
+            {"projection_id": preview.projection_id, "title": preview.title, "value": preview.describe(prompt)}
+            for preview in self._catalog.value_previews
+            if preview.port_type_id == "protein.prompt"
         )
 
     def _preview_loaded(
@@ -1324,7 +1331,7 @@ class PromptAuthoringService:
             baseline_diagnostics=baseline_diagnostics,
             summary=summary,
             merge_targets=self._project_merge_targets(merge_targets),
-            protein_prompt=final,
+            tool_projections=self._tool_projections(final),
         )
 
     def preview(

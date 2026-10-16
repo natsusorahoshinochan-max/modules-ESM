@@ -1,4 +1,4 @@
-import type { PromptAuthoringDocument, PromptMergeCorrespondence, PromptTargetResidue, PromptTrackEdit } from './protocol/client'
+import type { PromptAuthoringDocument, PromptMergeCorrespondence, PromptTargetResidue, PromptTrackEdit } from '../../../webui/src/protocol/client'
 
 /** Layout edits follow the last random insertion, preserving its seed and identities. */
 export function promptLayoutTargets(document: PromptAuthoringDocument): PromptTargetResidue[] | undefined {

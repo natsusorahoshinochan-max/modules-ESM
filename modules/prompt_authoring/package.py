@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core.catalog.result_reading import ResultReaderDefinition
-from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
+from core.catalog.ui import ModuleUiDefinition, NodeEditorDefinition, ResultViewerDefinition
 from .published_reading import read_prompt
 
 from collections.abc import Mapping
@@ -227,7 +227,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ui_extensions=(ModuleUiDefinition(
         extension_id="prompt_authoring.viewers", resource_package=__package__,
         entry="ui/build/viewers.js", styles=("ui/build/viewers.css",), react_major=19,
-        editors=(), viewers=(
+        editors=(NodeEditorDefinition("prompt_authoring.editor", "Prompt Studio", ("prompt_authoring.author",), "PromptEditor"),), viewers=(
             ResultViewerDefinition("prompt_authoring.prompt", "Prompt 轨道", "protein.prompt", "Prompt", True),
         ),
     ),),

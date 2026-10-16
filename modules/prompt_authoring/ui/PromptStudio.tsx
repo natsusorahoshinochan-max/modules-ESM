@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type CSSProperties } from 'react'
 import { Check, ChevronLeft, Info, Plus, RotateCcw, RotateCw, Save, Trash2, X } from 'lucide-react'
-import type { JsonObject, PromptAuthoringDocument, PromptDiagnostic, PromptDocumentFunctionAnnotation, PromptPreview, PromptRandomOperation, PromptSnapshot, PromptTrackEdit, PromptTrackKey, PromptTrackValue, PromptRigidTransform } from './protocol/client'
-import { StructureViewer, type StructureViewerHandle, type ViewerResidue } from './StructureViewer'
+import type { JsonObject, PromptAuthoringDocument, PromptDiagnostic, PromptDocumentFunctionAnnotation, PromptPreview, PromptRandomOperation, PromptSnapshot, PromptTrackEdit, PromptTrackKey, PromptTrackValue, PromptRigidTransform } from '../../../webui/src/protocol/client'
+import { StructureViewer, type StructureViewerHandle, type ViewerResidue } from '../../../webui/src/StructureViewer'
 import { PromptTransformEditor } from './PromptTransformEditor'
 import { PromptMergeEditor, type PromptMergeDraft } from './PromptMergeEditor'
 import { promptStructure } from './prompt-structure'
 import { deletePromptResidues, insertPromptResidues, promptLayoutTargets } from './prompt-layout'
 import { ResidueMatrix } from './ResidueMatrix'
 import { cellKey, parseMatrixValue, type MatrixCell, type MatrixEdit, type MatrixSelection } from './residue-matrix'
-import { InteractionDialog } from './InteractionDialog'
+import { InteractionDialog } from '../../../webui/src/InteractionDialog'
 import './prompt-studio.css'
 
 type ScalarTrack = 'sequence' | 'coordinates' | 'secondary_structure' | 'sasa'
@@ -19,9 +19,6 @@ type LocalPreview = { title: string; preview: PromptPreview; insertedHandles: st
 type UndoEntry = { label: string; document: PromptAuthoringDocument; projection: Projection; selection: string[]; anchor: string; focus: { handle: string; track: Track } }
 type PromptStudioProps = {
   snapshot: PromptSnapshot
-  saveError?: string
-  saveAccepted?: boolean
-  onRetrySave?: () => Promise<void>
   onCancel: () => void
   onAddMergeSource: (document: PromptAuthoringDocument) => Promise<PromptSnapshot | undefined>
   onPreview: (document: PromptAuthoringDocument) => Promise<PromptPreview>
@@ -109,7 +106,7 @@ function previewChangeText(change: JsonObject, before: Projection, after: Prompt
   return `${handle ? locators.get(handle) ?? handle : 'Track'} · ${track} · ${transition}`
 }
 
-export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, onApply, saveError, saveAccepted = false, onRetrySave }: PromptStudioProps) {
+export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, onApply }: PromptStudioProps) {
   const initialHandleById = new Map(snapshot.residues.map((item) => [item.residue_id, item.residue_handle]))
   const initialTargetHandles = new Set((targets(snapshot.document).length ? targets(snapshot.document).map((item) => initialHandleById.get(item.residue_id)) : snapshot.residues.filter((item) => item.state !== 'pending-delete').map((item) => item.residue_handle)).filter((item): item is string => Boolean(item)))
   const initiallyEdited = snapshot.residues.filter((residue) => initialTargetHandles.has(residue.residue_handle) && scalarTracks.some(({ key }) => {
@@ -236,7 +233,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   const targetIntent = () => promptLayoutTargets(visibleDocument) ?? (projection.merge_targets[0]?.residues ?? committedProjection.merge_targets[0]?.residues ?? []).filter((item) => item.state !== 'pending-delete').map((item) => ({ residue_id: item.residue_id, origin: 'source' as const }))
   const canEditChains = ['blank', 'fasta'].includes(String(snapshot.source.kind)) || document.chains !== undefined || !committedProjection.residues.length
   const chainsReady = chainRows.length > 0 && chainRows.every((chain) => chain.chain_id.length > 0 && /^\d+$/.test(chain.length) && Number(chain.length) > 0)
-  const operationBlocked = busy || saveAccepted || viewportActive || saving
+  const operationBlocked = busy || viewportActive || saving
   const insertionCount = Number(insertCount)
   const insertionInputValid = Number.isInteger(insertionCount) && insertionCount > 0 && (insertSequence.length === 0 || insertSequence.length === 1 || insertSequence.length === insertionCount) && [...insertSequence].every((letter) => aminoAcids.has(letter))
   const sasaInputValid = sasaValue.trim() !== '' && Number.isFinite(Number(sasaValue)) && Number(sasaValue) >= 0
@@ -389,7 +386,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
     }
   }
   const editMatrix = (edits: MatrixEdit[]) => {
-    if (localPreview || viewportActive || saveAccepted || saving || (busy || unpreviewed && !matrixFailed.current) && !matrixProcessing.current) { setRequestError('先应用或取消当前操作，再编辑矩阵。'); return }
+    if (localPreview || viewportActive || saving || (busy || unpreviewed && !matrixFailed.current) && !matrixProcessing.current) { setRequestError('先应用或取消当前操作，再编辑矩阵。'); return }
     const handles = [...new Set(edits.map(edit => edit.handle))]
     const label = edits.length === 1 ? `${displayLocators.get(edits[0].handle)} · ${trackRows.find(row => row.key === edits[0].track)?.label}` : `批量修改 ${edits.length} 个单元格`
     if (matrixFailed.current && matrixQueue.current[0]?.edits.length === edits.length && matrixQueue.current[0].edits.every(old => edits.some(edit => cellKey(old) === cellKey(edit)))) matrixQueue.current[0].edits = edits
@@ -504,12 +501,20 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || saveAccepted || saving || editorPanel || leaveOpen) return
+    if (event.key === 'Escape') {
+      event.stopPropagation()
+      if (event.nativeEvent.isComposing) return
+      event.preventDefault()
+      if (saving || viewportActive || editorPanel || leaveOpen) return
+      if (localPreview || unpreviewed) cancelLocalPreview()
+      else leave()
+      return
+    }
+    if (event.defaultPrevented || event.nativeEvent.isComposing || saving || editorPanel || leaveOpen) return
     const target = event.target as HTMLElement
     if (target.closest('input, textarea, select, [contenteditable="true"]')) return
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) redo(); else undo(); return }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); event.stopPropagation(); redo(); return }
-    if (event.key === 'Escape' && (localPreview || unpreviewed)) { event.preventDefault(); cancelLocalPreview() }
   }
 
   const addMergeSource = async () => {
@@ -536,7 +541,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
     try {
       const preview = pendingRef.current?.preview ?? ('normalized_document' in committedProjection && !graphDirty ? committedProjection : await onPreview(document))
       if (requestId !== previewRequest.current) return
-      if (diagnosticsHaveError(preview)) { setRequestError('请先修正当前操作的问题，再保存。'); return }
+      if (diagnosticsHaveError(preview)) { setRequestError('请先修正当前操作的问题，再采用。'); return }
       await onApply(preview)
     } catch (error) { if (requestId === previewRequest.current) setRequestError(requestErrorText(error)) }
     finally { if (requestId === previewRequest.current) { setBusy(false); setSaving(false) } }
@@ -588,16 +593,15 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
 
   return <div ref={studio} className="prompt-studio" tabIndex={0} onKeyDown={onKeyDown}>
     <header className="ps-header">
-      <button className="ps-icon-button" aria-label="返回 Workflow" disabled={saving || viewportActive} onClick={saveAccepted ? onCancel : leave}><ChevronLeft size={18} /></button>
+      <button className="ps-icon-button" aria-label="返回 Workflow" disabled={saving || viewportActive} onClick={leave}><ChevronLeft size={18} /></button>
       <div><span className="ps-kicker">PROTEINPROMPT STUDIO</span><h1>ProteinPrompt 编辑</h1></div>
       <span className="ps-session-state"><i />{dirty || graphDirty ? '有未保存修改' : 'Authoring Snapshot'}</span>
-      <button className="ps-button" disabled={saveAccepted || busy || viewportActive || (!undoStack.current.length && !localPreview && !unpreviewed)} title={`Ctrl/⌘ Z · ${undoStack.current.at(-1)?.label ?? '取消当前操作'}`} onClick={undo}><RotateCcw size={14} /> 撤销</button><button className="ps-button" disabled={saveAccepted || viewportActive || !redoStack.current.length || busy} title={`Ctrl/⌘ Shift Z · ${redoStack.current.at(-1)?.label ?? '重做'}`} onClick={redo}><RotateCw size={14} /> 重做</button>
-      <button className="ps-primary" disabled={saveAccepted || viewportActive || busy || unpreviewed || mergeDirty || Boolean(localPreview && diagnosticsHaveError(localPreview.preview))} title={mergeDirty ? '先预览合并表中的修改' : unpreviewed ? '先修正或重试当前输入' : '保存整个编辑会话'} onClick={() => void requestSave()}><Save size={14} /> {busy ? '处理中…' : '保存 ProteinPrompt'}</button>
+      <button className="ps-button" disabled={busy || viewportActive || (!undoStack.current.length && !localPreview && !unpreviewed)} title={`Ctrl/⌘ Z · ${undoStack.current.at(-1)?.label ?? '取消当前操作'}`} onClick={undo}><RotateCcw size={14} /> 撤销</button><button className="ps-button" disabled={viewportActive || !redoStack.current.length || busy} title={`Ctrl/⌘ Shift Z · ${redoStack.current.at(-1)?.label ?? '重做'}`} onClick={redo}><RotateCw size={14} /> 重做</button>
+      <button className="ps-primary" disabled={viewportActive || busy || unpreviewed || mergeDirty || Boolean(localPreview && diagnosticsHaveError(localPreview.preview))} title={mergeDirty ? '先预览合并表中的修改' : unpreviewed ? '先修正或重试当前输入' : '采用至流程；项目仍须手动保存'} onClick={() => void requestSave()}><Save size={14} /> {busy ? '处理中…' : '采用 ProteinPrompt'}</button>
     </header>
 
-    {saveError && <div className="ps-error" role="alert">{saveError}<button onClick={() => void onRetrySave!().then(() => setRequestError('')).catch(error => setRequestError(requestErrorText(error)))}>重试保存</button></div>}
       {requestError && !editorPanel && <p className="ps-help" role="alert">{requestError}{unpreviewed && <><button onClick={() => matrixFailed.current ? void processMatrixQueue() : void propose(desiredDocument.current, '重试编辑')}>重试</button><button onClick={cancelLocalPreview}>取消本次编辑</button></>}</p>}<div className="ps-session-feedback" role="status">{busy ? '正在更新预览，可继续输入…' : status}</div>
-    <div inert={saveAccepted || saving} style={{ display: 'contents' }}>
+    <div inert={saving} style={{ display: 'contents' }}>
     {unpreviewed && !busy && !editorPanel && JSON.stringify(chainRows) !== JSON.stringify((visibleDocument.chains ?? []).map(chain => ({ chain_id: chain.chain_id, length: String(chain.length) }))) && <div className="ps-pending-bar" role="status"><span>Chain 布局修改尚未预览，请先完成或取消，再编辑矩阵。</span><button onClick={() => setEditorPanel('layout')}>继续布局编辑</button><button onClick={cancelLocalPreview}>取消本次编辑</button></div>}
     {projection.baseline_diagnostics.length > 0 && <section className="ps-help" role="status"><strong>无可比较的旧结果</strong>{projection.baseline_diagnostics.map((item, index) => <p key={index}>{diagnosticText(item, displayLocators)}</p>)}</section>}
     <nav className="ps-modebar" aria-label="Prompt Studio 模式">
@@ -624,7 +628,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
       <div className={`ps-workgrid view-${narrowView} ${hasCoordinates ? '' : 'without-structure'}`} style={{ '--structure-width': `${structureWidth}%` } as CSSProperties}>
         {hasCoordinates && <><aside className="ps-structure-card">
           <header><span className="ps-kicker">STRUCTURE</span><strong>当前 Prompt · {selectedText}</strong></header>
-          <StructureViewer ref={viewer} structure={projectionStructure} residueLabel={structureResidueLabel} selectedResidues={selectedPositions} onSelectResidue={selectFromStructure} onSelectResidues={selectStructure} pivot={transformOrigin ?? centroid} viewportEdit={{ enabled: !saving && !saveAccepted && !localPreview && !matrixProcessing.current && !unpreviewed, origin: transformOrigin ?? centroid, residueIds: selection.map(handle => residueIdByHandle.get(handle)!).filter(Boolean), blockedReason: !selection.length ? '先选择残基' : selectedCoordinateRows.some(row => row.value === null) ? '选区含无坐标残基，请先移除' : undefined, busy, onBegin: beginTransform, onPreviewTransform: previewTransform, onConfirm: async () => { const pending = pendingRef.current; if (!pending || diagnosticsHaveError(pending.preview)) return false; acceptPreview(pending); transformStart.current = undefined; setViewportActive(false); return true }, onCancel: cancelTransform }} />
+          <StructureViewer ref={viewer} structure={projectionStructure} residueLabel={structureResidueLabel} selectedResidues={selectedPositions} onSelectResidue={selectFromStructure} onSelectResidues={selectStructure} pivot={transformOrigin ?? centroid} viewportEdit={{ enabled: !saving && !localPreview && !matrixProcessing.current && !unpreviewed, origin: transformOrigin ?? centroid, residueIds: selection.map(handle => residueIdByHandle.get(handle)!).filter(Boolean), blockedReason: !selection.length ? '先选择残基' : selectedCoordinateRows.some(row => row.value === null) ? '选区含无坐标残基，请先移除' : undefined, busy, onBegin: beginTransform, onPreviewTransform: previewTransform, onConfirm: async () => { const pending = pendingRef.current; if (!pending || diagnosticsHaveError(pending.preview)) return false; acceptPreview(pending); transformStart.current = undefined; setViewportActive(false); return true }, onCancel: cancelTransform }} />
           <small>{selectedText}</small>
         </aside><div className="ps-pane-divider" role="separator" aria-label="调整结构与矩阵宽度" aria-orientation="vertical" aria-valuemin={20} aria-valuemax={60} aria-valuenow={structureWidth} tabIndex={0} onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setStructureWidth(width => Math.max(20, Math.min(60, width + (event.key === 'ArrowLeft' ? -2 : 2)))) } }} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setStructureWidth(Math.max(20, Math.min(60, (event.clientX - rect.left) / rect.width * 100))) }} onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)} /></>}
         <section className="ps-ledger" aria-label="Residue ledger">
@@ -633,13 +637,13 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
           <div className="ps-matrix-tools" aria-label="选区操作">
             <strong>{trackRows.find(row => row.key === activeTrack)?.label} · {selection.length} 残基</strong>
             {activeTrack !== 'function' && <><button disabled={!selection.length || operationBlocked || Boolean(localPreview)} onClick={() => updateTrack(activeTrack, 'preserve')}>Preserve</button><button disabled={!selection.length || operationBlocked || Boolean(localPreview)} onClick={() => matrixCells.length ? clearCells(matrixCells) : updateTrack(activeTrack, 'clear')}>Clear</button></>}
-            {activeTrack === 'sequence' && <label>氨基酸<input aria-label="指定氨基酸" placeholder={selection.length > 1 ? '多个值 / Mask' : 'Mask'} maxLength={1} value={sequenceValue} onChange={event => setSequenceValue(event.target.value.toUpperCase())} /><button disabled={!selection.length || viewportActive || Boolean(localPreview) || saveAccepted || !aminoAcids.has(sequenceValue)} onClick={() => editMatrix(selection.map(handle => ({ handle, track: 'sequence', value: sequenceValue })))}>Specify</button></label>}
+            {activeTrack === 'sequence' && <label>氨基酸<input aria-label="指定氨基酸" placeholder={selection.length > 1 ? '多个值 / Mask' : 'Mask'} maxLength={1} value={sequenceValue} onChange={event => setSequenceValue(event.target.value.toUpperCase())} /><button disabled={!selection.length || viewportActive || Boolean(localPreview) || !aminoAcids.has(sequenceValue)} onClick={() => editMatrix(selection.map(handle => ({ handle, track: 'sequence', value: sequenceValue })))}>Specify</button></label>}
             {activeTrack === 'secondary_structure' && <label>SS8<select aria-label="指定二级结构" value={ssValue} onChange={event => setSsValue(event.target.value)}><option value="">多个值 / Mask</option>{[...ss8Codes].map(value => <option key={value}>{value}</option>)}</select><button disabled={!selection.length || !ss8Codes.has(ssValue) || operationBlocked || Boolean(localPreview)} onClick={() => editMatrix(selection.map(handle => ({ handle, track: 'secondary_structure', value: ssValue })))}>Specify</button></label>}
             {activeTrack === 'sasa' && <label>SASA Å²<input aria-label="指定 SASA" type="number" min="0" placeholder="多个值 / Mask" value={sasaValue} onChange={event => setSasaValue(event.target.value)} /><button disabled={!selection.length || !sasaInputValid || operationBlocked || Boolean(localPreview)} onClick={() => editMatrix(selection.map(handle => ({ handle, track: 'sasa', value: Number(sasaValue) })))}>Specify</button></label>}
             {activeTrack === 'function' && <button disabled={!selection.length} onClick={() => setEditorPanel('function')}>编辑 Function 区间</button>}
             <button disabled={operationBlocked || !selection.length} onClick={() => { setBatchValues({ sequence: sequenceSelection, coordinates: '', secondary_structure: ssSelection, sasa: sasaSelection }); setEditorPanel('batch') }}>批量修改</button><button disabled={viewportActive || busy} onClick={() => setEditorPanel('layout')}>插入 / 删除</button><button disabled={viewportActive || busy} onClick={() => setEditorPanel('random')}>随机操作</button><button disabled={viewportActive || busy} onClick={() => setEditorPanel('merge')}>合并来源</button><button disabled={viewportActive || busy} onClick={() => setEditorPanel('evidence')}>条件详情</button>
           </div>
-          <ResidueMatrix projection={projection} locators={displayLocators} selection={selection} focus={focus} hiddenTracks={hiddenTracks} disabled={saveAccepted || saving || viewportActive || Boolean(localPreview) || (busy || unpreviewed && !matrixFailed.current) && !matrixProcessing.current} reveal={reveal} drafts={cellDrafts} onSelection={chooseMatrix} onEdit={editMatrix} onOpen={openCell} onClear={clearCells} />
+          <ResidueMatrix projection={projection} locators={displayLocators} selection={selection} focus={focus} hiddenTracks={hiddenTracks} disabled={saving || viewportActive || Boolean(localPreview) || (busy || unpreviewed && !matrixFailed.current) && !matrixProcessing.current} reveal={reveal} drafts={cellDrafts} onSelection={chooseMatrix} onEdit={editMatrix} onOpen={openCell} onClear={clearCells} />
           {localPreview && !viewportActive && <div className="ps-pending-bar" role="status"><span>{localPreview.title} · {localPreview.preview.changes.length} 处变化</span><button onClick={cancelLocalPreview}>取消操作</button><button disabled={busy || unpreviewed || diagnosticsHaveError(localPreview.preview)} onClick={applyLocalPreview}>应用操作</button>{localPreview.preview.diagnostics.map((item, index) => <button key={index} onClick={() => focusDiagnostic(item)}>{diagnosticText(item, displayLocators)}</button>)}</div>}
         </section>
       </div>
@@ -684,20 +688,10 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
             <button onClick={() => setRandomEditing(undefined)}>开始新的随机操作</button>
             {(visibleDocument.random_operations ?? []).map((operation, index) => <div key={index} className="ps-random-operation"><button onClick={() => { setRandomEditing(index); setRandomCount(String(operation.count)); setRandomSeed(String(operation.seed)); setMode(operation.kind === 'insert' ? 'layout' : 'condition'); if (operation.kind === 'mask') setActiveTrack(operation.track); const ids = operation.kind === 'mask' ? operation.eligible_residue_ids : undefined; setRandomScope(ids?.length || operation.kind === 'insert' && operation.eligible_chain_ids?.length ? 'selection' : 'all'); if (ids) setSelection(projection.residues.filter(item => ids.includes(item.residue_id)).map(item => item.residue_handle)); else if (operation.kind === 'insert' && operation.eligible_chain_ids?.length) setSelection(projection.residues.filter(item => operation.eligible_chain_ids!.includes(item.chain_id)).map(item => item.residue_handle)) }}>{index + 1} · {operation.kind} · seed {operation.seed} · {operation.count}</button><button disabled={busy} onClick={() => { void propose({ ...visibleDocument, random_operations: visibleDocument.random_operations!.filter((_, i) => i !== index) }, '移除随机操作'); setRandomEditing(undefined) }}>移除</button><p className="ps-help">实际位置：{projection.random_selections.find(item => item.operation_index === index)?.realized_residue_handles.map(handle => displayLocators.get(handle)).join(', ') ?? '待预览'}</p></div>)}
           </section>}
-          {editorPanel === 'evidence' && <section className="ps-editor-section ps-effective-conditioning" aria-label="ESM3 有效条件">
-            <span className="ps-kicker">ESM3 EFFECTIVE CONDITIONING</span>
-            <p className="ps-help">后端 ESM3 Adapter / Operation 的实际输入投影；不会更改科学 Prompt。运行还需要实际模型和执行配置。</p>
-            {!projection.esm3_conditioning ? <p className="ps-help">当前没有可投影的科学 Prompt。</p> : <>
-              <strong>{projection.esm3_conditioning.status === 'compatible' ? 'SDK 可以表示当前条件' : 'SDK 无法表示当前条件'}</strong>
-              {projection.esm3_conditioning.reason && <p className="ps-help">{projection.esm3_conditioning.reason}</p>}
-              {Object.entries(projection.esm3_conditioning.operations).map(([operation, state]) => <p className="ps-help" key={operation}>{operation}：{state.compatible ? '满足 Node 科学前提' : state.reason}</p>)}
-              {projection.esm3_conditioning.effective_input && <>
-                <p className="ps-help">Coordinates：{projection.esm3_conditioning.effective_input.coordinates.present ? `[${projection.esm3_conditioning.effective_input.coordinates.shape!.join(', ')}] float32 Å · ${projection.esm3_conditioning.effective_input.coordinates.entries.length} 个实际原子` : '没有可用 atom37 坐标'}；缺失位置编码 NaN。</p>
-                <p className="ps-help">SS8：{projection.esm3_conditioning.effective_input.secondary_structure === null ? 'absent' : 'present'} · SASA：{projection.esm3_conditioning.effective_input.sasa === null ? 'absent' : 'present（Å²）'}</p>
-                {projection.esm3_conditioning.effective_input.coordinates.omitted_named_atoms.length > 0 && <p className="ps-help">以下 named atoms 保留在科学 Prompt 中，但不进入 atom37：{projection.esm3_conditioning.effective_input.coordinates.omitted_named_atoms.map(item => `${item.residue_id}/${item.atom_name}`).join(', ')}</p>}
-                <details><summary>查看精确有效值、单位及 float32 位模式</summary><pre>{JSON.stringify(projection.esm3_conditioning.effective_input, null, 2)}</pre></details>
-              </>}
-            </>}
+          {editorPanel === 'evidence' && <section className="ps-editor-section ps-effective-conditioning" aria-label="工具有效条件">
+            <span className="ps-kicker">TOOL CONDITIONING</span>
+            <p className="ps-help">已启用模块的 Adapter / Operation 输入投影；不会更改科学 Prompt。运行还需要实际模型和执行配置。</p>
+            {projection.tool_projections.length === 0 ? <p className="ps-help">当前没有启用的工具条件投影。</p> : projection.tool_projections.map(item => <section key={item.projection_id}><h4>{item.title}</h4><pre>{JSON.stringify(item.value, null, 2)}</pre></section>)}
           </section>}
           {editorPanel === 'merge' && <><button disabled={busy} onClick={() => void addMergeSource()}>添加合并来源</button>
           <PromptMergeEditor key={mergeRevision} initialDraft={mergeDraft.current} onDraftState={draft => { mergeDraft.current = draft }} onDraftChange={setMergeDirty} sources={mergeSourceSnapshot.source.merge_sources ?? []} projection={projection} document={visibleDocument} busy={busy} diagnostics={localPreview?.preview.diagnostics ?? []} onTargetSelection={ids => { const handles = projection.residues.filter(item => ids.includes(item.residue_id) && item.state !== 'pending-delete').map(item => item.residue_handle); setSelection(handles); if (handles.length) { setAnchor(handles[0]); setFocus(current => ({ ...current, handle: handles[0] })) } }} onPreview={(next, title) => { setMergeDirty(false); void propose(next, title) }} /></>}
@@ -713,6 +707,6 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
     </main>
 
     </div>
-    {leaveOpen && <InteractionDialog title="离开 Prompt 编辑" className="ps-leave-dialog" onClose={() => setLeaveOpen(false)}><h2>尚有未保存的编辑</h2><p>继续编辑会保留当前输入与选区。</p><footer><button onClick={() => setLeaveOpen(false)}>继续编辑</button><button className="danger" onClick={onCancel}>放弃修改</button><button className="confirm" disabled={busy || mergeDirty || unpreviewed} onClick={() => { setLeaveOpen(false); void requestSave() }}>保存并离开</button></footer></InteractionDialog>}
+    {leaveOpen && <InteractionDialog title="离开 Prompt 编辑" className="ps-leave-dialog" onClose={() => setLeaveOpen(false)}><h2>尚有未采用的编辑</h2><p>继续编辑会保留当前输入与选区。</p><footer><button onClick={() => setLeaveOpen(false)}>继续编辑</button><button className="danger" onClick={onCancel}>放弃修改</button><button className="confirm" disabled={busy || mergeDirty || unpreviewed} onClick={() => { setLeaveOpen(false); void requestSave() }}>采用并返回</button></footer></InteractionDialog>}
   </div>
 }

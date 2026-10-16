@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { PromptAuthoringDocument, PromptCoordinatesValue, PromptRigidTransform, PromptSnapshot } from './protocol/client'
-import { rigidTransform, worldAxes } from './viewport-transform'
+import type { PromptAuthoringDocument, PromptCoordinatesValue, PromptRigidTransform, PromptSnapshot } from '../../../webui/src/protocol/client'
+import { rigidTransform, worldAxes } from '../../../webui/src/viewport-transform'
 
 type Vec3 = [number, number, number]
 type Axis = 'x' | 'y' | 'z'

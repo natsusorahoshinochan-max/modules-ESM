@@ -7,18 +7,16 @@ import { InteractionDialog } from './InteractionDialog'
 import { placeCanvasCopy, copyCanvasGroup, currentCanvasGroup, emptyCanvas, groupNodes, groupPath, groupPorts, groupPortId, visibleOwner, resolveCanvasPort, selectedLeafNodes, createCanvasGroup, ungroupCanvas, moveCanvasItems, cleanCanvasGroups, type CanvasState, type CanvasGroup } from './canvas-groups'
 import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, applyEdgeChanges, applyNodeChanges, type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react'
 import { Activity, Atom, Braces, Check, ChevronDown, ChevronRight, CircleHelp, FolderOpen, Info, Layers3, LoaderCircle, Network, PanelLeftClose, Play, Plus, RotateCcw, Search, X } from 'lucide-react'
-import { PromptStudio } from './PromptStudio'
 import { InputSourceDialog } from './InputSourceDialog'
 import type { CandidateInputPlan, PromptSourcePlan } from './input-sources'
 import { ProjectWorkspaceDialog } from './ProjectWorkspaceDialog'
 import { workspaceErrorMessage, type ProjectWorkspace, type WorkflowVersionView } from './project-workspace'
-import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type PromptAuthoringDocument, type PromptSnapshot, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type JsonObject } from './protocol/client'
+import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type JsonObject } from './protocol/client'
 import { RunHistoryDialog } from './RunHistoryDialog'
 import { rememberedRun, rememberRun, useProjectExecution, useProjectRunHistory } from './project-run-history'
 import { RunDialog } from './RunDialog'
 import { RunDiagnostics } from './RunDiagnostics'
 import { ResultsWorkbench, type ResultsViewStateStore } from './ResultsWorkbench'
-import { candidateResults } from '../../modules/protein_io/ui/candidate-results'
 import { PublishedResults } from './published-results'
 import type { PublishedOutput, ResultLocation } from './protocol/client'
 import { WorkspaceEditor, type WorkspaceEditSession } from './workspace-editor'
@@ -37,7 +35,7 @@ type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' 
 type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
 type StageControlView = { kind: 'parameter'; nodeId: string; parameter: Parameter; choices?: NodeParameterChoices } | { kind: 'prompt' | 'selection'; nodeId: string; label: string }
 type StageState = { status: NodeRunStatus | 'idle'; label: string; completed: number; total: number }
-type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; retainedConfiguration?: JsonObject; readOnly?: boolean; publishedOutputs?: PublishedOutput[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; moduleEditorTitle?: string; onEditModule?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
+type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; retainedConfiguration?: JsonObject; readOnly?: boolean; publishedOutputs?: PublishedOutput[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; moduleEditorTitle?: string; onEditModule?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
 type FlowNode = Node<WorkflowNodeData>
 type RunProgress = { status: RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; projectId?: string; runId?: string; }
 type PendingNodeDrop = { nodeTypeId: string; position: { x: number; y: number }; bindings: BindingOption[]; connectionFrom?: { nodeId: string; portName: string }; connectionPort?: string }
@@ -179,7 +177,7 @@ function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
     <NodeResultLinks data={data} />
     {!data.collapsed && <>
       {data.bindingOptions?.find((option) => option.id === data.bindingId)?.availabilityReason?.message && <p className="parameter-empty-hint">{data.bindingOptions.find((option) => option.id === data.bindingId)!.availabilityReason!.message}</p>}
-      {data.missingContracts?.length ? <details className="nodrag nowheel"><summary>已保留配置</summary><pre>{JSON.stringify(data.retainedConfiguration, null, 2)}</pre></details> : data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : data.onEditModule ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditModule}>{data.moduleEditorTitle} <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
+      {data.missingContracts?.length ? <details className="nodrag nowheel"><summary>已保留配置</summary><pre>{JSON.stringify(data.retainedConfiguration, null, 2)}</pre></details> : data.onEditModule ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditModule}>{data.moduleEditorTitle} <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
     </>}
   </article>
 }
@@ -226,8 +224,6 @@ function App() {
   const [results] = useState(() => new PublishedResults(client))
   const [resultsViewStateStore] = useState<ResultsViewStateStore>(() => new Map())
   const resultSnapshot = useSyncExternalStore(results.subscribe, results.getSnapshot)
-  const [candidateReading] = useState(() => candidateResults(results, client))
-  const { index: resultIndex } = useSyncExternalStore(candidateReading.subscribe, candidateReading.getSnapshot)
   const { run } = resultSnapshot
   const resultsLoading = resultSnapshot.phase === 'loading'
   const resultLoadError = resultSnapshot.phase === 'error' ? workspaceErrorMessage(resultSnapshot.error) : ''
@@ -244,12 +240,7 @@ function App() {
   }, [run, draft?.workflow.nodes, resultSnapshot.currentNodeId])
   const [nodes, setNodes] = useState<FlowNode[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
-  const [prompt, setPrompt] = useState<{ nodeId: string; snapshot: PromptSnapshot; workflow: Workflow; session: WorkspaceEditSession }>()
-  const [promptOpenError, setPromptOpenError] = useState<{ nodeId: string; message: string }>()
-  const promptOpenRevision = useRef(0)
-  const promptReturnFocus = useRef<HTMLElement | null>(null)
-  const [inputSource, setInputSource] = useState<{ projectId: string; workflow: Workflow; session: WorkspaceEditSession; mergeTargetNodeId?: string }>()
-  const mergeSourceCompletion = useRef<((snapshot: PromptSnapshot | undefined) => void) | undefined>(undefined)
+  const [inputSource, setInputSource] = useState<{ projectId: string; workflow: Workflow; session: WorkspaceEditSession }>()
   const [moduleUi, setModuleUi] = useState<ModuleUiManifest>({ extensions: [], readers: [] })
   const moduleOpenRevision = useRef(0)
   const [moduleEdit, setModuleEdit] = useState<{ nodeId: string; title: string; Component: React.ComponentType<ModuleEditorProps>; workflow: Workflow; session: WorkspaceEditSession }>()
@@ -447,11 +438,11 @@ function App() {
     const keydown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's' || event.isComposing) return
       event.preventDefault()
-      if (!prompt && !inputSource && !unsavedChoice && !editor.getSnapshot().readOnly) void saveProject().catch(reportSaveError)
+      if (!moduleEdit && !inputSource && !unsavedChoice && !editor.getSnapshot().readOnly) void saveProject().catch(reportSaveError)
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [editor, prompt, inputSource, unsavedChoice, saveProject, reportSaveError])
+  }, [editor, moduleEdit, inputSource, unsavedChoice, saveProject, reportSaveError])
   useEffect(() => {
     if (!editing.dirty && !rawEditCount) return
     const guard = (event: BeforeUnloadEvent) => { if (!editor.getSnapshot().dirty && activeParameterEdits.current.size === 0) return; event.preventDefault(); event.returnValue = '' }
@@ -462,7 +453,6 @@ function App() {
   const openProject = useCallback(async (selected: ProjectMetadata, suppliedWorkspace?: ProjectWorkspace, versionView?: WorkflowVersionView) => {
     if (!await askUnsaved('leave')) return
     const generation = ++projectGeneration.current
-    promptOpenRevision.current += 1
     moduleOpenRevision.current += 1
     const selectedWorkspace = suppliedWorkspace ?? await client.projectWorkspace(selected.id)
     if (generation !== projectGeneration.current) return
@@ -471,7 +461,7 @@ function App() {
     activeParameterEdits.current.clear(); setRawEditCount(0)
     setBlockedMergeNodes([])
     editor.open(selected, selectedWorkspace, versionView)
-    setPrompt(undefined); setPromptOpenError(undefined); setRunError(''); setInputError('')
+    setRunError(''); setInputError('')
     setModuleEdit(undefined); setView('workflow'); setProjectsOpen(false); setHistoryOpen(false)
     setRequestedResultSource(undefined); setPendingCanvasFocus(undefined)
     const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
@@ -622,14 +612,14 @@ function App() {
     setPendingCanvasFocus(nodeIds)
   }, [])
   useEffect(() => {
-    if (view !== 'workflow' || prompt || !pendingCanvasFocus) return
+    if (view !== 'workflow' || moduleEdit || !pendingCanvasFocus) return
     const nodeId = pendingCanvasFocus.find(id => draft?.workflow.nodes.some(node => node.node_id === id))
     const frame = requestAnimationFrame(() => {
       setPendingCanvasFocus(undefined)
       if (nodeId) focusCanvasNode(nodeId)
     })
     return () => cancelAnimationFrame(frame)
-  }, [view, prompt, pendingCanvasFocus, draft?.workflow.nodes, focusCanvasNode])
+  }, [view, moduleEdit, pendingCanvasFocus, draft?.workflow.nodes, focusCanvasNode])
   const makeGroup = useCallback(async () => {
     await beforeWorkspaceAction()
     const selected = new Set(nodesRef.current.filter(node => node.selected && node.data.kind !== 'boundary').map(node => node.id))
@@ -672,35 +662,22 @@ function App() {
     }, '粘贴独立副本')
     if (saved) { setNotice({ workspace: saved, message: pasted.notices.length ? '独立副本已粘贴；外部来源的选择配置需要重新连接' : '片段已粘贴' }); requestAnimationFrame(() => { setNodes(current => { const next = current.map(node => ({ ...node, selected: [...groupMap.values(), ...pasted.nodeIds].includes(node.id) })); nodesRef.current = next; return next }); document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true }) }) }
   }, [beforeWorkspaceAction, editor, editWorkflow])
-  const closePromptEditor = useCallback(() => { setPrompt(undefined); requestAnimationFrame(() => { if (promptReturnFocus.current?.isConnected) promptReturnFocus.current.focus({ preventScroll: true }); else document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true }) }) }, [])
-  const openPromptEditor = useCallback((nodeId: string) => {
-    promptReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const request = ++promptOpenRevision.current
-    setPromptOpenError(undefined)
-    void (async () => {
-      const session = await beginCanvasEdit()
-      if (!session) return
-      const workflow = session.base.workflow
-      const snapshot = await editor.sources.openPrompt(workflow.workflow_id, nodeId, workflow)
-      if (request !== promptOpenRevision.current) return
-      setPrompt({ nodeId, snapshot, workflow, session })
-    })().catch(reason => { if (request === promptOpenRevision.current) setPromptOpenError({ nodeId, message: workspaceErrorMessage(reason) }) })
-  }, [beginCanvasEdit])
-  const openModuleEditor = useCallback(async (nodeId: string) => {
+  const openModuleEditor = useCallback(async (nodeId: string, prepared?: { session: WorkspaceEditSession; workflow: Workflow }) => {
     const request = ++moduleOpenRevision.current
     const generation = projectGeneration.current
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const session = await beginCanvasEdit()
+    const session = prepared?.session ?? await beginCanvasEdit()
     if (!session) return
-    const member = session.base.workflow.nodes.find(node => node.node_id === nodeId)!
+    const workflow = prepared?.workflow ?? session.base.workflow
+    const member = workflow.nodes.find(node => node.node_id === nodeId)!
     const registration = nodeEditor(moduleUi, member.node_type_id)
     if (!registration) throw new Error(`节点 ${nodeId} 没有已启用的模块编辑器`)
     const Component = await loadNodeEditor(registration)
-    if (results.getSnapshot().phase !== 'idle' && !await candidateReading.ensureCandidates({ all: true })) return
     if (request !== moduleOpenRevision.current || generation !== projectGeneration.current || editor.getSnapshot().readOnly) return
     if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
-    setModuleEdit({ nodeId, title: registration.definition.title, Component, workflow: session.base.workflow, session })
-  }, [beginCanvasEdit, results, candidateReading, moduleUi, editor])
+    setModuleEdit({ nodeId, title: registration.definition.title, Component, workflow, session })
+  }, [beginCanvasEdit, moduleUi, editor])
+  const moduleClient = useMemo(() => Object.assign(new PublicV2Client(), editor.sources), [editor])
   const nodeLabels = useMemo(() => Object.fromEntries((draft?.workflow.nodes ?? []).map(node => [node.node_id, catalog ? nodeTypePresentation(catalog, node.node_type_id).title : node.node_type_id])), [draft?.workflow.nodes, catalog])
   const resultNodeLabels = useMemo(() => {
     const canvas = canvasFromUi(editing.desired?.ui_state ?? {})
@@ -731,7 +708,7 @@ function App() {
       onOpenResult: openResultSource,
       stageControls,
       stageState: node.data.stage ? { status, label: labels[status], completed, total: members.length } : undefined,
-      onStageAction: (kind, nodeId) => { if (kind === 'prompt') openPromptEditor(nodeId); else void openModuleEditor(nodeId).catch(reportSaveError) },
+      onStageAction: (_kind, nodeId) => { void openModuleEditor(nodeId).catch(reportSaveError) },
       onEnter: () => { void navigateCanvas(node.id).catch(reportSaveError) },
       onRename: label => { void editor.edit(current => { const canvas = canvasFromUi(current.ui_state); return { ui_state: { ...current.ui_state, canvas: { ...canvas, groups: canvas.groups!.map(group => group.id === node.id ? { ...group, label } : group) } } } }).catch(reportSaveError) },
       groupErrors: node.data.kind === 'group' ? [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)].filter(id => runProgress?.nodeStates[id]?.status === 'failed').length : 0,
@@ -744,7 +721,6 @@ function App() {
       moduleEditorTitle: sourceNode ? nodeEditor(moduleUi, sourceNode.node_type_id)?.definition.title : undefined,
       onEditModule: sourceNode && nodeEditor(moduleUi, sourceNode.node_type_id) ? () => { void openModuleEditor(node.id).catch(reportSaveError) } : undefined,
       onToggle: id => { const next = nodesRef.current.map(item => item.id === id ? { ...item, data: { ...item.data, collapsed: !item.data.collapsed } } : item); nodesRef.current = next; setNodes(next); void persistCanvas(next).catch(reportSaveError) },
-      onEditPrompt: () => openPromptEditor(node.id),
       onParameter: (nodeId, parameter, raw, commit) => {
         if (editor.getSnapshot().readOnly) return
         const key = `${nodeId}:${parameter.scope}:${parameter.key}`
@@ -756,11 +732,11 @@ function App() {
       },
       onBinding: (nodeId, bindingId) => { void saveBinding(nodeId, bindingId).catch(reportSaveError) },
     } }
-  }), [moduleUi, editing.readOnly, run?.outputs, openResultSource, navigateCanvas, editor, focusCanvasNode, currentFlowNodes, parameterChoices, parameterChoicesError, draft, catalog, runProgress?.nodeStates, scopePreview, openModuleEditor, openPromptEditor, persistCanvas, reportSaveError, saveBinding, saveParameter])
+  }), [moduleUi, editing.readOnly, run?.outputs, openResultSource, navigateCanvas, editor, focusCanvasNode, currentFlowNodes, parameterChoices, parameterChoicesError, draft, catalog, runProgress?.nodeStates, scopePreview, openModuleEditor, persistCanvas, reportSaveError, saveBinding, saveParameter])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      if (event.isComposing || historyOpen || unsavedChoice || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || prompt || inputSource || projectsOpen || modulesOpen || moduleEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.isComposing || historyOpen || unsavedChoice || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || moduleEdit || inputSource || projectsOpen || modulesOpen || moduleEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
       const modifier = event.metaKey || event.ctrlKey
       if (modifier && event.key.toLowerCase() === 'c') { event.preventDefault(); copySelection() }
       if (modifier && event.key.toLowerCase() === 'v') { event.preventDefault(); void pasteSelection().catch(reportSaveError) }
@@ -775,31 +751,21 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [historyOpen, unsavedChoice, canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, modulesOpen, prompt, moduleEdit, editor, reportSaveError, runOpen, undo, view])
+  }, [historyOpen, unsavedChoice, canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, modulesOpen, moduleEdit, editor, reportSaveError, runOpen, undo, view])
   const openInputSource = useCallback(async () => {
     const session = await beginCanvasEdit()
     if (!session) return
     setInputSource({ projectId: session.base.workflow.workflow_id, workflow: session.base.workflow, session })
   }, [beginCanvasEdit])
-  const addMergeSource = useCallback(async (document: PromptAuthoringDocument) => {
-    const projectId = prompt!.session.base.workflow.workflow_id
-    const staged = { ...prompt!.workflow, workflow_id: projectId, nodes: prompt!.workflow.nodes.map(node => node.node_id === prompt!.nodeId ? { ...node, node_parameters: { ...node.node_parameters, [promptAuthorDocumentParameter]: document } } : node) }
-    return new Promise<PromptSnapshot | undefined>(resolve => {
-      mergeSourceCompletion.current = resolve
-      setInputSource({ projectId, workflow: staged, session: prompt!.session, mergeTargetNodeId: prompt!.nodeId })
-    })
-  }, [prompt])
   const prepareSourcePrompt = useCallback(async (plan: PromptSourcePlan) => {
-    const snapshot = await editor.sources.openPrompt(plan.workflow.workflow_id, plan.nodeId, plan.workflow)
-    setPrompt({ nodeId: plan.nodeId, snapshot, workflow: plan.workflow, session: inputSource!.session })
+    await openModuleEditor(plan.nodeId, { workflow: plan.workflow, session: inputSource!.session })
     setInputSource(undefined)
-    mergeSourceCompletion.current?.(snapshot); mergeSourceCompletion.current = undefined
-  }, [inputSource])
+  }, [inputSource, openModuleEditor])
   const importSourceCandidates = useCallback(async (plan: CandidateInputPlan) => {
     await commitSession(inputSource!.session, plan.workflow)
     setInputSource(undefined)
   }, [commitSession, inputSource])
-  const closeInputSource = useCallback(() => { setInputSource(undefined); mergeSourceCompletion.current?.(undefined); mergeSourceCompletion.current = undefined }, [])
+  const closeInputSource = useCallback(() => { setInputSource(undefined) }, [])
   const validConnection = useCallback((connection: Connection | Edge) => {
     const source = displayed.find((node) => node.id === connection.source)!
     const target = displayed.find((node) => node.id === connection.target)!
@@ -824,7 +790,7 @@ function App() {
     const scope = { projectId: personal.id, workflow: { ...inputSource.workflow, workflow_id: personal.id } }
     setInputSource(current => current?.session === inputSource.session ? { ...current, ...scope } : current)
     return scope
-  }} mergeTargetNodeId={inputSource.mergeTargetNodeId} onPreparePrompt={prepareSourcePrompt} onImportCandidates={importSourceCandidates} onClose={closeInputSource} />
+  }} onPreparePrompt={prepareSourcePrompt} onImportCandidates={importSourceCandidates} onClose={closeInputSource} />
 
   const moduleDialog = modulesOpen && <ModuleManager api={client} beforeChange={() => askUnsaved('leave')} onActivated={() => { activeParameterEdits.current.clear(); editor.close(); window.location.reload() }} onClose={() => setModulesOpen(false)} />
   const projectDialog = projectsOpen && <ProjectWorkspaceDialog api={client} currentProjectId={project?.id} beforeAction={beforeWorkspaceAction} onOpenProject={openProject} onViewVersion={(selected, version) => openProject(selected, version.workspace, version)} onBeforeRemove={async selected => selected.id !== editor.getSnapshot().project?.id || await askUnsaved('leave')} onSaveVersion={async selected => { if (selected.id === editor.getSnapshot().project?.id) await saveProject() }} onReturnWorkspace={async (selected) => { if (editor.getSnapshot().project?.id !== selected.id) { await openProject(selected); if (editor.getSnapshot().project?.id !== selected.id) return undefined } else if (!await askUnsaved('leave')) return undefined; return editor.returnToSavedWork() }} onProjectChanged={(updated, deletedId) => {
@@ -879,20 +845,9 @@ function App() {
     {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
     {runError && <pre role="alert">{runError}</pre>}
     {resultLoadError && <div role="alert"><pre>{resultLoadError}</pre><button onClick={() => void results.refresh()}>重试读取 Run 结果</button></div>}
-    {promptOpenError && <div className="workspace-error" role="alert">无法打开节点 {promptOpenError.nodeId} 的 Prompt：{promptOpenError.message}<button onClick={() => openPromptEditor(promptOpenError.nodeId)}>重新打开</button><button onClick={() => setPromptOpenError(undefined)}>关闭提示</button></div>}
+
     {run && <RunDiagnostics errors={resultSnapshot.diagnostics} onFocus={focusCanvasNode} />}
   </>
-  const promptCanvas = canvasFromUi(editing.desired!.ui_state)
-  const promptOwner = prompt && promptCanvas.groups?.find(group => group.nodeIds.includes(prompt.nodeId))
-  const promptView = prompt && <>{<div className="prompt-context" aria-label="Prompt 所属流程"><span>{project.name}</span>{groupPath(promptCanvas, promptOwner?.id ?? null).map(group => <span key={group.id}>› {group.label}</span>)}<strong>› {nodeLabels[prompt.nodeId] ?? prompt.nodeId}</strong><code>{prompt.nodeId}</code><span>确认后采用至当前流程；持久保存请使用“保存项目”</span></div>}<PromptStudio snapshot={prompt.snapshot} onCancel={closePromptEditor} onAddMergeSource={addMergeSource} saveError={editing.error !== undefined ? workspaceErrorMessage(editing.error) : undefined} saveAccepted={prompt.session.submitted} onRetrySave={async () => { const saved = await editor.retry(); if (saved && prompt.session.submitted) { setNotice({ workspace: saved, message: 'Prompt 修改已采用，尚未保存项目' }); setBlockedMergeNodes([]); closePromptEditor() } }} onPreview={async document => {
-    const projectId = prompt.session.base.workflow.workflow_id
-    return editor.sources.previewPrompt(projectId, prompt.nodeId, document, { ...prompt.workflow, workflow_id: projectId }, prompt.session.versionContext())
-  }} onApply={async preview => {
-    const workflow = { ...prompt.workflow, nodes: prompt.workflow.nodes.map(node => node.node_id === prompt.nodeId ? { ...node, node_parameters: { ...node.node_parameters, [promptAuthorDocumentParameter]: preview.normalized_document } } : node) }
-    const saved = await commitSession(prompt.session, workflow)
-    if (saved) { setNotice({ workspace: saved, message: 'Prompt 修改已采用，尚未保存项目' }); setBlockedMergeNodes([]); closePromptEditor() }
-  }} />{inputSourceDialog}</>
-
   return <>{adoptionOpen && <AdoptResultDialog key={project.id} client={client} projectId={project.id} readOnly={editing.readOnly} onClose={() => setAdoptionOpen(false)} onAdopt={async adopted => {
     const nodeId = `adopted-${crypto.randomUUID().slice(0, 8)}`
     await editWorkflow(workflow => ({ ...workflow, nodes: [...workflow.nodes, { ...adopted.source_node, node_id: nodeId }] }), {}, ui => {
@@ -906,10 +861,10 @@ function App() {
     results.openRun(reference)
     setRequestedResultSource(undefined)
     setView('workflow')
-  }} />}{unsavedChoice && <InteractionDialog title={unsavedChoice.mode === 'run' ? '保存后运行' : '尚未保存的修改'} className="run-dialog" busy={choiceBusy} onClose={() => resolveUnsaved(false)}><h2>{unsavedChoice.mode === 'run' ? '请先保存项目再运行' : '当前项目有尚未保存的修改'}</h2><p>{unsavedChoice.mode === 'leave' ? '放弃会丢失未保存的修改；如需保留，请取消并手动保存项目。' : project.seed ? '保存将创建你自己的项目，教学原件保持不变。' : '流程内容与画布布局将一起保存。'}</p>{choiceError && <p role="alert">{choiceError}</p>}<footer><button disabled={choiceBusy} onClick={() => resolveUnsaved(false)}>{unsavedChoice.mode === 'run' ? '取消' : '取消退出，继续编辑'}</button>{unsavedChoice.mode === 'leave' && <button disabled={choiceBusy} onClick={() => { editor.discard(); resolveUnsaved(true) }}>放弃修改退出</button>}{unsavedChoice.mode === 'run' && <button disabled={choiceBusy} onClick={() => { setChoiceBusy(true); setChoiceError(''); void saveProject().then(saved => { if (saved) resolveUnsaved(true) }, reason => setChoiceError(workspaceErrorMessage(reason))).finally(() => setChoiceBusy(false)) }}>保存并运行</button>}</footer></InteractionDialog>}{promptView}{run && catalog && resultsIdentity && visitedResults.has(resultsIdentity) && <div hidden={view !== 'results' || !!prompt} className="persistent-results"><ResultsWorkbench key={resultsIdentity} workspaceProjectId={project.id} viewStateStore={resultsViewStateStore} runControls={runControls} results={results} client={client} run={run} loading={resultsLoading} loadError={resultLoadError} scienceStatus={scienceStatus} onBack={() => setView('workflow')} active={view === 'results' && !prompt} requestedSource={requestedResultSource} nodeLabels={resultNodeLabels} onLocateNode={(nodeId: string) => locateResultNodes([nodeId])} /></div>}<div hidden={view === 'results' || !!prompt} className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Braces size={16} /></span><div><strong>Protein</strong><span>Workbench</span></div></div><div className="project-identity"><div><span className="page-kicker">{project.project_kind.replace('_', ' ')}</span><strong>{project.name}</strong></div>{project.seed && <span className="immutable-pill">只读示例</span>}</div><nav className="view-tabs"><button className="active"><Network size={14} /> Workflow</button><button disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={showResults}><Activity size={14} /> Results <span>{run?.outputs.reduce((sum, output) => sum + output.value_count, 0) ?? 0}</span></button></nav><div className="top-actions"><span className="save-state" aria-label="流程保存状态"><span />{saveState}</span><span className="save-state" aria-label="布局保存状态"><span />{uiSaveState}</span><button className="icon-button" aria-label="撤销画布修改" title={editing.undoLabel ? `撤销：${editing.undoLabel}` : '没有可撤销的操作'} disabled={!editing.canUndo} onClick={undo}><RotateCcw size={16} /></button><button className="icon-button" aria-label="重做画布修改" title={editing.redoLabel ? `重做：${editing.redoLabel}` : '没有可重做的操作'} disabled={!editing.canRedo} onClick={redo}>↪</button><button className="secondary-button" onClick={() => { void beforeWorkspaceAction().then(() => setProjectsOpen(true)).catch(reportSaveError) }}><FolderOpen size={14} /> 项目</button><button className="secondary-button" onClick={() => setModulesOpen(true)}>模块管理</button><button className="secondary-button" onClick={() => { history.refresh(); setHistoryOpen(true) }}>运行历史</button><button className="secondary-button" disabled={executionReadOnly || editing.phase === 'saving'} onClick={() => void saveProject().catch(reportSaveError)}>保存项目</button><button className="run-button" disabled={executionReadOnly} onClick={() => void askUnsaved('run').then(proceed => { if (proceed) setRunOpen(true) }).catch(reportSaveError)}>{runActive ? <LoaderCircle size={14} /> : <Play size={14} />} {runActive ? '运行中' : '运行流程'}</button></div></header>
+  }} />}{unsavedChoice && <InteractionDialog title={unsavedChoice.mode === 'run' ? '保存后运行' : '尚未保存的修改'} className="run-dialog" busy={choiceBusy} onClose={() => resolveUnsaved(false)}><h2>{unsavedChoice.mode === 'run' ? '请先保存项目再运行' : '当前项目有尚未保存的修改'}</h2><p>{unsavedChoice.mode === 'leave' ? '放弃会丢失未保存的修改；如需保留，请取消并手动保存项目。' : project.seed ? '保存将创建你自己的项目，教学原件保持不变。' : '流程内容与画布布局将一起保存。'}</p>{choiceError && <p role="alert">{choiceError}</p>}<footer><button disabled={choiceBusy} onClick={() => resolveUnsaved(false)}>{unsavedChoice.mode === 'run' ? '取消' : '取消退出，继续编辑'}</button>{unsavedChoice.mode === 'leave' && <button disabled={choiceBusy} onClick={() => { editor.discard(); resolveUnsaved(true) }}>放弃修改退出</button>}{unsavedChoice.mode === 'run' && <button disabled={choiceBusy} onClick={() => { setChoiceBusy(true); setChoiceError(''); void saveProject().then(saved => { if (saved) resolveUnsaved(true) }, reason => setChoiceError(workspaceErrorMessage(reason))).finally(() => setChoiceBusy(false)) }}>保存并运行</button>}</footer></InteractionDialog>}{run && catalog && resultsIdentity && visitedResults.has(resultsIdentity) && <div hidden={view !== 'results' || !!moduleEdit} className="persistent-results"><ResultsWorkbench key={resultsIdentity} workspaceProjectId={project.id} viewStateStore={resultsViewStateStore} runControls={runControls} results={results} client={client} run={run} loading={resultsLoading} loadError={resultLoadError} scienceStatus={scienceStatus} onBack={() => setView('workflow')} active={view === 'results' && !moduleEdit} requestedSource={requestedResultSource} nodeLabels={resultNodeLabels} onLocateNode={(nodeId: string) => locateResultNodes([nodeId])} /></div>}<div hidden={view === 'results' || !!moduleEdit} className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Braces size={16} /></span><div><strong>Protein</strong><span>Workbench</span></div></div><div className="project-identity"><div><span className="page-kicker">{project.project_kind.replace('_', ' ')}</span><strong>{project.name}</strong></div>{project.seed && <span className="immutable-pill">只读示例</span>}</div><nav className="view-tabs"><button className="active"><Network size={14} /> Workflow</button><button disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={showResults}><Activity size={14} /> Results <span>{run?.outputs.reduce((sum, output) => sum + output.value_count, 0) ?? 0}</span></button></nav><div className="top-actions"><span className="save-state" aria-label="流程保存状态"><span />{saveState}</span><span className="save-state" aria-label="布局保存状态"><span />{uiSaveState}</span><button className="icon-button" aria-label="撤销画布修改" title={editing.undoLabel ? `撤销：${editing.undoLabel}` : '没有可撤销的操作'} disabled={!editing.canUndo} onClick={undo}><RotateCcw size={16} /></button><button className="icon-button" aria-label="重做画布修改" title={editing.redoLabel ? `重做：${editing.redoLabel}` : '没有可重做的操作'} disabled={!editing.canRedo} onClick={redo}>↪</button><button className="secondary-button" onClick={() => { void beforeWorkspaceAction().then(() => setProjectsOpen(true)).catch(reportSaveError) }}><FolderOpen size={14} /> 项目</button><button className="secondary-button" onClick={() => setModulesOpen(true)}>模块管理</button><button className="secondary-button" onClick={() => { history.refresh(); setHistoryOpen(true) }}>运行历史</button><button className="secondary-button" disabled={executionReadOnly || editing.phase === 'saving'} onClick={() => void saveProject().catch(reportSaveError)}>保存项目</button><button className="run-button" disabled={executionReadOnly} onClick={() => void askUnsaved('run').then(proceed => { if (proceed) setRunOpen(true) }).catch(reportSaveError)}>{runActive ? <LoaderCircle size={14} /> : <Play size={14} />} {runActive ? '运行中' : '运行流程'}</button></div></header>
     {(viewedVersion || workspace?.return_workspace_revision !== null && workspace?.return_workspace_revision !== undefined) && <div className="version-work-banner" role="status"><span>{viewedVersion ? `正在查看版本“${viewedVersion.version.name}”；首次修改将另存为当前工作。` : '当前工作由旧版本继续，原工作仍然保留。'}</span><button onClick={() => void returnOriginalWork().catch(reportSaveError)}>返回原工作</button></div>}
     {saveError && <div className="workspace-error" role="alert">{saveError}<button onClick={() => void finishInputs().then(() => editor.retry()).then(() => { setInputError(''); if (moduleEdit?.session.submitted) setModuleEdit(undefined); if (inputSource?.session.submitted) setInputSource(undefined) }).catch(reportSaveError)}>重试保存</button></div>}
-    {blockedMergeNodes.length > 0 && <div className="workspace-error" role="alert">现有合并来源受保护；请先在 Prompt Studio 调整并保存合并操作。{blockedMergeNodes.map(nodeId => <button key={nodeId} onClick={() => openPromptEditor(nodeId)}>打开 Prompt Studio：{nodeId}</button>)}</div>}
+    {blockedMergeNodes.length > 0 && <div className="workspace-error" role="alert">现有合并来源受保护；请先在 Prompt Studio 调整并保存合并操作。{blockedMergeNodes.map(nodeId => <button key={nodeId} onClick={() => void openModuleEditor(nodeId).catch(reportSaveError)}>打开 Prompt Studio：{nodeId}</button>)}</div>}
     {runControls}
     <nav className="canvas-breadcrumb" aria-label="节点组路径"><button onClick={() => void navigateCanvas(null).catch(reportSaveError)}>{project.name}</button>{groupPath(canvasFromUi(editing.desired!.ui_state), currentCanvasGroup(canvasFromUi(editing.desired!.ui_state))).map(group => <button key={group.id} onClick={() => void navigateCanvas(group.id).catch(reportSaveError)}>› {group.label}</button>)}{currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) && <button onClick={() => { const canvas = canvasFromUi(editing.desired!.ui_state); void navigateCanvas(canvas.groups!.find(group => group.id === currentCanvasGroup(canvas))!.parentId).catch(reportSaveError) }}>返回上层 · Tab</button>}</nav>
     {!!canvasFromUi(editing.desired!.ui_state).groups?.some(group => group.stage && group.parentId === null) && <nav className="canvas-stage-navigation" aria-label="流程阶段">{canvasFromUi(editing.desired!.ui_state).groups!.filter(group => group.stage && group.parentId === null).sort((left, right) => left.stage!.order - right.stage!.order).map(group => <button key={group.id} aria-label={`阶段 ${group.stage!.order} ${group.label}`} aria-current={groupPath(canvasFromUi(editing.desired!.ui_state), currentCanvasGroup(canvasFromUi(editing.desired!.ui_state))).some(parent => parent.id === group.id) || nodes.some(node => node.id === group.id && node.selected) ? 'step' : undefined} onClick={() => void navigateCanvas(null, group.id).catch(reportSaveError)}><span>{String(group.stage!.order).padStart(2, '0')}</span>{group.label}</button>)}</nav>}
@@ -936,8 +891,8 @@ function App() {
         <ContextMenu.Item disabled={!nodes.some(node => node.selected) && !edges.some(edge => edge.selected)} onSelect={() => void deleteWorkflowElements(nodes.filter(node => node.selected), edges.filter(edge => edge.selected)).catch(reportConnectionError)}>删除所选（组包含所有成员）</ContextMenu.Item>
       </ContextMenu.Content></ContextMenu.Portal></ContextMenu.Root>
       </div>
-    {!prompt && inputSourceDialog}
-    {moduleEdit && catalog && <InteractionDialog title={moduleEdit.title} className="run-dialog module-editor-dialog" onClose={() => setModuleEdit(undefined)}>{saveError && <p role="alert">{saveError}{editing.error !== undefined && <button onClick={() => void editor.retry().then(() => { if (moduleEdit.session.submitted) setModuleEdit(undefined) }).catch(reportSaveError)}>重试保存</button>}</p>}<div inert={moduleEdit.session.submitted || editing.readOnly} style={{ display: 'contents' }}><moduleEdit.Component key={moduleEdit.nodeId} catalog={catalog} workflow={moduleEdit.workflow} nodeId={moduleEdit.nodeId} candidateCollections={resultIndex.collections} onCancel={() => setModuleEdit(undefined)} onApply={(next) => { void commitSession(moduleEdit.session, next).then(() => setModuleEdit(undefined)).catch(reportSaveError) }} /></div>{moduleEdit.session.submitted && <button onClick={() => setModuleEdit(undefined)}>关闭查看</button>}</InteractionDialog>}
+    {!moduleEdit && inputSourceDialog}
+    {moduleEdit && catalog && <InteractionDialog title={moduleEdit.title} className="run-dialog module-editor-dialog" onClose={() => setModuleEdit(undefined)}>{saveError && <p role="alert">{saveError}{editing.error !== undefined && <button onClick={() => void editor.retry().then(() => { if (moduleEdit.session.submitted) setModuleEdit(undefined) }).catch(reportSaveError)}>重试保存</button>}</p>}<div inert={moduleEdit.session.submitted || editing.readOnly} style={{ display: 'contents' }}><moduleEdit.Component key={moduleEdit.nodeId} catalog={catalog} client={moduleClient} versionContext={moduleEdit.session.versionContext()} workflow={moduleEdit.workflow} nodeId={moduleEdit.nodeId} results={results} onCancel={() => setModuleEdit(undefined)} onApply={async next => { await commitSession(moduleEdit.session, next); setBlockedMergeNodes([]); setModuleEdit(undefined) }} /></div>{moduleEdit.session.submitted && <button onClick={() => setModuleEdit(undefined)}>关闭查看</button>}</InteractionDialog>}
     {canvasPicker && catalog && capabilities && <CanvasOperationPicker catalog={catalog} capabilities={capabilities} position={canvasPicker} requiredPort={canvasPicker.from ? { ...canvasPicker.from, direction: 'input' } : undefined} onClose={() => setCanvasPicker(undefined)} onChoose={(nodeTypeId) => { const position = flowInstance.current!.screenToFlowPosition(canvasPicker); const inputs = canvasPicker.from ? nodeTypePresentation(catalog, nodeTypeId).inputs.filter(port => workflowPortsMatch(canvasPicker.from!, port)) : []; const drop: PendingNodeDrop = { nodeTypeId, position, bindings: bindingOptions(catalog, nodeTypeId), connectionFrom: canvasPicker.from, connectionPort: inputs.length === 1 ? inputs[0].name : undefined }; setCanvasPicker(undefined); if (drop.bindings.length === 1 && (!drop.connectionFrom || drop.connectionPort)) void addDroppedNode(drop, drop.bindings[0].id).catch(reportSaveError); else setPendingNodeDrop(drop) }} />}
     {runOpen && <RunDialog selectedNodeIds={[...selectedLeafNodes(canvasFromUi(editing.desired!.ui_state), new Set(nodes.filter((node) => node.selected).map((node) => node.id)))]} sourceRunId={run && run.project_id === project.id && !['admitted', 'running'].includes(run.status) ? run.run_id : undefined} onClose={() => { setRunOpen(false); setScopePreview(undefined) }} onFocus={focusCanvasNode} onPrepare={async (request) => {
       const personal = editor.getSnapshot().project!
