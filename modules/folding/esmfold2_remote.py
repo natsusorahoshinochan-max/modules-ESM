@@ -90,7 +90,7 @@ def build_remote_engine(environment: Mapping[str, Any]) -> Any:
 
 
 class ESMFold2ProviderError(RuntimeError):
-    """The remote SDK reported an operational folding failure."""
+    """The selected Provider reported an operational folding failure."""
 
 
 class BiohubESMFold2Adapter:

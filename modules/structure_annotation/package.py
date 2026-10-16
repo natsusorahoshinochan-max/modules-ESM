@@ -6,6 +6,8 @@ from datatypes.observation import PairwiseContextProfile
 
 from core.catalog.observation import ObservationPortSource
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -264,3 +266,9 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=STRUCTURE_ANNOTATION_PORT_TYPES,
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_sasa", "structure_annotation.sasa.observed"),
+    ("adopt_secondary_structure", "structure_annotation.secondary_structure.observed"),
+))

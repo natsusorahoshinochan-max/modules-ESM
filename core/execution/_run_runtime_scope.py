@@ -181,7 +181,10 @@ class _RunScopeAdmission:
                             materialization_run_id=materialization_run_id,
                             producer_run_id=(
                                 publication.outputs[0].producer_run_id
-                                if publication.outputs else request.source_run_id
+                                if publication.outputs else
+                                publication.artifacts[0].producer_run_id
+                                if publication.artifacts and publication.artifacts[0].producer_run_id
+                                else request.source_run_id
                             ),
                             node_plan=_node_output_plan(node, plan._runtime.candidate_data_port_types),
                             result_identity=identity,

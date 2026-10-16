@@ -8,6 +8,7 @@ from typing import Any, cast
 from core.operation import (
     OperationResources,
     OperationCall,
+    OperationFailedWithOutputs,
 )
 from datatypes.candidate import (
     Candidate,
@@ -31,7 +32,7 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 
-from .adapter import LocalProteinMPNNAdapter
+from .adapter import LocalProteinMPNNAdapter, ProteinMPNNProviderError
 from .domain import (
     author_constraints,
     random_fixed_positions,
@@ -136,12 +137,13 @@ class ProteinMPNNDesignImplementation:
         effective_seed: int,
         parent_content_digest: str,
         parent_slot: int,
+        sample_slot: int,
     ) -> int:
         digest = hashlib.sha256(
             (
-                "protein-workbench-proteinmpnn-parent-seed/v2\0"
+                "protein-workbench-proteinmpnn-sample-seed/v3\0"
                 f"{effective_seed}\0"
-                f"{parent_slot}\0"
+                f"{parent_slot}\0{sample_slot}\0"
                 f"{parent_content_digest}"
             ).encode()
         ).digest()
@@ -170,6 +172,9 @@ class ProteinMPNNDesignImplementation:
             else constraint_input.content_digest
         )
         candidates: list[Candidate] = []
+        if call.continuation_state is not None and call.continuation_state["next_request"]:
+            candidates.extend(call.completed_outputs["sequence_candidates"].value.items)
+        completed = len(candidates)
         for parent_index, (
             parent_reference,
             residue_axis,
@@ -188,22 +193,31 @@ class ProteinMPNNDesignImplementation:
                     "constraints must use the exact resolved residue axis"
                 )
             parent_ids = (parent_reference.candidate_id,)
-            call_seed = self._call_seed(
-                seed,
-                parent_reference.content_digest,
-                parent_index,
-            )
-            sequences = self._adapter.design(
-                residue_axis=residue_axis,
-                num_sequences=count,
-                temperature=temperature,
-                backbone_noise=noise,
-                seed=call_seed,
-                constraints=constraints,
-                reference_sequence=reference,
-                engine_role=f"design_parent_{parent_index}",
-            )
-            for sample_index, sequence in enumerate(sequences):
+            for sample_index in range(count):
+                if parent_index * count + sample_index < completed:
+                    continue
+                call_seed = self._call_seed(
+                    seed, parent_reference.content_digest, parent_index, sample_index,
+                )
+                try:
+                    sequences = self._adapter.design(
+                        residue_axis=residue_axis,
+                        num_sequences=1,
+                        temperature=temperature,
+                        backbone_noise=noise,
+                        seed=call_seed,
+                        constraints=constraints,
+                        reference_sequence=reference,
+                        engine_role=f"design_parent_{parent_index}_sample_{sample_index}",
+                    )
+                except ProteinMPNNProviderError as error:
+                    outputs = {"sequence_candidates": CandidateCollection(
+                        "proteinmpnn-sequence-candidates", "protein.sequence", candidates,
+                    )} if candidates else {}
+                    raise OperationFailedWithOutputs(
+                        error, outputs, continuation_state={"next_request": len(candidates)},
+                    ) from error
+                sequence, = sequences
                 candidates.append(
                     Candidate(
                         (

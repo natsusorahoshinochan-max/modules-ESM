@@ -207,7 +207,7 @@ class ResultStore:
             )
             node_artifacts.append(node_artifact)
             published_artifacts.append(
-                self._published_artifact(node_artifact)
+                self._published_artifact(node_artifact, materialization_run_id)
             )
         manifest = _NodeResultManifest(
             continuation_state=continuation_state,
@@ -234,6 +234,7 @@ class ResultStore:
     @staticmethod
     def _published_artifact(
         artifact: _NodeArtifact,
+        producer_run_id: str,
     ) -> PublishedArtifact:
         return PublishedArtifact(
             artifact_reference=f"artifact-{uuid.uuid4().hex}",
@@ -244,6 +245,7 @@ class ResultStore:
             size=artifact.body.size,
             content_digest=artifact.body.content_digest,
             candidate_id=artifact.candidate_id,
+            producer_run_id=producer_run_id,
         )
 
     def _load_node_manifest(
@@ -341,7 +343,7 @@ class ResultStore:
         published_artifacts = []
         for artifact in manifest.artifacts:
             self._read_reference(project_id, artifact.body)
-            published_artifacts.append(self._published_artifact(artifact))
+            published_artifacts.append(self._published_artifact(artifact, producer_run_id))
         return StoredNodeResult(
             project_id=project_id,
             result_identity=result_identity,

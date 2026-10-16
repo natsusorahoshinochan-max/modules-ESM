@@ -291,7 +291,7 @@ def call_local_provider(
         with torch.random.fork_rng(devices=fork_devices):
             torch.manual_seed(effective_seed)
             result = client.generate(protein, config)
-    except ESMProteinError as error:
+    except (ESMProteinError, torch.cuda.OutOfMemoryError) as error:
         raise ESM3ProviderError(
             f"local ESM-3 provider operation {operation} failed"
         ) from error

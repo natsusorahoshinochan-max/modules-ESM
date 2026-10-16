@@ -1,15 +1,12 @@
 import type { PromptAuthoringDocument, PromptMergeCorrespondence, PromptTargetResidue, PromptTrackEdit } from '../../../webui/src/protocol/client'
 
-/** Layout edits follow the last random insertion, preserving its seed and identities. */
+/** Applied random insertions share the ordinary editable target layout. */
 export function promptLayoutTargets(document: PromptAuthoringDocument): PromptTargetResidue[] | undefined {
-  const insertion = [...document.random_operations ?? []].reverse().find(operation => operation.kind === 'insert')
-  return insertion?.kind === 'insert' ? insertion.target_residues : document.target_residues
+  return document.target_residues
 }
 
 function withLayout(document: PromptAuthoringDocument, targets: PromptTargetResidue[]): PromptAuthoringDocument {
-  const index = (document.random_operations ?? []).reduce((last, operation, position) => operation.kind === 'insert' ? position : last, -1)
-  if (index < 0) return { ...document, target_residues: targets }
-  return { ...document, random_operations: document.random_operations!.map((operation, position) => position === index && operation.kind === 'insert' ? { ...operation, target_residues: targets } : operation) }
+  return { ...document, target_residues: targets }
 }
 
 /** Explicit deletions turn only the affected source relations into source gaps. */

@@ -22,7 +22,14 @@ for (const entry of await readdir(resolve(root, 'modules'), { withFileTypes: tru
     nodePaths: [resolve(toolchain, 'node_modules')],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', jsx: 'automatic',
     minify: false, legalComments: 'none',
-    plugins: [{ name: 'shared-react', setup(builder) {
+    plugins: [{ name: 'shared-host', setup(builder) {
+      builder.onResolve({ filter: /\/InteractionDialog(?:\.tsx)?$/ }, args => {
+        const path = resolve(args.resolveDir, args.path).replace(/\.tsx$/, '')
+        if (path === resolve(root, 'webui/src/InteractionDialog')) return { path: 'InteractionDialog', namespace: 'host-component' }
+      })
+      builder.onLoad({ filter: /.*/, namespace: 'host-component' }, () => ({
+        contents: `export const InteractionDialog = globalThis[Symbol.for('protein-workbench.module-ui.v1')].InteractionDialog;`, loader: 'js',
+      }))
       builder.onResolve({ filter: /^react(?:\/jsx-runtime)?$|^react-dom$/ }, args => ({ path: args.path, namespace: 'host-runtime' }))
       builder.onLoad({ filter: /.*/, namespace: 'host-runtime' }, args => {
         if (!shared.includes(args.path)) throw new Error(`Unsupported shared dependency ${args.path}`)

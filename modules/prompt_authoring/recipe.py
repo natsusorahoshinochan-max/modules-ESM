@@ -887,12 +887,32 @@ def _merge_one(
     )
 
 
+def include_target_gaps(
+    correspondence: Sequence[Mapping[str, Any]],
+    target_ids: Sequence[str],
+    added_ids: set[str],
+) -> list[Mapping[str, Any]]:
+    """Thread newly inserted target positions through an existing correspondence."""
+    rows = list(correspondence)
+    addressed = {row["target_residue_id"] for row in rows if row["disposition"] != "source_gap"}
+    previous: str | None = None
+    for residue_id in target_ids:
+        if residue_id in added_ids and residue_id not in addressed:
+            index = next((index + 1 for index, row in enumerate(rows)
+                          if row.get("target_residue_id") == previous), 0)
+            rows.insert(index, {"disposition": "target_gap", "target_residue_id": residue_id})
+            addressed.add(residue_id)
+        previous = residue_id
+    return rows
+
+
 def _apply_merges(
     prompt: ProteinPrompt,
     merge_sources: Sequence[ProteinPrompt],
     document: Mapping[str, Any],
     *,
     declared_chains: frozenset[str],
+    inserted_ids: set[str],
 ) -> tuple[ProteinPrompt, tuple[ProteinPrompt, ...]]:
     targets: list[ProteinPrompt] = []
     for merge in document.get("source_merges") or ():
@@ -900,6 +920,7 @@ def _apply_merges(
         if source_index < 0 or source_index >= len(merge_sources):
             raise ValueError(f"merge source index {source_index} out of range")
         targets.append(prompt)
+        merge = {**merge, "correspondence": include_target_gaps(merge["correspondence"], prompt.layout.residue_ids, inserted_ids)}
         prompt = _merge_one(prompt, merge_sources[source_index], merge, declared_chains=declared_chains)
     targets.append(prompt)
     return prompt, tuple(targets)
@@ -949,7 +970,7 @@ def _evaluate_prompt_recipe(
             prompt, residue_ids = _apply_random_insert(
                 prompt,
                 operation,
-                operation_index=operation_index,
+                operation_index=len(document.get("applied_random_operations") or ()) + operation_index,
             )
             traces[operation_index] = {
                 "operation_index": operation_index,
@@ -962,7 +983,8 @@ def _evaluate_prompt_recipe(
                 replace_annotations="function_annotations" in document,
                 declared_chains=declared_chains,
             )
-    prompt, merge_targets = _apply_merges(prompt, merge_sources or (), document, declared_chains=declared_chains)
+    prompt, merge_targets = _apply_merges(prompt, merge_sources or (), document, declared_chains=declared_chains,
+                                         inserted_ids={residue_id for trace in traces.values() for residue_id in trace["residue_ids"]})
     overrides = _collect_overrides(document.get("track_edits"))
     prompt = _apply_track_overrides(prompt, overrides)
     prompt = _apply_rigid_transforms(prompt, document.get("rigid_transforms") or ())

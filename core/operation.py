@@ -374,6 +374,10 @@ class OperationResources(Protocol):
         input_reference: str,
     ) -> tuple[OperationProjectInput, bytes]: ...
 
+    def read_referenced_values(self, content_digest: str) -> tuple[tuple[str, bytes], ...]:
+        """Read Run-owned values containing an exact value or projected axis."""
+        ...
+
     @property
     def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]: ...
 

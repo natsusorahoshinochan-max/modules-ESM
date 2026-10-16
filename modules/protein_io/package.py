@@ -12,6 +12,8 @@ from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_sequence
 from .published_reading import read_structure
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -140,3 +142,9 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(ARTIFACT_PAYLOAD_PORT_TYPE,),
     result_actions=(STRUCTURE_COMPONENTS_ACTION, EXPORT_COMPONENTS_ACTION, EXPORT_STRUCTURE_ACTION, CANDIDATE_PAGE_ACTION, CANDIDATE_STRUCTURE_ACTION),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_sequence", "protein.sequence"),
+    ("adopt_structure", "protein.structure"),
+))

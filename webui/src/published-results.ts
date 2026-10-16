@@ -1,4 +1,6 @@
-import { type CanonicalTypedValue, type PublishedResultValue, type PublicV2Client, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
+import { zipSync, strToU8 } from 'fflate'
+import { readComputationParameters } from './result-parameters'
+import { type PublishedArtifact, type CanonicalTypedValue, type PublishedResultValue, type PublicV2Client, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
 const locationKey = (source: ResultLocation) => JSON.stringify([source.node_id, source.output_port, source.value_index])
 
 export type RunReference = Pick<RunProjection, 'project_id' | 'run_id'>
@@ -109,6 +111,35 @@ export class PublishedResults {
 
   value(source: ResultLocation): Promise<PublishedResultValue | undefined> {
     return this.session ? this.sessionValue(this.session, source) : Promise.resolve(undefined)
+  }
+
+  /** Package module-provided files with this Run's recorded producer parameters. */
+  async exportBundle(files: Record<string, Uint8Array>, details: unknown): Promise<Uint8Array | undefined> {
+    const session = this.session
+    return session ? this.sessionExportBundle(session, files, details) : undefined
+  }
+
+  async exportArtifact(artifact: PublishedArtifact): Promise<Uint8Array | undefined> {
+    const session = this.session
+    if (!session?.run) return undefined
+    const response = await fetch(this.client.artifactUrl(session.reference.project_id, session.reference.run_id, artifact.artifact_reference))
+    if (this.session !== session) return undefined
+    if (!response.ok) throw new Error(`附件读取失败：${response.status}`)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (this.session !== session) return undefined
+    return this.sessionExportBundle(session, { [artifact.filename]: bytes }, { artifact })
+  }
+
+  private async sessionExportBundle(session: Session, files: Record<string, Uint8Array>, details: unknown): Promise<Uint8Array | undefined> {
+    const run = session.run
+    if (!run) return undefined
+    const commit = await this.client.workflowCommit(run.project_id, run.workflow_commit_id)
+    const parameters = await readComputationParameters(this.client, run, commit)
+    if (this.session !== session) return undefined
+    return zipSync({ ...files,
+      'computation-parameters.json': strToU8(JSON.stringify({ project_id: run.project_id, run_id: run.run_id, workflow_commit_id: run.workflow_commit_id, publishing_workflow: commit.workflow, ...parameters }, null, 2)),
+      'export-details.json': strToU8(JSON.stringify(details, null, 2)),
+    })
   }
 
   /** A long authoring read keeps the Run it compared, even before its HTTP read starts. */

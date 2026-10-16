@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -77,3 +79,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(_binding(),),
     port_types=RESIDUE_CONDITION_PORT_TYPES,
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_sequence", "residue.condition.sequence"),
+    ("adopt_coordinates", "residue.condition.coordinates"),
+    ("adopt_secondary_structure", "residue.condition.secondary_structure"),
+    ("adopt_sasa", "residue.condition.sasa"),
+    ("adopt_function_annotations", "residue.condition.function_annotations"),
+))

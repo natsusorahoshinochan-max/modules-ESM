@@ -13,6 +13,8 @@ from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -732,3 +734,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
     utility_transforms=(ESM3_MEAN_PLDDT_UTILITY,),
     port_types=(_port_types.ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE,),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_representation", "esm3.esmc_sequence_representation"),
+))

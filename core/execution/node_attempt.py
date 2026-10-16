@@ -177,6 +177,11 @@ class _NodeAttempt:
             project_inputs=prepared.project_inputs if prepared is not None else {},
             resource_identities=prepared.resource_identities if prepared is not None else (),
             cache_eligible=prepared.cache_eligible if prepared is not None else False,
+            referenced_values=lambda: (*spec.referenced_values(), *(
+                (port.port_type.contract_id, value.canonical_bytes,
+                 (value.content_digest, *(axis.axis_content_digest for axis in value.scientific_axes)))
+                for port in spec.committed_values.values() for value in port.values
+            )),
         )
 
     def _prepare(self, spec: AttemptSpec) -> _PreparedNodeExecution:
@@ -251,6 +256,7 @@ class _NodeAttempt:
             _local_provider_memory=self._local_provider_memory,
             _project_inputs=state.project_inputs,
             _project_input_identities=state.resource_identities,
+            _referenced_values=state.referenced_values,
         )
 
     def _cleanup_before_operation_attempt(

@@ -1,4 +1,5 @@
-import type { ComponentReading } from './StructureComponents'
+import { strToU8 } from 'fflate'
+import type { ComponentReading, StructuralComponent } from './StructureComponents'
 import type { PublishedResults } from '../../../webui/src/published-results'
 import { type PublishedStructure, type PublishedResultValue, type PublishedScientificValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection } from '../../../webui/src/protocol/client'
 import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
@@ -152,12 +153,15 @@ export class CandidateResults {
     return this.session === session ? reading : undefined
   }
 
-  async exportComponents(key: string, indices: number[], format: PublishedStructure['format']): Promise<PublishedStructure | undefined> {
+  async exportComponents(key: string, components: StructuralComponent[], format: PublishedStructure['format']): Promise<Uint8Array | undefined> {
     const session = this.session
     if (!session) return undefined
     const candidate = this.snapshot.index.candidates.get(key)!
+    const indices = components.map(component => component.component_index)
     const value = await this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.export_structure_components', { item_index: candidate.item_index, component_indices: indices, format })
-    return this.session === session ? value : undefined
+    if (this.session !== session) return undefined
+    const bundle = await this.published.exportBundle({ [`components.${format === 'pdb' ? 'pdb' : 'cif'}`]: strToU8(value.text) }, { source: candidate.source, candidate: candidate.reference, component_indices: indices, components, format, operation: 'protein_io.export_structure_components' })
+    return this.session === session ? bundle : undefined
   }
 
   async prepareExport(keys: readonly string[], format: PublishedStructure['format']): Promise<CandidateExportMaterial | undefined> {

@@ -1,5 +1,7 @@
 """An external module exercising public custom-value and viewer contracts."""
 import json
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration, AvailabilityResult, ExecutionBindingDefinition,
     MethodDefinition, ModulePackageRegistration, ScientificOperationFactory,
@@ -73,3 +75,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
         ),
     ),),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (("adopt_temperature", "reader_demo.temperature"),))

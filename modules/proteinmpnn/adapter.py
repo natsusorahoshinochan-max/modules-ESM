@@ -47,6 +47,10 @@ type _ProteinMPNNModelCache = dict[
 ]
 
 
+class ProteinMPNNProviderError(RuntimeError):
+    """A local design request exhausted device memory."""
+
+
 class ProteinMPNNProvider(Protocol):
     """External provider boundary used by the adapter."""
 
@@ -412,7 +416,12 @@ class LocalProteinMPNNAdapter:
                     ),
                 ),
             ):
-                raw_sequences = provider.design(request)
+                import torch
+
+                try:
+                    raw_sequences = provider.design(request)
+                except torch.cuda.OutOfMemoryError as error:
+                    raise ProteinMPNNProviderError("ProteinMPNN inference exhausted device memory") from error
             sequences = _admit_design_result(
                 raw_sequences,
                 request=request,

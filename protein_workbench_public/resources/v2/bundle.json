@@ -623,6 +623,12 @@
           "maximum": 67108864,
           "minimum": 0,
           "type": "integer"
+        },
+        "producer_run_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "result_identity": {
+          "$ref": "#/$defs/Digest"
         }
       },
       "required": [
@@ -4911,6 +4917,12 @@
           "maximum": 67108864,
           "minimum": 0,
           "type": "integer"
+        },
+        "producer_run_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "result_identity": {
+          "$ref": "#/$defs/Digest"
         }
       },
       "required": [

@@ -31,9 +31,8 @@ def convert_structure(
         # or truncate them, including the two-character chain extension in Gemmi.
         for atom in read_mmcif_atoms(source.text):
             if (
-                len(atom.chain_id) != 1
-                or not atom.chain_id.isascii()
-                or not atom.chain_id.isalnum()
+                len(atom.chain_id) > 1
+                or (atom.chain_id != "" and (not atom.chain_id.isascii() or not atom.chain_id.isalnum()))
                 or re.fullmatch(r"-?[0-9]+", atom.residue_number) is None
                 or str(int(atom.residue_number)) != atom.residue_number
                 or not -999 <= int(atom.residue_number) <= 9999

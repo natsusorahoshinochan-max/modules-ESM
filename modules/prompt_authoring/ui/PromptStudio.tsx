@@ -135,7 +135,6 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   const [randomSeed, setRandomSeed] = useState('0')
   const [randomCount, setRandomCount] = useState('1')
   const [randomScope, setRandomScope] = useState<'all' | 'selection'>('all')
-  const [randomEditing, setRandomEditing] = useState<number>()
   const [transformMode, setTransformMode] = useState<'translate' | 'rotate'>('translate')
   const [transformAmount, setTransformAmount] = useState('0')
   const [transformAxis, setTransformAxis] = useState<'x' | 'y' | 'z'>('x')
@@ -485,7 +484,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
       ? { kind: 'insert', count: Number(randomCount), seed, ...(randomScope === 'selection' ? { eligible_chain_ids: [...new Set(projection.residues.filter(item => selection.includes(item.residue_handle)).map(item => item.chain_id))] } : {}) }
       : { kind: 'mask', count: Number(randomCount), seed, track: activeTrack as ScalarTrack, ...(randomScope === 'selection' ? { eligible_residue_ids: selection.map(handle => residueIdByHandle.get(handle)!) } : {}) }
     const operations = [...visibleDocument.random_operations ?? []]
-    if (randomEditing === undefined || randomEditing >= operations.length) { setRandomEditing(operations.length); operations.push(operation) } else operations[randomEditing] = operation
+    operations.push(operation)
     setRandomSeed(String(seed))
     void propose({ ...visibleDocument, random_operations: operations }, `随机 ${operation.kind} · seed ${seed}`)
   }
@@ -684,9 +683,9 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
             <label>Count<input aria-label="随机数量" type="number" min="0" step="1" value={randomCount} onChange={event => setRandomCount(event.target.value)} /></label>
             <label>Seed<input aria-label="随机 seed" type="number" min="0" step="1" value={randomSeed} onChange={event => setRandomSeed(event.target.value)} /></label>
             <label>范围<select aria-label="随机范围" value={randomScope} onChange={event => setRandomScope(event.target.value as typeof randomScope)}><option value="all">全部符合条件的位置</option><option value="selection">{mode === 'layout' ? '选区所在链' : '仅选区内已指定值'}</option></select></label>
-            <div className="ps-action-row"><button disabled={busy || !randomSeed.trim() || !randomCount.trim() || randomScope === 'selection' && !selection.length} onClick={() => randomOperation()}>预览随机操作</button><button disabled={busy || randomEditing === undefined} onClick={() => randomOperation(Number(randomSeed) + 1)}>换 seed 重抽</button></div>
-            <button onClick={() => setRandomEditing(undefined)}>开始新的随机操作</button>
-            {(visibleDocument.random_operations ?? []).map((operation, index) => <div key={index} className="ps-random-operation"><button onClick={() => { setRandomEditing(index); setRandomCount(String(operation.count)); setRandomSeed(String(operation.seed)); setMode(operation.kind === 'insert' ? 'layout' : 'condition'); if (operation.kind === 'mask') setActiveTrack(operation.track); const ids = operation.kind === 'mask' ? operation.eligible_residue_ids : undefined; setRandomScope(ids?.length || operation.kind === 'insert' && operation.eligible_chain_ids?.length ? 'selection' : 'all'); if (ids) setSelection(projection.residues.filter(item => ids.includes(item.residue_id)).map(item => item.residue_handle)); else if (operation.kind === 'insert' && operation.eligible_chain_ids?.length) setSelection(projection.residues.filter(item => operation.eligible_chain_ids!.includes(item.chain_id)).map(item => item.residue_handle)) }}>{index + 1} · {operation.kind} · seed {operation.seed} · {operation.count}</button><button disabled={busy} onClick={() => { void propose({ ...visibleDocument, random_operations: visibleDocument.random_operations!.filter((_, i) => i !== index) }, '移除随机操作'); setRandomEditing(undefined) }}>移除</button><p className="ps-help">实际位置：{projection.random_selections.find(item => item.operation_index === index)?.realized_residue_handles.map(handle => displayLocators.get(handle)).join(', ') ?? '待预览'}</p></div>)}
+            <div className="ps-action-row"><button disabled={busy || Boolean(localPreview) || !randomSeed.trim() || !randomCount.trim() || randomScope === 'selection' && !selection.length} onClick={() => randomOperation()}>预览随机操作</button></div>
+            <p className="ps-help">已采用结果可直接编辑。再次随机基于当前内容作为新操作；采用前可取消预览。</p>
+            {(visibleDocument.applied_random_operations ?? []).map(({ operation, realized_residue_ids }, index) => <div key={index} className="ps-random-operation"><span>{index + 1} · {operation.kind} · seed {operation.seed} · {operation.count}</span><p className="ps-help">实际位置：{realized_residue_ids.map(id => { const residue = projection.residues.find(item => item.residue_id === id && item.state !== 'pending-delete'); return residue ? displayLocators.get(residue.residue_handle) : '已删除位置' }).join(', ')}</p></div>)}
           </section>}
           {editorPanel === 'evidence' && <section className="ps-editor-section ps-effective-conditioning" aria-label="工具有效条件">
             <span className="ps-kicker">TOOL CONDITIONING</span>

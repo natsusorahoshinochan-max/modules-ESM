@@ -1,0 +1,21 @@
+node_type_id: prompt_authoring.adopt_prompt
+title: 采用的 Prompt
+summary: Restores explicitly adopted historical Prompt with its original identities and data.
+category: prompt_authoring
+inputs: []
+outputs:
+  - name: value
+    port_type_id: protein.prompt
+    required: true
+    multiplicity: one
+    scientific_meaning: The original published Prompt, without generating new objects.
+parameter_groups: []
+node_parameters:
+  project_input_ref:
+    parameter_scope: scientific
+    resource_kind: project_input
+    scientific_meaning: Independent immutable snapshot of the explicitly adopted result.
+    value_contract:
+      type: string
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    required: true

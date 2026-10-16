@@ -45,6 +45,7 @@ from core.execution.node_attempt import AttemptSpec, NodeAttemptFactory
 from core.execution.results.store import ResultStore
 from core.operation import AdmittedPort
 from core.project.manager import ProjectManager, ProjectMeta
+from core.project.adopted_input import read_adopted_snapshot
 from core.project.storage import StoragePathError
 from core.scoring.selection import SelectionError
 from core.workflow.authoring import (
@@ -270,6 +271,26 @@ class V2RunService:
         if _before_execute is not None:
             _before_execute()
         committed_values: dict[tuple[str, str], AdmittedPort] = {}
+        adopted_types = {definition['contract_id'] for definition in plan.scientific_definitions
+                         if definition['contract_kind'] == 'node_type'
+                         and definition['descriptor'].get('restored_output_port') is not None}
+
+        def referenced_values():
+            # Read the existing dependency closure only when an operation needs
+            # it, and only from adopted source nodes successfully published here.
+            values = []
+            def retain_dependency(snapshot):
+                values.append((snapshot['port_type_id'], snapshot['canonical_value'].encode('utf-8'),
+                               (snapshot['content_digest'], *snapshot.get('axis_digests', ()))))
+                for dependency in snapshot['dependencies']:
+                    retain_dependency(dependency)
+            published_nodes = {node_id for node_id, _ in committed_values}
+            for source_node in plan.nodes:
+                if source_node.node_id in published_nodes and source_node.node_type.contract_id in adopted_types:
+                    _, payload = self._projects.read_input(project_id, source_node.node_parameters['project_input_ref'])
+                    retain_dependency(read_adopted_snapshot(payload))
+            return tuple(values)
+
         unsuccessful_nodes: set[str] = set()
         for node in plan.nodes:
             if node.node_id not in active_ids:
@@ -322,6 +343,7 @@ class V2RunService:
                         plan._runtime.candidate_data_port_types
                     ),
                     committed_values=committed_values,
+                    referenced_values=referenced_values,
                     cancellation=record.cancellation,
                     cache_bypassed=node.node_id in _cache_bypass_nodes,
                     reused_result=admission.reused.get(node.node_id),

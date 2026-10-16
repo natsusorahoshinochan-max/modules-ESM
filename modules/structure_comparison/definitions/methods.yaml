@@ -126,6 +126,7 @@
     all_missing: reject
     valid_count: nonnull-selected-observations
     selection: exact-original-chain-author-number-insertion
+    structure_locations: verify-independent-author-fields-in-referenced-source-axis
     provider_calls: none
   model_identity: {kind: none}
   featurization_identity: {axis: original-observation-residue-axis}

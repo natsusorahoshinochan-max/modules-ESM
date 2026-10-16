@@ -7,11 +7,28 @@ from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 from core.operation import OperationCall, OperationContext
 from datatypes.i_json import validate_i_json
 from datatypes.region import region_residue_ids
+from modules.structure_transform.port_types import CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE, RESOLVED_AXIS_PORT_TYPE
+from modules.structure_transform.regions import structural_region_ids
 
 
 class RegionStatisticsImplementation:
     def __init__(self, context: OperationContext) -> None:
         self._method = context.method
+        self._resources = context.resources
+
+    def _region(self, axis, selection):
+        if axis.axis_kind != 'resolved_structure' or not selection:
+            return region_residue_ids(axis.layout, selection)
+        for type_id, encoded in self._resources.read_referenced_values(axis.axis_content_digest):
+            if type_id == CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE.type_id:
+                port = CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE
+                associations = port.restore(encoded)
+                for entry, reference in zip(associations.entries, port.scientific_axis_references(associations), strict=True):
+                    if reference == axis:
+                        return structural_region_ids(entry.residue_axis, selection)
+            elif type_id == RESOLVED_AXIS_PORT_TYPE.type_id:
+                return structural_region_ids(RESOLVED_AXIS_PORT_TYPE.restore(encoded), selection)
+        raise ValueError('regional statistics require the original resolved residue axis')
 
     def execute(self, call: OperationCall) -> dict[str, object]:
         source = call.inputs['scores']
@@ -27,7 +44,7 @@ class RegionStatisticsImplementation:
                 raise ValueError('regional statistics require numeric per-residue observations with their exact axis')
             if any(value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))) for value in observation.value):
                 raise ValueError('regional statistics require one numeric value or null per residue, not a matrix')
-            region = region_residue_ids(axis.layout, call.node_parameters['region'])
+            region = self._region(axis, call.node_parameters['region'])
             by_identity = dict(zip(axis.layout.residue_ids, observation.value, strict=True))
             values = [by_identity[identity] for identity in region]
             present = [value for value in values if value is not None]

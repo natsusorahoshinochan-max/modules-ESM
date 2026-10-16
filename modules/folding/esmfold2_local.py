@@ -123,15 +123,21 @@ class _LocalEngine:
         provider_input = self.structure_prediction_input_type(
             sequences=[self.protein_input_type(id="A", sequence=sequence)]
         )
-        return self.builder.fold(
-            self.model,
-            provider_input,
-            num_diffusion_samples=1,
-            seed=effective_seed,
-            **{name: value for name, value in parameters.items()
-               if name != "effective_seed"},
-            complex_id="protein-workbench-fold",
-        )
+        import torch
+        from .esmfold2_remote import ESMFold2ProviderError
+
+        try:
+            return self.builder.fold(
+                self.model,
+                provider_input,
+                num_diffusion_samples=1,
+                seed=effective_seed,
+                **{name: value for name, value in parameters.items()
+                   if name != "effective_seed"},
+                complex_id="protein-workbench-fold",
+            )
+        except torch.cuda.OutOfMemoryError as error:
+            raise ESMFold2ProviderError("local ESMFold2 inference exhausted device memory") from error
 
 
 def local_runtime_structurally_available() -> bool:

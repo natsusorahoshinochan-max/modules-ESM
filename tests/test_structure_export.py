@@ -49,7 +49,8 @@ class StructureExport(unittest.TestCase):
 
     def test_export_node_converts_both_sources_to_each_declared_target(self):
         with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}), TestClient(create_application(load_example_results=False)) as client:
-            for source_format, text in [('pdb', PDB), ('mmcif', CIF)]:
+            blank_chain_cif = gemmi.read_pdb_string(PDB.replace('ALA A', 'ALA  ')).make_mmcif_document().as_string()
+            for source_format, text, chain_id in [('pdb', PDB, 'A'), ('mmcif', CIF, 'A'), ('mmcif', blank_chain_cif, '')]:
                 project = self.request(client, 'POST', '/api/v2/projects', json={'name': 'Export ' + source_format})
                 base = '/api/v2/projects/' + project['id']
                 uploaded = self.request(client, 'POST', base + '/inputs', json={'filename': 'source.' + source_format, 'content_base64': base64.b64encode(text.encode()).decode()})
@@ -79,7 +80,7 @@ class StructureExport(unittest.TestCase):
                             self.assertEqual(response.headers['content-type'], 'chemical/x-pdb' if target == 'pdb' else 'chemical/x-mmcif')
                             result = gemmi.read_pdb_string(response.text) if target == 'pdb' else gemmi.make_structure_from_block(gemmi.cif.read_string(response.text).sole_block())
                             atoms = [(chain.name, residue.name, residue.seqid.num, residue.seqid.icode.strip(), atom.name, tuple(atom.pos)) for chain in result[0] for residue in chain for atom in residue]
-                            self.assertEqual(atoms, [('A', 'ALA', 12, 'A', 'CA', (1., 2., 3.)), ('B', 'HOH', 23, '', 'O', (4., 5., 6.))])
+                            self.assertEqual(atoms, [(chain_id, 'ALA', 12, 'A', 'CA', (1., 2., 3.)), ('B', 'HOH', 23, '', 'O', (4., 5., 6.))])
                             if target == source_format:
                                 self.assertEqual(response.text, text)
                         raw = self.request(client, 'GET', run_url + '/outputs/source/structure/values/0')

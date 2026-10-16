@@ -115,6 +115,18 @@ PromptAuthoringDocument:
       items:
         $ref: '#/$defs/PromptFunctionAnnotationIntent'
       type: array
+    applied_random_operations:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [operation, realized_residue_ids]
+        properties:
+          operation:
+            $ref: '#/$defs/PromptRandomOperation'
+          realized_residue_ids:
+            type: array
+            items: {type: string}
     random_operations:
       items:
         $ref: '#/$defs/PromptRandomOperation'

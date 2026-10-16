@@ -6,6 +6,8 @@ from datatypes.observation import IntrinsicContextProfile
 
 from core.catalog.observation import ObservationPortSource
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -130,3 +132,8 @@ __all__ = [
     "MATERIALIZE_CONFIDENCE_BINDING",
     "MODULE_PACKAGE",
 ]
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_confidence", "structure_prediction.confidence_facts"),
+))

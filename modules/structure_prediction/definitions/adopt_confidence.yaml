@@ -1,0 +1,21 @@
+node_type_id: structure_prediction.adopt_confidence
+title: Adopted confidence
+summary: Restores explicitly adopted historical values with their original identities and data.
+category: structure_prediction
+inputs: []
+outputs:
+  - name: value
+    port_type_id: structure_prediction.confidence_facts
+    required: true
+    multiplicity: one
+    scientific_meaning: The original published value, without generating new objects.
+parameter_groups: []
+node_parameters:
+  project_input_ref:
+    parameter_scope: scientific
+    resource_kind: project_input
+    scientific_meaning: Independent immutable snapshot of the explicitly adopted result.
+    value_contract:
+      type: string
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    required: true

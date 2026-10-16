@@ -34,7 +34,7 @@ export type PublishedScientificValue =
   | { kind: 'axis_layout'; value: { residue_ids: string[]; chain_ids: string[] } }
 export type CanonicalTypedValue = { port_type_id: string; value: unknown }
 export type PublishedOutput = { node_id: string; output_port: string; port_type: ContractReference; content_digest: string; result_identity: string; value_count: number; producer_provenance: JsonObject; materialization: { run_id: string; resolution: 'executed' | 'cache_replayed' }; value_manifest_reference: string }
-export type PublishedArtifact = { artifact_reference: string; artifact_kind: string; node_id: string; output_port: string; media_type: string; filename: string; size: number; content_digest: string; candidate_id?: string }
+export type PublishedArtifact = { producer_run_id?: string; result_identity: string; artifact_reference: string; artifact_kind: string; node_id: string; output_port: string; media_type: string; filename: string; size: number; content_digest: string; candidate_id?: string }
 
 export type PromptAuthoringNodeTypeId = 'prompt_authoring.author' | 'prompt_authoring.decompose' | 'prompt_authoring.assemble'
 export type ResidueDataNodeTypeId = 'residue_data.materialize_sequence'
@@ -73,6 +73,7 @@ export type PromptAuthoringDocument = {
   track_edits?: PromptTrackEdit[]
   rigid_transforms?: PromptRigidTransform[]
   function_annotations?: PromptDocumentFunctionAnnotation[]
+  applied_random_operations?: Array<{ operation: PromptRandomOperation; realized_residue_ids: string[] }>
   random_operations?: PromptRandomOperation[]
   source_merges?: PromptSourceMerge[]
 }

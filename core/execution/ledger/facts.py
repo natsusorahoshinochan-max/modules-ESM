@@ -136,6 +136,7 @@ class PublishedArtifact:
     size: int
     content_digest: str
     candidate_id: str | None = None
+    producer_run_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

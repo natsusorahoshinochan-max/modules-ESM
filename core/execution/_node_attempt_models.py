@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -44,6 +44,7 @@ class AttemptSpec:
     committed_values: Mapping[tuple[str, str], AdmittedPort]
     cancellation: CancellationControl
     cache_bypassed: bool
+    referenced_values: Callable[[], tuple[tuple[str, bytes, tuple[str, ...]], ...]] = lambda: ()
     reused_result: StoredNodeResult | None = None
     continuation_result: StoredNodeResult | None = None
 
@@ -82,6 +83,7 @@ class _NodeExecutionAttemptState:
     project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
     resource_identities: tuple[Mapping[str, Any], ...]
     cache_eligible: bool
+    referenced_values: Callable[[], tuple[tuple[str, bytes, tuple[str, ...]], ...]] = lambda: ()
     resolution: Literal["executed", "cache_replayed"] = "executed"
     resources: RunResources | None = None
     operation_started: bool = False

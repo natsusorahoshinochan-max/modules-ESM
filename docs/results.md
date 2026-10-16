@@ -47,7 +47,7 @@ FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显�
 
 公共读取入口为 `GET /api/v2/projects/{project_id}/runs`。重启后从持久 Run 记录恢复列表；已知 Run 的必要证据不可用时返回既有 `evidence_unavailable` 错误，不静默遗漏该 Run。实现见 [RunHistoryDialog](../webui/src/RunHistoryDialog.tsx)、[项目运行状态与选择](../webui/src/project-run-history.ts)及[公共 Run 路由](../protein_workbench_public/http/run_routes.py)。
 
-画布的“采用历史结果”从项目、Run 与兼容输出选择 Candidate Collection 或 Score Collection。模块通过公共 `result_sources` 声明可采用类型及来源节点；载体先把所选值及依赖写为目标项目的不可变 Project Input，成功后才将来源节点加入当前编辑，用户手动保存流程。取消选择不改变流程，持久化失败不显示成功。
+画布的“采用历史结果”从项目、Run 与兼容输出选择模块声明可采用的值。候选、分数、Prompt、序列、结构、轨道、残基轴、评价关系、比对、统计和表征等现有科学结果使用同一个公共 `result_sources` 接口声明来源节点；载体先把所选值及依赖写为目标项目的不可变 Project Input，成功后才将来源节点加入当前编辑，用户手动保存流程。取消选择不改变流程，持久化失败不显示成功。下载附件载荷不作为新的计算输入模式，附件仍可直接导出。
 
 采用保留原始 Candidate ID、数据引用、Score 的 Metric、Method、Context 和值，不生成新谱系。Score 输入保存所需 Candidate、残基轴或比对值，以及已记录的定义和原计算参数；不整体复制来源 Run。已保存的参数导出读取目标本地输入，即使来源项目删除或原模块停用仍保留原参数及 recorded/ambiguous/unavailable 状态。兼容筛选节点可以使用保存的评价定义，不要求重新执行原评分工具。Score 来源节点同时提供可表示为单一 Candidate Collection 的 subjects/references 及唯一明确的 subject-reference relation；pairwise 排名能力指向这些真实输出，可直接接入后续排序。失败 Run 中已发布的值也可明确采用，不改变源 Run 状态或自动启动源下游。相关运行边界见[执行规范](execution.md)。
 
@@ -115,13 +115,15 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 ## 导出
 
-无需先保存筛选或重新计算即可导出所选现有结果。支持纯序列和混合候选；内容包含现有序列、结构、分数、完整 parent refs、观察定义、真实 Run/Commit/输出来源，并列出无结构、无序列证据项。原始观察不混入仅供 UI 分组的 Context Profile。
+无需先保存筛选或重新计算即可导出所选现有结果。用户结果下载统一为 ZIP，包含所选格式的数据和已经记录的计算参数说明；结果页组分导出与导出节点的附件下载遵守同样约定。模块提供实际数据与选择含义，载体提供公共打包入口，已发布 Artifact 的原始媒体和计算数据不变。支持纯序列和混合候选；内容包含现有序列、结构、分数、完整 parent refs、观察定义、真实 Run/Commit/输出来源，并列出无结构、无序列证据项。原始观察不混入仅供 UI 分组的 Context Profile。
 
 应附带已经记录的原计算参数，保证离开软件后可读；只写 Commit ID 或 Method 定义不足以替代实际节点/Binding 参数。不补造未记录数据，不新增日志或证据体系。结构须提供 PDB/mmCIF 选择，并保留所选非蛋白组分。
 
 当前 ZIP 格式化由[结果导出](../modules/protein_io/ui/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份、输出端口、内容摘要和 value manifest 摘要定位原执行节点，排除重放节点，不把当前工作区或重放 Run 的配置冒充原计算参数。当前 Run 中实际执行的输出按原节点 ID 精确定位；缓存结果若仍对应多个内容完全相同的执行节点，则标记 `ambiguous` 并列出候选参数记录，不断言唯一来源。
 
 参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责。
+
+组分与附件通过公共 `PublishedResults.exportBundle` / `exportArtifact` 下载 ZIP，附带 `export-details.json` 记录模块提供的具体选择或附件来源。组分说明包含实际模型、链、残基和组分名称。附件的参数关联使用已有生产 Run、节点结果身份和附件内容身份，按实际执行节点读取原参数及已记录的准入参数；同 Run 和跨 Run 的缓存重放都不冒充原生产者。`publishing_workflow` 仅说明本次发布流程，不替代原计算参数。附件读取到打包保持同一会话，切换运行后迟到的响应不触发下载。
 
 ## 当前差距与核对
 

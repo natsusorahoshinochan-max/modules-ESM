@@ -62,11 +62,12 @@ def _error(value: StructuredError) -> dict[str, Any]:
     return projected
 
 
-def _artifact(value: PublishedArtifact, *, node_id: str) -> dict[str, Any]:
+def _artifact(value: PublishedArtifact, *, node_id: str, result_identity: str) -> dict[str, Any]:
     result = {
         "artifact_reference": value.artifact_reference,
         "artifact_kind": value.artifact_kind,
         "node_id": node_id,
+        "result_identity": result_identity,
         "output_port": value.output_port,
         "media_type": value.media_type,
         "filename": value.filename,
@@ -75,6 +76,8 @@ def _artifact(value: PublishedArtifact, *, node_id: str) -> dict[str, Any]:
     }
     if value.candidate_id is not None:
         result["candidate_id"] = value.candidate_id
+    if value.producer_run_id is not None:
+        result["producer_run_id"] = value.producer_run_id
     return result
 
 
@@ -278,7 +281,7 @@ def encode_run_projection(projection: RunProjection) -> dict[str, Any]:
             for output in publication.outputs
         ],
         "artifact_index": [
-            _artifact(artifact, node_id=publication.node_id)
+            _artifact(artifact, node_id=publication.node_id, result_identity=publication.result_identity)
             for publication in projection.publications
             for artifact in publication.artifacts
         ],

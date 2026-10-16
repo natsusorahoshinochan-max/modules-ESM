@@ -8,6 +8,8 @@ from .published_reading import read_candidate_sequences
 
 from collections.abc import Callable
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -186,3 +188,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
         CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
     ),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_backbone_structure", "structure_transform.backbone_structure"),
+    ("adopt_candidate_modified_residue_normalization_associations", "structure_transform.candidate_modified_residue_normalization_associations"),
+    ("adopt_candidate_normalization_facts", "structure_transform.candidate_normalization_facts"),
+    ("adopt_candidate_resolved_residue_axis_associations", "structure_transform.candidate_resolved_residue_axis_associations"),
+    ("adopt_modified_residue_normalizations", "structure_transform.modified_residue_normalizations"),
+    ("adopt_resolved_residue_axis", "structure_transform.resolved_residue_axis"),
+))

@@ -75,6 +75,15 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5188 npx playwright test tests/module-settin
 
 ## ESMFold2 主动续算
 
+本地生成失败边界与 ProteinMPNN 逐样本续算：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_local_generation_failures.py
+.venv/bin/python -m unittest discover -s tests -p test_proteinmpnn_continuation.py
+```
+
+前者在官方调用边界验证 ESM3、ESMFold2 的明确 Torch OOM 与普通程序错误分别处理；后者通过生产 Operation/Adapter 和受控 Provider 验证成功样本保留、下游阻断、重开及重复失败后的主动继续、身份与 seed 保持和改参新计算。没有加载真实模型。
+
 在仓库根目录执行公共 Run 与官方 SDK 调用边界的受控失败切片：
 
 ```sh
@@ -105,6 +114,8 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
 
 ## 历史结果采用
+
+`.venv/bin/python -m unittest discover -s tests -p test_typed_result_adoption.py` 覆盖 Prompt 的跨项目采用、来源删除后重开并连接后续编辑，以及外部模块自定义类型使用相同公共采用契约。
 
 采用界面测试使用启用官方模块的正常应用和独立临时数据目录；后端与前端启动方式同模块设置，地址通过 `WORKBENCH_TEST_URL` 指定。在 `webui/` 执行：
 
@@ -194,7 +205,7 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5237 npx playwright test tests/regions.spec.
 WORKBENCH_TEST_URL=http://127.0.0.1:5207 npx playwright test tests/prompt-editor.spec.ts --workers=1 --reporter=line --output=/tmp/prompt-editor-results
 ```
 
-覆盖模块编辑确认与手动保存分离、重开、随机新增残基继续编辑和删除、放弃、结构临时移动取消，以及无需输入内部身份的局部轨道采用。
+覆盖模块编辑确认与手动保存分离、重开、随机新增残基继续编辑和删除、只读随机记录与实际 seed 传递、放弃、结构临时移动取消，以及无需输入内部身份的局部轨道采用。公共预览测试还覆盖采用后固定随机位置、删除不补足、清除和重新设置坐标不重放旧变换，以及继承功能注释的完整保留。
 
 ## 独立模块安装与恢复
 
@@ -252,7 +263,7 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5393 npx playwright test tests/module-lifecy
 
 `.venv/bin/python -m unittest discover -s tests -p test_structure_components.py` 通过公共 Run 和模块结果 action 覆盖蛋白、配体、金属、水、核酸的明确身份与全原子投影，以及两种来源格式逐类选择、两种目标导出、连接/链终止记录和原始结果不变。另通过注册结果 action 的公开调用边界输入独立多模型候选，核对重复 atom serial 的 ANISOU/SIGATM/SIGUIJ 只随所属模型原子保留；该用例不经强制单构象的导入节点。不调用模型。
 
-启用默认模块的正常应用使用独立临时数据目录启动后，在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5297 npx playwright test tests/structure-components.spec.ts --workers=1 --reporter=line --output=/tmp/components-results`。覆盖完整候选详情的真实全原子视口、逐类勾选、PDB/mmCIF 文件下载及刷新后恢复选择。
+启用默认模块的正常应用使用独立临时数据目录启动后，在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5297 npx playwright test tests/structure-components.spec.ts --workers=1 --reporter=line --output=/tmp/components-results`。覆盖完整候选详情的真实全原子视口、逐类勾选、包含 PDB/mmCIF、已有参数和实际组分选择说明的 ZIP 下载及刷新后恢复选择。
 
 ## ProteinMPNN design and independent scoring
 

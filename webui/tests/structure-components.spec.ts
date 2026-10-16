@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { unzipSync, strFromU8 } from 'fflate'
 const appUrl = process.env.WORKBENCH_TEST_URL ?? 'http://127.0.0.1:5297'
 const mixed = 'HEADER    MIXED STRUCTURE\nATOM      1  CA  ALA A  12A      1.000   2.000   3.000  1.00 80.00           C  \nHETATM    2  C1  LIG B 201       4.000   2.000   3.000  1.00 20.00           C  \nHETATM    3  O1  LIG B 201       5.000   2.000   3.000  1.00 20.00           O  \nHETATM    4 ZN    ZN C 301       8.000   2.000   3.000  1.00 20.00          ZN  \nHETATM    5  O   HOH D 401      11.000   2.000   3.000  1.00 20.00           O  \nATOM      6  P    DA E 501      14.000   2.000   3.000  1.00 20.00           P  \nEND\n'
 
@@ -31,11 +32,18 @@ test('mixed components can each be viewed, selected and exported while the origi
     const downloaded = page.waitForEvent('download')
     await page.getByRole('button', { name: '导出所选组分', exact: true }).click()
     const download = await downloaded
-    expect(download.suggestedFilename()).toBe(`components.${format === 'pdb' ? 'pdb' : 'cif'}`)
+    expect(download.suggestedFilename()).toBe('components.zip')
     const stream = await download.createReadStream()
     const buffers: Buffer[] = []
     for await (const chunk of stream!) buffers.push(Buffer.from(chunk))
-    const body = Buffer.concat(buffers).toString()
+    const files = unzipSync(Buffer.concat(buffers))
+    const body = strFromU8(files[`components.${format === 'pdb' ? 'pdb' : 'cif'}`])
+    const parameters = JSON.parse(strFromU8(files['computation-parameters.json']))
+    expect(parameters.records).toContainEqual(expect.objectContaining({ node_id: 'input', node_parameters: { project_input_ref }, run_id }))
+    const selection = JSON.parse(strFromU8(files['export-details.json']))
+    expect(selection.component_indices).toEqual([2, 3, 4, 5])
+    expect(selection.format).toBe(format)
+    expect(selection.components.map((component: { residue_name: string }) => component.residue_name)).toEqual(['LIG', 'ZN', 'HOH', 'DA'])
     for (const residue of ['LIG', 'ZN', 'HOH', 'DA']) expect(body).toContain(residue)
     expect(body).not.toContain('ALA')
   }

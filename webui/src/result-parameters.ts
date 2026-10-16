@@ -17,6 +17,7 @@ export type ComputationParameters = {
     status: 'recorded' | 'ambiguous' | 'unavailable'
     parameter_record_ids: string[]
   }>
+  artifacts: Array<{ artifact_reference: string; producer_run_id: string | null; status: 'recorded' | 'ambiguous' | 'unavailable'; parameter_record_ids: string[] }>
   workflows: Array<{ project_id: string; run_id: string; workflow_commit_id: string; workflow: Workflow }>
 }
 
@@ -36,7 +37,7 @@ export async function readComputationParameters(client: PublicV2Client, run: Run
   const workflows: ComputationParameters['workflows'] = []
   const producers = new Map<string, { run: RunProjection; commit: WorkflowCommitSnapshot }>()
   const commits = new Map<string, WorkflowCommitSnapshot>([[commit.workflow_commit_id, commit]])
-  const producerIds = [...new Set(run.outputs.map(output => output.producer_provenance.producer_run_id as string | undefined).filter((id): id is string => id !== undefined))]
+  const producerIds = [...new Set([...run.outputs.map(output => output.producer_provenance.producer_run_id as string | undefined), ...run.artifact_index.map(artifact => artifact.producer_run_id)].filter((id): id is string => id !== undefined))]
   for (const producerId of producerIds) {
     const producer = producerId === run.run_id ? run : await existingRecord(client.runProjection(run.project_id, producerId))
     if (!producer) continue
@@ -97,5 +98,34 @@ export async function readComputationParameters(client: PublicV2Client, run: Run
       producer_run_id: statuses.length > 0 ? (originalRuns.length === 1 ? originalRuns[0] : null) : producerId ?? null, status, parameter_record_ids: ids,
     })))
   }
-  return { records: [...records.values()], outputs, workflows }
+  const artifacts: ComputationParameters['artifacts'] = []
+  for (const artifact of run.artifact_index) {
+    const producerId = artifact.producer_run_id
+    const producer = producerId === undefined ? undefined : producers.get(producerId)
+    const matches = producer?.run.artifact_index.filter(original =>
+      original.producer_run_id === producerId
+      && original.result_identity === artifact.result_identity
+      && original.output_port === artifact.output_port
+      && original.content_digest === artifact.content_digest
+      && producer.run.node_dispositions.some(disposition => disposition.node_id === original.node_id && 'resolution' in disposition && disposition.resolution === 'executed')
+      && (!run.node_dispositions.some(disposition => disposition.node_id === artifact.node_id && 'resolution' in disposition && disposition.resolution === 'executed') || original.node_id === artifact.node_id),
+    ) ?? []
+    const ids = new Set<string>()
+    for (const original of matches) {
+      const node = producer!.commit.workflow.nodes.find(item => item.node_id === original.node_id)
+      if (!node) continue
+      const recordId = JSON.stringify([producer!.run.project_id, producerId, node.node_id])
+      const admitted = (producer!.commit.scientific_identity.nodes as Array<RecordedParameters & { node_id: string }> | undefined)?.find(item => item.node_id === node.node_id)
+      records.set(recordId, {
+        record_id: recordId, project_id: producer!.run.project_id, run_id: producerId!, workflow_commit_id: producer!.commit.workflow_commit_id,
+        node_id: node.node_id, node_type_id: node.node_type_id, binding_id: node.binding_id,
+        node_parameters: node.node_parameters, binding_parameters: node.binding_parameters,
+        admitted_parameters: admitted ? { node_parameters: admitted.node_parameters, binding_parameters: admitted.binding_parameters } : null,
+      })
+      ids.add(recordId)
+    }
+    artifacts.push({ artifact_reference: artifact.artifact_reference, producer_run_id: producerId ?? null,
+      status: ids.size === 0 ? 'unavailable' : ids.size > 1 ? 'ambiguous' : 'recorded', parameter_record_ids: [...ids] })
+  }
+  return { records: [...records.values()], outputs, artifacts, workflows }
 }

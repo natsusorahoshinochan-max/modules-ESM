@@ -10,6 +10,8 @@ from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -142,7 +144,7 @@ def _method(operation: str) -> MethodDefinition:
         )
     if operation == "design":
         return MethodDefinition(
-            method_id="proteinmpnn.design.v_48_020_8907e667",
+            method_id="proteinmpnn.design.v_48_020_8907e667_per_sample",
             algorithm_identity={
                 "name": "ProteinMPNN conditional sequence design",
                 "sampling": "autoregressive decoding",
@@ -152,7 +154,7 @@ def _method(operation: str) -> MethodDefinition:
                     "and-segment-local-continuous-one-based-position"
                 ),
                 "call_seed": (
-                    "sha256-effective-seed-parent-structure-content-parent-slot"
+                    "sha256-effective-seed-parent-structure-content-parent-slot-sample-slot"
                 ),
                 "seed_application": "after-resident-model-resolution",
             },
@@ -268,7 +270,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         randomness_parameters = ()
         randomness_resolver = None
     method_id = (
-        f"proteinmpnn.{operation}.v_48_020_8907e667"
+        f"proteinmpnn.{operation}.v_48_020_8907e667" + ("_per_sample" if operation == "design" else "")
         if is_model
         else f"proteinmpnn.{operation}.repository_owned"
     )
@@ -436,3 +438,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_constraints", "proteinmpnn.constraints"),
+))

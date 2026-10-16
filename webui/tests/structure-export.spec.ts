@@ -118,3 +118,85 @@ test('mixed ZIP selection associates a cache replay and a new output with their 
   }
   expect(parameters.records.some((entry: { node_id: string }) => entry.node_id === 'replayed-prefix')).toBe(false)
 })
+
+test('export node attachment download includes original file and recorded parameters', async ({ page, request }) => {
+  const { id } = await (await request.post(`${appUrl}/api/v2/projects`, { data: { name: 'Attachment ZIP' } })).json()
+  const base = `${appUrl}/api/v2/projects/${id}`
+  const { project_input_ref } = await (await request.post(`${base}/inputs`, { data: { filename: 'source.pdb', content_base64: Buffer.from(ensemble).toString('base64') } })).json()
+  const workflow = { schema_version: '2.1.0', workflow_id: id, nodes: [
+    { node_id: 'input', node_type_id: 'protein_io.import_structure', binding_id: 'protein_io.import_structure.direct', node_parameters: { project_input_ref, model_index: 2 }, binding_parameters: {} },
+    { node_id: 'export', node_type_id: 'protein_io.export_structure', binding_id: 'protein_io.export_structure.direct', node_parameters: {} as { format?: string }, binding_parameters: {} },
+  ], edges: [{ source_node_id: 'input', source_port: 'structure', target_node_id: 'export', target_port: 'structure' }] }
+  workflow.nodes.push({ ...workflow.nodes[1], node_id: 'same-run-replay' })
+  workflow.edges.push({ ...workflow.edges[0], target_node_id: 'same-run-replay' })
+  const { workflow_commit_id } = await (await request.post(`${base}/workflow:commit`, { data: { workflow } })).json()
+  let { run_id } = await (await request.post(`${base}/runs`, { data: { workflow_commit_id, client_request_id: 'attachment' } })).json()
+  await expect.poll(async () => (await (await request.get(`${base}/runs/${run_id}`)).json()).status).toBe('succeeded')
+  const originalRunId = run_id
+  const firstRun = await (await request.get(`${base}/runs/${run_id}`)).json()
+  expect(firstRun.node_dispositions).toContainEqual(expect.objectContaining({ node_id: 'same-run-replay', resolution: 'cache_replayed' }))
+  await page.goto(`${appUrl}/?project=${id}&run=${run_id}`)
+  await page.getByRole('button', { name: '查看结果', exact: true }).click()
+  await page.getByText('全部已发布类型值与附件', { exact: true }).click()
+  const sameRunDownload = page.waitForEvent('download')
+  await page.getByRole('region', { name: '已发布附件', exact: true }).getByRole('button', { name: / · ZIP$/ }).last().click()
+  const sameRunStream = await (await sameRunDownload).createReadStream()
+  const sameRunChunks: Buffer[] = []
+  for await (const chunk of sameRunStream!) sameRunChunks.push(Buffer.from(chunk))
+  const sameRunParameters = JSON.parse(strFromU8(unzipSync(Buffer.concat(sameRunChunks))['computation-parameters.json']))
+  expect(sameRunParameters.artifacts.every((artifact: { status: string }) => artifact.status === 'recorded')).toBe(true)
+  expect(sameRunParameters.records.some((record: { node_id: string }) => record.node_id === 'same-run-replay')).toBe(false)
+  workflow.nodes[1].node_id = 'replayed-export'
+  workflow.nodes[1].node_parameters.format = 'pdb'
+  workflow.edges[0].target_node_id = 'replayed-export'
+  const replayCommit = await (await request.post(`${base}/workflow:commit`, { data: { workflow } })).json()
+  run_id = (await (await request.post(`${base}/runs`, { data: { workflow_commit_id: replayCommit.workflow_commit_id, client_request_id: 'replay-attachment' } })).json()).run_id
+  await expect.poll(async () => (await (await request.get(`${base}/runs/${run_id}`)).json()).status).toBe('succeeded')
+  const run = await (await request.get(`${base}/runs/${run_id}`)).json()
+  expect(run.node_dispositions).toContainEqual(expect.objectContaining({ node_id: 'replayed-export', resolution: 'cache_replayed' }))
+  const artifact = run.artifact_index[0]
+  const original = await (await request.get(`${base}/runs/${run_id}/artifacts/${artifact.artifact_reference}`)).text()
+  await page.goto(`${appUrl}/?project=${id}&run=${run_id}`)
+  await page.getByRole('button', { name: '查看结果', exact: true }).click()
+  await page.getByText('全部已发布类型值与附件', { exact: true }).click()
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('region', { name: '已发布附件', exact: true }).getByRole('button', { name: `${artifact.filename} · ZIP`, exact: true }).first().click()
+  const stream = await (await downloading).createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk))
+  const files = unzipSync(Buffer.concat(chunks))
+  expect(strFromU8(files[artifact.filename])).toBe(original)
+  const parameters = JSON.parse(strFromU8(files['computation-parameters.json']))
+  expect(parameters.records).toContainEqual(expect.objectContaining({ node_id: 'input', node_parameters: { project_input_ref, model_index: 2 } }))
+  expect(parameters.records).toContainEqual(expect.objectContaining({ node_id: 'export', run_id: originalRunId, node_parameters: {}, admitted_parameters: { node_parameters: { format: 'pdb' }, binding_parameters: {} } }))
+  expect(parameters.records.some((record: { node_id: string }) => record.node_id === 'replayed-export')).toBe(false)
+  expect(parameters.artifacts).toContainEqual(expect.objectContaining({ artifact_reference: artifact.artifact_reference, producer_run_id: originalRunId, status: 'recorded' }))
+})
+
+test('a retired attachment download cannot publish after switching A to B to A', async ({ page }) => {
+  await page.goto(appUrl)
+  const outcome = await page.evaluate(async () => {
+    const moduleUrl = '/src/published-results.ts'
+    const { PublishedResults } = await import(moduleUrl)
+    let commits = 0
+    const client = {
+      runEvents: () => ({ close() {} }),
+      runProjection: async (project_id: string, run_id: string) => ({ project_id, run_id, status: 'succeeded', node_dispositions: [], outputs: [], artifact_index: [], workflow_commit_id: 'commit' }),
+      artifactUrl: () => '/delayed-artifact',
+      workflowCommit: async () => { commits++; throw new Error('Retired attachment must not read a Commit') },
+    }
+    const results = new PublishedResults(client)
+    results.openRun({ project_id: 'project', run_id: 'A' }); await results.refresh()
+    const originalFetch = window.fetch
+    let release!: (response: Response) => void
+    window.fetch = () => new Promise<Response>(resolve => { release = resolve })
+    try {
+      const pending = results.exportArtifact({ artifact_reference: 'artifact', filename: 'result.txt' })
+      results.openRun({ project_id: 'project', run_id: 'B' }); await results.refresh()
+      results.openRun({ project_id: 'project', run_id: 'A' }); await results.refresh()
+      release(new Response('old bytes'))
+      return { retired: await pending === undefined, commits }
+    } finally { window.fetch = originalFetch; results.openRun(undefined) }
+  })
+  expect(outcome).toEqual({ retired: true, commits: 0 })
+})

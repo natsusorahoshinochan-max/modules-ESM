@@ -17,6 +17,7 @@ from core.catalog.model import FrozenCatalog
 from core.catalog.declarations import NodeTypeDefinition
 from core.parameters.contract import admit_values, ParameterValueAdmissionError
 from core.project.manager import ProjectInputDescriptor, ProjectManager
+from core.project.adopted_input import read_adopted_snapshot
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -49,7 +50,7 @@ from modules.structure_transform.residue_axis import resolve_residue_axis
 
 from .prompt_types import PROTEIN_PROMPT_PORT_TYPE
 from .prompts import assemble_protein_prompt, decompose_protein_prompt
-from .recipe import _evaluate_prompt_recipe
+from .recipe import _baseline_prompt, _evaluate_prompt_recipe, include_target_gaps
 
 
 _AUTHOR_NODE_TYPE = "prompt_authoring.author"
@@ -158,6 +159,79 @@ def _normalize_document(value: Mapping[str, Any]) -> dict[str, Any]:
             ):
                 edit["value"] = "C"
     return document
+
+
+def _materialize_applied_operations(
+    document: Mapping[str, Any], final: ProteinPrompt,
+    trace: Sequence[Mapping[str, Any]], merge_targets: Sequence[ProteinPrompt],
+    sources: _ResolvedSources,
+) -> tuple[dict[str, Any], Sequence[ProteinPrompt]]:
+    """Turn evaluated effects into ordinary edits; random parameters are records."""
+    document = _copy_document(document)
+    operations = document.get("random_operations", [])
+    transforms = document.get("rigid_transforms", [])
+    merges = document.get("source_merges", [])
+    has_merge_insertions = any(row["disposition"] == "insert" for merge in merges for row in merge["correspondence"])
+    if not operations and not transforms and not has_merge_insertions:
+        return document, merge_targets
+    edits = {(item["track"], item["residue_id"]): item for item in document.get("track_edits", [])}
+    if operations:
+        history = document.setdefault("applied_random_operations", [])
+        for item in trace:
+            operation = operations[item["operation_index"]]
+            history.append({"operation": operation, "realized_residue_ids": list(item["residue_ids"])})
+            if operation["kind"] == "mask":
+                for residue_id in item["residue_ids"]:
+                    edits[(operation["track"], residue_id)] = {"track": operation["track"], "residue_id": residue_id, "action": "clear"}
+        if any(operation["kind"] == "insert" for operation in operations):
+            baseline = _baseline_prompt(sequence_source=sources.sequence_source, structure_source=sources.structure_source,
+                                        prompt_source=sources.prompt_source, document=document)
+            document["function_annotations"] = [{"label": item.label, "start_residue_id": item.start_residue_id, "end_residue_id": item.end_residue_id} for item in final.function_annotations]
+            source_ids = set(baseline.layout.residue_ids)
+            document["target_residues"] = [{"residue_id": residue_id, "origin": "source" if residue_id in source_ids else "inserted"}
+                                           for residue_id in merge_targets[0].layout.residue_ids]
+        document["random_operations"] = []
+    transformed_ids = {residue_id for transform in transforms for residue_id in transform["residue_ids"]}
+    for index, residue_id in enumerate(final.layout.residue_ids):
+        if residue_id not in transformed_ids:
+            continue
+        value = final.coordinates[index]
+        edit = {"track": "coordinates", "residue_id": residue_id, "action": "clear" if value is None else "replace"}
+        if value is not None:
+            edit["value"] = {"atom_coordinates": [{"atom_name": name, "coordinates": list(xyz)} for name, xyz in value.atoms]}
+        edits[("coordinates", residue_id)] = edit
+    if merges and (has_merge_insertions or any(operation["kind"] == "insert" for operation in operations)):
+        baseline = _baseline_prompt(sequence_source=sources.sequence_source, structure_source=sources.structure_source,
+                                    prompt_source=sources.prompt_source, document=document)
+        source_ids = set(baseline.layout.residue_ids)
+        document["target_residues"] = [{"residue_id": residue_id, "origin": "source" if residue_id in source_ids else "inserted"}
+                                       for residue_id in final.layout.residue_ids]
+        document["function_annotations"] = [{"label": item.label, "start_residue_id": item.start_residue_id, "end_residue_id": item.end_residue_id} for item in final.function_annotations]
+        document["source_merges"] = [{
+            **merge,
+            "correspondence": include_target_gaps(
+                [{**row, "disposition": "match"} if row["disposition"] == "insert" else row for row in merge["correspondence"]],
+                final.layout.residue_ids, set(final.layout.residue_ids)),
+            "adopt_annotations": [], "remove_annotations": [],
+        } for merge in merges]
+        for track in ("sequence", "coordinates", "secondary_structure", "sasa"):
+            values = getattr(final, track)
+            if values is None:
+                continue
+            for residue_id, value in zip(final.layout.residue_ids, values):
+                edit = {"track": track, "residue_id": residue_id, "action": "clear" if value is None else "replace"}
+                if value is not None:
+                    edit["value"] = ({"atom_coordinates": [{"atom_name": name, "coordinates": list(xyz)} for name, xyz in value.atoms]}
+                                     if track == "coordinates" else value)
+                edits[(track, residue_id)] = edit
+    document["rigid_transforms"] = []
+    document["track_edits"] = list(edits.values())
+    if document.get("source_merges", []) != merges:
+        _, _, merge_targets = _evaluate_prompt_recipe(
+            sequence_source=sources.sequence_source, structure_source=sources.structure_source,
+            prompt_source=sources.prompt_source, merge_sources=sources.merge_sources, document=document,
+        )
+    return document, merge_targets
 
 
 def _residue_handle(residue_id: str) -> str:
@@ -337,6 +411,21 @@ class PromptAuthoringService:
         return visited | {node.node_id}
 
     # -- exact provider-free source evaluation ----------------------------- #
+    def _adopted_value(self, project_id: str, node: WorkflowNodeInstance,
+                       edge: WorkflowEdge, type_id: str) -> tuple[Any, ProjectInputDescriptor] | None:
+        source = next((source for source in self._catalog.result_sources
+                       if source.node_type_id == node.node_type_id
+                       and source.output_port == edge.source_port
+                       and source.port_type_id == type_id), None)
+        if source is None:
+            return None
+        descriptor, payload = self._read_project_input(project_id, node.node_parameters["project_input_ref"])
+        snapshot = read_adopted_snapshot(payload)
+        if snapshot["port_type_id"] != type_id:
+            self._unsupported_source(edge.target_port)
+        port_type = self._catalog.get_port_type(type_id)
+        return port_type.restore(snapshot["canonical_value"].encode("utf-8")), descriptor
+
     def _sequence_from_import(
         self,
         project_id: str,
@@ -369,6 +458,9 @@ class PromptAuthoringService:
     ) -> _StructureValue:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        adopted = self._adopted_value(project_id, node, edge, 'protein.structure')
+        if adopted is not None:
+            return _StructureValue(*adopted)
         if node.node_type_id == "protein_io.import_structure":
             if edge.source_port != "structure":
                 self._unsupported_source(edge.target_port)
@@ -410,6 +502,9 @@ class PromptAuthoringService:
     ) -> ModifiedResidueNormalizationCollection:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        adopted = self._adopted_value(project_id, node, edge, 'structure_transform.modified_residue_normalizations')
+        if adopted is not None:
+            return adopted[0]
         if (
             node.node_type_id
             != "structure_transform.normalize_csh_parent_span"
@@ -435,6 +530,9 @@ class PromptAuthoringService:
     ) -> _AxisValue:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        adopted = self._adopted_value(project_id, node, edge, 'structure_transform.resolved_residue_axis')
+        if adopted is not None:
+            return _AxisValue(*adopted)
         if node.node_type_id == "structure_transform.project_single_residue_axis" and edge.source_port == "residue_axis":
             upstream = self._one_incoming_edge(draft, node.node_id, "residue_axes", required=True)
             assert upstream is not None
@@ -497,6 +595,9 @@ class PromptAuthoringService:
     ) -> ProteinPrompt:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        adopted = self._adopted_value(project_id, node, edge, 'protein.prompt')
+        if adopted is not None:
+            return adopted[0]
         if edge.source_port != "protein_prompt":
             self._unsupported_source(edge.target_port)
         if node.node_type_id == _AUTHOR_NODE_TYPE:
@@ -528,6 +629,9 @@ class PromptAuthoringService:
     ) -> ResidueTrack[Any] | FunctionAnnotationTrack | None:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        adopted = self._adopted_value(project_id, node, edge, "residue.condition." + expected_port)
+        if adopted is not None:
+            return adopted[0]
         if (
             node.node_type_id != "prompt_authoring.decompose"
             or edge.source_port != expected_port
@@ -612,6 +716,9 @@ class PromptAuthoringService:
     ) -> tuple[ProteinSequence, Mapping[str, Any]]:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        adopted = self._adopted_value(project_id, node, edge, 'protein.sequence')
+        if adopted is not None:
+            return adopted[0], {"kind": "fasta", "project_input_ref": adopted[1].project_input_ref, "content_digest": adopted[1].content_digest, "chain_ids": [chain["chain_id"] for chain in document.get("chains", ())]}
         if node.node_type_id == "protein_io.import_sequence":
             if edge.source_port != "sequence":
                 self._unsupported_source(edge.target_port)
@@ -1220,6 +1327,7 @@ class PromptAuthoringService:
                 baseline_diagnostics=baseline_diagnostics,
                 random_selections=(),
             )
+        document, merge_targets = _materialize_applied_operations(document, prompt, trace, merge_targets, sources)
         residues, tracks, annotations, _changes, _summary = self._project_prompt(
             prompt, prompt
         )
@@ -1324,6 +1432,7 @@ class PromptAuthoringService:
                 baseline_diagnostics=baseline_diagnostics,
             )
 
+        document, merge_targets = _materialize_applied_operations(document, final, trace, merge_targets, sources)
         residues, tracks, annotations, changes, summary = self._project_prompt(
             final, baseline
         )

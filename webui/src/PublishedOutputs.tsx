@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType } from 'react'
-import { PublicV2Client, type PublishedOutput, type PublishedResultValue, type ResultLocation, type RunProjection } from './protocol/client'
+import { PublicV2Client, type PublishedArtifact, type PublishedOutput, type PublishedResultValue, type ResultLocation, type RunProjection } from './protocol/client'
 import type { PublishedResults } from './published-results'
 import { loadResultViewer, resultViewers, type ModuleUiManifest, type ModuleViewerProps, type RegisteredResultViewer } from './module-ui'
 import './published-outputs.css'
@@ -79,6 +79,23 @@ function OutputDetail({ results, output, requestedSource }: { results: Published
   </section>
 }
 
+function ArtifactDownload({ artifact, results }: { artifact: PublishedArtifact; results: PublishedResults }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function download() {
+    setBusy(true); setError('')
+    try {
+      const bundle = await results.exportArtifact(artifact)
+      if (!bundle) return
+      const url = URL.createObjectURL(new Blob([bundle as Uint8Array<ArrayBuffer>], { type: 'application/zip' }))
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${artifact.filename}.zip`; anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (reason) { setError(errorMessage(reason)) }
+    finally { setBusy(false) }
+  }
+  return <><button disabled={busy} onClick={() => void download()}>{artifact.filename} · ZIP</button>{error && <p role="alert">{error}</p>}</>
+}
+
 function RunOutputs({ run, results, requestedSource }: Props) {
   const [selectedKey, setSelectedKey] = useState('')
   const requestedOutput = run.outputs.find(output => output.node_id === requestedSource?.node_id && output.output_port === requestedSource.output_port)
@@ -87,7 +104,7 @@ function RunOutputs({ run, results, requestedSource }: Props) {
   const selected = run.outputs.find(output => outputKey(output) === selectedKey)
   return <section className="published-outputs" aria-label="全部已发布输出"><header><h3>已发布输出与附件</h3><p>{run.outputs.length} 个输出 · {run.artifact_index.length} 件附件</p></header>
     <div className="published-output-browser"><nav aria-label="选择已发布输出">{run.outputs.map(output => <button key={outputKey(output)} aria-pressed={selectedKey === outputKey(output)} onClick={() => setSelectedKey(outputKey(output))}><strong>{output.node_id} / {output.output_port}</strong><span>{output.port_type.contract_id} · {output.value_count} 个值</span></button>)}{run.outputs.length === 0 && <p>本次 Run 还没有发布输出。</p>}</nav>{selected ? <OutputDetail key={outputKey(selected)} results={results} output={selected} requestedSource={requestedSource?.node_id === selected.node_id && requestedSource.output_port === selected.output_port ? requestedSource : undefined} /> : <p className="published-output-placeholder">选择输出后按需查看任意值。</p>}</div>
-    <section className="published-artifacts" aria-label="已发布附件"><h4>附件下载</h4>{run.artifact_index.length === 0 ? <p>本次 Run 还没有发布附件。</p> : <ul>{run.artifact_index.map(artifact => <li key={artifact.artifact_reference}><a href={client.artifactUrl(run.project_id, run.run_id, artifact.artifact_reference)} download={artifact.filename}>{artifact.filename}</a><span>{artifact.node_id} / {artifact.output_port} · {artifact.artifact_kind} · {artifact.media_type} · {artifact.size} bytes{artifact.candidate_id ? ` · Candidate ${artifact.candidate_id}` : ''}</span><RawValue value={{ artifact_reference: artifact.artifact_reference, content_digest: artifact.content_digest }} label="查看附件身份" /></li>)}</ul>}</section>
+    <section className="published-artifacts" aria-label="已发布附件"><h4>附件下载</h4>{run.artifact_index.length === 0 ? <p>本次 Run 还没有发布附件。</p> : <ul>{run.artifact_index.map(artifact => <li key={artifact.artifact_reference}><ArtifactDownload artifact={artifact} results={results} /><span>{artifact.node_id} / {artifact.output_port} · {artifact.artifact_kind} · {artifact.media_type} · {artifact.size} bytes{artifact.candidate_id ? ` · Candidate ${artifact.candidate_id}` : ''}</span><RawValue value={{ artifact_reference: artifact.artifact_reference, content_digest: artifact.content_digest }} label="查看附件身份" /></li>)}</ul>}</section>
   </section>
 }
 

@@ -7,7 +7,7 @@ inputs:
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Nonempty exact-reference-associated resolved residue axes whose entry order is the sole owner of every parent slot, of each parent's derived effective call seed, and of the output parent order.
+    scientific_meaning: Nonempty exact-reference-associated resolved residue axes whose entry order is the sole owner of every parent slot, of each parent/sample's derived effective call seed, and of the output parent order.
   - name: sequence
     port_type_id: protein.sequence
     required: false
@@ -35,7 +35,7 @@ parameter_groups:
 node_parameters:
   effective_seed:
     parameter_scope: scientific
-    scientific_meaning: Fully resolved Workbench seed from which one stable provider seed is derived per exact parent Candidate.
+    scientific_meaning: Fully resolved Workbench seed from which one stable provider seed is derived per exact parent Candidate and sample slot.
     required: true
     value_contract:
       type: integer

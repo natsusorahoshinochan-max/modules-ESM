@@ -292,6 +292,105 @@ class RegionalOperations(unittest.TestCase):
                     parent = self.request(client, 'GET', run + '/outputs/input/structure_candidates/values/0')['value']['fields']['items'][0]['fields']
                     self.assertEqual(parent['data']['fields']['mmcif_string'], original)
 
+    def test_statistics_distinguishes_author_labels_from_insertion_codes(self):
+        from protein_workbench_public.module_registry import DEFAULT_MODULES
+        original = mmcif([('A', '12A', '', 0, 0, 0), ('A', '13', '', 1, 0, 0),
+                          ('A', '14', '', 2, 0, 0), ('A', '15', '', 3, 0, 0)])
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            Path(root, 'modules.json').write_text(json.dumps({'packages': [
+                *[asdict(module) for module in DEFAULT_MODULES],
+                {'package_id': 'region_observations', 'package_module': 'region_observations',
+                 'enabled': True, 'source_root': str(Path(__file__).parent.resolve())},
+            ]}))
+            with TestClient(create_application(load_example_results=False)) as client:
+                project_id, base = self.project(client)
+                source = self.upload(client, base, original)
+                workflow = dict(schema_version='2.1.0', workflow_id=project_id, nodes=[
+                    node('input', 'protein_io.import_structure', {'project_input_ref': source}),
+                    node('axis', 'structure_transform.resolve_candidate_residue_axes'),
+                    node('measured', 'region_observations.source'),
+                    node('statistics', 'structure_comparison.region_statistics', {
+                        'metric_id': 'structure.plddt.per_residue',
+                        'region': [{'chain_id': 'A', 'residue_number': '12A', 'insertion_code': ''}],
+                    }),
+                ], edges=[
+                    edge('input', 'structure_candidates', 'axis', 'structure_candidates'),
+                    edge('input', 'structure_candidates', 'measured', 'structures'),
+                    edge('axis', 'residue_axes', 'measured', 'axes'),
+                    edge('measured', 'scores', 'statistics', 'scores'),
+                ])
+                run = self.execute_workflow(client, base, workflow)
+                reading = self.request(client, 'POST', run + '/results:value', json={
+                    'node_id': 'statistics', 'output_port': 'statistics', 'value_index': 0,
+                })
+                self.assertEqual(reading['value']['entries'][0]['mean'], 20.0)
+                target_id, target_base = self.project(client)
+                adopted = self.request(client, 'POST', target_base + '/inputs:adopt', json={
+                    'source_project_id': project_id, 'source_run_id': run.rsplit('/', 1)[1],
+                    'node_id': 'measured', 'output_port': 'scores', 'value_index': 0,
+                })
+                target_workflow = dict(schema_version='2.1.0', workflow_id=target_id, nodes=[
+                    adopted['source_node'] | {'node_id': 'adopted'},
+                    node('statistics', 'structure_comparison.region_statistics', {
+                        'metric_id': 'structure.plddt.per_residue',
+                        'region': [{'chain_id': 'A', 'residue_number': '12A', 'insertion_code': ''}],
+                    }),
+                ], edges=[edge('adopted', 'value', 'statistics', 'scores')])
+                workflow['nodes'][3]['node_parameters']['region'] = [
+                    {'chain_id': 'A', 'residue_number': '12', 'insertion_code': 'A'}]
+                run = self.execute_workflow(client, base, workflow, expected_status='failed')
+                states = self.request(client, 'GET', run)['node_dispositions']
+                self.assertEqual({entry['node_id']: entry['outcome'] for entry in states},
+                                 {'input': 'succeeded', 'axis': 'succeeded', 'measured': 'succeeded', 'statistics': 'failed'})
+            with TestClient(create_application(load_example_results=False)) as client:
+                self.request(client, 'POST', base + ':trash')
+                self.request(client, 'DELETE', base)
+                target_run = self.execute_workflow(client, target_base, target_workflow)
+                reading = self.request(client, 'POST', target_run + '/results:value', json={
+                    'node_id': 'statistics', 'output_port': 'statistics', 'value_index': 0,
+                })
+                self.assertEqual(reading['value']['entries'][0]['mean'], 20.0)
+                target_workflow['nodes'][1]['node_parameters']['region'] = [
+                    {'chain_id': 'A', 'residue_number': '12', 'insertion_code': 'A'}]
+                self.execute_workflow(client, target_base, target_workflow, expected_status='failed')
+
+    def test_prediction_statistics_use_prediction_input_axis(self):
+        from types import SimpleNamespace
+        import torch
+        pdb = 'ATOM      1  CA  ALA Z  99       0.000   0.000   0.000  1.00 80.00           C  \nEND\n'
+        prediction = SimpleNamespace(
+            plddt=torch.tensor([0.8]), ptm=torch.tensor(0.7), pae=torch.tensor([[0.0]]),
+            to_protein_chain=lambda: SimpleNamespace(to_pdb_string=lambda: pdb),
+        )
+        provider = SimpleNamespace(fold=lambda **kwargs: prediction, close=lambda: None)
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}), patch('esm.sdk.esmfold2_client', return_value=provider):
+            with TestClient(create_application(load_example_results=False)) as client:
+                self.request(client, 'PATCH', '/api/v2/module-settings/folding.fold.esmfold2_remote', json={
+                    'values': {'credential_handle': 'controlled-sdk-only', 'service_url': 'https://biohub.ai'},
+                })
+                project_id, base = self.project(client)
+                source = self.upload(client, base, '>one\nA\n', 'one.fasta')
+                workflow = dict(schema_version='2.1.0', workflow_id=project_id, nodes=[
+                    node('input', 'protein_io.import_sequences', {'project_input_ref': source}),
+                    node('fold', 'folding.fold', {'num_samples': 1}, 'folding.fold.esmfold2_remote'),
+                    node('confidence', 'structure_prediction.materialize_confidence'),
+                    node('statistics', 'structure_comparison.region_statistics', {
+                        'metric_id': 'structure.plddt.per_residue',
+                        'region': [{'chain_id': 'A', 'residue_number': '1', 'insertion_code': ''}],
+                    }),
+                ], edges=[
+                    edge('input', 'sequence_candidates', 'fold', 'sequence_candidates'),
+                    *[edge('fold', port, 'confidence', port) for port in ('structure_candidates', 'confidence_facts')],
+                    edge('confidence', 'observations', 'statistics', 'scores'),
+                ])
+                run = self.execute_workflow(client, base, workflow)
+                entry = self.request(client, 'POST', run + '/results:value', json={
+                    'node_id': 'statistics', 'output_port': 'statistics', 'value_index': 0,
+                })['value']['entries'][0]
+                self.assertEqual(entry['region'], ['A:1'])
+                self.assertEqual(entry['residue_axis']['axis_kind'], 'prediction_input')
+                self.assertAlmostEqual(entry['mean'], 80.0, places=4)
+
     def test_existing_residue_metrics_are_summarized_without_provider_recalculation(self):
         from protein_workbench_public.module_registry import DEFAULT_MODULES
         original = mmcif([('A', str(number), '', number, 0, 0) for number in [10, 11, 12, 15]])

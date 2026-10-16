@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from .authoring_actions import AUTHORING_ACTIONS
 
 from core.catalog.result_reading import ResultReaderDefinition
@@ -260,3 +262,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=PROMPT_PORT_TYPES,
     authoring_capabilities=(PROTEIN_PROMPT_AUTHORING_CAPABILITY,),
 )
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (("adopt_prompt", "protein.prompt"),))

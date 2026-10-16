@@ -2,6 +2,7 @@ import type { PublishedResults } from './published-results'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as jsxRuntime from 'react/jsx-runtime'
+import { InteractionDialog } from './InteractionDialog'
 import type { CatalogSnapshot, PublishedResultValue, Workflow, RunProjection, ResultLocation, PublicV2Client } from './protocol/client'
 
 export type ModuleEditorProps = {
@@ -29,10 +30,10 @@ export type RegisteredResultViewer = { extension: ModuleUiExtension; definition:
 export type ModuleUiExtension = { extension_id: string; react_major: 19; entry_url: string; style_urls: string[]; editors: ModuleEditorDefinition[]; viewers: ModuleViewerDefinition[]; run_viewers: ModuleRunViewerDefinition[] }
 export type ModuleUiManifest = { authoring_actions: string[]; extensions: ModuleUiExtension[]; readers: Array<{ port_type_id: string; kind: string }> }
 export type RegisteredNodeEditor = { extension: ModuleUiExtension; definition: ModuleEditorDefinition }
-export type ModuleUiHost = { React: typeof React; ReactDOM: typeof ReactDOM; jsxRuntime: typeof jsxRuntime }
+export type ModuleUiHost = { React: typeof React; ReactDOM: typeof ReactDOM; jsxRuntime: typeof jsxRuntime; InteractionDialog: typeof InteractionDialog }
 export type ModuleUiEntry = { register: (host: ModuleUiHost) => Record<string, React.ComponentType<never>> }
 
-const host: ModuleUiHost = { React, ReactDOM, jsxRuntime }
+const host: ModuleUiHost = { React, ReactDOM, jsxRuntime, InteractionDialog }
 const runtimeKey = Symbol.for('protein-workbench.module-ui.v1')
 ;(globalThis as unknown as Record<symbol, ModuleUiHost>)[runtimeKey] = host
 const modules = new Map<string, Promise<Record<string, React.ComponentType<never>>>>()

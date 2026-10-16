@@ -375,6 +375,9 @@ class RunResources:
         repr=False,
         compare=False,
     )
+    _referenced_values: Callable[[], tuple[tuple[str, bytes, tuple[str, ...]], ...]] = field(
+        default=lambda: (), repr=False, compare=False,
+    )
     _run_context: RunContext = field(
         init=False,
         repr=False,
@@ -400,6 +403,11 @@ class RunResources:
     ) -> tuple[ProjectInputDescriptor, bytes]:
         """Read one declared input from this Run's exact Project scope."""
         return self._project_inputs[input_reference]
+
+    def read_referenced_values(self, content_digest: str) -> tuple[tuple[str, bytes], ...]:
+        """Return only exact referenced values already owned by this Run."""
+        return tuple((port_type, encoded) for port_type, encoded, digests in self._referenced_values()
+                     if content_digest in digests)
 
     @property
     def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]:

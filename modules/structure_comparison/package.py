@@ -14,6 +14,8 @@ from core.catalog.observation import ObservationPortSource
 from collections.abc import Callable
 from typing import Any
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -292,3 +294,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
         INSERTED_LOOP_EVALUATION_PORT_TYPE,
     ),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_alignments", "structure_comparison.alignment_evidence"),
+    ("adopt_inserted_loop_evaluation", "structure_comparison.inserted_loop_evaluation"),
+    ("adopt_region_statistics", "structure_comparison.region_statistics"),
+    ("adopt_three_way_consistency", "structure_comparison.three_way_consistency"),
+))

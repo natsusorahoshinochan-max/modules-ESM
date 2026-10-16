@@ -336,6 +336,8 @@ def _artifact_to_canonical(value: PublishedArtifact) -> dict[str, Any]:
     }
     if value.candidate_id is not None:
         result["candidate_id"] = value.candidate_id
+    if value.producer_run_id is not None:
+        result["producer_run_id"] = value.producer_run_id
     return result
 
 
@@ -357,6 +359,7 @@ def _artifact_from_canonical(value: object) -> PublishedArtifact:
         size=cast(int, value["size"]),
         content_digest=cast(str, value["content_digest"]),
         candidate_id=cast(str | None, value.get("candidate_id")),
+        producer_run_id=cast(str | None, value.get("producer_run_id")),
     )
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.adopted_sources import with_adopted_sources
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -116,3 +118,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
 )
+
+
+MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
+    ("adopt_relation", "candidate.relation"),
+))

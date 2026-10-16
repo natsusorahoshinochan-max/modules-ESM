@@ -57,10 +57,10 @@ export function StructureComponents({ results, candidateKey }: { results: Candid
   const download = async () => {
     setBusy(true); setError('')
     try {
-      const value = await results.exportComponents(candidateKey, selected, format)
+      const value = await results.exportComponents(candidateKey, reading!.components.filter(component => selected.includes(component.component_index)), format)
       if (!value) return
-      const url = URL.createObjectURL(new Blob([value.text], { type: format === 'pdb' ? 'chemical/x-pdb' : 'chemical/x-mmcif' }))
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `components.${format === 'pdb' ? 'pdb' : 'cif'}`; anchor.click()
+      const url = URL.createObjectURL(new Blob([value as Uint8Array<ArrayBuffer>], { type: 'application/zip' }))
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'components.zip'; anchor.click()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (cause) { setError(String(cause)) }
     finally { setBusy(false) }
