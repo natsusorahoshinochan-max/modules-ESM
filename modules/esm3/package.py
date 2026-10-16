@@ -90,6 +90,7 @@ _LOCAL_MODEL = {
 }
 _BIOHUB_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("credential_handle", "credential_handle"),
+    EnvironmentFieldDeclaration("service_url", "string", required=False),
 )
 _LOCAL_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),

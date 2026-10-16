@@ -394,6 +394,9 @@ def compile(
         runtime = _ExecutionPlanNodeRuntime(
             factory=binding_definition.factory,
             readiness_declaration=binding_definition.readiness,
+            required_environment_fields=tuple(
+                field.name for field in binding_definition.environment_fields if field.required
+            ),
             effective_randomness_resolver=(
                 binding_definition.effective_randomness_resolver
             ),

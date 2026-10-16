@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ModuleSettings } from './ModuleSettings'
 import { InteractionDialog } from './InteractionDialog'
 import { workspaceErrorMessage } from './project-workspace'
 import type { ModuleInventory, PublicV2Client } from './protocol/client'
@@ -9,6 +10,7 @@ export function ModuleManager({ api, beforeChange, onActivated, onClose }: {
   onActivated: () => void
   onClose: () => void
 }) {
+  const [showSettings, setShowSettings] = useState(false)
   const [inventory, setInventory] = useState<ModuleInventory>()
   const [enabled, setEnabled] = useState<string[]>([])
   const [error, setError] = useState('')
@@ -28,8 +30,10 @@ export function ModuleManager({ api, beforeChange, onActivated, onClose }: {
       onActivated()
     } catch (reason) { setError(workspaceErrorMessage(reason)) } finally { setBusy(false) }
   }
+  if (showSettings) return <ModuleSettings api={api} onClose={() => setShowSettings(false)} />
   return <InteractionDialog title="模块管理" busy={busy} onClose={onClose}>
     <p>安装模块以添加节点和专用界面。更改模块不会删除项目、输入或运行结果。运行期间不能更改模块。</p>
+    <button onClick={() => setShowSettings(true)}>运行设置</button>
     {error && <p role="alert">{error}</p>}
     <label>选择模块包（.whl）<input aria-label="选择模块包" type="file" accept=".whl" disabled={busy} onChange={event => {
       const file = event.target.files?.[0]

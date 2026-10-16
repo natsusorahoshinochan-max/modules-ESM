@@ -36,7 +36,7 @@ class EnvironmentConfiguration:
         )
 
 
-def _admit_field_value(
+def admit_environment_field_value(
     declaration: EnvironmentFieldDeclaration,
     value: Any,
     *,
@@ -65,7 +65,7 @@ def _admit_field_value(
         return filesystem_path
     if type(value) is not str or not value:
         raise EnvironmentConfigurationError(
-            f"{path} must be a credential handle"
+            f"{path} must be a non-empty string"
         )
     return value
 
@@ -114,7 +114,7 @@ def admit_environment_configuration(
                 "Environment Configuration omits required fields"
             )
         admitted_values = {
-            name: _admit_field_value(
+            name: admit_environment_field_value(
                 declarations[name],
                 value,
                 path=f"environment:{binding_id}.{name}",
