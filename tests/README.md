@@ -172,6 +172,16 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 
 `.venv/bin/python -m pytest tests/test_topk_scopes.py -q` 通过公共 API 执行整批及按骨架范围的 Top-k。独立导入序列与结构，使用普通关系操作表达评价对象；显式外部测试模块提供四个已知评分，不调用 Provider。覆盖完整 Candidate 和骨架关联保持、同一评分源复用，以及缺少本范围必需评分时对应筛选失败、已评分分支仍成功。
 
+## Provider 参数传递
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_provider_parameters.py
+```
+
+仅使用现有 Python 3.12、httpx、Torch 和固定 ESM/SimpleFold SDK。覆盖 Biohub ESM3 两阶段各自的非默认生成设置、远程 ESMFold2 六项推理参数、本地 ESMFold2 builder 的路线参数与 null 值，以及 SimpleFold wrapper 的 tau 和大于50的步数。公共 Catalog 同时确认独立 confidence 不声明采样参数。
+
+远程调用用官方 SDK 边界替身；本地 ESMFold2 的模型/CCD 加载由外部边界替代，SimpleFold 在 wrapper 构造入口记录参数后立即停止。不会加载重模型或发送网络请求，不表示本地 ESM-3、ESMFold2、SimpleFold 真实模型已运行，也不覆盖完整界面编辑链。
+
 ## 非蛋白组分查看与导出
 
 `.venv/bin/python -m unittest discover -s tests -p test_structure_components.py` 通过公共 Run 和模块结果 action 覆盖蛋白、配体、金属、水、核酸的明确身份与全原子投影，以及两种来源格式逐类选择、两种目标导出、连接/链终止记录和原始结果不变。另通过注册结果 action 的公开调用边界输入独立多模型候选，核对重复 atom serial 的 ANISOU/SIGATM/SIGUIJ 只随所属模型原子保留；该用例不经强制单构象的导入节点。不调用模型。
