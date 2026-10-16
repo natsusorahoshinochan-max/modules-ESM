@@ -103,3 +103,11 @@ protein-workbench-esm3-call-seed/v2:{base_seed}:{functional_digest}:{sample_inde
 ### SimpleFold 折叠采样参数
 
 折叠 Binding 提供 `num_steps`（正整数，默认 500）与 `tau`（非负数，默认 0.1），无额外上限。默认值来自固定官方 CLI；界面与保存使用同一 Binding 声明，调用将用户值传至官方 wrapper。已有结构的独立 confidence 不重新采样，不提供这两个参数。本地模型执行排除，仅进行不加载模型的契约验证。
+
+### SimpleFold 运行失败与主动续算
+
+SimpleFold 每个输入序列对应一次官方推理请求，该请求一次产生所选数量的样本。[固定上游调用](../repositories/ml-simplefold/src/simplefold/wrapper.py)没有专用失败返回；当前只将已加载模型的 `run_inference` 抛出的 [PyTorch `torch.cuda.OutOfMemoryError`](https://docs.pytorch.org/docs/2.14/generated/torch.cuda.OutOfMemoryError.html) 作为明确资源失败。资产准入、输入准备、模型加载和输出转换保持各自失败边界；普通 `RuntimeError`、`ValueError` 不转换，也不通过错误文本猜测其他设备的内存失败。
+
+这类推理失败停止尚未开始的序列请求。此前完整请求的结构及置信度随失败节点持久保存，供重开查看和导出；下游仍被阻断。用户通过公共“继续批次”入口继续原输入与参数，跳过完成的序列请求，保留原候选身份与有效 seed，仅重新尝试失败及未开始请求。首请求失败也能继续；不添加自动重试，不读取失败请求的残缺样本。
+
+当前覆盖为不加载模型的受控官方调用边界，以及测试专用模块装配生产 Operation 的公共 Run 行为；未启动 SimpleFold 本地模型，未诱发真实设备内存耗尽，不据此宣称真实模型或其他设备失败处理已经验证。

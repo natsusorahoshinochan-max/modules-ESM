@@ -103,3 +103,11 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 ```
 
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
+
+## SimpleFold 定义失败与批内续算
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p 'test_simplefold_*.py'
+```
+
+不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。
