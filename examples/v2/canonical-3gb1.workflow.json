@@ -153,11 +153,42 @@
       "node_type_id": "selection.weighted_rank",
       "binding_id": "selection.weighted_rank.direct",
       "node_parameters": {
-        "objective_ids": [
-          "fixed-3gb1",
-          "paired-esm3"
-        ],
-        "tie_policy": "candidate_id_ascending"
+        "objectives": [
+          {
+            "selection": {
+              "score_input": "fixed-3gb1.scores",
+              "metric_id": "structure_comparison.tm_score",
+              "method_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+              "source_partition": "structure_comparison.tm_score.explicit_relation",
+              "context": {
+                "kind": "pairwise",
+                "subject_role": "subject",
+                "reference_role": "reference",
+                "pairing_mode": "explicit_relation",
+                "normalization": "reference-axis-residue-count"
+              }
+            },
+            "transform_id": "structure_comparison.tm_score.explicit_relation.identity",
+            "weight": 0.7
+          },
+          {
+            "selection": {
+              "score_input": "paired-esm3.scores",
+              "metric_id": "structure_comparison.tm_score",
+              "method_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+              "source_partition": "structure_comparison.tm_score.explicit_relation",
+              "context": {
+                "kind": "pairwise",
+                "subject_role": "subject",
+                "reference_role": "reference",
+                "pairing_mode": "explicit_relation",
+                "normalization": "reference-axis-residue-count"
+              }
+            },
+            "transform_id": "structure_comparison.tm_score.explicit_relation.identity",
+            "weight": 0.3
+          }
+        ]
       },
       "binding_parameters": {}
     },
@@ -900,13 +931,15 @@
       "source_node_id": "score-fixed",
       "source_port": "scores",
       "target_node_id": "rank-candidates",
-      "target_port": "scores"
+      "target_port": "scores",
+      "target_slot": "fixed-3gb1.scores"
     },
     {
       "source_node_id": "score-paired",
       "source_port": "scores",
       "target_node_id": "rank-candidates",
-      "target_port": "scores"
+      "target_port": "scores",
+      "target_slot": "paired-esm3.scores"
     },
     {
       "source_node_id": "fold-sequences",
@@ -988,76 +1021,5 @@
     }
   ],
   "observation_selectors": [],
-  "selection_objectives": [
-    {
-      "objective_id": "fixed-3gb1",
-      "candidate_input": {
-        "node_id": "fold-sequences",
-        "output_port": "structure_candidates"
-      },
-      "score_collection_input": {
-        "node_id": "score-fixed",
-        "output_port": "scores"
-      },
-      "source_partition": "structure_comparison.tm_score.explicit_relation",
-      "metric": {
-        "contract_kind": "metric",
-        "contract_id": "structure_comparison.tm_score"
-      },
-      "method": {
-        "contract_kind": "method",
-        "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method"
-      },
-      "context_selector": {
-        "kind": "pairwise",
-        "subject_role": "subject",
-        "reference_role": "reference",
-        "pairing_mode": "explicit_relation",
-        "normalization": "reference-axis-residue-count"
-      },
-      "utility_transform": {
-        "contract_kind": "utility_transform",
-        "contract_id": "structure_comparison.tm_score.explicit_relation.identity"
-      },
-      "utility_parameters": {},
-      "weight": 0.7,
-      "match_cardinality": "exactly_one",
-      "missing_policy": "error"
-    },
-    {
-      "objective_id": "paired-esm3",
-      "candidate_input": {
-        "node_id": "fold-sequences",
-        "output_port": "structure_candidates"
-      },
-      "score_collection_input": {
-        "node_id": "score-paired",
-        "output_port": "scores"
-      },
-      "source_partition": "structure_comparison.tm_score.explicit_relation",
-      "metric": {
-        "contract_kind": "metric",
-        "contract_id": "structure_comparison.tm_score"
-      },
-      "method": {
-        "contract_kind": "method",
-        "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method"
-      },
-      "context_selector": {
-        "kind": "pairwise",
-        "subject_role": "subject",
-        "reference_role": "reference",
-        "pairing_mode": "explicit_relation",
-        "normalization": "reference-axis-residue-count"
-      },
-      "utility_transform": {
-        "contract_kind": "utility_transform",
-        "contract_id": "structure_comparison.tm_score.explicit_relation.identity"
-      },
-      "utility_parameters": {},
-      "weight": 0.3,
-      "match_cardinality": "exactly_one",
-      "missing_policy": "error"
-    }
-  ]
+  "selection_objectives": []
 }

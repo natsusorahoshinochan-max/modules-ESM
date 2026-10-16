@@ -38,6 +38,7 @@ _NON_SCIENTIFIC_CONTRACT_FIELDS = {
         {"title", "summary", "category", "parameter_groups"}
     ),
     "metric": frozenset({"title", "description"}),
+    "utility_transform": frozenset({"title"}),
 }
 _INTERNAL_CONTRACT_FIELDS = frozenset(
     {"schema_namespace", "contract_kind", "contract_id"}

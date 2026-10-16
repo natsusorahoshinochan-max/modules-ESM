@@ -141,6 +141,20 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
 def _tm_score_utility() -> UtilityTransformDefinition:
     return UtilityTransformDefinition(
         transform_id="structure_comparison.tm_score.explicit_relation.identity",
+        title="参考轴归一化 TM-score（原始相似度尺度）",
+        meaning=(
+            "评分保留原始 TM-score：按选定参考轴残基总数归一化的结构相似度，"
+            "越大越相似，1 表示完整参考轴的理想匹配。"
+        ),
+        applicability=(
+            "仅用于本模块从已有对齐计算的 TM-score Method；Context 必须为 "
+            "explicit_relation 的 subject/reference 比较，并使用 reference-axis-residue-count 归一化。"
+        ),
+        limitations=(
+            "使用已有对齐的残差，不执行 TM-align 的最优对齐搜索。",
+            "参考对象、区域与归一化轴会影响分值；比较时须选择符合研究含义的同类评价。",
+            "这是结构相似度，不是正确性概率；与其他评分的相同数值不表示相同效果或已跨指标校准。",
+        ),
         compatible_input_contract={
             "metric": ExactContractReference(
                 "metric",

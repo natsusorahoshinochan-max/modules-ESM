@@ -7,6 +7,16 @@ backend wheel. Its results are available offline on first open; new Runs require
 the configured real Providers. See the [WebUI guide](../../webui/README.md) and
 [workspace requirements](../../docs/workspace.md#教学实例与默认入口).
 
+The current authored WebUI workflow sorts generated structures by raw mean
+pLDDT, and sorts both refolding stages by raw reference-normalized TM-score,
+all descending with input-order ties. It does not combine confidence and
+similarity into a composite score. The canonical workflow configures two
+module-declared TM-score scoring choices; its weighted execution remains
+unavailable until #132. The shipped completed Run retains its original Commit,
+parameters, ranking behavior and outputs; it is a historical result, and may be
+stale against the current authored workflow. Regenerating the example JSON does
+not rewrite `webui-3gb1.results.zip`.
+
 These files describe current Workflow examples; they do not establish product
 scope or prove that all current requirements are implemented. In particular,
 ProteinMPNN must be rebuilt under the [module requirements](../../docs/module-capabilities.md),
