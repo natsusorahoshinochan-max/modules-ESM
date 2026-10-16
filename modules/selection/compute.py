@@ -2,6 +2,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, fields, replace
 import math
+import operator
 from typing import Any
 
 from datatypes.candidate import CandidateCollection, CandidateDataReference
@@ -105,6 +106,8 @@ def select_candidates(candidates: CandidateCollection,
         return replace(candidates, items=tuple(candidate for candidate in candidates
             if not any(dominates(other.candidate_id, candidate.candidate_id)
                 for other in candidates if other.candidate_id != candidate.candidate_id)))
+    if operation == 'filter':
+        return _filter_candidates(candidates, candidate_references, score_inputs, parameters['condition'], relation_inputs)
     scores = resolve_observations(parameters['selection'], candidate_references, score_inputs, relation_inputs)
     values = {ref.candidate_id: score.value for ref, score in zip(candidate_references, scores, strict=True)}
     ordered = sorted(candidates, key=lambda item: values[item.candidate_id],
@@ -112,3 +115,27 @@ def select_candidates(candidates: CandidateCollection,
     if operation == 'top_k':
         ordered = ordered[:parameters['k']]
     return replace(candidates, items=tuple(ordered))
+
+
+_COMPARISONS = {'>': operator.gt, '>=': operator.ge, '<': operator.lt,
+                '<=': operator.le, '==': operator.eq, '!=': operator.ne}
+
+
+def _filter_candidates(
+    candidates: CandidateCollection,
+    candidate_references: Sequence[CandidateDataReference],
+    score_inputs: Mapping[str, tuple[ScoreCollection, ...]],
+    condition: Mapping[str, Any],
+    relation_inputs: Mapping[str, tuple[CandidateRelation, ...]] | None,
+) -> CandidateCollection:
+    def resolve(tree: Mapping[str, Any]) -> tuple[bool, ...]:
+        if tree['kind'] == 'comparison':
+            observations = resolve_observations(tree['selection'], candidate_references, score_inputs, relation_inputs)
+            compare = _COMPARISONS[tree['operator']]
+            return tuple(compare(observation.value, tree['threshold']) for observation in observations)
+        # Resolve every child for the whole input before AND/OR may short circuit.
+        children = tuple(resolve(child) for child in tree['children'])
+        combine = all if tree['operator'] == 'and' else any
+        return tuple(combine(values) for values in zip(*children, strict=True))
+    accepted = resolve(condition)
+    return replace(candidates, items=tuple(candidate for candidate, keep in zip(candidates, accepted, strict=True) if keep))

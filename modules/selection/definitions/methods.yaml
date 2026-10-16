@@ -2,13 +2,12 @@
   algorithm_identity:
     name: deterministic-candidate-filter
     candidate_score_join: exact-candidate-data-reference
-    objective_scope: workflow-owned-exact-source
+    objective_scope: node-owned-exact-source
     match_cardinality: exactly_one
     missing_policy: error
-    out_of_scope_default: error
     ranking_scale: canonical-metric-value
-    expression: grouped-and-or-postfix
-    selector_resolution: eager-exact-all-declared
+    condition: nested-and-or-tree
+    selector_resolution: eager-exact-all-comparisons
     output_order: input-relative-order
   model_identity:
     kind: none

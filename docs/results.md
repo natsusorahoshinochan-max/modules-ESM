@@ -79,11 +79,9 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 用户通过画布组合已有指标的筛选和排序；整批前十名与各骨架分别前十名都应可表达，不预先固定唯一规则。模块按完整候选引用匹配评分，不要求当前候选输入与评分时 subject_source 是同一输出端点。
 
-当前 `selection.filter` 用有序不重复 `selector_ids` 指向同一候选输入的观察，`scores` 为多值输入。匹配保留 Metric、Method、Context、partition、成对引用及 `exactly_one` 含义。缺少必需评分默认停止对应筛选；多义或内容版本不符明确报错，AND/OR 短路不能隐藏这些问题。尚未确认“排除缺分候选后继续”的额外功能。
+`selection.filter` 将完整 `condition` 保存为节点参数。比较项是 `{kind: "comparison", selection, operator, threshold}`，比较符为 `> >= < <= == !=`，阈值使用 Metric 原单位；分组项是 `{kind: "group", operator: "and" | "or", children: [...]}`，可递归组合。每项 `selection` 使用与原值排序相同的精确评价选择，不引用全局 Selector，也不生成后缀表达式。界面直接编辑这棵条件树，复制后可独立修改。
 
-`expression` 为后序表达式：比较项含从 0 开始的 `selector_index`、`operator`、`threshold`，比较符为 `> >= < <= == !=`，阈值采用 Metric 单位；分组项 `{operator: "and" | "or", operand_count: N}`，N 至少 2。最终栈只保留一个结果并使用全部声明的 Selector。UI 用嵌套 AND/OR 分组无损表示，由筛选 owner 核对一次，不在 TypeScript 复制推导。
-
-`out_of_scope_policy` 只处理该 Score 来源上所声明 Selector 并集之外的观察：`error` 拒绝，`ignore` 明确忽略；范围内缺失和多义规则不变。输出保留原候选对象、metadata、谱系及相对顺序。
+执行前先为全部输入候选解析每个比较项所需的评价，再计算 AND/OR。必需评价缺失、为 null 或仍有歧义时明确失败；不能用布尔短路隐藏缺分。未选中的 Metric、Method、参考对象或区域不自动造成失败。空分组和未完成评价可保存并重开编辑，但不能 Commit 或运行。输出保留原候选内容、完整身份、metadata、生成来源和相对顺序，可用于下游节点；筛选不补算分数。
 
 整批 Top-k 直接连接完整候选集合；按骨架 Top-k 先用 `collection_ops.select_related_subjects` 根据显式 Candidate Relation 和所选骨架取得候选范围，再连接普通 `selection.top_k`。多个分支可以共享同一 Score Collection；节点本地选择只匹配本范围的完整候选引用及指定评价，未选择的其他观察不影响计算。本范围内缺分或多义仍失败。评价关系通过 `relate_to_single_reference`、`concat_relations` 等普通操作组合，不伪造生成 parents。可运行公共 API 场景与连线说明见[Top-k 范围示例](../examples/v2/top-k-scopes.md)。
 
