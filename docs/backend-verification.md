@@ -42,9 +42,9 @@ After the non-Provider matrix passes, the same frozen snapshot also requires:
 ```
 
 This serial, zero-skip `provider-regressions` tier owns four ProteinMPNN chain,
-segment, missing-backbone and residue-axis regressions plus remote and local
+segment, missing-backbone and residue-axis regressions plus remote
 ESMFold2 invocation/translation regressions. It uses the source Adapter/Binding
-path and the explicit profile's ProteinMPNN, ESMFold2/ESMC and Biohub resources.
+path and the explicit profile's ProteinMPNN and Biohub resources.
 It supplements the installed-artifact Campaign; neither substitutes for the
 other. Keep its independent exit code and retained JUnit result. Do not run it
 concurrently with resource-heavy Campaign or browser Provider work.
@@ -58,10 +58,10 @@ are ordinary local verification output.
 
 ## Execution policy
 
-Run all tests, type checks, builds, browser checks and Providers on the remote
-verification host, using its existing Python 3.12 environment, frontend
-dependencies and private Execution Profile. Local work is limited to reading,
-editing, searching and diff inspection.
+Run all tests, type checks, builds, browser checks and Provider verification on
+the local machine, using its Python 3.12 environment, frontend dependencies and
+an explicitly specified private Execution Profile. Remote-service Providers
+continue to call their configured official APIs.
 
 1. Freeze a task-specific source snapshot and record its digest. Keep running
    snapshots immutable and credentials outside the repository and logs.
@@ -69,7 +69,7 @@ editing, searching and diff inspection.
    and the applicable [WebUI checks](../webui/README.md#verification) independently. Save each
    exit code, complete log and structured result. `verify-repository` stops at
    the first failure, so diagnostic rounds invoke its seven existing tier entry
-   points separately; a remote temporary collector is sufficient.
+   points separately; a local temporary collector is sufficient.
 3. Finish the whole batch before fixing failures. Group failures by shared root
    cause and repair all affected callers together. Import, collection or build
    failures mark dependent checks blocked; continue other independent checks.
@@ -79,15 +79,31 @@ editing, searching and diff inspection.
    snapshot. CPU checks may run independently; resource-heavy Provider work is
    serial. Run the fixed `provider-regressions` tier as well as the Campaign.
    Preserve the formal Campaign's existing stop-on-failure semantics.
-5. During both the non-Provider diagnostic batch and the real Provider phase,
-   inspect remote status only once every 30 minutes, with no intermediate status,
-   log or process polling. Wait silently between inspections and let started work
-   continue. This changes only external monitoring, not polling required inside
-   tests. Collect executed, failed and blocked results before a repair batch;
+5. Collect executed, failed and blocked results before a repair batch;
    changed code must pass the non-Provider matrix before a new Campaign.
 
 Historical passes do not certify new artifacts. Retain scientific assertions and
 required real acceptance; do not add skips or weaken gates to obtain a pass.
+
+## Current model verification scope
+
+Local ESM-3, SimpleFold and ESMFold2 model execution is prohibited. Their
+installed gates and all four `fresh-local-*` journeys are scope exclusions,
+not passes or pytest skips. `fresh-1pga` is also excluded because that mixed
+Biohub journey invokes local SimpleFold. The ten other Campaign gates remain
+mandatory, including Biohub heavy models, ProteinMPNN, mkdssp, SoluProt and
+Protein-Sol. Source Provider regressions retain ProteinMPNN and Biohub ESMFold2;
+the local ESMFold2 invocation is excluded, while its translation contract stays
+in the seven-tier repository matrix. Routine Adapter and deterministic public
+journeys retain ESM-3 and SimpleFold contracts without loading these models.
+
+The Campaign definition and status include `excluded_tiers` with reasons;
+`passed_tiers` counts only admitted executed gates. A passed Campaign certifies
+only the ten in-scope tiers. Direct excluded backend tier calls return exit code
+2 and print `excluded` before launching pytest, including with a focused override.
+The table below retains excluded gate definitions for contract inspection; their
+commands are not executable acceptance in this scope. Missing in-scope resources
+are blockers, not exclusions. Profiles need only the in-scope resource paths.
 
 ## Available tiers
 
@@ -100,26 +116,26 @@ required real acceptance; do not add skips or weaken gates to obtain a pass.
 | Scientific reproduction | `.venv/bin/python -m verification.backend scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
 | Local ESMFold2 translation contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks native-result translation, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python -m verification.backend installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
-| Source Provider regressions | `.venv/bin/python -m verification.backend provider-regressions` | Four real ProteinMPNN axis/topology regressions and two real ESMFold2 remote/local invocation regressions, serial and zero-skip; source execution does not certify the installed wheel. |
+| Source Provider regressions | `.venv/bin/python -m verification.backend provider-regressions` | Four real ProteinMPNN axis/topology regressions and one real Biohub ESMFold2 invocation regression, serial and zero-skip; source execution does not certify the installed wheel. |
 | Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
 | Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and retains the applicable existing SDK retry limit. |
 | Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run, retaining the applicable existing SDK retry limit. |
-| Installed local ESM-3 | `.venv/bin/python -m verification.backend installed-local-esm3` | Invokes the configured local model for paired, sequence, and structure generation, explicitly forbids Hugging Face snapshot download/cache fallback, and requires complete scientific invocation evidence. |
-| Installed local ESMFold2 | `.venv/bin/python -m verification.backend installed-local-esmfold2` | Invokes the configured ESMFold2 and ESMC models through a fresh Run using the Binding-owned platform device policy: CUDA on Linux/Windows and CPU on macOS, with ESMC FP32 precision. CUDA-platform failure never falls back to CPU. The gate requires effective-seed Method evidence. |
+| Installed local ESM-3 | `.venv/bin/python -m verification.backend installed-local-esm3` | **Excluded: no execution**. Invokes the configured local model for paired, sequence, and structure generation, explicitly forbids Hugging Face snapshot download/cache fallback, and requires complete scientific invocation evidence. |
+| Installed local ESMFold2 | `.venv/bin/python -m verification.backend installed-local-esmfold2` | **Excluded: no execution**. Invokes the configured ESMFold2 and ESMC models through a fresh Run using the Binding-owned platform device policy: CUDA on Linux/Windows and CPU on macOS, with ESMC FP32 precision. CUDA-platform failure never falls back to CPU. The gate requires effective-seed Method evidence. |
 | Installed ProteinMPNN | `.venv/bin/python -m verification.backend installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs. Direct Adapter edge cases remain non-authoritative Provider regressions. |
 | Installed mkdssp | `.venv/bin/python -m verification.backend installed-mkdssp` | Invokes exact mkdssp 4.6.1 through the public Run seam and verifies the canonical DSSP residue layout, secondary-structure track, SASA track, and complete Method evidence. |
-| Installed SimpleFold folding | `.venv/bin/python -m verification.backend installed-simplefold-folding` | Invokes the configured SimpleFold folding route with the model and ESM-2 resources that it actually loads. |
-| Installed SimpleFold confidence | `.venv/bin/python -m verification.backend installed-simplefold-confidence` | Invokes the configured confidence route and proves direct-confidence output without refolding. |
+| Installed SimpleFold folding | `.venv/bin/python -m verification.backend installed-simplefold-folding` | **Excluded: no execution**. Invokes the configured SimpleFold folding route with the model and ESM-2 resources that it actually loads. |
+| Installed SimpleFold confidence | `.venv/bin/python -m verification.backend installed-simplefold-confidence` | **Excluded: no execution**. Invokes the configured confidence route and proves direct-confidence output without refolding. |
 | Installed SoluProt | `.venv/bin/python -m verification.backend installed-soluprot` | Invokes both full and no-TM SoluProt Methods and checks their observations and terminal evidence. |
 | Installed Protein-Sol | `.venv/bin/python -m verification.backend installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
-| Fresh Biohub source-bound 1PGA | `.venv/bin/python -m verification.backend fresh-1pga` | Runs the installed 1PGA Workflow with its Biohub ESMFold2 route and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
-| Fresh local source-bound 1PGA | `.venv/bin/python -m verification.backend fresh-local-1pga` | Runs the same 1PGA scientific Workflow with the exact local ESMFold2 Method, preserving the source-bound thresholds, residue scope, pairing, and actual Provider Method evidence. |
+| Fresh Biohub source-bound 1PGA | `.venv/bin/python -m verification.backend fresh-1pga` | **Excluded: no execution**. Runs the installed 1PGA Workflow with its Biohub ESMFold2 route and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
+| Fresh local source-bound 1PGA | `.venv/bin/python -m verification.backend fresh-local-1pga` | **Excluded: no execution**. Runs the same 1PGA scientific Workflow with the exact local ESMFold2 Method, preserving the source-bound thresholds, residue scope, pairing, and actual Provider Method evidence. |
 | Fresh Biohub source-bound 2EMO | `.venv/bin/python -m verification.backend fresh-2emo` | Runs the installed 2EMO Workflow with Biohub ESMFold2 and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
-| Fresh local source-bound 2EMO | `.venv/bin/python -m verification.backend fresh-local-2emo` | Runs the same 2EMO scientific Workflow with local ESMFold2, ProteinMPNN, and Protein-Sol, preserving the selectors, lifecycle receipt, and scientific thresholds. |
+| Fresh local source-bound 2EMO | `.venv/bin/python -m verification.backend fresh-local-2emo` | **Excluded: no execution**. Runs the same 2EMO scientific Workflow with local ESMFold2, ProteinMPNN, and Protein-Sol, preserving the selectors, lifecycle receipt, and scientific thresholds. |
 | Fresh Biohub canonical 3GB1 | `.venv/bin/python -m verification.backend fresh-canonical-3gb1` | Runs the canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
-| Fresh local canonical 3GB1 | `.venv/bin/python -m verification.backend fresh-local-canonical-3gb1` | Runs the canonical 3GB1 Workflow with exact local ESM-3 and local ESMFold2 Bindings plus ProteinMPNN, authoring the immutable Project Input and retaining the actual local Method evidence. |
+| Fresh local canonical 3GB1 | `.venv/bin/python -m verification.backend fresh-local-canonical-3gb1` | **Excluded: no execution**. Runs the canonical 3GB1 Workflow with exact local ESM-3 and local ESMFold2 Bindings plus ProteinMPNN, authoring the immutable Project Input and retaining the actual local Method evidence. |
 | Fresh Biohub source-bound 5G53 | `.venv/bin/python -m verification.backend fresh-5g53` | Runs the installed 5G53 Workflow with Biohub ESM-3 and ESMFold2 and retains all six paired candidates, reconstruction, both ESM-3 confidence collections with optional PAE, required ESMFold2 PAE, loop evidence, retrieval, and artifacts. |
-| Fresh local source-bound 5G53 | `.venv/bin/python -m verification.backend fresh-local-5g53` | Runs the same 5G53 scientific Workflow with local ESM-3 and local ESMFold2. It preserves the requested 20 generation steps while validating the route-aware SDK-effective sequence/reconstruction steps and 20-step counterpart structure track. |
+| Fresh local source-bound 5G53 | `.venv/bin/python -m verification.backend fresh-local-5g53` | **Excluded: no execution**. Runs the same 5G53 scientific Workflow with local ESM-3 and local ESMFold2. It preserves the requested 20 generation steps while validating the route-aware SDK-effective sequence/reconstruction steps and 20-step counterpart structure track. |
 
 The stress documents live in `tests/fixtures/workflow_stress/`. After an
 intentional scientific contract or scenario change, regenerate them with
@@ -136,7 +152,7 @@ retry layer. This is not a five-attempt rule for every tool or failure. See
 [execution requirements](execution.md) for failure handling and user-initiated
 continuation.
 
-All nineteen Acceptance Campaign tiers are zero-skip gates: a missing Provider,
+The ten in-scope Acceptance Campaign tiers are zero-skip gates: a missing Provider,
 fixture-only collection, missing Engine Invocation,
 or skipped test fails the gate. The copied acceptance harness is outside the
 checkout, and its bootstrap proves that `core`, `modules`, and
@@ -145,7 +161,7 @@ installed dependency locations to that isolated environment, but it cannot add
 the source checkout to Python's import path. The canonical Campaign owns the
 fixed tier selectors and their scientific acceptance expectations.
 
-All nineteen Acceptance Campaign tiers retain one lightweight public Evidence
+The ten in-scope Acceptance Campaign tiers retain one lightweight public Evidence
 bundle:
 
 ```text
@@ -184,7 +200,7 @@ The installed Biohub gates read the one private credential file selected by
 the required `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`. They do not download or
 require local model shards. The direct ESMC Node, the six remote ESM-3 generation
 Bindings, and remote ESMFold2 are scientifically distinct and have separate
-installed gates. Local ESMFold2 also has a real zero-skip gate; the
+installed gates. Local ESMFold2 real invocation is excluded in the current scope; the
 provider-free `local-esmfold2-v2-contract` remains a separate translation
 contract and cannot replace that invocation.
 
@@ -494,7 +510,7 @@ Keep every Provider path in one private Execution Profile outside the repository
 and `.local/verification-results/`. The profile contains paths and transport policy,
 never token contents, and is injected explicitly into each child process.
 
-Run verification on the remote verification host, reusing its existing virtual
+Run verification on the local machine, using its Python 3.12 virtual
 environment. Freeze the source before running the provider-free/backend matrix.
 After the complete matrix passes, build artifacts from that same frozen snapshot
 and run one canonical Campaign against those artifacts:
@@ -507,7 +523,7 @@ PROFILE=/absolute/private/acceptance-profile.json
 .venv/bin/python -m verification.acceptance_cli status "$CAMPAIGN"
 ```
 
-`prepare` builds one wheel and sdist. `run` executes all 19 tiers exactly once
+`prepare` builds one wheel and sdist. `run` executes all ten in-scope tiers exactly once
 in canonical order, with one blocking child at a time and no xdist. The first
 failure terminates the Campaign. There is no Qualification/Certification split,
 risk-order scheduling, retry, result promotion, or digest graph.
@@ -581,7 +597,7 @@ passing result.
 
 ### Prepare, execute, and report
 
-Run serially on the remote host from the frozen snapshot, after the applicable
+Run serially on the local machine from the frozen snapshot, after the applicable
 non-Provider matrix passes. Use the same private Execution Profile for preparation
 and the server. Replace the example paths below with this verification's absolute
 paths: a private profile outside the repository and fresh data/evidence directories

@@ -19,6 +19,7 @@ import verification.backend as verify_backend
 import verification.acceptance_cli as acceptance_campaign
 from verification.acceptance_campaign import (
     CANONICAL_ACCEPTANCE_TIERS,
+    ALL_ACCEPTANCE_TIERS,
     ExecutionProfile,
 )
 from verification.acceptance_cli import (
@@ -188,7 +189,7 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
     )
     lifecycle_requirements = {
         tier.name: tier.lifecycle_receipt_required
-        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for tier in ALL_ACCEPTANCE_TIERS
     }
     assert lifecycle_requirements["installed-proteinmpnn"] is False
     assert lifecycle_requirements["fresh-2emo"] is True
@@ -694,5 +695,23 @@ def test_provider_regressions_are_separate_from_installed_campaign() -> None:
     assert tier.pytest_arguments == (
         "tests/providers/test_proteinmpnn_chain_order_v2.py",
         "tests/providers/test_esmfold2_v2.py::test_remote_esmfold2_v2_folds_3gb1_through_exact_binding",
-        "tests/providers/test_esmfold2_v2.py::test_local_esmfold2_v2_invokes_configured_models",
     )
+
+
+@pytest.mark.parametrize("tier_name", (
+    "installed-local-esm3", "installed-local-esmfold2",
+    "installed-simplefold-folding", "installed-simplefold-confidence",
+    "fresh-1pga", "fresh-local-1pga", "fresh-local-2emo",
+    "fresh-local-canonical-3gb1", "fresh-local-5g53",
+))
+def test_excluded_heavy_model_tier_never_launches_a_child(
+    tmp_path: Path, tier_name: str,
+) -> None:
+    result = _run_verifier(
+        tier_name,
+        "tests/verification/probes/isolated_roots_probe.py",
+        env={**os.environ, "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT": str(tmp_path)},
+    )
+    assert result.returncode != 0
+    assert "excluded" in result.stdout
+    assert not list(tmp_path.rglob("pytest.xml"))

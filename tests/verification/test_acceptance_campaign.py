@@ -22,6 +22,8 @@ from verification.acceptance_campaign import (
     CAMPAIGN_SCHEMA_NAMESPACE,
     CAMPAIGN_DEFINITION_SCHEMA_NAMESPACE,
     CANONICAL_ACCEPTANCE_TIERS,
+    ALL_ACCEPTANCE_TIERS,
+    EXCLUDED_ACCEPTANCE_TIERS,
     PROFILE_SCHEMA_NAMESPACE,
     ExecutionProfile,
     TierExecutionOutcome,
@@ -117,7 +119,7 @@ def _outcome(
 
 
 def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
-    assert tuple(tier.name for tier in CANONICAL_ACCEPTANCE_TIERS) == (
+    assert tuple(tier.name for tier in ALL_ACCEPTANCE_TIERS) == (
         "installed-biohub-esmc",
         "installed-biohub-esm3",
         "installed-biohub-esmfold2",
@@ -144,11 +146,11 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
         and tier.zero_skip
         and tier.required_run_labels
         and tier.environment_configuration
-        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for tier in ALL_ACCEPTANCE_TIERS
     )
     assert {
         tier.name: tier.source_bound.input_sha256
-        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for tier in ALL_ACCEPTANCE_TIERS
         if tier.source_bound is not None
     } == {
         "fresh-1pga": (
@@ -181,7 +183,7 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
 def test_source_bound_tiers_fix_current_exact_inputs_and_workflows() -> None:
     project_root = Path(__file__).resolve().parents[2]
     catalog = build_frozen_catalog(module_registrations())
-    for tier in CANONICAL_ACCEPTANCE_TIERS:
+    for tier in ALL_ACCEPTANCE_TIERS:
         source_bound = tier.source_bound
         if source_bound is None:
             continue
@@ -418,10 +420,11 @@ def test_campaign_admits_structured_outcomes_once_in_exact_serial_order(
     assert campaign_status(root) == {
         "state": "passed",
         "passed_tiers": len(CANONICAL_ACCEPTANCE_TIERS),
-        "total_tiers": len(CANONICAL_ACCEPTANCE_TIERS),
+        "total_tiers": len(ALL_ACCEPTANCE_TIERS),
+        "excluded_tiers": dict(EXCLUDED_ACCEPTANCE_TIERS),
         "outcomes": {
-            tier.name: "passed"
-            for tier in CANONICAL_ACCEPTANCE_TIERS
+            **{tier.name: "passed" for tier in CANONICAL_ACCEPTANCE_TIERS},
+            **{name: "excluded" for name in EXCLUDED_ACCEPTANCE_TIERS},
         },
     }
 
@@ -735,3 +738,18 @@ def test_structured_outcome_rejects_noncanonical_retained_locations(
     assert json.loads((root / "campaign.json").read_text())["state"] == (
         "failed"
     )
+
+
+def test_campaign_scope_keeps_other_local_and_biohub_acceptance_required() -> None:
+    assert {tier.name for tier in CANONICAL_ACCEPTANCE_TIERS} == {
+        "installed-biohub-esmc", "installed-biohub-esm3",
+        "installed-biohub-esmfold2", "installed-mkdssp",
+        "installed-proteinmpnn", "installed-soluprot", "installed-protein-sol",
+        "fresh-2emo", "fresh-canonical-3gb1", "fresh-5g53",
+    }
+    assert set(EXCLUDED_ACCEPTANCE_TIERS) == {
+        "installed-local-esm3", "installed-local-esmfold2",
+        "installed-simplefold-folding", "installed-simplefold-confidence",
+        "fresh-1pga", "fresh-local-1pga", "fresh-local-2emo",
+        "fresh-local-canonical-3gb1", "fresh-local-5g53",
+    }
