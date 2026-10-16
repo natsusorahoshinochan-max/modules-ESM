@@ -54,7 +54,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 `ModuleUiDefinition.viewers` 接受 `ResultViewerDefinition(viewer_id, title, port_type_id, component, is_default)`。同一类型可由多个模块声明不同查看器，所有声明中恰有一个默认查看器；重复 ID、缺失 reader、缺失或重复默认值在 Catalog 构建时拒绝，不按加载顺序覆盖。查看器与节点编辑器共用 `register(host)`、React 实例、入口缓存和资源交付。查看器组件接收 `ModuleViewerProps.reading`，只决定显示，切换不会改写已发布值。
 
-Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文查看器。载体提供选择控件和原始值入口。序列与 Prompt 轨道展示也由各自模块注册；Prompt 保留残基分页、Mask 与整条轨道缺失区别、原子坐标和功能注释。载体对没有查看器的值只提供 JSON 展示，不再固定分派序列或 Prompt。候选分页与候选结构读取由 Protein I/O 的 `protein_io.candidate_page` 和 `protein_io.candidate_structure` 只读 action 提供，经通用 `results:action` 调用；原独立 collection/structure 路由已移除。action 接收发布字节、已准入参数和已发布 Candidate references，分页沿用原身份而不重算。候选关联分数、对齐、筛选和导出由模块 Run 查看器组合呈现。外部模块可通过同一声明为自定义类型提供查看器，不依赖蛋白类型。读取投影的 `kind` 由模块定义；没有专用查看器的外部值采用通用 JSON 展示，不因同名 `kind` 被当作蛋白数据。
+Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文查看器。载体提供选择控件和原始值入口。序列与 Prompt 轨道展示也由各自模块注册；Prompt 保留残基分页、Mask 与整条轨道缺失区别、原子坐标和功能注释。载体对没有查看器的值只提供 JSON 展示。候选分页与候选结构读取由 Protein I/O 的 `protein_io.candidate_page` 和 `protein_io.candidate_structure` 只读 action 提供。候选关联分数、对齐、筛选和导出由模块 Run 查看器组合呈现。外部模块可通过同一声明为自定义类型提供查看器，不依赖蛋白类型。读取投影的 `kind` 由模块定义；没有专用查看器的外部值采用通用 JSON 展示，不因同名 `kind` 被当作蛋白数据。
+
+模块通过 `result_actions` 声明 `ResultActionDefinition(action_id, inputs, parameters, apply)`。每个 `ResultActionInput(name, port_type_id, multiplicity="one", required=True)` 指定命名输入、名义类型、`one` 或 `many` 基数以及是否必需。`POST /api/v2/projects/{project_id}/runs/{run_id}/results:action` 接收 `{action_id, inputs, parameters}`；`inputs` 是输入名到发布位置数组的映射，每个位置包含 `{node_id, output_port, value_index, slot}`。`slot` 是本次操作内的稳定输入槽，可以将同一输入的多个已发布值归入同一槽。前端使用 `client.resultAction(projectId, runId, inputs, actionId, parameters)`。
+
+公共读取器检查声明、基数和实际 Port Type，并按声明准入参数；全部读取成功后才调用 `apply(inputs, parameters)`。传给模块的 `inputs[name][slot]` 是 `ResultActionValue` 元组，各值提供不可变 `body` 字节及实际发布的 `candidate_references`。模块使用所属类型的 codec 恢复值，并返回临时 JSON object；预期的不适用情况抛出 `ResultActionError`。这条接口不创建 Run、成果或项目修订。官方与外部模块使用相同声明和读取器。
+
+Protein I/O 的五个候选读取/导出 action 声明一个 `candidates` 输入；Selection 的 `selection.view` 声明一个 `candidates`、多份 `scores` 及可选 `relations`，使用与节点相同的评价匹配及计算，返回原集合的 `candidate_indices`。浏览器只维护条件草稿、搜索、分页与勾选，不执行另一套科学筛选或排序。
 
 ## 历史值采用声明
 

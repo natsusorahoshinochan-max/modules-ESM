@@ -6,13 +6,12 @@ from typing import Any, Literal, cast
 from collections.abc import Mapping
 
 from core.catalog.builtins import restore_candidate_collection_slice
-from core.catalog.result_actions import ResultActionDefinition, ResultActionError
+from core.catalog.result_actions import ResultActionDefinition, ResultActionError, ResultActionInput, ResultActionInputs
 from core.parameters.contract import admit_declarations
 
 import gemmi
 
 from datatypes.structure import ProteinStructure
-from datatypes.candidate import CandidateDataReference
 from datatypes.structure_format import read_mmcif_atoms
 
 
@@ -60,7 +59,8 @@ def convert_structure(
     return ProteinStructure(text=structure.make_mmcif_document().as_string(), format="mmcif")
 
 
-def export_published_structure(body: bytes, parameters: Mapping[str, Any], references: tuple[CandidateDataReference, ...]) -> dict[str, Any]:
+def export_published_structure(inputs: ResultActionInputs, parameters: Mapping[str, Any]) -> dict[str, Any]:
+    body = next(iter(inputs["candidates"].values()))[0].body
     index = parameters["item_index"]
     collection = restore_candidate_collection_slice(body, offset=index, limit=1)
     if index >= collection.total:
@@ -77,7 +77,7 @@ def export_published_structure(body: bytes, parameters: Mapping[str, Any], refer
 
 EXPORT_STRUCTURE_ACTION = ResultActionDefinition(
     action_id="protein_io.export_structure",
-    port_type_id="candidate.collection",
+    inputs=(ResultActionInput("candidates", "candidate.collection"),),
     parameters=admit_declarations({
         "item_index": {"parameter_scope": "scientific", "scientific_meaning": "Selected published Candidate index.", "required": True, "value_contract": {"type": "integer", "minimum": 0}},
         "format": {"parameter_scope": "scientific", "scientific_meaning": "Target structure serialization format.", "required": True, "value_contract": {"type": "string", "enum": ["pdb", "mmcif"]}},

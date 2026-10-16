@@ -15,7 +15,7 @@ node_parameters:
     parameter_scope: scientific
     scientific_meaning: Number of existing study candidates supplied.
     default: 3
-    value_contract: {type: integer, minimum: 0, maximum: 3}
+    value_contract: {type: integer, minimum: 0, maximum: 250}
   start:
     parameter_scope: scientific
     scientific_meaning: First supplied candidate position.

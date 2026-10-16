@@ -4,9 +4,8 @@ from typing import Any, cast
 
 import gemmi
 from core.catalog.builtins import restore_candidate_collection_slice
-from core.catalog.result_actions import ResultActionDefinition, ResultActionError
+from core.catalog.result_actions import ResultActionDefinition, ResultActionError, ResultActionInput, ResultActionInputs
 from core.parameters.contract import admit_declarations
-from datatypes.candidate import CandidateDataReference
 from datatypes.structure import ProteinStructure
 from datatypes.structure_format import mmcif_dictionary, read_mmcif_atoms
 
@@ -62,12 +61,13 @@ def candidate_structure(body: bytes, index: int) -> ProteinStructure:
     return cast(ProteinStructure, collection.items[0].data)
 
 
-def read_structure_components(body: bytes, parameters: Mapping[str, Any], references: tuple[CandidateDataReference, ...]) -> dict[str, Any]:
+def read_structure_components(inputs: ResultActionInputs, parameters: Mapping[str, Any]) -> dict[str, Any]:
+    body = next(iter(inputs["candidates"].values()))[0].body
     return describe_components(candidate_structure(body, parameters['item_index']))
 
 
 STRUCTURE_COMPONENTS_ACTION = ResultActionDefinition(
-    action_id='protein_io.structure_components', port_type_id='candidate.collection',
+    action_id='protein_io.structure_components', inputs=(ResultActionInput('candidates', 'candidate.collection'),),
     parameters=admit_declarations({
         'item_index': {'parameter_scope': 'scientific', 'scientific_meaning': 'Published structure Candidate index.', 'required': True, 'value_contract': {'type': 'integer', 'minimum': 0}},
     }, path='protein_io.structure_components'), apply=read_structure_components,
@@ -183,7 +183,8 @@ def select_components(source: ProteinStructure, selected: list[int]) -> ProteinS
     return ProteinStructure(text='\n'.join(output) + '\n', format='pdb')
 
 
-def export_structure_components(body: bytes, parameters: Mapping[str, Any], references: tuple[CandidateDataReference, ...]) -> dict[str, Any]:
+def export_structure_components(inputs: ResultActionInputs, parameters: Mapping[str, Any]) -> dict[str, Any]:
+    body = next(iter(inputs["candidates"].values()))[0].body
     from .structure_export import convert_structure, StructureExportError
     source = candidate_structure(body, parameters['item_index'])
     selected = list(parameters['component_indices'])
@@ -196,7 +197,7 @@ def export_structure_components(body: bytes, parameters: Mapping[str, Any], refe
 
 
 EXPORT_COMPONENTS_ACTION = ResultActionDefinition(
-    action_id='protein_io.export_structure_components', port_type_id='candidate.collection',
+    action_id='protein_io.export_structure_components', inputs=(ResultActionInput('candidates', 'candidate.collection'),),
     parameters=admit_declarations({
         'item_index': {'parameter_scope': 'scientific', 'scientific_meaning': 'Published structure Candidate index.', 'required': True, 'value_contract': {'type': 'integer', 'minimum': 0}},
         'component_indices': {'parameter_scope': 'scientific', 'scientific_meaning': 'Explicit components of this immutable Candidate to export.', 'required': True, 'value_contract': {'type': 'array', 'minItems': 1, 'uniqueItems': True, 'items': {'type': 'integer', 'minimum': 1}}},
