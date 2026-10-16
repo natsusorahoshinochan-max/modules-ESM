@@ -137,5 +137,5 @@ def _filter_candidates(
         children = tuple(resolve(child) for child in tree['children'])
         combine = all if tree['operator'] == 'and' else any
         return tuple(combine(values) for values in zip(*children, strict=True))
-    accepted = resolve(condition)
-    return replace(candidates, items=tuple(candidate for candidate, keep in zip(candidates, accepted, strict=True) if keep))
+    accepted = {reference.candidate_id: keep for reference, keep in zip(candidate_references, resolve(condition), strict=True)}
+    return replace(candidates, items=tuple(candidate for candidate in candidates if accepted[candidate.candidate_id]))
