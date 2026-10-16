@@ -92,12 +92,6 @@
 - **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../webui/src/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
 - **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
 
-### DOC-051｜多构象选择及拆分尚未提供
-
-- **要求**：单文件多个构象可以选取或分别拆成候选；一次只导入一个文件不限制构象数量。
-- **当前证据**：[结构导入声明](../modules/protein_io/definitions/structure_import.yaml)输出单候选，[导入实现](../modules/protein_io/implementation.py)第 118–131 行整文件生成一个候选，[结构处理](../modules/structure_transform/residue_axis.py)第 98–101 行拒绝多个 MODEL。
-- **状态**：按[结构输入约定](results.md#结构输入与组分)补齐选择与拆分；[结构值](../datatypes/structure.py)第 104–137 行可保留多 MODEL 原文，不能写成完全不接受此类文件。
-
 ## 范围与事实待核实
 
 ### DOC-053｜浏览器退出三项选择仍需产品裁定

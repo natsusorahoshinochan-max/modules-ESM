@@ -29,6 +29,7 @@ from .implementation import (
     SequenceImportImplementation,
     StructureExportImplementation,
     StructureImportImplementation,
+    StructureBatchImportImplementation,
 )
 from .port_types import ARTIFACT_PAYLOAD_PORT_TYPE
 from .structure_export import EXPORT_STRUCTURE_ACTION
@@ -42,6 +43,8 @@ def _build(operation: str):
             return SequenceBatchImportImplementation(context.resources)
         if operation == "import_structure":
             return StructureImportImplementation(context.resources)
+        if operation == "import_structures":
+            return StructureBatchImportImplementation(context.resources)
         if operation == "export_sequence":
             return SequenceExportImplementation(context.resources)
         return StructureExportImplementation(context.resources)
@@ -86,6 +89,7 @@ _OPERATIONS = (
     "import_sequence",
     "import_sequences",
     "import_structure",
+    "import_structures",
     "export_sequence",
     "export_structure",
 )
@@ -110,6 +114,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/sequence_import.yaml"),
         DefinitionResource("definitions/sequences_import.yaml"),
         DefinitionResource("definitions/structure_import.yaml"),
+        DefinitionResource("definitions/structures_import.yaml"),
         DefinitionResource("definitions/sequence_export.yaml"),
         DefinitionResource("definitions/structure_export.yaml"),
     ),
