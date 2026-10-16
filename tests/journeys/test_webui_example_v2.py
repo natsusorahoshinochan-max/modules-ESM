@@ -46,6 +46,8 @@ def test_startup_admits_only_the_examples_selected_scientific_definitions(
     seed = original.load_active_commit(CANONICAL_3GB1_PROJECT_ID)
     example = original.load_active_commit(WEBUI_3GB1_PROJECT_ID)
     draft = original.load_draft(WEBUI_3GB1_PROJECT_ID)
+    personal = original.copy_project(WEBUI_3GB1_PROJECT_ID, name="Current Method identity")
+    current = original.commit(personal.id, workflow=original.load_draft(personal.id).workflow)
     assert changed_method_id not in {
         definition["contract_id"] for definition in seed.scientific_definitions
     }
@@ -85,11 +87,11 @@ def test_startup_admits_only_the_examples_selected_scientific_definitions(
         if affects_example:
             with pytest.raises(WorkflowAuthoringError) as raised:
                 changed_app.state.workflow_authoring.require_verified_commit(
-                    WEBUI_3GB1_PROJECT_ID, workflow_commit_id=example.workflow_commit_id,
+                    personal.id, workflow_commit_id=current.workflow_commit_id,
                 )
             assert raised.value.code == "workflow_commit_identity_mismatch"
             assert raised.value.details == {
-                "workflow_commit_id": example.workflow_commit_id,
+                "workflow_commit_id": current.workflow_commit_id,
             }
 
     create_application(v2_environment_configuration={})
@@ -163,6 +165,9 @@ def test_webui_example_public_journey_and_prompt_contract(
         assert copied["copied_from_project_id"] == WEBUI_3GB1_PROJECT_ID
         assert copied["latest_run_id"] is None
         assert copied["reference_results_project_id"] is None
+        copied_draft_response = http.get(f"/api/v2/projects/{copied['id']}/workflow/draft")
+        assert copied_draft_response.status_code == 200
+        copied_draft = copied_draft_response.json()
 
         author_node_id = next(
             node["node_id"]
@@ -279,7 +284,7 @@ def test_webui_example_public_journey_and_prompt_contract(
             f"/api/v2/projects/{copied['id']}/workspace",
             json={
                 "workflow": workflow_with_prompt_document(
-                    {**draft["workflow"], "workflow_id": copied["id"]}, author_node_id, preview["normalized_document"],
+                    copied_draft["workflow"], author_node_id, preview["normalized_document"],
                 ),
                 "expected_draft_revision": 0,
             },
@@ -298,9 +303,9 @@ def test_webui_example_public_journey_and_prompt_contract(
             f"/api/v2/projects/{copied['id']}/workspace",
             json={
                 "workflow": workflow_with_prompt_document(
-                    {**draft["workflow"], "workflow_id": copied["id"]}, author_node_id, preview["normalized_document"],
+                    copied_draft["workflow"], author_node_id, preview["normalized_document"],
                 ),
-                "expected_draft_revision": draft["draft_revision"],
+                "expected_draft_revision": copied_draft["draft_revision"],
             },
         )
         assert apply_response.status_code == 200
@@ -310,7 +315,7 @@ def test_webui_example_public_journey_and_prompt_contract(
             apply_response.json(),
         )
         assert apply_response.json()["draft"]["draft_revision"] > (
-            draft["draft_revision"]
+            copied_draft["draft_revision"]
         )
 
         unchanged_example = http.get(
