@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from importlib.util import find_spec
@@ -16,7 +16,7 @@ from core.catalog.authoring import build_authoring_capability_projection
 from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.model import FrozenCatalog
 from core.workflow.document import WorkflowDocument
-from protein_workbench_public.module_registry import DEFAULT_MODULES, InstalledModule, installed_modules, save_installed_modules
+from protein_workbench_public.module_registry import DEFAULT_MODULES, InstalledModule, installed_modules
 from protein_workbench_public.module_management import ModuleManager
 from protein_workbench_public.http.module_routes import register_module_routes
 from core.execution.environment import admit_environment_configuration
@@ -98,8 +98,11 @@ def create_application(
         load_example_results=load_example_results,
     )
 
-    def activate(packages: tuple[InstalledModule, ...]) -> None:
-        configured = v2_environment_configuration
+    def activate(
+        packages: tuple[InstalledModule, ...], persist: Callable[[], None],
+        environment: Mapping[str, Mapping[str, Any]] | None,
+    ) -> None:
+        configured = environment if environment is not None else v2_environment_configuration
         if configured is not None:
             active_bindings = {
                 binding.binding_id for package in packages if package.enabled
@@ -111,7 +114,7 @@ def create_application(
             load_example_results=load_example_results,
         )
         try:
-            save_installed_modules(application_storage_roots().data, packages)
+            persist()
         except OSError:
             replacement.state.run_runtime.shutdown()
             raise

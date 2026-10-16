@@ -1,16 +1,20 @@
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@playwright/test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const testDataRoot = mkdtempSync(join(tmpdir(), 'protein-workbench-empty-'))
+const repository = fileURLToPath(new URL('../', import.meta.url))
+const externalWheel = execFileSync(join(repository, '.venv/bin/python'), ['-m', 'tests.fixtures.external_module', join(testDataRoot, 'distribution')], { cwd: repository, encoding: 'utf8' }).trim()
 writeFileSync(join(testDataRoot, 'modules.json'), JSON.stringify({ packages: [] }))
 
 export default defineConfig({
   tsconfig: './tsconfig.test.json',
   testDir: './tests/empty-carrier',
   globalSetup: './tests/support/journey-environment.ts',
-  metadata: { backendDataRoot: testDataRoot },
+  metadata: { backendDataRoot: testDataRoot, externalWheel },
   retries: 0,
   outputDir: 'test-results/empty-carrier',
   reporter: [['line'], ['junit', { outputFile: 'test-results/empty-carrier.xml' }]],

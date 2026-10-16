@@ -83,3 +83,24 @@ def test_external_wheel_installs_runs_and_recovers_without_source_checkout(
     with TestClient(create_application(v2_environment_configuration={})) as http:
         assert http.get("/api/v2/modules").json()["modules"][0]["enabled"] is True
         assert http.get(f"/api/v2/projects/{project_id}/workspace").json()["draft"]["workflow"]["nodes"] == workflow["nodes"]
+
+
+def test_missing_module_teaching_first_save_uses_recorded_input_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    with TestClient(create_application(v2_environment_configuration={})) as http:
+        source = "/api/v2/projects/webui-3gb1-example"
+        original = http.get(f"{source}/workspace").json()
+        inputs = http.get(f"{source}/inputs").json()["inputs"]
+        assert inputs
+        assert http.put("/api/v2/modules", json={"enabled_package_ids": []}).status_code == 200
+        copied = http.post(f"{source}:copy", json={"name": "Missing-module teaching copy",
+            "workflow": original["draft"]["workflow"], "ui_state": original["ui_state"]})
+        assert copied.status_code == 201, copied.text
+        target = f"/api/v2/projects/{copied.json()['id']}"
+        assert http.get(f"{target}/workspace").json()["draft"]["workflow"]["nodes"] == original["draft"]["workflow"]["nodes"]
+        target_inputs = http.get(f"{target}/inputs").json()["inputs"]
+        assert {(item["project_input_ref"], item["content_digest"]) for item in target_inputs} == {
+            (item["project_input_ref"], item["content_digest"]) for item in inputs}
+        assert http.get(f"{source}/workspace").json() == original
