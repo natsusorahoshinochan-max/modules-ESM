@@ -17,6 +17,7 @@ from .declarations import (
     ContractKind,
 )
 from core.catalog.result_actions import ResultActionDefinition
+from core.catalog.result_reading import ResultReaderDefinition
 from core.catalog.errors import (
     CatalogBuildError,
     UnknownPortTypeError,
@@ -157,6 +158,7 @@ class FrozenCatalog:
     availability_observed_at: datetime
     ui_extensions: tuple[ModuleUiDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
+    result_readers: tuple[ResultReaderDefinition, ...] = ()
     _by_identity: Mapping[str, PortTypeDefinition] = field(
         init=False,
         repr=False,

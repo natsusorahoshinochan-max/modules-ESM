@@ -1,11 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { PublicV2Client, type PublishedOutput, type PublishedPrompt, type PublishedResultValue, type ResultLocation, type RunProjection } from './protocol/client'
+import { useEffect, useState, type ComponentType } from 'react'
+import { PublicV2Client, type PublishedOutput, type PublishedPrompt, type PublishedResultValue, type PublishedScientificValue, type ResultLocation, type RunProjection } from './protocol/client'
 import type { PublishedResults } from './published-results'
+import { loadResultViewer, resultViewers, type ModuleUiManifest, type ModuleViewerProps, type RegisteredResultViewer } from './module-ui'
 import './published-outputs.css'
 
 const client = new PublicV2Client()
-const StructureViewer = lazy(() => import('./StructureViewer').then(module => ({ default: module.StructureViewer })))
-const readingTypes = new Set(['score.collection', 'structure_transform.candidate_resolved_residue_axis_associations', 'structure_comparison.alignment_evidence', 'protein.sequence', 'protein.structure', 'protein.prompt', 'structure_transform.resolved_residue_axis'])
 const outputKey = (output: PublishedOutput) => JSON.stringify([output.node_id, output.output_port, output.content_digest])
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : JSON.stringify(reason)
 
@@ -42,18 +41,35 @@ function PromptValue({ value }: { value: PublishedPrompt }) {
   </section>
 }
 
-function ValuePresentation({ payload }: { payload: PublishedResultValue }) {
-  if (payload.kind === 'sequence') {
+function ValuePresentation({ payload: reading, portTypeId }: { payload: PublishedResultValue; portTypeId: string }) {
+  const payload = reading as PublishedScientificValue
+  if (portTypeId === 'protein.sequence' && payload.kind === 'sequence') {
     const value = payload.value
     return <section aria-label="已发布序列"><p>{value.sequence.length} 个序列位置</p><pre className="published-sequence">{value.sequence}</pre>{value.residue_ids === null ? <p>该序列未提供残基身份列表。</p> : <RawValue value={value.residue_ids} label="查看已发布残基身份" />}</section>
   }
-  if (payload.kind === 'structure') return <section aria-label="已发布结构"><Suspense fallback={<p role="status">加载结构查看器…</p>}><StructureViewer structure={payload.value} /></Suspense><RawValue value={payload.value.text} label={`查看原始 ${payload.value.format === 'pdb' ? 'PDB' : 'mmCIF'} 文本`} /></section>
-  if (payload.kind === 'prompt') return <PromptValue value={payload.value} />
+  if (portTypeId === 'protein.prompt' && payload.kind === 'prompt') return <PromptValue value={payload.value} />
   return <RawValue value={payload.value} label="查看已发布科学事实" />
+}
+
+function ModuleViewer({ payload, viewers }: { payload: PublishedResultValue; viewers: RegisteredResultViewer[] }) {
+  const [selected, setSelected] = useState(() => viewers.find(viewer => viewer.definition.is_default)!.definition.viewer_id)
+  const [Component, setComponent] = useState<ComponentType<ModuleViewerProps>>()
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    setComponent(undefined)
+    setError('')
+    const viewer = viewers.find(item => item.definition.viewer_id === selected)!
+    void loadResultViewer(viewer).then(component => { if (active) setComponent(() => component) }, reason => { if (active) setError(errorMessage(reason)) })
+    return () => { active = false }
+  }, [selected, viewers])
+  return <><label>结果查看器<select aria-label="结果查看器" value={selected} onChange={event => setSelected(event.target.value)}>{viewers.map(viewer => <option key={viewer.definition.viewer_id} value={viewer.definition.viewer_id}>{viewer.definition.title}</option>)}</select></label>{error ? <p role="alert">{error}</p> : Component ? <Component reading={payload} /> : <p role="status">加载结果查看器…</p>}</>
 }
 
 /** Local state controls presentation; immutable reads and retirement belong to PublishedResults. */
 function LoadValue({ results, output, valueIndex }: { results: PublishedResults; output: PublishedOutput; valueIndex: number }) {
+  const [manifest, setManifest] = useState<ModuleUiManifest>()
+  const [viewers, setViewers] = useState<RegisteredResultViewer[]>([])
   const [payload, setPayload] = useState<PublishedResultValue>()
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -63,14 +79,17 @@ function LoadValue({ results, output, valueIndex }: { results: PublishedResults;
     setBusy(true)
     setError('')
     try {
-      if (readingTypes.has(output.port_type.contract_id)) {
+      const available = manifest ?? await client.moduleUi()
+      setManifest(available)
+      setViewers(resultViewers(available, output.port_type.contract_id))
+      if (available.readers.some(reader => reader.port_type_id === output.port_type.contract_id)) {
         const value = await results.value(source)
         if (value) { setPayload(value); setLoaded(true) }
       } else if (await results.rawValue(source)) setLoaded(true)
     } catch (reason) { setError(errorMessage(reason)) }
     finally { setBusy(false) }
   }
-  return <div className="published-value">{!loaded && <><p>点击后读取此值；打开输出列表不会下载值内容。</p><button disabled={busy} onClick={() => void load()}>{busy ? '加载中…' : '加载此值'}</button></>}{error && <p role="alert">{error}</p>}{loaded && <>{payload ? <ValuePresentation payload={payload} /> : <p>已加载 {output.port_type.contract_id} 的完整类型值。</p>}<PublishedRawValue results={results} source={source} /></>}</div>
+  return <div className="published-value">{!loaded && <><p>点击后读取此值；打开输出列表不会下载值内容。</p><button disabled={busy} onClick={() => void load()}>{busy ? '加载中…' : '加载此值'}</button></>}{error && <p role="alert">{error}</p>}{loaded && <>{payload ? (viewers.length ? <ModuleViewer payload={payload} viewers={viewers} /> : <ValuePresentation payload={payload} portTypeId={output.port_type.contract_id} />) : <p>已加载 {output.port_type.contract_id} 的完整类型值。</p>}<PublishedRawValue results={results} source={source} /></>}</div>
 }
 
 function OutputDetail({ results, output }: { results: PublishedResults; output: PublishedOutput }) {

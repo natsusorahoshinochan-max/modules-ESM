@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from core.catalog.result_reading import ResultReaderDefinition
+from .published_reading import read_prompt
+
 from collections.abc import Mapping
 
 from core.catalog.declarations import (
@@ -220,6 +223,9 @@ def _binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_readers=(
+        ResultReaderDefinition("protein.prompt", "prompt", read_prompt),
+    ),
     package_id="prompt_authoring",
     package_module=__package__,
     node_definitions=(

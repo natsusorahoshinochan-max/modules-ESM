@@ -1,4 +1,4 @@
-import { type PublishedStructure, type CanonicalTypedValue, type PublishedResultValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
+import { type PublishedStructure, type CanonicalTypedValue, type PublishedResultValue, type PublishedScientificValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
 import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
 import type { WorkflowCommitSnapshot } from './project-workspace'
 import { readComputationParameters } from './result-parameters'
@@ -293,7 +293,8 @@ export class PublishedResults {
     if (!['score.collection', 'structure_transform.candidate_resolved_residue_axis_associations', 'structure_comparison.alignment_evidence'].includes(type) || session.loaded.has(key)) return Promise.resolve()
     const existing = session.pending.get(key)
     if (existing) return existing
-    const task = this.readValue(session, source).then((payload) => {
+    const task = this.readValue(session, source).then((reading) => {
+      const payload = reading as PublishedScientificValue
       if (this.session !== session) return
       if (payload.kind === 'scores') {
         session.scores.set(key, payload.value.entries.map(entry => ({ ...entry, source })))

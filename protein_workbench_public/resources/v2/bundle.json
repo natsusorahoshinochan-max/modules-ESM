@@ -1759,6 +1759,22 @@
       ],
       "type": "object"
     },
+    "ModuleResultReader": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "port_type_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "port_type_id",
+        "kind"
+      ],
+      "type": "object"
+    },
     "ModuleUiAssetMetadata": {
       "additionalProperties": false,
       "properties": {
@@ -1857,6 +1873,12 @@
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "viewers": {
+                "items": {
+                  "$ref": "#/$defs/ModuleUiViewer"
+                },
+                "type": "array"
               }
             },
             "required": [
@@ -1864,15 +1886,51 @@
               "react_major",
               "entry_url",
               "style_urls",
-              "editors"
+              "editors",
+              "viewers"
             ],
             "type": "object"
+          },
+          "type": "array"
+        },
+        "readers": {
+          "items": {
+            "$ref": "#/$defs/ModuleResultReader"
           },
           "type": "array"
         }
       },
       "required": [
-        "extensions"
+        "extensions",
+        "readers"
+      ],
+      "type": "object"
+    },
+    "ModuleUiViewer": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "type": "string"
+        },
+        "is_default": {
+          "type": "boolean"
+        },
+        "port_type_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "viewer_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "viewer_id",
+        "title",
+        "port_type_id",
+        "component",
+        "is_default"
       ],
       "type": "object"
     },
@@ -5388,120 +5446,20 @@
       "type": "object"
     },
     "PublishedResultValue": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "scores"
-            },
-            "value": {
-              "$ref": "#/$defs/PublishedScores"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
         },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "candidate_sequences"
-            },
-            "value": {
-              "$ref": "#/$defs/PublishedCandidateSequences"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "alignment"
-            },
-            "value": {
-              "$ref": "#/$defs/PublishedAlignment"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "sequence"
-            },
-            "value": {
-              "$ref": "#/$defs/PublishedSequence"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "structure"
-            },
-            "value": {
-              "$ref": "#/$defs/ResultStructure"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "prompt"
-            },
-            "value": {
-              "$ref": "#/$defs/PublishedPrompt"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "const": "axis_layout"
-            },
-            "value": {
-              "$ref": "#/$defs/PublishedAxisLayout"
-            }
-          },
-          "required": [
-            "kind",
-            "value"
-          ],
-          "type": "object"
+        "value": {
+          "$ref": "#/$defs/JsonObject"
         }
-      ]
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
     },
     "PublishedScore": {
       "additionalProperties": false,

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from core.catalog.result_reading import ResultReaderDefinition
+from .published_reading import read_alignment
+
 from datatypes.observation import PairwiseContextProfile
 
 from core.catalog.observation import ObservationPortSource
@@ -223,6 +226,9 @@ def _binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_readers=(
+        ResultReaderDefinition("structure_comparison.alignment_evidence", "alignment", read_alignment),
+    ),
     package_id="structure_comparison",
     package_module=__package__,
     node_definitions=(

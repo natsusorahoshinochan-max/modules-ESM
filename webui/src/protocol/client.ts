@@ -18,7 +18,8 @@ export type PublishedObservation = { subject: CandidateReference; metric: Contra
 export type PublishedAlignment = { subject: CandidateReference; reference: CandidateReference; transform: { maps_from_role: string; maps_to_role: string; row_vector_rotation: number[][]; translation: number[] }; rmsd: number; coverage: number; method: ContractReference; [field: string]: unknown }
 export type PublishedPrompt = { residue_ids: string[]; sequence: Array<string | null>; coordinates: Array<{ atoms: Array<[string, [number, number, number]]> } | null>; secondary_structure: Array<string | null> | null; sasa: Array<number | null> | null; function_annotations: Array<{ label: string; start_residue_id: string; end_residue_id: string }> }
 export type PublishedStructure = { text: string; format: 'pdb' | 'mmcif' }
-export type PublishedResultValue =
+export type PublishedResultValue = { kind: string; value: JsonObject }
+export type PublishedScientificValue =
   | { kind: 'scores'; value: { collection_id: string; entries: PublishedObservation[] } }
   | { kind: 'candidate_sequences'; value: { entries: Array<{ subject: CandidateReference; sequence: string }> } }
   | { kind: 'alignment'; value: PublishedAlignment }
