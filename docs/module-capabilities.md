@@ -8,7 +8,7 @@
 
 | 已确认的功能职责 | 当前相关代码 | 已存在的能力及边界 |
 |---|---|---|
-| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出。支持格式转换，单文件多构象可明确选择一个或按选择顺序拆分为单构象候选；原始输入保留。 |
+| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出。支持格式转换，单文件多构象可明确选择一个或按选择顺序拆分为单构象候选；原始输入保留；候选结果支持非蛋白组分的全原子显示、明确选择及 PDB/mmCIF 导出。 |
 | 序列与设计条件编辑 | [`prompt_authoring`](../modules/prompt_authoring/definitions/)、[`residue_data`](../modules/residue_data/definitions/) | Prompt 组合、拆解与编辑，带残基身份的轨道及序列物化。随机插入和局部采用按[Prompt 编辑要求](prompt-editing.md)落实，内部位置映射由模块处理。 |
 | 序列生成与设计 | [`esm3`](../modules/esm3/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/) | ESM-3 的序列、结构轨道和配对生成；ProteinMPNN 按骨架与约束生成序列，并保留真实生成父结构和逐次调用 seed。 |
 | 结构预测 | [`folding`](../modules/folding/definitions/) | ESMFold2 本地/远程与 SimpleFold 折叠，保留对应结构与预测置信度。 |
@@ -24,9 +24,15 @@ ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embeddin
 
 设计与评价分别使用独立请求。设计保留骨架父结构、约束、完整链/片段映射、每个父结构的有效 seed 与采样顺序；评价接收一个完整序列和用户选择的一个骨架，返回 `fixed_reference` / `provider_masked_mean` 的 pairwise 标量，明确记录序列 subject 与骨架 reference。评价不要求二者存在生成父子关系。
 
-没有残基身份的独立序列按完整骨架残基轴的位置顺序对应，长度必须相同；已有显式身份时必须与所选轴一致，不猜测或静默重排。Adapter 将轴的每个共价片段映射为工具安全链名和连续编号，保留原链和残基身份对应。PDB 或 mmCIF 的来源格式不改变这一工具输入合同。
+没有残基身份的独立序列按完整骨架残基轴的位置顺序对应，长度必须相同；已有显式身份时默认必须与所选轴一致；选择另一骨架时，可通过 `sequence_correspondence` 明确将每个原序列位置对应到一个骨架残基，必须完整且一一对应，不猜测或静默重排。对应关系随本次评价 Context 保存，原 Candidate 的内容与生成来源不变。Adapter 将轴的每个共价片段映射为工具安全链名和连续编号，保留原链和残基身份对应。PDB 或 mmCIF 的来源格式不改变这一工具输入合同。
 
-设计开放 seed、数量、温度、骨架噪声及声明的设计约束；评价开放 seed 与骨架噪声。评分默认 seed 42 是本模块的明确可重复默认值，零也作为精确 seed；噪声默认 0 与固定上游一致。数量、温度、噪声不施加工具无依据的额外上限。默认模型仍为 `v_48_020`，本次不新增计算模式。源码与声明已更新。这不证明全部 Q26 参数开放或未确认的额外输出已经完成。
+设计开放 seed、数量、温度、骨架噪声、固定/可设计位置、链选择、全局和逐位置氨基酸禁止、全局/逐位置 logit 偏置、绑定残基组及成员权重、PSSM；评价开放 seed、骨架噪声和完整位置对应。约束位置使用所连骨架的残基选项，不由用户填写内部身份。
+
+PSSM 每行按 `ACDEFGHIKLMNPQRSTVWY` 顺序提供 20 个归一化概率和 20 个 log-odds。启用概率混合时，实际混合权重为 `pssm_multi × coefficient`；启用 log-odds 时按严格大于 `pssm_threshold` 的掩码处理，保留官方 `0.001` 概率项后重新归一化，因此这是软筛选。全局禁止项作用于模型 logits，逐位置禁止项在 PSSM 后应用；不将二者伪称相同顺序的操作。
+
+绑定组只生成一个共同氨基酸。固定上游将成员加权 logits 求和后除以组大小，并仅从组内最后一个成员读取位置禁止项、偏置和 PSSM。为使用户所选条件全部生效，组内所有成员的这三类设置必须相同；不一致会明确拒绝。`tied_weights` 可分别配置成员权重，未指定时为 1，不按权重和重新归一化。
+
+评分默认 seed 42 是本模块的明确可重复默认值，零也作为精确 seed；噪声默认 0 与固定上游一致。数量、温度、噪声不施加工具无依据的额外上限。默认模型仍为 `v_48_020`，本次不新增计算模式。当前真实 CPU 小规模调用覆盖逐位置禁止、PSSM 概率混合、全局偏置/绑定组、独立序列评价与另一骨架的明确对应；新公共 API 测试另覆盖不一致绑定条件拒绝及评价对应保留。未新增模型或计算模式。
 
 ### ProteinMPNN 输出范围
 
@@ -53,7 +59,7 @@ ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embeddin
 | ESM-3 实际 SDK 条件投影 | `ACDEFGHIKLMNPQRSTVWYXBZUO`，未指定位置转 `_`；当前不能表示 `J`。 | [ESM-3 Adapter](../modules/esm3/adapter.py) |
 | 现有 folding 输入 | 大写标准20种残基，且是单链。 | [折叠输入](../modules/folding/_output_construction.py) |
 | 现有 SoluProt、Protein-Sol 输入 | 大写标准20种残基，长度另按对应路线要求；不静默删除未知符号。独立 SoluProt CLI 的不同默认处理见其 README。 | [可溶性入口](../modules/solubility/implementation.py) |
-| ProteinMPNN 序列/约束 | 独立序列评分接受大写标准20种残基及官方未知符号 `X`；设计参考序列与约束仍为标准20种。完整序列按骨架顺序对应，显式身份必须一致，约束按原始残基身份寻址。 | [当前序列检查](../modules/proteinmpnn/implementation.py)、[约束](../modules/proteinmpnn/domain.py) |
+| ProteinMPNN 序列/约束 | 独立序列评分接受大写标准20种残基及官方未知符号 `X`；设计参考序列与约束仍为标准20种。完整序列默认按骨架顺序对应；显式身份不同时必须指定完整位置对应，约束按原始残基身份寻址。 | [当前序列检查](../modules/proteinmpnn/implementation.py)、[约束](../modules/proteinmpnn/domain.py) |
 
 结构预测置信度与结构内容、预测残基轴及产生它的计算保持对应。PAE 单位为 Å，pTM 为无量纲；pLDDT 原生标度由相应 Adapter 转换，不能把百分数与单位区间混用。缺失 PAE 不补零。现有均值的缺值及范围规则应按具体指标说明，不能用一个简写抹平所有操作。
 

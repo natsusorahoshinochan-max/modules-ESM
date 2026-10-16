@@ -918,11 +918,6 @@ class WorkflowAuthoringService:
                 "Seed Commit installation requires the canonical Project identity",
                 details={"requested_project_id": workflow.workflow_id},
             )
-        self._validate_draft_submission(project_id, workflow)
-        try:
-            plan = compile(self._compilation_request(project_id, workflow), self._catalog)
-        except WorkflowCompileError as error:
-            raise _commit_error(error) from error
         project = self._projects.ensure_seed_project_v2(
             input_sources=input_sources,
         )
@@ -935,27 +930,26 @@ class WorkflowAuthoringService:
                 details={"requested_project_id": project_id},
             )
         commit_revision = self._latest_record_revision(project_id, "commits")
-        if commit_revision == 0:
-            draft = cast(WorkflowDraft, self._save_workspace_content(
-                project_id, self._read_workspace_head(project_id), workflow=workflow,
-            ).draft)
-            commit = self._commit_value(
-                project_id=project_id,
-                workflow=workflow,
-                plan=plan,
-                source_draft_revision=draft.draft_revision,
-            )
-            self._publish_commit(commit, plan, 1)
-            return commit
-        persisted = self._active_commit(project_id)
-        if persisted.workflow != workflow:
-            raise WorkflowAuthoringError(
-                "workflow_commit_identity_mismatch",
-                "Seed Workflow Commit does not match the shipped Workflow",
-                details={"workflow_commit_id": persisted.workflow_commit_id},
-            )
-        self._admit_existing_commit(persisted, plan)
-        return persisted
+        if commit_revision:
+            # Installed teaching work is immutable history, not a request to run it
+            # against today's module definitions. Execution validates separately.
+            return self._active_commit(project_id)
+        self._validate_draft_submission(project_id, workflow)
+        try:
+            plan = compile(self._compilation_request(project_id, workflow), self._catalog)
+        except WorkflowCompileError as error:
+            raise _commit_error(error) from error
+        draft = cast(WorkflowDraft, self._save_workspace_content(
+            project_id, self._read_workspace_head(project_id), workflow=workflow,
+        ).draft)
+        commit = self._commit_value(
+            project_id=project_id,
+            workflow=workflow,
+            plan=plan,
+            source_draft_revision=draft.draft_revision,
+        )
+        self._publish_commit(commit, plan, 1)
+        return commit
 
     def install_webui_example_commit(
         self,
@@ -971,10 +965,6 @@ class WorkflowAuthoringService:
                 "WebUI example installation requires its fixed Project identity",
                 details={"requested_project_id": workflow.workflow_id},
             )
-        try:
-            plan = compile(self._compilation_request(project_id, workflow), self._catalog)
-        except WorkflowCompileError as error:
-            raise _commit_error(error) from error
         inputs = {}
         for reference, source in input_sources.items():
             path = Path(source)
@@ -985,27 +975,26 @@ class WorkflowAuthoringService:
         if project is None:
             return None
         commit_revision = self._latest_record_revision(project_id, "commits")
-        if commit_revision == 0:
-            draft = cast(WorkflowDraft, self._save_workspace_content(
-                project_id, self._read_workspace_head(project_id), workflow=workflow,
-            ).draft)
-            commit = self._commit_value(
-                project_id=project_id,
-                workflow=workflow,
-                plan=plan,
-                source_draft_revision=draft.draft_revision,
-            )
-            self._publish_commit(commit, plan, 1)
-            return commit
-        persisted = self._active_commit(project_id)
-        if persisted.workflow != workflow:
-            raise WorkflowAuthoringError(
-                "workflow_commit_identity_mismatch",
-                "WebUI example Commit does not match the shipped Workflow",
-                details={"workflow_commit_id": persisted.workflow_commit_id},
-            )
-        self._admit_existing_commit(persisted, plan)
-        return persisted
+        if commit_revision:
+            # Installed teaching work is immutable history, not a request to run it
+            # against today's module definitions. Execution validates separately.
+            return self._active_commit(project_id)
+        self._validate_draft_submission(project_id, workflow)
+        try:
+            plan = compile(self._compilation_request(project_id, workflow), self._catalog)
+        except WorkflowCompileError as error:
+            raise _commit_error(error) from error
+        draft = cast(WorkflowDraft, self._save_workspace_content(
+            project_id, self._read_workspace_head(project_id), workflow=workflow,
+        ).draft)
+        commit = self._commit_value(
+            project_id=project_id,
+            workflow=workflow,
+            plan=plan,
+            source_draft_revision=draft.draft_revision,
+        )
+        self._publish_commit(commit, plan, 1)
+        return commit
 
     def webui_example_records(self) -> tuple[tuple[tuple[str, str], bytes], ...]:
         """Snapshot the protected example's original authoring record bytes."""
