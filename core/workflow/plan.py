@@ -122,6 +122,7 @@ class _ExecutionPlanNodeRuntime:
 
     factory: Any = field(repr=False, compare=False)
     readiness_declaration: Any = field(repr=False, compare=False)
+    required_environment_fields: tuple[str, ...]
     effective_randomness_resolver: Any | None = field(
         repr=False,
         compare=False,

@@ -19,7 +19,7 @@
 | 安装与管理 | 用户选择插件包后安装并启用，可以禁用、卸载；官方模块默认附带并启用 | [bootstrap](../../protein_workbench_public/bootstrap.py) 显式导入模块并构造注册列表；此路径不是用户插件管理功能的完成证明 |
 | 注册模型 | 模块按统一契约接入节点、数据和专用界面；官方与外部模块同等接入 | [ModulePackageRegistration](../../core/catalog/declarations.py) 聚合节点、Method、Binding、数据类型、Metric、Utility 和编辑能力；[Builder](../../core/catalog/builder.py) 构造冻结目录 |
 | 专用界面 | React 接口；同一数据可有多个查看器并由用户切换 | [App](../../webui/src/App.tsx) 和[后端结果读取](../../protein_workbench_public/http/run_routes.py) 仍有固定分派，完整外部接入待修正 |
-| 运行配置 | 模块声明配置项，应用内提供凭据、后端模型位置及服务地址等设置 | [Environment](../../core/execution/environment.py) 按 Binding 声明接纳配置；[Provider 配置](../../protein_workbench_public/provider_environment.py) 主要从环境变量构造运行环境，不能描述为已有完整应用内设置 |
+| 运行配置 | 模块声明配置项，应用内提供凭据、后端模型位置及服务地址等设置 | [Environment](../../core/execution/environment.py) 按 Binding 声明接纳配置；[模块设置](../../protein_workbench_public/module_settings.py)按声明保存私有配置并供后续运行使用；实际 Provider 与界面覆盖仍需分别核对 |
 | 空载体 | 无科学模块时仍可创建、打开、保存项目并管理模块 | 固定生产装配不能单独证明空载体独立使用已经满足 |
 | 参数开放 | 已提供功能适用且影响结果的官方输入参数可配置 | 现有差异见[参数开放审查](../tool-parameter-exposure-audit.md)；不是新增工具模式的授权 |
 

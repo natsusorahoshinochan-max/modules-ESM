@@ -82,6 +82,7 @@ from .simplefold_contract import (
 
 _BIOHUB_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("credential_handle", "credential_handle"),
+    EnvironmentFieldDeclaration("service_url", "string", required=False),
 )
 _LOCAL_ESMFOLD2_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),

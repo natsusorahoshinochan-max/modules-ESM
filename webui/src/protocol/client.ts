@@ -122,6 +122,10 @@ export type RunEvent =
 export type RunEventEnvelope = { schema_namespace: 'protein-workbench-public/v2'; project_id: string; run_id: string; sequence: number; cursor: string; emitted_at: string; event: RunEvent }
 
 export type ProspectiveInput = { project_input_ref: string; filename: string; content_base64: string }
+export type ModuleSettingsProjection = {
+  bindings: { package_id: string; binding_id: string; fields: { name: string; value_category: 'filesystem_path' | 'credential_handle' | 'json_value' | 'string'; required: boolean }[]; values: Record<string, unknown>; configured_secrets: string[] }[]
+}
+
 export type ModuleInventory = {
   schema_namespace: 'protein-workbench-public/v2'
   modules: Array<{ package_id: string; package_module: string; enabled: boolean; origin: 'bundled' | 'external' }>
@@ -134,6 +138,8 @@ export class PublicV2Client {
     if (!response.ok) throw await response.json()
     return response.json() as Promise<T>
   }
+  moduleSettings() { return this.json<ModuleSettingsProjection>('/api/v2/module-settings') }
+  updateModuleSettings(bindingId: string, values: Record<string, unknown>) { return this.json<ModuleSettingsProjection>(`/api/v2/module-settings/${encodeURIComponent(bindingId)}`, { method: 'PATCH', body: JSON.stringify({ values }) }) }
   modules() { return this.json<ModuleInventory>('/api/v2/modules') }
   setEnabledModules(packageIds: string[]) { return this.json<ModuleInventory>('/api/v2/modules', { method: 'PUT', body: JSON.stringify({ enabled_package_ids: packageIds }) }) }
   installModule(filename: string, contentBase64: string) { return this.json<ModuleInventory>('/api/v2/modules/install', { method: 'POST', body: JSON.stringify({ filename, content_base64: contentBase64 }) }) }

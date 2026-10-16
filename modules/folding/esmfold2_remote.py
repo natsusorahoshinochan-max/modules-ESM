@@ -83,7 +83,7 @@ def build_remote_engine(environment: Mapping[str, Any]) -> Any:
 
     return esmfold2_client(
         model=REMOTE_ESMFOLD2_MODEL,
-        url="https://biohub.ai",
+        url=environment.get("service_url", "https://biohub.ai"),
         token=environment["credential_handle"],
         request_timeout=150,
     )
