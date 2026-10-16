@@ -1,4 +1,4 @@
-# 模块 React 编辑器契约
+# 模块 React 界面契约
 
 Module Package 通过 `ModulePackageRegistration.ui_extensions` 声明浏览器入口、样式和节点编辑器。声明使用 `ModuleUiDefinition` 与 `NodeEditorDefinition`：每个编辑器提供稳定 ID、标题、适用 Node Type IDs 和组件导出名。当前每个 Node Type 接纳一个默认编辑器；重复声明在 Catalog 构建时拒绝，不按加载顺序覆盖。
 
@@ -11,6 +11,14 @@ Module Package 通过 `ModulePackageRegistration.ui_extensions` 声明浏览器�
 TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收当前 `workflow`、`nodeId`、`catalog`、已发布候选集合和 `onApply(workflow)`、`onCancel()`。工作流是此次 WorkspaceEditSession 的基线。取消关闭编辑器，不发布修改；确认仅把完整提案接受到载体内存，用户仍须手动保存项目。组件不能把确认操作当成持久保存。
 
 载体拥有对话框、异步加载会话、运行锁及保存。项目切换会废弃尚未完成的编辑器打开请求；运行期间不接受新编辑。Selection 使用相同接口，其源码位于 `modules/selection/ui/`。Prompt 专用编辑器的统一接入属于后续实现，不能据 Selection 迁移声称所有专用界面均已完成。
+
+## 结果读取与查看器
+
+模块通过 `ModulePackageRegistration.result_readers` 注册 `ResultReaderDefinition(port_type_id, kind, read)`。同一 Port Type 只有一个读取投影，函数接收已发布 canonical bytes，返回模块定义的 JSON object。`results:value` 按输出的实际 Port Type 分派，返回 `{kind, value}`；载体不要求自定义类型伪装为蛋白。`GET /api/v2/module-ui` 同时公布 readers 与 UI extensions，原始类型值读取不依赖专用 reader。
+
+`ModuleUiDefinition.viewers` 接受 `ResultViewerDefinition(viewer_id, title, port_type_id, component, is_default)`。同一类型可由多个模块声明不同查看器，所有声明中恰有一个默认查看器；重复 ID、缺失 reader、缺失或重复默认值在 Catalog 构建时拒绝，不按加载顺序覆盖。查看器与节点编辑器共用 `register(host)`、React 实例、入口缓存和资源交付。查看器组件接收 `ModuleViewerProps.reading`，只决定显示，切换不会改写已发布值。
+
+Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文查看器。载体提供选择控件和原始值入口。序列、Prompt 等其他已有展示仍由当前展示组件提供，统一迁移尚未完成；候选分页及候选结构定位读取接口保持现有语义。新行为测试中的外部模块通过同一声明为独立 `reader_demo.temperature` 类型提供摄氏与华氏查看器，不依赖蛋白类型。读取投影的 `kind` 由模块定义；没有专用查看器的外部值采用通用 JSON 展示，不因同名 `kind` 被当作蛋白数据。
 
 ## 构建与分发
 

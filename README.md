@@ -30,7 +30,7 @@ files, native tools and supported device resources. Browsing bundled results
 does not require running those Providers. Sufficient memory or GPU capacity
 alone does not establish operating-system compatibility for every Provider.
 
-Existing test components and gates are retired; future tests must be written
+The previous test framework and gates are retired; future tests must be written
 from confirmed requirements and official interfaces, as specified in [AGENTS.md](AGENTS.md#测试).
 
 ## Repository layout

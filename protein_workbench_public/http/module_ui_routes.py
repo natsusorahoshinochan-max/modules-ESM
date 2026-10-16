@@ -28,9 +28,10 @@ def register_module_ui_routes(app: FastAPI, catalog: FrozenCatalog) -> None:
                 "entry_url": f"/api/v2/module-ui/{extension.extension_id}/assets/{extension.entry}",
                 "style_urls": [f"/api/v2/module-ui/{extension.extension_id}/assets/{style}" for style in extension.styles],
                 "editors": [asdict(editor) for editor in extension.editors],
+                "viewers": [asdict(viewer) for viewer in extension.viewers],
             }
             for extension in catalog.ui_extensions
-        ]})
+        ], "readers": [{"port_type_id": reader.port_type_id, "kind": reader.kind} for reader in catalog.result_readers]})
 
     @app.get("/api/v2/module-ui/{extension_id}/assets/{resource_path:path}", include_in_schema=False)
     async def asset(extension_id: str, resource_path: str, request: Request) -> Any:

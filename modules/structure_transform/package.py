@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.result_reading import ResultReaderDefinition
+from .published_reading import read_axis_layout
+from .published_reading import read_candidate_sequences
+
 from collections.abc import Callable
 
 from core.catalog.declarations import (
@@ -138,6 +142,10 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_readers=(
+        ResultReaderDefinition("structure_transform.resolved_residue_axis", "axis_layout", read_axis_layout),
+        ResultReaderDefinition("structure_transform.candidate_resolved_residue_axis_associations", "candidate_sequences", read_candidate_sequences),
+    ),
     package_id="structure_transform",
     package_module=__package__,
     node_definitions=(

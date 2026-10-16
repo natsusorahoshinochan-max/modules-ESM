@@ -243,7 +243,7 @@ function App() {
   const promptReturnFocus = useRef<HTMLElement | null>(null)
   const [inputSource, setInputSource] = useState<{ projectId: string; workflow: Workflow; session: WorkspaceEditSession; mergeTargetNodeId?: string }>()
   const mergeSourceCompletion = useRef<((snapshot: PromptSnapshot | undefined) => void) | undefined>(undefined)
-  const [moduleUi, setModuleUi] = useState<ModuleUiManifest>({ extensions: [] })
+  const [moduleUi, setModuleUi] = useState<ModuleUiManifest>({ extensions: [], readers: [] })
   const moduleOpenRevision = useRef(0)
   const [moduleEdit, setModuleEdit] = useState<{ nodeId: string; title: string; Component: React.ComponentType<ModuleEditorProps>; workflow: Workflow; session: WorkspaceEditSession }>()
   const [parameterChoices, setParameterChoices] = useState<{ workflow: Workflow; values: WorkflowParameterChoices }>()
