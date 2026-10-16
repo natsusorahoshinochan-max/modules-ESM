@@ -4,7 +4,7 @@ import test from 'node:test'
 import { build } from 'esbuild'
 import { chromium } from 'playwright'
 
-test('discarding context edits restores the displayed choice and the applied result parameters', async () => {
+test('discarding context edits restores the displayed choice and the applied result parameters', { timeout: 30_000 }, async () => {
   const browserCode = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
       import { useState } from 'react'
@@ -41,8 +41,9 @@ test('discarding context edits restores the displayed choice and the applied res
     }
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const browser = await chromium.launch()
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
   try {
+    browser = await chromium.launch()
     const page = await browser.newPage()
     await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`)
     const mode = page.getByLabel('评价上下文选择方式')
@@ -62,7 +63,7 @@ test('discarding context edits restores the displayed choice and the applied res
     await page.getByRole('button', { name: '应用', exact: true }).click()
     assert.equal(Object.hasOwn(JSON.parse((await page.getByLabel('已应用参数').textContent())!), 'exact_contexts'), false)
   } finally {
-    await browser.close()
+    await browser?.close()
     await new Promise<void>(resolve => server.close(() => resolve()))
   }
 })
