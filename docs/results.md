@@ -97,7 +97,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 `selection.weighted_rank` 的编辑配置保存在节点本地 `objectives`，每项为 `{selection, transform_id, weight}`。`selection` 使用与原值排序相同的精确评价选择；评分方式由指标模块声明。编辑器展示评分含义、适用条件和限制，按确切 Metric、Method、Context Profile 列出适用方式。选择可手动保存并重开；不要求用户配置公式或转换端点。评分声明的参数由模块提供可直接使用的默认值，新的节点配置不保存用户覆盖参数。
 
-加权执行及实际参与项的定义依赖解析由 #132 实现；当前 Binding 明确报告 `weighted_execution_pending`，新配置不进入旧的全局 Objective 算法。后续执行须使用 `admit_values(transform.parameter_contract, {})` 解析模块默认值，并冻结同一次解析所用的定义及 callable。原值操作和 Pareto 不依赖 Utility。
+加权执行使用各评分值的加权和除以权重总和，按结果降序排列，分数相同时保持输入相对顺序。权重必须有限且非负，总和须为正；同比例权重等价，大数权重按比例计算。零权重项在解析定义、评分默认值、输入槽和观察前排除，不要求该项分数或仍存在的转换。实际参与项缺分、歧义或无适用评分方式时停止。执行通过 `admit_values(transform.parameter_contract, {})` 取得模块默认值，使用本节点同次解析并冻结的定义及 callable；递归依赖、默认值、适用条件和声明的行为变化参与 Commit 与结果身份，避免错误复用缓存。原始指标和候选身份保持不变，原值操作和 Pareto 不依赖 Utility。
 
 ### 当前加权评分声明
 

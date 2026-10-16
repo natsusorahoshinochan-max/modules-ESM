@@ -18,6 +18,7 @@ from core.catalog.declarations import (
     NodeEditorDefinition,
     ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
+    ParameterDependencyDeclaration,
 )
 from datatypes.exact_reference import ExactContractReference
 from core.catalog.definition_resource import (
@@ -31,8 +32,8 @@ from core.operation import OperationContext
 
 from .implementation import SelectionImplementation
 from .operation import RawSelectionOperation
+from .weighted import WeightedSelectionOperation, weighted_dependencies
 from .result_actions import VIEW_CANDIDATES_ACTION
-from .compute import SelectionError
 
 
 OPERATIONS = (
@@ -45,7 +46,7 @@ OPERATIONS = (
     "manual",
 )
 MULTI_OBJECTIVE_OPERATIONS = frozenset(
-    {"weighted_rank", "diversity"}
+    {"diversity"}
 )
 
 
@@ -53,18 +54,10 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _weighted_configuration_only() -> AvailabilityResult:
-    return AvailabilityResult.unavailable(
-        "weighted_execution_pending",
-        "Scoring choices can be edited and saved; weighted ranking execution is pending #132.",
-        retryable=False,
-    )
-
-
 def _factory(operation: str):
     def build(context: OperationContext):
         if operation == "weighted_rank":
-            raise SelectionError("weighted_execution_pending", "Weighted ranking execution is pending #132")
+            return WeightedSelectionOperation(context.resolved_definitions)
         if operation in {"filter", "sort", "top_k", "pareto"}:
             return RawSelectionOperation(operation)
         return SelectionImplementation(
@@ -101,10 +94,13 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 {"observation": "startup"},
             ),
             prerequisites={},
-            check=_weighted_configuration_only if operation == "weighted_rank" else _available,
+            check=_available,
         ),
         deterministic=True,
-        cacheable=operation != "weighted_rank",
+        cacheable=True,
+        parameter_dependencies=(ParameterDependencyDeclaration(
+            BehaviorReference("selection.weighted_rank/parameter_dependencies", {"terms": "positive-weight"}),
+            weighted_dependencies) if operation == "weighted_rank" else None),
         selection_objective_consumption=(
             None
             if operation in {"filter", "manual", "sort", "top_k", "pareto", "weighted_rank"}

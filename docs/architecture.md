@@ -41,6 +41,8 @@ Node Definition 说明操作及跨 Binding 参数；Binding 关联 Method 和实
 
 通用操作接收已准入的值与规范参数，通过声明获得所需投影，不查询 Catalog 或导入具体 Provider。Adapter 负责官方工具参数和表示的翻译。Biohub 的响应按官方契约信任，不增加猜测、修复、替代端点或假设性坏响应检查。
 
+Binding 可通过 `ParameterDependencyDeclaration` 从规范节点与 Binding 参数声明实际依赖的契约和输入槽。载体用现有 `FrozenCatalog.resolve_contract_closure` 冻结递归定义，将其纳入 Commit 与节点结果身份，并把同次解析得到的只读定义映射传给 `OperationContext.resolved_definitions`。参数含义和活跃依赖由模块解释；载体不读取筛选规则，也不向操作提供整个 Catalog。Binding 的 factory、Adapter 与参数依赖行为声明参与结果身份；Availability、Readiness 和环境字段声明分别承担运行条件职责。
+
 ## 残基身份与轨道
 
 当前共用表示见 [residue.py](../datatypes/residue.py) 和[元素规则](../modules/residue_data/elements.py)。

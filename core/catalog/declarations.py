@@ -502,6 +502,26 @@ class ObservationSelectorConsumptionDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class ParameterDependencies:
+    """Actual definition and connected-slot dependencies selected by parameters."""
+
+    contracts: tuple[ExactContractReference, ...] = ()
+    input_slots: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "contracts", tuple(self.contracts))
+        object.__setattr__(self, "input_slots", tuple(tuple(item) for item in self.input_slots))
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterDependencyDeclaration:
+    """Module-owned interpretation of canonical Node and Binding parameters."""
+
+    behavior: BehaviorReference
+    resolve: Callable[[Mapping[str, Any], Mapping[str, Any]], ParameterDependencies] = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionBindingDefinition:
     """Executable association between one Node Type and one Method."""
 
@@ -535,6 +555,7 @@ class ExecutionBindingDefinition:
         compare=False,
     )
     environment_fields: tuple[EnvironmentFieldDeclaration, ...] = ()
+    parameter_dependencies: ParameterDependencyDeclaration | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -579,6 +600,7 @@ class ExecutionBindingDefinition:
             "method": self.method,
             "binding_parameters": self.binding_parameters,
             "execution_route": self.execution_route,
+            "factory_behavior": self.factory.behavior.descriptor(),
             "route_behavior": (
                 self.adapter_behavior.descriptor()
                 if self.adapter_behavior is not None
@@ -599,6 +621,8 @@ class ExecutionBindingDefinition:
         }
         if self.readiness is not None:
             descriptor["readiness_declaration"] = self.readiness.descriptor()
+        if self.parameter_dependencies is not None:
+            descriptor["parameter_dependencies"] = self.parameter_dependencies.behavior.descriptor()
         if self.selection_objective_consumption is not None:
             descriptor["selection_objective_consumption"] = (
                 self.selection_objective_consumption.descriptor_template()

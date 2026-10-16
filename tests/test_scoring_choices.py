@@ -18,6 +18,7 @@ from core.project.objects import ProjectObjectStore
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.bootstrap import module_registrations
 from protein_workbench_public.http.app import create_http_app
+from protein_workbench_public.protocol import validate_schema
 from tests.scoring_fixture import registration
 
 
@@ -80,13 +81,19 @@ class ScoringChoiceTests(unittest.TestCase):
         self.assertEqual(reopened.json()["draft"]["workflow"]["nodes"][0]["node_parameters"], parameters)
         self.assertEqual(reopened.json()["draft"]["workflow"]["selection_objectives"], [])
 
-    def test_scoring_configuration_does_not_advertise_an_implemented_weighted_calculation(self):
+    def test_weighted_calculation_is_available_for_module_owned_choices(self):
         response = self.client.get("/api/v2/catalog")
         self.assertEqual(response.status_code, 200, response.text)
         availability = next(item for item in response.json()["availability"]
                             if item["binding"]["contract_id"] == "selection.weighted_rank.direct")
-        self.assertFalse(availability["available"])
-        self.assertEqual(availability["reason"]["code"], "weighted_execution_pending")
+        self.assertTrue(availability["available"])
+
+    def test_binding_scientific_behaviors_are_valid_public_contract_descriptors(self):
+        response = self.client.get("/api/v2/catalog")
+        self.assertEqual(response.status_code, 200, response.text)
+        for contract in response.json()['contracts']:
+            if contract['reference']['contract_kind'] == 'binding':
+                validate_schema('#/$defs/BindingContractDescriptor', contract['descriptor'])
 
 
 if __name__ == "__main__":

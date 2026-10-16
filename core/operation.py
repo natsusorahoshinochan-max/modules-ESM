@@ -502,6 +502,7 @@ class OperationContext:
     observation_selectors: tuple[ObservationSelector, ...]
     environment: BindingEnvironment
     resources: OperationResources
+    resolved_definitions: Mapping[tuple[str, str], Any] = field(default_factory=lambda: MappingProxyType({}), repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)

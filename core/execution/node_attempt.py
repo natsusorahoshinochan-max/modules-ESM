@@ -330,6 +330,7 @@ class _NodeAttempt:
                 ),
                 environment=environment,
                 resources=resources,
+                resolved_definitions=state.node._runtime.resolved_definitions,
             )
         )
         return implementation.execute, operation_call, resources

@@ -72,7 +72,7 @@ class SelectionImplementation:
                 if item.candidate_id in selected_ids
             ])
         scores = call.inputs["scores"].value
-        if self._operation in {"weighted_rank", "diversity"}:
+        if self._operation == "diversity":
             return self._execute_multi_objective(
                 candidates=candidates,
                 score_collections=scores,
@@ -147,59 +147,56 @@ class SelectionImplementation:
             candidate_data_references=candidate_data_references,
         )
         aggregate = weighted_utility_totals(profile)
-        if self._operation == "weighted_rank":
-            selected = list(rank_candidates_by_weighted_utility(profile))
-        else:
-            k = node_parameters["k"]
-            if k > len(candidates.items):
-                raise ValueError(
-                    "diversity selection k cannot exceed Candidate input "
-                    "cardinality"
+        k = node_parameters["k"]
+        if k > len(candidates.items):
+            raise ValueError(
+                "diversity selection k cannot exceed Candidate input "
+                "cardinality"
+            )
+        candidates_by_id = {
+            candidate.candidate_id: candidate
+            for candidate in candidates.items
+        }
+        first_id = min(
+            profile.utilities,
+            key=lambda candidate_id: (
+                -aggregate[candidate_id],
+                candidate_id,
+            ),
+        )
+        selected_ids = [first_id]
+        remaining = set(profile.utilities) - {first_id}
+
+        def distance(left_id: str, right_id: str) -> float:
+            return math.sqrt(
+                math.fsum(
+                    weight * ((left - right) ** 2)
+                    for left, right, weight in zip(
+                        profile.utilities[left_id],
+                        profile.utilities[right_id],
+                        profile.effective_weights,
+                        strict=True,
+                    )
                 )
-            candidates_by_id = {
-                candidate.candidate_id: candidate
-                for candidate in candidates.items
-            }
-            first_id = min(
-                profile.utilities,
+            )
+
+        while len(selected_ids) < k:
+            next_id = min(
+                remaining,
                 key=lambda candidate_id: (
-                    -aggregate[candidate_id],
+                    -min(
+                        distance(candidate_id, selected_id)
+                        for selected_id in selected_ids
+                    ),
                     candidate_id,
                 ),
             )
-            selected_ids = [first_id]
-            remaining = set(profile.utilities) - {first_id}
-
-            def distance(left_id: str, right_id: str) -> float:
-                return math.sqrt(
-                    math.fsum(
-                        weight * ((left - right) ** 2)
-                        for left, right, weight in zip(
-                            profile.utilities[left_id],
-                            profile.utilities[right_id],
-                            profile.effective_weights,
-                            strict=True,
-                        )
-                    )
-                )
-
-            while len(selected_ids) < k:
-                next_id = min(
-                    remaining,
-                    key=lambda candidate_id: (
-                        -min(
-                            distance(candidate_id, selected_id)
-                            for selected_id in selected_ids
-                        ),
-                        candidate_id,
-                    ),
-                )
-                selected_ids.append(next_id)
-                remaining.remove(next_id)
-            selected = [
-                candidates_by_id[candidate_id]
-                for candidate_id in selected_ids
-            ]
+            selected_ids.append(next_id)
+            remaining.remove(next_id)
+        selected = [
+            candidates_by_id[candidate_id]
+            for candidate_id in selected_ids
+        ]
         return {
             "candidates": CandidateCollection(
                 collection_id=f"selection-{self._operation}",

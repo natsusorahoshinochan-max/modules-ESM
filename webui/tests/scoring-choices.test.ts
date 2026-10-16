@@ -75,6 +75,7 @@ test('an evaluation without a module scoring choice explains weighted unavailabi
   assert.match(view, /当前评价没有适用评分方式，加权不可用/)
   assert.match(view, /原值筛选、排序和 Pareto 仍可使用/)
   assert.match(view, /已保存评分方式当前不适用/)
+  assert.match(view, /<select aria-label="加权评分方式"[^>]* disabled=""/)
 })
 
 test('the editor only offers scoring modes that the module supplies ready to use', () => {
@@ -104,6 +105,9 @@ test('an inactive term does not claim that an otherwise configured weighted choi
   const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: saveSelectionDraft(workflow, 'rank', draft), nodeId: 'rank', onChange: () => {} }))
   assert.match(view, /此项权重为 0，不参与计算，无需评分方式/)
   assert.doesNotMatch(view, /当前评价没有适用评分方式，加权不可用/)
+  const inactive = view.match(/<legend>观察条件 2<\/legend>([\s\S]*?)<\/fieldset>/)![1]
+  assert.match(inactive, /不要求此项分数/)
+  assert.doesNotMatch(inactive, /请选择评价来源|请重新选择观察|每个候选必须匹配/)
 })
 
 test('switching to weighted choices replaces the previous operation score dependencies', () => {
@@ -131,4 +135,36 @@ test('each weighted evaluation can retain and display its actual reference and r
   assert.match(view, /aria-label="评价上下文选择方式"/)
   assert.match(view, /候选区域 A:2、A:5/)
   assert.match(view, /参考区域 B:8、B:11/)
+})
+
+test('the weighted editor keeps effective proportions when finite relative weights exceed the numeric sum range', () => {
+  const draft = createSelectionDraft('weighted_rank')
+  draft.observations = [1e308, 1e308, 0].map((weight) => ({ ...newObservation(), metricId: 'success_fraction', methodId: 'trials', partition: 'measured', transformId: 'success.native', weight }))
+  const saved = saveSelectionDraft(workflow, 'rank', draft)
+  const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: JSON.parse(JSON.stringify(saved)), nodeId: 'rank', onChange: () => {} }))
+  assert.match(view, /aria-label="观察条件 1 的有效权重">有效权重：50%/)
+  assert.match(view, /aria-label="观察条件 2 的有效权重">有效权重：50%/)
+  assert.match(view, /aria-label="观察条件 3 的有效权重">有效权重：0%/)
+})
+
+test('the weighted editor explains that incomplete, negative and all-zero weights cannot form effective proportions', () => {
+  for (const weights of [[undefined, 2], [-1, 2], [0, 0]]) {
+    const draft = createSelectionDraft('weighted_rank')
+    draft.observations = weights.map((weight) => ({ ...newObservation(), metricId: 'success_fraction', methodId: 'trials', partition: 'measured', transformId: 'success.native', weight }))
+    const saved = saveSelectionDraft(workflow, 'rank', draft)
+    const reopened = JSON.parse(JSON.stringify(saved))
+    const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: reopened, nodeId: 'rank', onChange: () => {} }))
+    assert.match(view, /有效权重：待完整填写；权重须为有限非负数且总和须大于 0/)
+    assert.doesNotMatch(view, /有效权重：[\d.]+%/)
+  }
+})
+
+test('a saved scoring choice remains visibly unavailable when another applicable mode is offered', () => {
+  const draft = createSelectionDraft('weighted_rank')
+  draft.observations = [{ ...newObservation(), metricId: 'success_fraction', methodId: 'trials', partition: 'measured', transformId: 'removed.choice', weight: 1 }]
+  const saved = saveSelectionDraft(workflow, 'rank', draft)
+  const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: JSON.parse(JSON.stringify(saved)), nodeId: 'rank', onChange: () => {} }))
+  assert.match(view, /<option value="removed.choice" disabled="" selected="">已保存评分方式当前不适用/)
+  assert.match(view, /<option value="success.native">/)
+  assert.doesNotMatch(view, /<select aria-label="加权评分方式"[^>]* disabled=""/)
 })
