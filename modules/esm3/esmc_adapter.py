@@ -38,13 +38,13 @@ def provider_sequence(sequence: ProteinSequence) -> Any:
     return ESMProtein(sequence=sequence.sequence)
 
 
-def logits_config() -> Any:
+def logits_config(*, embedding: bool, logits: bool) -> Any:
     """Request the minimal scientific ESMC representation and real logits."""
     from esm.sdk.api import LogitsConfig
 
     return LogitsConfig(
-        sequence=True,
-        return_mean_embedding=True,
+        sequence=logits,
+        return_mean_embedding=embedding,
     )
 
 
@@ -62,20 +62,16 @@ def normalize_representation(
     result: Any,
 ) -> ESMCSequenceRepresentation:
     """Translate Provider tensors into the canonical value once."""
-    logits_shape = tuple(result.logits.sequence.shape)
-    mean_embedding = tuple(
-        0.0 if float(value) == 0.0 else float(value)
-        for value in result.mean_embedding[0, 0].detach().cpu().tolist()
-    )
     return ESMCSequenceRepresentation(
         sequence=sequence.sequence,
-        residue_ids=(
-            None
-            if sequence.residue_ids is None
-            else tuple(sequence.residue_ids)
-        ),
-        mean_embedding=mean_embedding,
-        sequence_logits_shape=logits_shape,
+        residue_ids=sequence.residue_ids,
+        mean_embedding=(None if result.mean_embedding is None else tuple(
+            float(value) for value in result.mean_embedding[0, 0].detach().cpu().tolist()
+        )),
+        sequence_logits=(None if result.logits.sequence is None else tuple(
+            tuple(float(value) for value in row)
+            for row in result.logits.sequence[1:-1].detach().cpu().tolist()
+        )),
     )
 
 
@@ -103,6 +99,7 @@ class BiohubESMCAdapter:
     def represent(
         self,
         sequence: ProteinSequence,
+        *, outputs: str,
     ) -> ESMCSequenceRepresentation:
         """Return only the admitted provider-independent representation."""
         client = self._client()
@@ -115,7 +112,7 @@ class BiohubESMCAdapter:
                     client.encode(provider_protein),
                     "encode",
                 )
-            config = logits_config()
+            config = logits_config(embedding=outputs in {"embedding", "both"}, logits=outputs in {"logits", "both"})
             with self._resources.engine_invocation(
                 engine_role="sequence_logits",
                 parent_invocation_id=encode_invocation_id,
