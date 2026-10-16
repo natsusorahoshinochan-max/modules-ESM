@@ -11,7 +11,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 const source: ResultLocation = { node_id: 'batch', output_port: 'candidates', value_index: 0 }
-const output: PublishedOutput = { ...source, port_type: { contract_kind: 'port_type', contract_id: 'candidate.collection' }, content_digest: `sha256:${'a'.repeat(64)}`, result_identity: 'batch-result', value_count: 1, producer_provenance: {} }
+const output: PublishedOutput = { ...source, port_type: { contract_kind: 'port_type', contract_id: 'candidate.collection' }, content_digest: `sha256:${'a'.repeat(64)}`, result_identity: 'batch-result', value_count: 1, materialization: { run_id: 'A', resolution: 'executed' }, value_manifest_reference: `sha256:${'c'.repeat(64)}`, producer_provenance: {} }
 const axisOutput: PublishedOutput = { ...output, node_id: 'axis', output_port: 'associations', port_type: { contract_kind: 'port_type', contract_id: 'structure_transform.candidate_resolved_residue_axis_associations' }, result_identity: 'axis-result' }
 function projection(runId = 'A', outputs = [output]): RunProjection {
   return { project_id: 'project', run_id: runId, workflow_commit_id: 'commit', status: 'succeeded', ledger_cursor: '1', scope: { mode: 'full', selected_node_ids: [], execution_node_ids: ['batch'], forced_node_ids: [], reused_node_ids: [], out_of_scope_node_ids: [], out_of_scope_selection_ids: [] }, node_dispositions: [], outputs, artifact_index: [] }

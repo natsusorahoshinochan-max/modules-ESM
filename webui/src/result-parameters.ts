@@ -14,7 +14,7 @@ export type ComputationParameters = {
   outputs: Array<{
     source: ResultLocation
     producer_run_id: string | null
-    status: 'recorded' | 'unavailable'
+    status: 'recorded' | 'ambiguous' | 'unavailable'
     parameter_record_ids: string[]
   }>
   workflows: Array<{ project_id: string; run_id: string; workflow_commit_id: string; workflow: Workflow }>
@@ -48,7 +48,15 @@ export async function readComputationParameters(client: PublicV2Client, run: Run
   const outputs: ComputationParameters['outputs'] = run.outputs.flatMap(output => {
     const producerId = output.producer_provenance.producer_run_id as string | undefined
     const producer = producerId === undefined ? undefined : producers.get(producerId)
-    const matches = producer?.run.outputs.filter(original => original.result_identity === output.result_identity && original.output_port === output.output_port && original.producer_provenance.producer_run_id === producerId) ?? []
+    const matches = producer?.run.outputs.filter(original =>
+      original.materialization.resolution === 'executed'
+      && original.result_identity === output.result_identity
+      && original.output_port === output.output_port
+      && original.content_digest === output.content_digest
+      && original.value_manifest_reference === output.value_manifest_reference
+      && original.producer_provenance.producer_run_id === producerId
+      && (output.materialization.resolution !== 'executed' || original.node_id === output.node_id),
+    ) ?? []
     const ids = [...new Set(matches.flatMap(original => {
       const node = producer!.commit.workflow.nodes.find(item => item.node_id === original.node_id)
       if (!node) return []
@@ -64,7 +72,7 @@ export async function readComputationParameters(client: PublicV2Client, run: Run
     }))]
     return Array.from({ length: output.value_count }, (_, value_index) => ({
       source: { node_id: output.node_id, output_port: output.output_port, value_index },
-      producer_run_id: producerId ?? null, status: ids.length ? 'recorded' as const : 'unavailable' as const, parameter_record_ids: ids,
+      producer_run_id: producerId ?? null, status: ids.length === 1 ? 'recorded' as const : ids.length > 1 ? 'ambiguous' as const : 'unavailable' as const, parameter_record_ids: ids,
     }))
   })
   return { records: [...records.values()], outputs, workflows }

@@ -27,7 +27,7 @@ export type PublishedResultValue =
   | { kind: 'prompt'; value: PublishedPrompt }
   | { kind: 'axis_layout'; value: { residue_ids: string[]; chain_ids: string[] } }
 export type CanonicalTypedValue = { port_type_id: string; value: unknown }
-export type PublishedOutput = { node_id: string; output_port: string; port_type: ContractReference; content_digest: string; result_identity: string; value_count: number; producer_provenance: JsonObject }
+export type PublishedOutput = { node_id: string; output_port: string; port_type: ContractReference; content_digest: string; result_identity: string; value_count: number; producer_provenance: JsonObject; materialization: { run_id: string; resolution: 'executed' | 'cache_replayed' }; value_manifest_reference: string }
 export type PublishedArtifact = { artifact_reference: string; artifact_kind: string; node_id: string; output_port: string; media_type: string; filename: string; size: number; content_digest: string; candidate_id?: string }
 
 export type PromptAuthoringNodeTypeId = 'prompt_authoring.author' | 'prompt_authoring.decompose' | 'prompt_authoring.assemble'

@@ -4,7 +4,7 @@ import type { PublishedOutput, RunProjection } from '../../src/protocol/client'
 const digest = `sha256:${'a'.repeat(64)}`
 const artifactReference = `sha256:${'b'.repeat(64)}`
 function output(nodeId: string, outputPort: string, typeId: string, count = 1): PublishedOutput {
-  return { node_id: nodeId, output_port: outputPort, port_type: { contract_kind: 'port_type', contract_id: typeId }, content_digest: digest, result_identity: digest, value_count: count, producer_provenance: { producer_run_id: 'run-1', producer_result_identity: digest, output_port: outputPort } }
+  return { node_id: nodeId, output_port: outputPort, port_type: { contract_kind: 'port_type', contract_id: typeId }, content_digest: digest, result_identity: digest, value_count: count, materialization: { run_id: 'run-1', resolution: 'executed' }, value_manifest_reference: digest, producer_provenance: { producer_run_id: 'run-1', producer_result_identity: digest, output_port: outputPort } }
 }
 function run(outputs: PublishedOutput[]): RunProjection {
   return { project_id: 'project-1', run_id: 'run-1', workflow_commit_id: 'commit-1', status: 'succeeded', scope: { mode: 'full', selected_node_ids: [], execution_node_ids: outputs.map((entry) => entry.node_id), forced_node_ids: [], reused_node_ids: [], out_of_scope_node_ids: [], out_of_scope_selection_ids: [] }, ledger_cursor: 'cursor-1', node_dispositions: [], outputs, artifact_index: [] }
