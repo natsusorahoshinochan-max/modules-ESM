@@ -189,10 +189,17 @@ def _mmcif_backbone(axis: ResolvedStructureResidueAxis) -> ProteinStructure:
         )
     }
     names = dict(zip(axis.layout.residue_ids, axis.residue_names, strict=True))
+    included_components = {
+        (item.observed_residue_id, item.component_id, item.record_type)
+        for item in axis.component_dispositions
+        if item.disposition in {"included", "normalized"}
+    }
     source_records = {
         record.public_residue_id: record
         for record in _single_model_records(axis.structure)
         if record is not None
+        and (record.public_residue_id, record.residue_name.upper(), record.record.strip())
+        in included_components
     }
     for segment in axis.segments:
         for position, residue_id in enumerate(segment.residue_ids, 1):
