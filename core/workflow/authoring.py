@@ -113,6 +113,18 @@ class WorkflowCommit:
 
 
 @dataclass(frozen=True, slots=True)
+class RecordedWorkflowCommit:
+    """Original interpretation data, independent of today's executable schema."""
+
+    project_id: str
+    workflow_commit_id: str
+    source_draft_revision: int
+    workflow: Mapping[str, Any]
+    scientific_definitions: tuple[Mapping[str, Any], ...]
+    scientific_identity: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedWorkflowCommit:
     """One Commit paired with its current executable plan."""
 
@@ -744,12 +756,34 @@ class WorkflowAuthoringService:
     def load_commit(
         self, project_id: str, *, workflow_commit_id: str,
     ) -> WorkflowCommit:
-        """Read immutable evidence snapshots without recompiling their science."""
+        """Hydrate a saved Workflow in today's executable document model."""
         self._require_project(project_id)
         for revision in range(self._latest_record_revision(project_id, "commits"), 0, -1):
             commit = self._load_commit_revision_record(project_id, revision)
             if commit.workflow_commit_id == workflow_commit_id:
                 return commit
+        raise WorkflowAuthoringError(
+            "workflow_commit_not_found", "Workflow Commit was not found",
+            details={"resource_kind": "workflow_commit", "resource_id": workflow_commit_id},
+        )
+
+    def recorded_commit(
+        self, project_id: str, *, workflow_commit_id: str,
+    ) -> RecordedWorkflowCommit:
+        """Read saved settings without parsing or approving them for execution."""
+        self._require_project(project_id)
+        for revision in range(self._latest_record_revision(project_id, "commits"), 0, -1):
+            payload = self._read_record(project_id, "commits", revision)
+            commit = payload["commit"]
+            if commit["workflow_commit_id"] == workflow_commit_id:
+                return RecordedWorkflowCommit(
+                    project_id=project_id,
+                    workflow_commit_id=workflow_commit_id,
+                    source_draft_revision=commit["source_draft_revision"],
+                    workflow=freeze_i_json(payload["workflow"]),
+                    scientific_definitions=tuple(freeze_i_json(item) for item in commit["scientific_definitions"]),
+                    scientific_identity=freeze_i_json(commit["scientific_identity"]),
+                )
         raise WorkflowAuthoringError(
             "workflow_commit_not_found", "Workflow Commit was not found",
             details={"resource_kind": "workflow_commit", "resource_id": workflow_commit_id},

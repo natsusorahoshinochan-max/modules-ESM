@@ -55,7 +55,7 @@ def register_adoption_routes(
                     observations = source.observations(canonical)
                     required_definitions = {reference.key for observation in observations for reference in (observation.metric, observation.method)}
                     source_run = runtime.projection(value['source_project_id'], value['source_run_id'])
-                    source_commit = authoring.load_commit(value['source_project_id'], workflow_commit_id=source_run.workflow_commit_id)
+                    source_commit = authoring.recorded_commit(value['source_project_id'], workflow_commit_id=source_run.workflow_commit_id)
                     snapshot['definitions'] = [thaw_i_json(definition) for definition in source_commit.scientific_definitions
                         if (definition['contract_kind'], definition['contract_id']) in required_definitions]
                     if len(snapshot['definitions']) != len(required_definitions):
