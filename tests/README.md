@@ -167,3 +167,7 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```
 
 不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。
+
+## 可组合 Top-k 范围
+
+`.venv/bin/python -m pytest tests/test_topk_scopes.py -q` 通过公共 API 执行整批及按骨架范围的 Top-k。独立导入序列与结构，使用普通关系操作表达评价对象；显式外部测试模块提供四个已知评分，不调用 Provider。覆盖完整 Candidate 和骨架关联保持、同一评分源复用，以及缺少本范围必需评分时对应筛选失败、已评分分支仍成功。
