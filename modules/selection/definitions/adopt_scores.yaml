@@ -1,0 +1,21 @@
+node_type_id: selection.adopt_scores
+title: Adopted scores
+summary: Restores explicitly adopted observations with their original subjects, methods and values.
+category: selection
+inputs: []
+outputs:
+  - name: value
+    port_type_id: score.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Existing observations; adoption does not calculate or reinterpret scores.
+parameter_groups: []
+node_parameters:
+  project_input_ref:
+    parameter_scope: scientific
+    resource_kind: project_input
+    scientific_meaning: Independent immutable snapshot of adopted observations and their interpretation.
+    value_contract:
+      type: string
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    required: true

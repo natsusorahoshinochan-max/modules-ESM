@@ -1,0 +1,18 @@
+node_type_id: adoption_demo.observe
+title: Observe
+summary: Publish a declared example observation.
+category: examples
+inputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Subjects of the observation.
+outputs:
+  - name: scores
+    port_type_id: score.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: One intrinsic observation per input subject.
+parameter_groups: []
+node_parameters: {}

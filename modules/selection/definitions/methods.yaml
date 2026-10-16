@@ -100,3 +100,8 @@
     kind: identity
   scale_contract:
     kind: exact-candidate-data-reference
+- method_id: selection.adopt_scores.method
+  algorithm_identity: {name: restore-published-observations}
+  model_identity: {kind: none}
+  featurization_identity: {kind: unchanged}
+  scale_contract: {kind: identity}

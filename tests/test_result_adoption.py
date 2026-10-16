@@ -94,3 +94,39 @@ class ResultAdoption(unittest.TestCase):
                 record = provenance['parameters']['records'][0]
                 self.assertEqual(record['node_type_id'], 'protein_io.import_sequences')
                 self.assertEqual(record['node_parameters'], {'project_input_ref': uploaded['project_input_ref']})
+
+    def test_scores_keep_subject_method_and_values_after_source_deletion(self):
+        import json
+        from pathlib import Path
+        with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            Path(root, 'modules.json').write_text(json.dumps({'packages': [
+                {'package_id': name, 'package_module': 'modules.' + name + '.package', 'enabled': True, 'source_root': None}
+                for name in ('protein_io', 'selection')
+            ] + [{'package_id': 'adoption_demo', 'package_module': 'adoption_module', 'enabled': True,
+                  'source_root': str(Path(__file__).parent.resolve())}]}))
+            with TestClient(create_application(load_example_results=False)) as client:
+                source = client.post('/api/v2/projects', json={'name': 'Source'}).json()['id']
+                target = client.post('/api/v2/projects', json={'name': 'Target'}).json()['id']
+                uploaded = client.post(f'/api/v2/projects/{source}/inputs', json={
+                    'filename': 'sequence.fasta', 'content_base64': base64.b64encode(b'>original\nACDE\n').decode()}).json()
+                source_run = self.run_workflow(client, source, [
+                    {'node_id': 'import', 'node_type_id': 'protein_io.import_sequences',
+                     'binding_id': 'protein_io.import_sequences.direct', 'binding_parameters': {},
+                     'node_parameters': {'project_input_ref': uploaded['project_input_ref']}},
+                    {'node_id': 'observe', 'node_type_id': 'adoption_demo.observe',
+                     'binding_id': 'adoption_demo.observe.direct', 'binding_parameters': {}, 'node_parameters': {}}],
+                    [{'source_node_id': 'import', 'source_port': 'sequence_candidates',
+                      'target_node_id': 'observe', 'target_port': 'candidates'}])
+                original = client.get(source_run + '/outputs/observe/scores/values/0').content
+                adopted = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
+                    'source_project_id': source, 'source_run_id': source_run.rsplit('/', 1)[1],
+                    'node_id': 'observe', 'output_port': 'scores', 'value_index': 0})
+                self.assertEqual(adopted.status_code, 201, adopted.text)
+                node = adopted.json()['source_node'] | {'node_id': 'adopted'}
+                client.post(f'/api/v2/projects/{source}:trash')
+                client.delete(f'/api/v2/projects/{source}')
+            with TestClient(create_application(load_example_results=False)) as client:
+                target_run = self.run_workflow(client, target, [node])
+                restored = client.get(target_run + '/outputs/adopted/value/values/0')
+                self.assertEqual(restored.status_code, 200, restored.text)
+                self.assertEqual(restored.content, original)
