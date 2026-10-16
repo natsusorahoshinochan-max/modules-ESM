@@ -23,7 +23,7 @@
 
 ### 当前输入检查接口
 
-`POST /api/v2/projects/{project_id}/authoring-actions/protein_io.inspect_input` 的 `parameters` 接受 `project_input_ref` 和 `format: "fasta" | "pdb" | "mmcif" | "structure"`；请求可带 `prospective_inputs` 读取未保存的输入。选择 `structure` 时，由模块依据首个非空、非注释记录是否以 `data_` 开头区分 mmCIF 与 PDB；选择明确的 `pdb` 或 `mmcif` 时要求与识别格式一致，不按扩展名或 MIME 选择解析器。它读取已上传的不可变输入，返回项目、输入引用、摘要及所选格式，不创建 Draft、Run、Candidate 或 Cache。
+`POST /api/v2/projects/{project_id}/authoring-actions/protein_io.inspect_input` 的 `parameters` 接受 `project_input_ref` 和 `format: "fasta" | "pdb" | "mmcif" | "structure"`；请求可带 `prospective_inputs` 读取未保存的输入。选择 `structure` 时，由模块依据首个非空、非注释记录是否以 `data_` 开头区分 mmCIF 与 PDB；选择明确的 `pdb` 或 `mmcif` 时要求与识别格式一致，不按扩展名或 MIME 选择解析器。它读取已保存或本次请求暂存的输入，返回项目、输入引用、摘要及所选格式，不创建 Draft、Run、Candidate 或 Cache。
 
 FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显示名、起始行号、长度和总长度；非法记录使检查整体失败。结构检查支持 PDB/mmCIF，返回每个构象的源顺序 `model_index`（从 1 开始）、文件内 `model_id` 和各自的链身份，同时保留全文件链列表。链按坐标记录首次出现顺序列出；检查不推断序列、残基对应，也不提前执行蛋白残基轴准入。尚未选择的非蛋白链不应因此阻止蛋白链选择。
 
