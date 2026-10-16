@@ -1,6 +1,6 @@
 node_type_id: protein_io.import_structure
 title: Import protein structure
-summary: Parses one trusted Project-scoped PDB or mmCIF input.
+summary: Selects one model from a trusted Project-scoped PDB or mmCIF input.
 category: protein_io
 inputs: []
 outputs:
@@ -8,7 +8,7 @@ outputs:
     port_type_id: protein.structure
     required: true
     multiplicity: one
-    scientific_meaning: Canonically validated imported PDB structure.
+    scientific_meaning: One selected source model in its original PDB or mmCIF format.
   - name: structure_candidates
     port_type_id: candidate.collection
     required: true
@@ -19,6 +19,7 @@ parameter_groups:
     title: Project input
     parameters:
       - project_input_ref
+      - model_index
 node_parameters:
   project_input_ref:
     parameter_scope: scientific
@@ -28,3 +29,10 @@ node_parameters:
       type: string
       pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
     required: true
+  model_index:
+    parameter_scope: scientific
+    scientific_meaning: One-based source model position; required for files with multiple models. Null accepts only a single-model file.
+    value_contract:
+      type: [integer, 'null']
+      minimum: 1
+    default: null

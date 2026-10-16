@@ -17,7 +17,7 @@ export type FastaInputInspection = InputInspectionIdentity & {
   records: Array<{ record_index: number; header: string; display_name: string; line_number: number; length: number }>
   total_length: number
 }
-export type StructureInputInspection = InputInspectionIdentity & { format: 'pdb' | 'mmcif'; chain_ids: string[] }
+export type StructureInputInspection = InputInspectionIdentity & { format: 'pdb' | 'mmcif'; chain_ids: string[]; models: Array<{ model_index: number; model_id: string; chain_ids: string[] }> }
 export type ProjectInputInspection = FastaInputInspection | StructureInputInspection
 export type InputSourceClient = {
   listProjectInputs: (projectId: string) => Promise<{ project_id: string; inputs: ProjectInputPublication[] }>
@@ -28,7 +28,7 @@ export type InputSourceClient = {
 export type PromptSourceChoice =
   | { kind: 'blank'; chains: PromptChainDeclaration[] }
   | { kind: 'fasta'; projectInputRef: string; chains: PromptChainDeclaration[] }
-  | { kind: 'structure'; projectInputRef: string; chainIds: string[] }
+  | { kind: 'structure'; projectInputRef: string; modelIndex: number; chainIds: string[] }
   | { kind: 'prompt'; nodeId: string; outputPort: string }
 
 export type PromptSourcePlan = { workflow: Workflow; nodeId: string; document: PromptAuthoringDocument; addedNodeIds: string[] }
@@ -56,7 +56,7 @@ export function preparePromptSource(workflow: Workflow, catalog: CatalogSnapshot
     const nodeId = add('protein_io.import_sequence', 'source-fasta', { project_input_ref: source.projectInputRef })
     upstream = { nodeId, outputPort: 'sequence', targetPort: 'sequence_source' }
   } else if (source.kind === 'structure') {
-    const imported = add('protein_io.import_structure', 'source-structure', { project_input_ref: source.projectInputRef })
+    const imported = add('protein_io.import_structure', 'source-structure', { project_input_ref: source.projectInputRef, model_index: source.modelIndex })
     const selected = add('structure_transform.select_chains', 'source-chains', { chain_ids: [...source.chainIds] })
     const resolved = add('structure_transform.resolve_residue_axis', 'source-axis', {})
     connect(imported, 'structure', selected, 'structure')
@@ -85,6 +85,15 @@ export function prepareCandidateInput(workflow: Workflow, catalog: CatalogSnapsh
     workflow: { ...staged, nodes: staged.nodes.map(node => node.node_id === nodeId ? { ...node, node_parameters: { project_input_ref: projectInputRef } } : node) },
     nodeId,
     addedNodeIds: [nodeId],
+  }
+}
+
+export function prepareStructureCandidates(workflow: Workflow, catalog: CatalogSnapshot, projectInputRef: string, modelIndices: number[]): CandidateInputPlan {
+  const nodeId = nextNodeId(workflow, 'source-conformers')
+  const staged = insertOrdinaryNode(workflow, nodeId, 'protein_io.import_structures', 'protein_io.import_structures.direct', catalog)
+  return {
+    workflow: { ...staged, nodes: staged.nodes.map(node => node.node_id === nodeId ? { ...node, node_parameters: { project_input_ref: projectInputRef, model_indices: [...modelIndices] } } : node) },
+    nodeId, addedNodeIds: [nodeId],
   }
 }
 

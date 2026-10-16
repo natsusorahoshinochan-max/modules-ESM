@@ -122,3 +122,5 @@ identities, select a complete `sequence_correspondence` from original sequence
 positions to backbone residues. This evaluation relationship does not change the
 sequence's actual parents. Tied members must share position omissions, biases and
 PSSM rows; their individual logit weights may differ.
+
+结构导入示例使用单构象输入时可省略 `model_index`。更换为多构象文件时，先在“添加来源”检查构象列表，再为 `protein_io.import_structure` 设置从 1 开始的 `model_index`；需要多个候选时使用 `protein_io.import_structures` 和明确的 `model_indices`（例如 `[1, 2]`），将 `structure_candidates` 接至候选处理节点。一个输入引用始终指向一份未改写的原文件。

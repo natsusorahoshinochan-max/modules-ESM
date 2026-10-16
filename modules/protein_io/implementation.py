@@ -19,6 +19,7 @@ from datatypes.structure import ProteinStructure
 
 from .fasta import admit_fasta_record, parse_fasta_entries, parse_fasta_sequence
 from .inspection import read_structure_input
+from .conformers import select_model
 from .structure_export import convert_structure
 
 
@@ -116,7 +117,7 @@ class StructureImportImplementation:
                 project_input_filename=descriptor.filename
             )
         ):
-            structure = read_structure_input(payload)
+            structure, model = select_model(read_structure_input(payload), node_parameters["model_index"])
         return {
             "structure": structure,
             "structure_candidates": CandidateCollection(
@@ -127,11 +128,42 @@ class StructureImportImplementation:
                         candidate_id="imported-structure",
                         data=structure,
                         parent_ids=[],
-                        metadata={"input_role": "reference"},
+                        metadata={
+                            "input_role": "reference",
+                            "source_filename": descriptor.filename,
+                            "source_model_index": model["model_index"],
+                            "source_model_id": model["model_id"],
+                        },
                     )
                 ],
             ),
         }
+
+
+class StructureBatchImportImplementation:
+    """Publish explicitly selected source models as separate Candidates."""
+
+    def __init__(self, run_resources: OperationResources) -> None:
+        self._run_resources = run_resources
+
+    def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
+        descriptor, payload = self._run_resources.read_project_input(call.node_parameters["project_input_ref"])
+        with self._run_resources.engine_invocation(
+            invocation_provenance=EngineInvocationProvenance(project_input_filename=descriptor.filename)
+        ):
+            source = read_structure_input(payload)
+            candidates = []
+            for index in call.node_parameters["model_indices"]:
+                structure, model = select_model(source, index)
+                candidates.append(Candidate(
+                    candidate_id=f"imported-model-{index}", data=structure, parent_ids=[],
+                    metadata={"source_filename": descriptor.filename,
+                              "source_model_index": model["model_index"],
+                              "source_model_id": model["model_id"]},
+                ))
+        return {"structure_candidates": CandidateCollection(
+            collection_id="imported-structure-models", item_type="protein.structure", items=candidates,
+        )}
 
 
 class SequenceExportImplementation:
