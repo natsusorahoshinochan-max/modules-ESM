@@ -19,9 +19,9 @@ function actualContextLabel(context: JsonObject, residueAxis: unknown): string {
 }
 
 /** Select actual existing facts, or a relation that will arrive through an ordinary input. */
-export function ObservationContextEditor({ value, workflow, catalog, nodeId, observations, candidates, onChange }: {
+export function ObservationContextEditor({ value, workflow, catalog, nodeId, observations, candidates, onChange, allowRelations = true }: {
   value: ObservationDraft; workflow: Workflow; catalog: CatalogSnapshot; nodeId: string
-  observations: ScoreObservationReading[]; candidates: CandidateReference[]; onChange: (value: ObservationDraft) => void
+  observations: ScoreObservationReading[]; candidates: CandidateReference[]; allowRelations?: boolean; onChange: (value: ObservationDraft) => void
 }) {
   const savedMode = value.exactContexts !== undefined ? 'exact' : value.relationInput ? 'relation' : value.reference ? 'reference' : 'unique'
   const [mode, setMode] = useState(savedMode)
@@ -40,7 +40,7 @@ export function ObservationContextEditor({ value, workflow, catalog, nodeId, obs
   return <fieldset className="selection-context"><legend>评价对象与区域</legend>
     <label>评价上下文选择方式<select aria-label="评价上下文选择方式" value={mode} onChange={(event) => changeMode(event.target.value)}>
       <option value="unique">每个候选在所选来源中唯一的评价</option>
-      {value.context.kind === 'pairwise' && <option value="relation">使用明确的候选关系输入</option>}
+      {allowRelations && value.context.kind === 'pairwise' && <option value="relation">使用明确的候选关系输入</option>}
       {value.reference && <option value="reference">已保存的共同参考对象</option>}
       <option value="exact">逐候选选择已有结果的确切上下文</option>
     </select></label>

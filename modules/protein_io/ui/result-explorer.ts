@@ -64,10 +64,6 @@ export function scalarObservationChoices(index: ResultIndex) {
   })
 }
 
-export function uniqueScalarObservation(scores: readonly ScoreView[] | undefined): number | undefined {
-  return scores?.length === 1 && typeof scores[0].value === 'number' ? scores[0].value : undefined
-}
-
 export function resolveParentReferences(candidate: CandidateView, index: ResultIndex) {
   return candidate.parent_ids.map(candidate_id => {
     const parents = index.parentCandidates.get(candidate_id) ?? []
