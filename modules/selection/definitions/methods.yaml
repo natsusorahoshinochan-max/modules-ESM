@@ -71,20 +71,6 @@
     kind: identity
   scale_contract:
     kind: raw-measurement-vector
-- method_id: selection.diversity.method
-  algorithm_identity:
-    name: weighted-max-min-euclidean-utility-diversity
-    candidate_score_join: exact-candidate-data-reference
-    seed: maximum-normalized-weighted-utility
-    distance: sqrt-sum-effective-weight-times-squared-delta
-    iteration: maximum-minimum-distance
-    tie_policy: candidate_id_ascending
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: identity
-  scale_contract:
-    kind: dimensionless-utility-vector
 - method_id: selection.manual.method
   algorithm_identity:
     name: exact-current-input-candidate-selection

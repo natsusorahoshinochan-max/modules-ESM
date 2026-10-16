@@ -6,18 +6,17 @@ from core.catalog.result_adoption import ResultSourceDefinition
 
 from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_scores
+from .authoring_actions import AUTHORING_ACTIONS
 from .adopted_scores import AdoptedScoreOperation, adopted_observations, adopted_dependencies
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    CandidateSelectionConsumptionDefinition,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ModuleUiDefinition,
     NodeEditorDefinition,
     ScientificOperationFactory,
-    SelectionObjectiveConsumptionDefinition,
     ParameterDependencyDeclaration,
 )
 from datatypes.exact_reference import ExactContractReference
@@ -30,8 +29,7 @@ from core.catalog.port_contract import (
 )
 from core.operation import OperationContext
 
-from .implementation import SelectionImplementation
-from .operation import RawSelectionOperation
+from .operation import ManualSelectionOperation, RawSelectionOperation
 from .weighted import WeightedSelectionOperation, weighted_dependencies
 from .result_actions import VIEW_CANDIDATES_ACTION
 
@@ -42,11 +40,7 @@ OPERATIONS = (
     "top_k",
     "weighted_rank",
     "pareto",
-    "diversity",
     "manual",
-)
-MULTI_OBJECTIVE_OPERATIONS = frozenset(
-    {"diversity"}
 )
 
 
@@ -60,10 +54,7 @@ def _factory(operation: str):
             return WeightedSelectionOperation(context.resolved_definitions)
         if operation in {"filter", "sort", "top_k", "pareto"}:
             return RawSelectionOperation(operation)
-        return SelectionImplementation(
-            operation=operation,
-            objectives=context.selection_objectives,
-        )
+        return ManualSelectionOperation()
 
     return build
 
@@ -101,28 +92,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         parameter_dependencies=(ParameterDependencyDeclaration(
             BehaviorReference("selection.weighted_rank/parameter_dependencies", {"terms": "positive-weight"}),
             weighted_dependencies) if operation == "weighted_rank" else None),
-        selection_objective_consumption=(
-            None
-            if operation in {"filter", "manual", "sort", "top_k", "pareto", "weighted_rank"}
-            else SelectionObjectiveConsumptionDefinition(
-                candidate_input_port="candidates",
-                score_collection_input_port="scores",
-                candidate_output_port="candidates",
-                **(
-                    {"objective_ids_parameter": "objective_ids"}
-                    if operation in MULTI_OBJECTIVE_OPERATIONS
-                    else {"objective_id_parameter": "objective_id"}
-                ),
-            )
-        ),
-        candidate_selection_consumption=(
-            CandidateSelectionConsumptionDefinition(
-                candidate_input_port="candidates",
-                candidate_output_port="candidates",
-            )
-            if operation == "manual"
-            else None
-        ),
     )
 
 
@@ -139,6 +108,7 @@ _ADOPT_BINDING = ExecutionBindingDefinition(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    authoring_actions=AUTHORING_ACTIONS,
     result_actions=(VIEW_CANDIDATES_ACTION,),
     result_sources=(ResultSourceDefinition("score.collection", "selection.adopt_scores", "selection.adopt_scores.direct", observations=adopted_observations, dependencies=adopted_dependencies),),
     result_readers=(
