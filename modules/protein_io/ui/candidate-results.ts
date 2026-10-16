@@ -121,6 +121,27 @@ export class CandidateResults {
     }
   }
 
+  /** Apply Selection's read-only view to a complete, immutable collection. */
+  async temporaryView(source: ResultLocation, parameters: JsonObject): Promise<number[] | undefined> {
+    const session = this.session
+    if (!session) return undefined
+    // This explicit operation also retries a previously failed initial read.
+    await this.refresh()
+    if (this.session !== session) return undefined
+    const snapshot = await this.ensureCandidates({ source, count: 'all' })
+    if (!snapshot?.run || this.session !== session) return undefined
+    const scores = snapshot.run.outputs.filter(output => output.port_type.contract_id === 'score.collection').flatMap(output =>
+      Array.from({ length: output.value_count }, (_, value_index) => {
+        const location = { node_id: output.node_id, output_port: output.output_port, value_index }
+        return { ...location, slot: locationKey(location) }
+      }))
+    try {
+      const value = await this.client.resultAction<{ candidate_indices: number[] }>(session.reference.project_id, session.reference.run_id,
+        { candidates: [{ ...source, slot: 'collection' }], scores }, 'selection.view', parameters)
+      return this.session === session ? value.candidate_indices : undefined
+    } catch (error) { if (this.session === session) throw error }
+  }
+
   async structure(key: string, exportFormat?: PublishedStructure['format']): Promise<PublishedStructure | null | undefined> {
     const session = this.session
     if (!session) return undefined
@@ -130,8 +151,8 @@ export class CandidateResults {
     let pending = session.structures.get(contentKey)
     if (!pending) {
       pending = (exportFormat
-        ? this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.export_structure', { item_index: candidate.item_index, format: exportFormat })
-        : this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.candidate_structure', { item_index: candidate.item_index }))
+        ? this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, { candidates: [{ ...candidate.source, slot: 'collection' }] }, 'protein_io.export_structure', { item_index: candidate.item_index, format: exportFormat })
+        : this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, { candidates: [{ ...candidate.source, slot: 'collection' }] }, 'protein_io.candidate_structure', { item_index: candidate.item_index }))
         .catch(error => { session.structures.delete(contentKey); throw error })
       session.structures.set(contentKey, pending)
     }
@@ -149,7 +170,7 @@ export class CandidateResults {
     const session = this.session
     if (!session) return undefined
     const candidate = this.snapshot.index.candidates.get(key)!
-    const reading = await this.client.resultAction<ComponentReading>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.structure_components', { item_index: candidate.item_index })
+    const reading = await this.client.resultAction<ComponentReading>(session.reference.project_id, session.reference.run_id, { candidates: [{ ...candidate.source, slot: 'collection' }] }, 'protein_io.structure_components', { item_index: candidate.item_index })
     return this.session === session ? reading : undefined
   }
 
@@ -158,7 +179,7 @@ export class CandidateResults {
     if (!session) return undefined
     const candidate = this.snapshot.index.candidates.get(key)!
     const indices = components.map(component => component.component_index)
-    const value = await this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.export_structure_components', { item_index: candidate.item_index, component_indices: indices, format })
+    const value = await this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, { candidates: [{ ...candidate.source, slot: 'collection' }] }, 'protein_io.export_structure_components', { item_index: candidate.item_index, component_indices: indices, format })
     if (this.session !== session) return undefined
     const bundle = await this.published.exportBundle({ [`components.${format === 'pdb' ? 'pdb' : 'cif'}`]: strToU8(value.text) }, { source: candidate.source, candidate: candidate.reference, component_indices: indices, components, format, operation: 'protein_io.export_structure_components' })
     return this.session === session ? bundle : undefined
@@ -263,7 +284,7 @@ export class CandidateResults {
   private readPage(session: Session, collection: Collection): Promise<void> {
     if (collection.pending) return collection.pending
     const { project_id, run_id } = session.reference
-    const task = this.client.resultAction<ResultCollectionPage>(project_id, run_id, collection.source, 'protein_io.candidate_page', { offset: collection.items.length, limit: 100 }).then((page) => {
+    const task = this.client.resultAction<ResultCollectionPage>(project_id, run_id, { candidates: [{ ...collection.source, slot: 'collection' }] }, 'protein_io.candidate_page', { offset: collection.items.length, limit: 100 }).then((page) => {
       if (this.session !== session) return
       collection.items.push(...page.items)
       collection.total = page.total

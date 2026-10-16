@@ -954,8 +954,14 @@ def build_frozen_catalog(
         _require_identifier(action.action_id, "result action_id")
         if action.action_id in action_ids:
             raise CatalogBuildError(f"duplicate result action {action.action_id}")
-        if action.port_type_id not in port_ids:
-            raise CatalogBuildError(f"unknown result action Port Type {action.port_type_id}")
+        input_names: set[str] = set()
+        for input in action.inputs:
+            _require_identifier(input.name, 'result action input name')
+            if input.name in input_names or input.port_type_id not in port_ids:
+                raise CatalogBuildError(f"unknown or duplicate result action input {input.name}")
+            if input.multiplicity not in {'one', 'many'}:
+                raise CatalogBuildError(f"unknown result action input multiplicity {input.multiplicity}")
+            input_names.add(input.name)
         action_ids.add(action.action_id)
     result_readers = tuple(reader for package in registration_tuple for reader in package.result_readers)
     reader_types: set[str] = set()

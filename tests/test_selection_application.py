@@ -49,9 +49,11 @@ class StudyData:
             structure = ProteinStructure('ATOM      1  CA  ALA A   1       1.000   2.000   3.000  1.00 50.00           C  \nEND\n')
             return {'candidates': CandidateCollection('backbone', 'protein.structure', (Candidate(f'backbone-{index}', structure),))}
         if self.operation == 'candidates':
+            population = [('zeta', 'AA'), ('alpha', 'AC'), ('last', 'AD')]
+            population.extend((f'candidate-{index:03d}', 'A' * (index + 1)) for index in range(3, 250))
             return {'candidates': CandidateCollection('study', 'protein.sequence', tuple(
                 Candidate(name, ProteinSequence(sequence), metadata={'display_name': name})
-                for name, sequence in [('zeta', 'AA'), ('alpha', 'AC'), ('last', 'AD')]
+                for name, sequence in population
             [call.node_parameters['start']:call.node_parameters['start'] + call.node_parameters['count']]))}
         return {'scores': ScoreCollection('measurements', tuple(ScoreObservation(
             subject=reference, metric=Ref('metric', 'selection_fixture.raw'),
@@ -83,7 +85,7 @@ class SelectionApplicationTests(unittest.TestCase):
     def setUp(self):
         self.directory = TemporaryDirectory()
         root = Path(self.directory.name)
-        registrations = (MODULE_PACKAGE, COLLECTIONS, study_registration())
+        registrations = (MODULE_PACKAGE, COLLECTIONS, study_registration()) + getattr(self, 'extra_registrations', ())
         catalog = build_frozen_catalog(registrations)
         projects = ProjectManager(root/'projects', cache_root=root/'cache', output_root=root/'outputs', run_root=root/'runs')
         authoring = WorkflowAuthoringService(projects, catalog)

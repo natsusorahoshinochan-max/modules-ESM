@@ -2,20 +2,19 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { StructureComponents } from './StructureComponents'
 import { StructureViewer } from '../../../webui/src/StructureViewer'
 import { AlignmentComparison } from './AlignmentComparison'
-import { ResultFilter } from './ResultFilter'
-import { resultFilterOutcome } from './result-filter'
+import { ResultFilter, ResultObservationEditor } from './ResultFilter'
+import { filterComplete, resultCondition, resultObservation, resultSelection, type Predicate } from './result-filter'
 import { type PublishedStructure, type CatalogSnapshot, type ResultLocation, type RunProjection } from '../../../webui/src/protocol/client'
-import { candidateViewKey, exportCandidates, locationKey, observationKey, referenceKey, scalarObservationChoices, uniqueScalarObservation, type CandidateView, type ResultIndex, type ScoreView } from './result-explorer'
+import { candidateViewKey, exportCandidates, locationKey, observationKey, referenceKey, scalarObservationChoices, type CandidateView, type ResultIndex, type ScoreView } from './result-explorer'
 import type { CandidateResults } from './candidate-results'
-import { type Predicate } from '../../selection/ui/selection-authoring'
+import type { ObservationDraft } from '../../selection/ui/selection-authoring'
 import '../../../webui/src/results.css'
 
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : JSON.stringify(reason)
 const emptyFilter = (): Predicate => ({ kind: 'group', operator: 'and', children: [] })
-const filterComplete = (filter: Predicate): boolean => filter.kind === 'group' ? filter.children.every(filterComplete) : filter.selectorId !== '' && filter.threshold !== undefined
 type ResultsViewState = {
   stageKey: string; focusedKey?: string; checked: string[]; search: string; sort: string; descending: boolean
-  predicate: Predicate; filterDraft: Predicate; page: number; compare: boolean; comparisonKeys: string[]; basketOpen: boolean
+  predicate: Predicate; filterDraft: Predicate; sortSelection?: ObservationDraft; sortDraft: string; sortDescendingDraft: boolean; sortSelectionDraft?: ObservationDraft; candidateIndices?: number[]; page: number; compare: boolean; comparisonKeys: string[]; basketOpen: boolean
   mainScroll: number; listScroll: number; detailScroll: number
   loadedCollections: { source: ResultLocation; count: number }[]
 }
@@ -57,6 +56,11 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
   const [search, setSearch] = useState(restored?.search ?? '')
   const [sort, setSort] = useState(restored?.sort ?? '')
   const [descending, setDescending] = useState(restored?.descending ?? true)
+  const [sortSelection, setSortSelection] = useState<ObservationDraft | undefined>(restored?.sortSelection)
+  const [sortDraft, setSortDraft] = useState(restored?.sortDraft ?? restored?.sort ?? '')
+  const [sortDescendingDraft, setSortDescendingDraft] = useState(restored?.sortDescendingDraft ?? restored?.descending ?? true)
+  const [sortSelectionDraft, setSortSelectionDraft] = useState<ObservationDraft | undefined>(restored?.sortSelectionDraft ?? restored?.sortSelection)
+  const [candidateIndices, setCandidateIndices] = useState<number[] | undefined>(restored?.candidateIndices)
   const [predicate, setPredicate] = useState<Predicate>(restored?.predicate ?? emptyFilter())
   const [filterDraft, setFilterDraft] = useState<Predicate>(restored?.filterDraft ?? emptyFilter())
   const [page, setPage] = useState(restored?.page ?? 0)
@@ -76,23 +80,12 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
   const byKey = index.candidates
   const selected = useMemo(() => checked.flatMap((key) => byKey.has(key) ? [byKey.get(key)!] : []), [byKey, checked])
   const compared = useMemo(() => comparisonKeys.flatMap((key) => byKey.has(key) ? [byKey.get(key)!] : []), [byKey, comparisonKeys])
-  const scoreLookup = index.observations
-  const scoreChoices = useMemo(() => scalarObservationChoices(index).map((choice) => ({ ...choice, label: `${choice.score.metric.contract_id} · ${choice.score.method.contract_id} · ${choice.score.source.node_id}/${choice.score.source.output_port} · ${choice.score.source_partition} · ${JSON.stringify(choice.score.context_profile)}${choice.ambiguous ? '（每个候选存在多项观察）' : ''}` })), [index])
-  const filteredOutcomes = useMemo(() => new Map((collection?.items ?? []).map((candidate) => [candidateViewKey(candidate), resultFilterOutcome(predicate, candidate.reference, scoreLookup)])), [collection, predicate, scoreLookup])
-  const missingObservations = [...filteredOutcomes.values()].filter((value) => value === null).length
+  const scoreChoices = useMemo(() => scalarObservationChoices(index).map((choice) => ({ ...choice, label: `${choice.score.metric.contract_id} · ${choice.score.method.contract_id} · ${choice.score.source.node_id}/${choice.score.source.output_port} [${choice.score.source.value_index + 1}] · ${choice.score.source_partition} · ${JSON.stringify(choice.score.context_profile)}${choice.ambiguous ? '（请选择确切上下文，或由服务明确检查歧义）' : ''}` })), [index])
   const candidates = useMemo(() => {
-    const filtered = (collection?.items ?? []).filter((candidate) => filteredOutcomes.get(candidateViewKey(candidate)) === true && `${candidate.reference.candidate_id} ${candidate.sequence ?? ''} ${JSON.stringify(candidate.metadata)}`.toLowerCase().includes(search.toLowerCase()))
-    if (!sort) return filtered
-    const values = scoreLookup.get(sort)?.subjects
-    return filtered.sort((left, right) => {
-      const leftScores = values?.get(referenceKey(left.reference)); const rightScores = values?.get(referenceKey(right.reference))
-      const a = uniqueScalarObservation(leftScores)
-      const b = uniqueScalarObservation(rightScores)
-      if (a === undefined) return b === undefined ? 0 : 1
-      if (b === undefined) return -1
-      return (descending ? b - a : a - b) || left.reference.candidate_id.localeCompare(right.reference.candidate_id)
-    })
-  }, [collection, descending, filteredOutcomes, scoreLookup, search, sort])
+    const items = collection?.items ?? []
+    const chosen = candidateIndices === undefined ? items : candidateIndices.flatMap(index => items[index] ? [items[index]] : [])
+    return chosen.filter(candidate => `${candidate.reference.candidate_id} ${candidate.sequence ?? ''} ${JSON.stringify(candidate.metadata)}`.toLowerCase().includes(search.toLowerCase()))
+  }, [collection, candidateIndices, search])
   const visible = new Set(candidates.map(candidateViewKey))
   const hidden = selected.filter((candidate) => !visible.has(candidateViewKey(candidate))).length
   const focusedCandidate = sourceTarget && !collection ? undefined : (focusedKey ? byKey.get(focusedKey) : undefined) ?? candidates[0]
@@ -103,8 +96,30 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
   const action = async (work: () => Promise<void>) => { setBusy(true); setError(''); try { await work() } catch (reason) { setError(errorMessage(reason)) } finally { setBusy(false) } }
 
   const complete = collection !== undefined && collection.items.length === collection.total
-  const filterPending = JSON.stringify(filterDraft) !== JSON.stringify(predicate)
-  function clearFilter() { const empty = emptyFilter(); setPredicate(empty); setFilterDraft(empty); setPage(0) }
+  const filterPending = JSON.stringify([filterDraft, sortDraft, sortDescendingDraft, sortSelectionDraft]) !== JSON.stringify([predicate, sort, descending, sortSelection])
+  function clearFilter() {
+    const empty = emptyFilter()
+    setPredicate(empty); setFilterDraft(empty); setSort(''); setSortDraft(''); setSortSelection(undefined); setSortSelectionDraft(undefined)
+    setDescending(true); setSortDescendingDraft(true); setCandidateIndices(undefined); setPage(0)
+  }
+  async function applyTemporaryView() {
+    if (!collection) return
+    const revision = stageRevision.current
+    try {
+      const condition = resultCondition(filterDraft, scoreChoices)
+      const choice = scoreChoices.find(choice => choice.key === sortDraft)
+      if (sortDraft && !choice) throw new Error('所选排序评价来源当前不可用。')
+      const selection = sortDraft ? sortSelectionDraft ?? resultObservation(choice!) : undefined
+      const indices = await results.temporaryView(collection.source, {
+        ...(condition ? { condition } : {}),
+        ...(selection ? { sort: { selection: resultSelection(selection), direction: sortDescendingDraft ? 'descending' : 'ascending' } } : {}),
+      })
+      if (!indices || revision !== stageRevision.current) return
+      setCandidateIndices(indices); setPredicate(filterDraft); setSort(sortDraft); setDescending(sortDescendingDraft); setSortSelection(selection); setSortSelectionDraft(selection); setPage(0)
+    } catch (reason) {
+      if (revision === stageRevision.current) throw new Error(`本次临时筛选和排序未应用。列表保留此前的查看结果。${errorMessage(reason)}`)
+    }
+  }
   function selectStage(source: ResultLocation) {
     stageRevision.current += 1
     if (requestedSource) handledSourceRequest.current = requestedSource.requestId
@@ -121,7 +136,7 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
     handledSourceRequest.current = requestedSource.requestId
     stageRevision.current += 1
     setExactSource(source); setStageKey(locationKey(source)); setFocusedKey(undefined)
-    setPage(0); setSearch(''); setSort(''); setPredicate(emptyFilter()); setFilterDraft(emptyFilter())
+    setPage(0); setSearch(''); clearFilter()
     if (listRef.current) listRef.current.scrollTop = 0
   }, [requestedSource, collections])
   function rememberView() {
@@ -129,7 +144,7 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
     const recordScroll = active && scrollRestored.current
     const loadedCollections = new Map(previous?.loadedCollections.map(request => [locationKey(request.source), request]) ?? [])
     for (const entry of collections) loadedCollections.set(locationKey(entry.source), { source: entry.source, count: Math.max(entry.items.length, loadedCollections.get(locationKey(entry.source))?.count ?? 0) })
-    viewStateStore?.set(viewKey, { stageKey: stageKey || (collection ? locationKey(collection.source) : ''), focusedKey, checked, search, sort, descending, predicate, filterDraft, page, compare, comparisonKeys, basketOpen, mainScroll: recordScroll ? mainRef.current?.scrollTop ?? 0 : previous?.mainScroll ?? 0, listScroll: recordScroll ? listRef.current?.scrollTop ?? 0 : previous?.listScroll ?? 0, detailScroll: recordScroll ? detailRef.current?.scrollTop ?? 0 : previous?.detailScroll ?? 0, loadedCollections: [...loadedCollections.values()] })
+    viewStateStore?.set(viewKey, { stageKey: stageKey || (collection ? locationKey(collection.source) : ''), focusedKey, checked, search, sort, descending, sortSelection, sortDraft, sortDescendingDraft, sortSelectionDraft, candidateIndices, predicate, filterDraft, page, compare, comparisonKeys, basketOpen, mainScroll: recordScroll ? mainRef.current?.scrollTop ?? 0 : previous?.mainScroll ?? 0, listScroll: recordScroll ? listRef.current?.scrollTop ?? 0 : previous?.listScroll ?? 0, detailScroll: recordScroll ? detailRef.current?.scrollTop ?? 0 : previous?.detailScroll ?? 0, loadedCollections: [...loadedCollections.values()] })
   }
   useEffect(rememberView)
   const scrollRestored = useRef(false)
@@ -190,7 +205,7 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
       {sourceTarget && !collection && <p role="status" className="result-unpublished">{loading ? '正在读取此节点输出…' : loadError ? '此节点输出读取失败，请查看下方错误。' : '此 Run 尚未发布这个节点输出的候选集合。可以从左侧选择其他已发布输出。'}</p>}
       {<p className="result-selection-summary" aria-label="结果交互状态">焦点：{focusedCandidate?.reference.candidate_id ?? '无'}（查看详情） · 比较：{comparisonKeys.filter(Boolean).length} 项（并排查看） · 勾选：{checked.length} 项（导出）。三者独立，切换输出保留比较和勾选。</p>}
       {error && <p role="alert">{error}</p>}
-      {loadError && <p role="alert">{loadError}</p>}
+      {loadError && <p role="alert">{loadError}<button disabled={busy} onClick={() => void action(async () => { await results.refresh(); await results.ensureCandidates(collection ? { source: collection.source, count: 'all' } : { all: true }) })}>重新读取结果</button></p>}
       {loading && !collection && !loadError && <p role="status">正在加载已发布结果…</p>}
       {busy && <p role="status">正在读取或准备所选操作…</p>}
       {basketOpen && <section className="result-basket" aria-label="已选候选清单"><header><h2>已选候选 · {checked.length}</h2><button disabled={!checked.length || busy} onClick={() => setChecked([])}>清空全部勾选</button></header><p>勾选用于导出；比较位置单独管理。{offPageChecked} 项不在当前页。</p>{checked.length === 0 ? <p>尚未勾选候选。</p> : <ul>{checked.map(key => {
@@ -198,8 +213,12 @@ export function CandidateWorkbench({ results, run, index, loading = false, loadE
         return <li key={key}>{candidate ? <><button onClick={() => revealCandidate(candidate)}>{candidate.reference.candidate_id}</button><small>{candidate.source.node_id} / {candidate.source.output_port} · 第 {candidate.item_index + 1} 项</small></> : <span>正在恢复已选候选…</span>}<button aria-label={`移除勾选 ${candidate?.reference.candidate_id ?? key}`} disabled={busy} onClick={() => setChecked(current => current.filter(item => item !== key))}>移除</button></li>
       })}</ul>}</section>}
       {collection && !complete && <p>已加载 {collection.items.length} / {collection.total} 个候选。<button disabled={busy} onClick={() => void action(async () => { await results.ensureCandidates({ source: collection.source, count: 'all' }) })}>加载全部候选以搜索、筛选和排序</button></p>}
-      <fieldset disabled={!complete || busy}><div className="result-controls"><label>搜索候选或序列<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0) }} /></label><label>临时排序<select value={sort} onChange={(event) => { setSort(event.target.value); setPage(0) }}><option value="">原始顺序</option>{scoreChoices.map(({ key, label, ambiguous }) => <option key={key} value={key} disabled={ambiguous}>{label}</option>)}</select></label><button onClick={() => setDescending(!descending)}>{descending ? '降序' : '升序'}</button><span>{selected.length} 已勾选 · {hidden} 项不在当前视图 · {offPageChecked} 项不在当前页</span></div>
-      <details><summary>临时条件筛选 · 支持 AND/OR 分组</summary><ResultFilter value={filterDraft} choices={scoreChoices} onChange={setFilterDraft} /><button disabled={!filterComplete(filterDraft) || !filterPending} onClick={() => { setPredicate(filterDraft); setPage(0) }}>应用筛选</button><button disabled={!filterPending} onClick={() => setFilterDraft(predicate)}>放弃条件修改</button><button onClick={clearFilter}>清除条件</button><p>{filterPending && (filterComplete(filterDraft) ? '条件已修改，点击“应用筛选”更新列表。' : '条件尚未填写完整；列表继续显示已应用的条件。')}搜索文字仅改变显示；空组不产生条件。{missingObservations > 0 && `${missingObservations} 个候选缺少唯一匹配观察值或条件未填写，当前未显示。`}</p></details>
+      <fieldset disabled={!complete || busy}><div className="result-controls"><label>搜索候选或序列<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0) }} /></label><label>临时排序<select aria-label="临时排序" value={sortDraft} onChange={(event) => { const choice = scoreChoices.find(choice => choice.key === event.target.value); setSortDraft(event.target.value); setSortSelectionDraft(choice ? resultObservation(choice) : undefined) }}><option value="">原始顺序</option>{scoreChoices.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select></label><button onClick={() => setSortDescendingDraft(!sortDescendingDraft)}>{sortDescendingDraft ? '降序' : '升序'}</button><span>{selected.length} 已勾选 · {hidden} 项不在当前视图 · {offPageChecked} 项不在当前页</span></div>
+      {sortDraft && sortSelectionDraft && <ResultObservationEditor value={sortSelectionDraft} observations={index.scores} candidates={collection?.items.map(candidate => candidate.reference) ?? []} catalog={catalog} onChange={setSortSelectionDraft} />}
+      <details><summary>临时条件筛选 · 支持 AND/OR 分组</summary><ResultFilter value={filterDraft} choices={scoreChoices} observations={index.scores} candidates={collection?.items.map(candidate => candidate.reference) ?? []} catalog={catalog} onChange={setFilterDraft} /></details>
+      <button disabled={!filterComplete(filterDraft) || !filterPending} onClick={() => void action(applyTemporaryView)}>应用临时筛选和排序</button><button disabled={!filterPending} onClick={() => { setFilterDraft(predicate); setSortDraft(sort); setSortDescendingDraft(descending); setSortSelectionDraft(sortSelection) }}>放弃修改</button><button onClick={clearFilter}>清除临时筛选和排序</button>
+      <p>{filterPending && (filterComplete(filterDraft) ? '设置已修改，点击“应用临时筛选和排序”更新列表。' : '条件尚未填写完整；列表继续显示此前的查看结果。')}搜索文字仅改变显示。清除全部条件表示不筛选；嵌套空组须补全或移除。所选评价缺失、为 null 或仍有歧义时停止本次操作。</p>
+      {candidateIndices !== undefined && <p aria-label="已应用的临时查看">列表显示此前成功应用的临时筛选和排序；未应用的设置不改变列表。</p>}
       </fieldset>
       <div className={`result-workspace ${compare ? 'is-comparing' : ''}`}>
       <section className="result-list-pane" aria-label="候选列表">

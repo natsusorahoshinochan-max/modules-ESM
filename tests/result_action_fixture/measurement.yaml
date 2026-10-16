@@ -1,0 +1,16 @@
+metric_id: result_action_fixture.measurement
+title: Existing comparison measurement
+description: Untransformed measurements retaining each reference and actual region.
+value_shape: scalar
+unit: measurement
+direction: none
+canonical_range: {minimum: -1000, maximum: 1000}
+granularity: candidate
+aggregation_semantics: {kind: none}
+observation_context_schema:
+  kind: pairwise
+  subject_role: subject
+  reference_role: reference
+  pairing_mode: fixed_reference
+  normalization: reference-length
+validation_contract: {finite: true}

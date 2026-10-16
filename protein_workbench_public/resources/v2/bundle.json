@@ -3900,12 +3900,6 @@
         "action_id": {
           "$ref": "#/$defs/Identifier"
         },
-        "node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "output_port": {
-          "$ref": "#/$defs/Identifier"
-        },
         "parameters": {
           "$ref": "#/$defs/JsonObject"
         },
@@ -3915,20 +3909,22 @@
         "run_id": {
           "$ref": "#/$defs/RunId"
         },
-        "value_index": {
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ResultActionInputLocation"
+            }
+          }
         }
       },
       "required": [
-        "node_id",
-        "output_port",
         "project_id",
         "run_id",
-        "value_index",
         "action_id",
-        "parameters"
+        "parameters",
+        "inputs"
       ],
       "type": "object"
     },
@@ -5936,6 +5932,33 @@
         }
       },
       "additionalProperties": true
+    },
+    "ResultActionInputLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "value_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "slot": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "value_index",
+        "slot"
+      ]
     }
   },
   "bundle_discovery": {

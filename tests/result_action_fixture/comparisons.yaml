@@ -1,0 +1,21 @@
+node_type_id: result_action_fixture.comparisons
+title: Existing comparisons
+summary: Measurements against two explicit references and regions.
+category: test
+inputs:
+  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Evaluated subjects.}
+  - {name: references, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Actual comparison objects.}
+outputs:
+  - {name: scores, port_type_id: score.collection, required: true, multiplicity: one, scientific_meaning: Existing reference and region measurements.}
+node_parameters:
+  region:
+    parameter_scope: scientific
+    scientific_meaning: Actual selected subject region recorded by the measurement.
+    default: A:1
+    value_contract: {type: string, minLength: 1}
+  offset:
+    parameter_scope: scientific
+    scientific_meaning: Existing study measurement offset.
+    default: 0
+    value_contract: {type: number}
+parameter_groups: []
