@@ -124,6 +124,8 @@ def select_components(source: ProteinStructure, selected: list[int]) -> ProteinS
     lines = source.text.splitlines()
     coordinate_lines = [line for line in lines if line.startswith(('ATOM  ', 'HETATM'))]
     serials = {coordinate_lines[i][6:11] for i in indices}
+    component_models = {component['component_index']: component['model_id'] for component in description['components']}
+    model_serials = {(component_models[description['atoms'][i]['component_index']], coordinate_lines[i][6:11]) for i in indices}
     chosen = set(indices)
     selected_atoms = {(coordinate_lines[i][12:16], coordinate_lines[i][16], coordinate_lines[i][17:20],
                        coordinate_lines[i][21], coordinate_lines[i][22:26], coordinate_lines[i][26]) for i in indices}
@@ -134,9 +136,12 @@ def select_components(source: ProteinStructure, selected: list[int]) -> ProteinS
     model_lines = []
     in_model = False
     model_kept = False
+    current_model = '1'
     for line in lines:
         record = line[:6].strip()
         if record == 'MODEL':
+            current_model = line[10:14].strip()
+            last_atom_kept = False
             in_model = True; model_kept = False; model_lines = [line]
             continue
         if record == 'ENDMDL':
@@ -154,7 +159,7 @@ def select_components(source: ProteinStructure, selected: list[int]) -> ProteinS
             if not last_atom_kept:
                 continue
         elif record in {'ANISOU', 'SIGATM', 'SIGUIJ'}:
-            if line[6:11] not in serials:
+            if (current_model, line[6:11]) not in model_serials:
                 continue
         elif record == 'CONECT':
             if line[6:11] not in serials:

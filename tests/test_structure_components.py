@@ -1,5 +1,6 @@
 """Mixed structural components through the published-result API."""
 import base64
+import json
 import os
 import tempfile
 import time
@@ -8,6 +9,7 @@ import gemmi
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from protein_workbench_public.bootstrap import create_application
+from modules.protein_io.structure_components import EXPORT_COMPONENTS_ACTION
 
 # Protein, ligand, metal, water and DNA have distinct authored residue identities.
 MIXED_PDB = (
@@ -162,6 +164,44 @@ link1 B 201 C1 A D 401 O ?
                 selected_a = self.action(client, run, 'export_structure_components', {'component_indices': [2, 5], 'format': 'mmcif'})
                 self.assertIn('_struct_conn.id', selected_a['text'])
                 self.assertIn('link1', selected_a['text'])
+
+    def test_export_action_keeps_atom_records_in_their_own_model(self):
+        atoms = MIXED_PDB.splitlines()[1:3]
+        blocks = []
+        records = {}
+        for model in [1, 2]:
+            lines = [f'MODEL     {model:4d}']
+            for serial, atom in enumerate(atoms, start=1):
+                lines.append(atom)
+                attached = [
+                    record + atom[6:28] + ''.join(f'{model * 1000 + serial:7d}' for _ in range(6)) + atom[70:]
+                    for record in ['ANISOU', 'SIGUIJ']
+                ]
+                attached.append('SIGATM' + atom[6:30] + f'{model / 10:8.3f}' + atom[38:])
+                records[model, serial] = attached
+                lines.extend(attached)
+            blocks.extend([*lines, 'ENDMDL'])
+        source = '\n'.join([*blocks, 'END']) + '\n'
+        # A module action accepts the published Candidate wire contract, including
+        # ensembles published by modules other than the single-model importer.
+        encoded = json.dumps({'value': {'$dataclass': 'candidate_collection', 'fields': {
+            'collection_id': 'ensemble', 'item_type': 'protein.structure', 'items': [
+                {'$dataclass': 'candidate', 'fields': {'candidate_id': 'ensemble-candidate',
+                 'data': {'$dataclass': 'protein_structure', 'fields': {'pdb_string': source}},
+                 'parent_ids': [], 'metadata': {'$map': []}}},
+            ],
+        }}}).encode()
+        original = bytes(encoded)
+        result = EXPORT_COMPONENTS_ACTION.apply(encoded, {
+            'item_index': 0, 'component_indices': [1, 4], 'format': 'pdb',
+        }, ())
+        for identity in [(1, 1), (2, 2)]:
+            for record in records[identity]:
+                self.assertIn(record, result['text'])
+        for identity in [(1, 2), (2, 1)]:
+            for record in records[identity]:
+                self.assertNotIn(record, result['text'])
+        self.assertEqual(encoded, original)
 
 if __name__ == '__main__':
     unittest.main()
