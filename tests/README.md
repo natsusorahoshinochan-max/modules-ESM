@@ -308,3 +308,13 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5304 npx playwright test tests/structure-exp
 ```
 
 覆盖外部模块的暂存输入检查、确定性编辑预览、不落盘及禁用后不可发现/调用；Protein I/O 和 Prompt 使用相同注册路径。受影响的 Prompt 采用、保存、重开和受控 SDK 传参见 `test_prompt_editor.py`；完整界面沿用 `prompt-editor.spec.ts` 与 `structure-conformers.spec.ts`，只请求本机应用，不调用重模型。
+
+## 默认教学实例首次保存
+
+使用官方模块默认启用、全新临时数据目录的正常应用，在 `webui/` 运行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5307 npx playwright test tests/teaching-save.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-teaching-save-results
+```
+
+直接打开默认教学实例，经 UI 添加节点后，确认尚未创建个人项目且教学原件未变；首次手动保存才创建个人副本。刷新及从项目列表分别重开教学原件、个人项目，确认编辑留在个人项目且原输入、流程和布局保留。不运行科学 Provider。
