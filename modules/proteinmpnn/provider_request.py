@@ -32,9 +32,16 @@ class ProteinMPNNDesignRequest:
     provider_chain_order: tuple[str, ...]
     chain_dict: dict[str, tuple[list[str], list[str]]]
     fixed_position_dict: dict[str, dict[str, list[int]]] | None
-    tied_positions_dict: dict[str, list[dict[str, list[int]]]] | None
+    tied_positions_dict: dict[str, list[dict[str, list[list[int | float]]]]] | None
     bias_by_res_dict: dict[str, dict[str, list[list[float]]]] | None
+    amino_acid_bias: list[float]
     omit_amino_acids: list[str]
+    omit_by_residue: dict[str, dict[str, list[tuple[list[int], list[str]]]]] | None
+    pssm_dict: dict[str, dict[str, dict[str, Any]]] | None
+    pssm_multi: float
+    pssm_bias_flag: bool
+    pssm_log_odds_flag: bool
+    pssm_threshold: float
     reference_sequences: dict[str, str] | None
 
 
@@ -217,7 +224,7 @@ def _tied_position_payload(
     name: str,
     constraints: ProteinMPNNConstraints,
     residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-) -> dict[str, list[dict[str, list[int]]]] | None:
+) -> dict[str, list[dict[str, list[list[int | float]]]]] | None:
     if not constraints.tied_residue_groups:
         return None
     provider_position_by_residue = {
@@ -226,12 +233,14 @@ def _tied_position_payload(
             residue_identity_mapping
         )
     }
-    tied_groups: list[dict[str, list[int]]] = []
+    tied_groups: list[dict[str, list[list[int | float]]]] = []
     for group in constraints.tied_residue_groups:
-        chain_positions: dict[str, list[int]] = {}
+        chain_positions: dict[str, list[list[int | float]]] = {}
         for residue_id in group:
             chain, provider_position = provider_position_by_residue[residue_id]
-            chain_positions.setdefault(chain, []).append(provider_position)
+            entry = chain_positions.setdefault(chain, [[], []])
+            entry[0].append(provider_position)
+            entry[1].append((constraints.tied_weights or {}).get(residue_id, 1.0))
         tied_groups.append(chain_positions)
     return {name: tied_groups}
 
@@ -265,6 +274,47 @@ def _bias_payload(
                 numeric_bias
             )
     return {name: bias_by_chain}
+
+
+def _omission_payload(
+    name: str,
+    chains: list[tuple[str, str]],
+    constraints: ProteinMPNNConstraints,
+    mapping: tuple[tuple[str, int, str, int], ...],
+) -> dict[str, dict[str, list[tuple[list[int], list[str]]]]] | None:
+    if not constraints.omit_by_residue:
+        return None
+    by_chain: dict[str, list[tuple[list[int], list[str]]]] = {
+        chain: [] for chain, _ in chains
+    }
+    for residue_id, _, chain, position in mapping:
+        symbols = constraints.omit_by_residue.get(residue_id)
+        if symbols:
+            by_chain[chain].append(([position], list(symbols)))
+    return {name: by_chain}
+
+
+def _pssm_payload(
+    name: str, chains: list[tuple[str, str]], constraints: ProteinMPNNConstraints,
+    mapping: tuple[tuple[str, int, str, int], ...],
+) -> dict[str, dict[str, dict[str, Any]]] | None:
+    if not constraints.pssm_by_residue:
+        return None
+    by_chain = {
+        chain: {
+            "pssm_coef": [0.0] * len(sequence),
+            "pssm_bias": [[0.0] * 21 for _ in sequence],
+            "pssm_log_odds": [[10000.0] * 21 for _ in sequence],
+        } for chain, sequence in chains
+    }
+    for residue_id, _, chain, position in mapping:
+        row = constraints.pssm_by_residue.get(residue_id)
+        if row is not None:
+            target = by_chain[chain]
+            target["pssm_coef"][position - 1] = row["coefficient"]
+            target["pssm_bias"][position - 1] = [*row["probabilities"], 0.0]
+            target["pssm_log_odds"][position - 1] = [*row["log_odds"], 10000.0]
+    return {name: by_chain}
 
 
 def _reference_sequences(
@@ -360,7 +410,14 @@ def _prepare_design_request(
             selected_constraints,
             residue_identity_mapping,
         ),
+        amino_acid_bias=[(selected_constraints.amino_acid_bias or {}).get(aa, 0.0) for aa in _ALPHABET],
         omit_amino_acids=list(selected_constraints.omit_amino_acids or []),
+        omit_by_residue=_omission_payload(name, chains, selected_constraints, residue_identity_mapping),
+        pssm_dict=_pssm_payload(name, chains, selected_constraints, residue_identity_mapping),
+        pssm_multi=selected_constraints.pssm_multi,
+        pssm_bias_flag=selected_constraints.pssm_bias_flag,
+        pssm_log_odds_flag=selected_constraints.pssm_log_odds_flag,
+        pssm_threshold=selected_constraints.pssm_threshold,
         reference_sequences=_reference_sequences(
             reference_sequence,
             residue_identity_mapping,

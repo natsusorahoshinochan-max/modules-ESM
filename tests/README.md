@@ -151,3 +151,28 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```
 
 不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。
+
+## ProteinMPNN design and independent scoring
+
+`test_proteinmpnn.py` exercises public project/Run APIs. Set `PROTEINMPNN_ROOT`
+to the local pinned ProteinMPNN checkout containing `vanilla_model_weights`:
+
+```sh
+PROTEINMPNN_ROOT=/absolute/path/to/ProteinMPNN .venv/bin/python -m unittest discover -s tests -p test_proteinmpnn.py
+```
+
+These tests execute only ProteinMPNN on the 56-residue bundled 3GB1 backbone,
+with one design per call and independent scalar scoring. They cover omissions,
+PSSM probability mixing, tied conditions, global bias, explicit sequence/backbone
+correspondence and score identity. Real-call project directories are retained and
+printed so their inputs, parameters and outputs can be inspected.
+
+With the backend and Vite frontend serving this checkout, run only the related
+browser file from `webui/`:
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5197 npx playwright test tests/proteinmpnn-parameters.spec.ts --workers=1
+```
+
+The browser checks natural residue choices, PSSM controls and manual saving; it
+does not launch a Provider. Build module UI assets before starting the application.

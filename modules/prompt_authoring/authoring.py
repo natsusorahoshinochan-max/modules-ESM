@@ -448,6 +448,10 @@ class PromptAuthoringService:
     ) -> _AxisValue:
         node = self._node_by_id(draft, edge.source_node_id)
         next_visited = self._assert_not_visited(node, visited)
+        if node.node_type_id == "structure_transform.project_single_residue_axis" and edge.source_port == "residue_axis":
+            upstream = self._one_incoming_edge(draft, node.node_id, "residue_axes", required=True)
+            assert upstream is not None
+            return self._singleton_candidate_axis_from_edge(project_id, draft, upstream, next_visited)
         if (
             node.node_type_id != "structure_transform.resolve_residue_axis"
             or edge.source_port != "residue_axis"
@@ -477,6 +481,25 @@ class PromptAuthoringService:
             resolve_residue_axis(structure.value, normalizations),
             structure.descriptor,
         )
+
+    def _singleton_candidate_axis_from_edge(
+        self, project_id: str, draft: WorkflowDraft, edge: WorkflowEdge,
+        visited: frozenset[str],
+    ) -> _AxisValue:
+        node = self._node_by_id(draft, edge.source_node_id)
+        next_visited = self._assert_not_visited(node, visited)
+        if node.node_type_id != "structure_transform.resolve_candidate_residue_axes" or edge.source_port != "residue_axes":
+            self._unsupported_source(edge.target_port)
+        if self._incoming_edges(draft, node.node_id, "modified_residue_normalizations"):
+            self._unsupported_source("modified_residue_normalizations")
+        upstream = self._one_incoming_edge(draft, node.node_id, "structure_candidates", required=True)
+        assert upstream is not None
+        source = self._node_by_id(draft, upstream.source_node_id)
+        self._assert_not_visited(source, next_visited)
+        if source.node_type_id != "protein_io.import_structure" or upstream.source_port != "structure_candidates":
+            self._unsupported_source(upstream.target_port)
+        structure = self._structure_from_import(project_id, source)
+        return _AxisValue(resolve_residue_axis(structure.value), structure.descriptor)
 
     def _prompt_value_from_edge(
         self,

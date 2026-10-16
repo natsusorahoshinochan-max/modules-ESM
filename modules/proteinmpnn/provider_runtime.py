@@ -132,10 +132,12 @@ def _featurize(
         request.chain_dict,
         (request.fixed_position_dict
          if isinstance(request, ProteinMPNNDesignRequest) else None),
-        None,  # global omit rules are applied by tied_sample
+        (request.omit_by_residue
+         if isinstance(request, ProteinMPNNDesignRequest) else None),
         (request.tied_positions_dict
          if isinstance(request, ProteinMPNNDesignRequest) else None),
-        None,  # pssm_dict
+        (request.pssm_dict
+         if isinstance(request, ProteinMPNNDesignRequest) else None),
         (request.bias_by_res_dict
          if isinstance(request, ProteinMPNNDesignRequest) else None),
     )
@@ -158,6 +160,7 @@ def _run_design(
     temperature: float,
     device: torch.device,
     omit_amino_acids: list[str],
+    request: ProteinMPNNDesignRequest,
 ) -> list[ProteinSequence]:
     """Run ProteinMPNN design and return list of ProteinSequence objects."""
     import numpy as np
@@ -168,7 +171,7 @@ def _run_design(
         [amino_acid in omit_amino_acids for amino_acid in alphabet],
         dtype=np.float32,
     )
-    bias_AAs_np = np.zeros(21, dtype=np.float32)
+    bias_AAs_np = np.array(request.amino_acid_bias, dtype=np.float32)
 
     X = batch["X"]
     S = batch["S"]
@@ -215,8 +218,15 @@ def _run_design(
             mask=mask, temperature=temperature,
             omit_AAs_np=omit_AAs_np, bias_AAs_np=bias_AAs_np,
             chain_M_pos=chain_M_pos, tied_pos=tied_pos_list,
-            tied_beta=torch.ones(X.shape[1], device=device),
+            tied_beta=batch["tied_beta"],
             bias_by_res=bias_by_res,
+            omit_AA_mask=batch["omit_AA_mask"],
+            pssm_coef=batch["pssm_coef_all"],
+            pssm_bias=batch["pssm_bias_all"],
+            pssm_multi=request.pssm_multi,
+            pssm_bias_flag=request.pssm_bias_flag,
+            pssm_log_odds_flag=request.pssm_log_odds_flag,
+            pssm_log_odds_mask=(batch["pssm_log_odds_all"] > request.pssm_threshold).float(),
         )
 
         S_sample = sample_out["S"]
@@ -359,6 +369,7 @@ class _LocalProteinMPNNProvider:
                 request.temperature,
                 device,
                 request.omit_amino_acids,
+                request,
             )
         return sequences
 

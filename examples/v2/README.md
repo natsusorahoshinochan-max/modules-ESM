@@ -107,3 +107,18 @@ depend on a science module or teaching resource to start. The original tutorial
 remains protected. Editing/personal-save and copied Run scope must follow
 [workspace requirements](../../docs/workspace.md#教学实例与默认入口).
 
+
+## ProteinMPNN design and independent evaluation
+
+`proteinmpnn-design-score.workflow.json` uses `structures/3GB1.pdb` as Project Input
+`3GB1.pdb`. It configures position omissions, a PSSM row and weighted tied positions,
+designs one sequence, then evaluates it on the selected backbone. Configure the
+ProteinMPNN source/weights location in module settings before running.
+
+The scoring sequence input can instead come from `protein_io.import_sequence`;
+it need not have been generated from the selected backbone. An unlabelled sequence
+uses complete backbone order. For an existing sequence with different residue
+identities, select a complete `sequence_correspondence` from original sequence
+positions to backbone residues. This evaluation relationship does not change the
+sequence's actual parents. Tied members must share position omissions, biases and
+PSSM rows; their individual logit weights may differ.

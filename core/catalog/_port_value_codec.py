@@ -242,6 +242,16 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is PairwiseObservationContext:
+        if value.sequence_correspondence is not None:
+            positions: set[int] = set()
+            residues: set[str] = set()
+            for pair in value.sequence_correspondence:
+                if len(pair) != 2 or type(pair[0]) is not int or pair[0] < 1 or type(pair[1]) is not str or not pair[1]:
+                    raise _errors.PortValueError(f"{path} requires positive sequence positions and reference residue identities")
+                if pair[0] in positions or pair[1] in residues:
+                    raise _errors.PortValueError(f"{path} sequence correspondence must be one-to-one")
+                positions.add(pair[0])
+                residues.add(pair[1])
         validate_pairwise_evidence(value)
         if value.evidence_method is not None:
             validate_exact_contract_reference(value.evidence_method)
@@ -355,6 +365,7 @@ def _value_to_wire(value: Any) -> Any:
         "fields": {
             item.name: _value_to_wire(getattr(value, item.name))
             for item in fields(value)
+            if not (item.metadata.get("wire_optional") and getattr(value, item.name) is None)
         },
     }
 
@@ -412,7 +423,8 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
                 f"{path} fields do not match the complete protein_structure contract"
             )
         expected_fields = {item.name for item in fields(value_type)}
-        if set(raw_fields) != expected_fields:
+        required_fields = {item.name for item in fields(value_type) if not item.metadata.get("wire_optional")}
+        if not required_fields <= set(raw_fields) <= expected_fields:
             raise _errors.PortValueError(
                 f"{path} fields do not match the complete {tag} contract"
             )
