@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { PublicV2Client, ProjectRunSummary, RunEventEnvelope } from './protocol/client'
+import type { PublicV2Client, ProjectExecutionState, ProjectRunSummary, RunEventEnvelope } from './protocol/client'
 import type { RunReference } from './published-results'
 import { workspaceErrorMessage } from './project-workspace'
 
@@ -24,36 +24,77 @@ export function rememberRun(projectId: string, run?: RunReference) {
   window.history.replaceState(null, '', url)
 }
 
-/** Project execution ownership is independent of the selected historical result. */
+/** History availability does not determine project execution ownership. */
 export function useProjectRunHistory(client: PublicV2Client, projectId?: string, latestRunId?: string | null) {
   const [revision, setRevision] = useState(0)
   const refresh = useCallback(() => setRevision(value => value + 1), [])
-  const [state, setState] = useState<{ projectId?: string; runs: ProjectRunSummary[]; loading: boolean; error?: string }>({ runs: [], loading: true })
+  const [state, setState] = useState<{ projectId?: string; runs: ProjectRunSummary[]; error?: string }>({ runs: [] })
+  useEffect(() => {
+    let current = true
+    if (projectId) {
+      void client.projectRuns(projectId).then(({ runs }) => {
+        if (current) setState({ projectId, runs })
+      }).catch(reason => { if (current) setState({ projectId, runs: [], error: workspaceErrorMessage(reason) }) })
+    }
+    return () => { current = false }
+  }, [client, projectId, latestRunId, revision])
+  return {
+    runs: state.projectId === projectId ? state.runs : [],
+    loading: !!projectId && state.projectId !== projectId,
+    error: state.projectId === projectId ? state.error : undefined,
+    refresh,
+  }
+}
+
+/** Keep actual execution ownership separate from the Run selected for viewing. */
+export function useProjectExecution(client: PublicV2Client, projectId: string | undefined, latestRunId: string | null | undefined, onTerminal: () => void) {
+  const [revision, setRevision] = useState(0)
+  const refresh = useCallback(() => setRevision(value => value + 1), [])
+  const [state, setState] = useState<{ projectId?: string; execution?: ProjectExecutionState; error?: string }>({})
   useEffect(() => {
     let current = true
     const sockets: WebSocket[] = []
     if (projectId) {
-      void client.projectRuns(projectId).then(({ runs }) => {
+      void client.projectExecutionState(projectId).then(execution => {
         if (!current) return
-        setState({ projectId, runs, loading: false })
-        for (const run of runs.filter(item => ['admitted', 'running'].includes(item.status))) {
-          const socket = client.runEvents(projectId, run.run_id)
+        setState({ projectId, execution })
+        for (const runId of execution.active_run_ids) {
+          const socket = client.runEvents(projectId, runId)
           sockets.push(socket)
           let terminal = false
           socket.onmessage = message => {
             const envelope = JSON.parse(String(message.data)) as RunEventEnvelope
-            if (envelope.event.type === 'run_terminal') { terminal = true; if (current) refresh() }
+            if (envelope.event.type === 'run_terminal') {
+              terminal = true
+              if (current) { refresh(); onTerminal() }
+            }
           }
           socket.onclose = () => {
             if (current && !terminal) setState(value => ({ ...value, error: '项目运行状态连接已断开，请重新读取。' }))
           }
         }
-      }).catch(reason => { if (current) setState({ projectId, runs: [], loading: false, error: workspaceErrorMessage(reason) }) })
+      }).catch(reason => {
+        if (current) setState(value => ({
+          projectId,
+          execution: value.projectId === projectId ? value.execution : undefined,
+          error: workspaceErrorMessage(reason),
+        }))
+      })
     }
     return () => { current = false; sockets.forEach(socket => socket.close()) }
-  }, [client, projectId, latestRunId, revision, refresh])
-  const loading = !!projectId && (state.projectId !== projectId || state.loading)
-  const runs = state.projectId === projectId ? state.runs : []
-  const error = state.projectId === projectId ? state.error : undefined
-  return { runs, loading, error, refresh, active: !!projectId && (loading || !!error || runs.some(run => ['admitted', 'running'].includes(run.status))) }
+  }, [client, projectId, latestRunId, revision, refresh, onTerminal])
+  const started = useCallback((owner: string, runId: string) => {
+    if (owner !== projectId) return
+    setState({ projectId: owner, execution: { project_id: owner, active_run_ids: [runId], reserved: false } })
+    refresh()
+  }, [projectId, refresh])
+  const execution = state.projectId === projectId ? state.execution : undefined
+  return {
+    active: !!execution && (execution.reserved || execution.active_run_ids.length > 0),
+    editable: !!execution && !execution.reserved && execution.active_run_ids.length === 0,
+    started,
+    loading: !!projectId && !execution && !(state.projectId === projectId && state.error),
+    error: state.projectId === projectId ? state.error : undefined,
+    refresh,
+  }
 }

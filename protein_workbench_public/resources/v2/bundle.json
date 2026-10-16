@@ -2898,6 +2898,29 @@
       ],
       "type": "object"
     },
+    "ProjectExecutionState": {
+      "additionalProperties": false,
+      "properties": {
+        "active_run_ids": {
+          "items": {
+            "$ref": "#/$defs/RunId"
+          },
+          "type": "array"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "reserved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "project_id",
+        "active_run_ids",
+        "reserved"
+      ],
+      "type": "object"
+    },
     "ProjectId": {
       "maxLength": 128,
       "minLength": 1,
@@ -3218,35 +3241,59 @@
       "type": "object"
     },
     "ProjectRunSummary": {
-      "additionalProperties": false,
-      "properties": {
-        "has_results": {
-          "type": "boolean"
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "readable"
+            },
+            "has_results": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "$ref": "#/$defs/RunId"
+            },
+            "status": {
+              "enum": [
+                "admitted",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "interrupted"
+              ]
+            },
+            "workflow_commit_id": {
+              "$ref": "#/$defs/WorkflowCommitId"
+            }
+          },
+          "required": [
+            "run_id",
+            "workflow_commit_id",
+            "status",
+            "has_results",
+            "availability"
+          ],
+          "type": "object"
         },
-        "run_id": {
-          "$ref": "#/$defs/RunId"
-        },
-        "status": {
-          "enum": [
-            "admitted",
-            "running",
-            "succeeded",
-            "failed",
-            "cancelled",
-            "interrupted"
-          ]
-        },
-        "workflow_commit_id": {
-          "$ref": "#/$defs/WorkflowCommitId"
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "unavailable"
+            },
+            "run_id": {
+              "$ref": "#/$defs/RunId"
+            }
+          },
+          "required": [
+            "run_id",
+            "availability"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "run_id",
-        "workflow_commit_id",
-        "status",
-        "has_results"
-      ],
-      "type": "object"
+      ]
     },
     "ProjectScopeRequest": {
       "additionalProperties": false,
@@ -8159,6 +8206,21 @@
         "200": "response",
         "404": "structured_error",
         "409": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "project_execution_state": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectScopeRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectExecutionState",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/execution",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
         "default": "structured_error"
       }
     },
