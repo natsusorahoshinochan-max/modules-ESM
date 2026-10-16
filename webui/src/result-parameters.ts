@@ -1,5 +1,5 @@
-import type { WorkflowCommitSnapshot } from './project-workspace'
-import type { AdoptionMetadata, JsonObject, PublicV2Client, ResultLocation, RunProjection, Workflow, WorkflowNode } from './protocol/client'
+import type { RecordedWorkflow, WorkflowCommitSnapshot } from './project-workspace'
+import type { AdoptionMetadata, JsonObject, PublicV2Client, ResultLocation, RunProjection, WorkflowNode } from './protocol/client'
 
 type RecordedParameters = Pick<WorkflowNode, 'node_parameters' | 'binding_parameters'>
 type ParameterRecord = WorkflowNode & {
@@ -18,7 +18,7 @@ export type ComputationParameters = {
     parameter_record_ids: string[]
   }>
   artifacts: Array<{ artifact_reference: string; producer_run_id: string | null; status: 'recorded' | 'ambiguous' | 'unavailable'; parameter_record_ids: string[] }>
-  workflows: Array<{ project_id: string; run_id: string; workflow_commit_id: string; workflow: Workflow }>
+  workflows: Array<{ project_id: string; run_id: string; workflow_commit_id: string; workflow: RecordedWorkflow }>
 }
 
 /** Only absence of an existing source record is an exportable missing-record outcome. */

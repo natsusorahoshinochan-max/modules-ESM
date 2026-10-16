@@ -80,7 +80,7 @@ def register_workflow_routes(
                 path_parameters={"project_id": project_id, "workflow_commit_id": workflow_commit_id},
                 query_parameters=query, json_body=body,
             )
-            payload = encode_workflow_commit_snapshot(authoring.load_commit(**admitted))
+            payload = encode_workflow_commit_snapshot(authoring.recorded_commit(**admitted))
         except ProtocolValidationError as error:
             return protocol_error_response(error)
         except WorkflowAuthoringError as error:

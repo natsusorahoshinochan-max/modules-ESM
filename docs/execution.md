@@ -8,7 +8,7 @@
 
 当前 [Workflow authoring](../core/workflow/authoring.py)拥有 Draft 与 Commit。Commit 根据当前 Catalog 检查拓扑、名义 Port 兼容、参数和实际消费的评价关系，编译一个 Execution Plan 后持久发布可运行版本。Run 使用明确 `workflow_commit_id`，不直接执行正在编辑的 Draft。
 
-Commit 保存 Workflow、来源 Draft 修订和解释原结果需要的最小定义快照，不保存 Python Execution Plan。运行时使用进程内计划，在需要重新装载时由同一 authoring owner 编译已有 Commit，再比较结果相关定义。定义不一致时拒绝当前执行，不改写旧结果解释记录。已完成结果的阅读使用原 Commit 事实，不把读取旧结果等同于重新批准旧 Commit 执行。
+Commit 保存 Workflow、来源 Draft 修订和解释原结果需要的最小定义快照，不保存 Python Execution Plan。运行时使用进程内计划，在需要重新装载时由同一 authoring owner 编译已有 Commit，再比较结果相关定义。定义不一致时拒绝当前执行，不改写旧结果解释记录。历史快照、参数导出和采用通过 `recorded_commit` 读取原始保存的 Workflow 与定义，不调用当前可执行 Workflow parser，也不重新批准旧 Commit 执行。
 
 当前相关入口：
 
@@ -60,7 +60,9 @@ Readiness 只确认本次所需运行条件，不扫描安装树、模型内容�
 
 Run Projection 和 WebSocket 只携带有界输出描述与运行信息，不嵌入完整结构或科学大数组。具体 Typed Value 按 Run、节点、Port、value index 单独读取，Artifact 按其媒体与引用契约取回。来源、顺序、内容摘要和文件名随正式描述保留。详情、展示和导出见[结果](results.md)。
 
-重启从持久 Ledger 前缀重建运行状态。未完成 Run 记为 `interrupted`，不猜测缺失的引擎、操作、节点或筛选终态。关闭前端与后端进程中断是不同情况，没有据此前端退出后自动补发工具请求的规则。
+已结束 Run 发布统一 `reading.json`，保存由正式事实形成的通用读取资料；重启优先从该资料读取原状态、发布成果和事件，不依赖旧筛选 reducer。原 Ledger 仍完整保留。尚未终结的当前 Run 从持久 Ledger 前缀恢复，并记为 `interrupted`，不猜测缺失的引擎、操作或节点终态。关闭前端与后端进程中断是不同情况，没有据此前端退出后自动补发工具请求的规则。
+
+历史资料准备在整数据根副本上显式进行：先检查全部待准备 Run 已结束，再生成统一读取资料，不改原 Commit、Ledger、输入或科学结果。准备失败不表示可以切换活动数据根；整根核对和切换由调用方完成。尚未准备的旧数据仍需在移除旧执行代码前处理，不能把新增读取入口视为原安装已完成迁移。
 
 运行记录只保留当前解释和执行需要的事实，不增加独立 Provider 日志权威、内容证明层级或通用事件存储框架。单值准入、编解码及存储完整性的分工见[架构](architecture.md#单次准入与表示)。
 

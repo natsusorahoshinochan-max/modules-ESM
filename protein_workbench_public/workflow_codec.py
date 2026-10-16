@@ -7,7 +7,7 @@ from typing import Any
 
 from datatypes.i_json import admit_i_json, thaw_i_json
 from core.workflow.authoring import (
-    ProjectWorkspace, WorkflowCommit, WorkflowDraft, WorkflowVersion,
+    ProjectWorkspace, RecordedWorkflowCommit, WorkflowCommit, WorkflowDraft, WorkflowVersion,
 )
 from core.workflow.document import (
     WORKFLOW_SCHEMA_VERSION,
@@ -90,13 +90,13 @@ def encode_workflow_commit_receipt(
     }
 
 
-def encode_workflow_commit_snapshot(commit: WorkflowCommit) -> dict[str, Any]:
+def encode_workflow_commit_snapshot(commit: RecordedWorkflowCommit) -> dict[str, Any]:
     """Expose original persisted interpretation facts without new admission."""
     return {
         "project_id": commit.project_id,
         "workflow_commit_id": commit.workflow_commit_id,
         "source_draft_revision": commit.source_draft_revision,
-        "workflow": commit.workflow.canonical_projection(),
+        "workflow": thaw_i_json(commit.workflow),
         "scientific_definitions": [thaw_i_json(item) for item in commit.scientific_definitions],
         "scientific_identity": thaw_i_json(commit.scientific_identity),
     }
