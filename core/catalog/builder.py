@@ -315,7 +315,7 @@ def build_frozen_catalog(
                     kind=kind,
                 )
                 if isinstance(definition, NodeTypeDefinition) and any(source.node_type_id == definition.node_type_id for source in registration.result_sources):
-                    definition = replace(definition, restores_published_value=True)
+                    definition = replace(definition, restored_output_port=next(source.output_port for source in registration.result_sources if source.node_type_id == definition.node_type_id))
                 definitions.append((registration.package_id, definition))
         definitions.extend(
             (registration.package_id, definition)

@@ -10,11 +10,11 @@ from protein_workbench_public.bootstrap import create_application
 
 
 class ResultAdoption(unittest.TestCase):
-    def run_workflow(self, client, project_id, nodes, edges=(), selectors=(), status="succeeded"):
+    def run_workflow(self, client, project_id, nodes, edges=(), selectors=(), status="succeeded", objectives=()):
         base = '/api/v2/projects/' + project_id
         saved = client.post(base + '/workflow:commit', json={'workflow': {
             'schema_version': '2.1.0', 'workflow_id': project_id,
-            'nodes': nodes, 'edges': list(edges), 'observation_selectors': list(selectors)}})
+            'nodes': nodes, 'edges': list(edges), 'observation_selectors': list(selectors), 'selection_objectives': list(objectives)}})
         self.assertEqual(saved.status_code, 200, saved.text)
         start = client.post(base + '/runs', json={
             'workflow_commit_id': saved.json()['workflow_commit_id'],
@@ -189,3 +189,83 @@ class ResultAdoption(unittest.TestCase):
                         'node_parameters': {'project_input_ref': ''}}], 'edges': []}, 'ranking': False})
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual(response.json()['options'], [])
+
+    def test_pairwise_scores_retain_axes_evidence_and_rank_after_source_deletion(self):
+        def node(identity, kind, parameters=None, binding='direct'):
+            return {'node_id': identity, 'node_type_id': kind, 'binding_id': kind + '.' + binding,
+                    'node_parameters': parameters or {}, 'binding_parameters': {}}
+        def edge(source, port, target, input_port):
+            return {'source_node_id': source, 'source_port': port, 'target_node_id': target, 'target_port': input_port}
+        with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            with TestClient(create_application(load_example_results=False)) as client:
+                source = client.post('/api/v2/projects', json={'name': 'Pairwise source'}).json()['id']
+                target = client.post('/api/v2/projects', json={'name': 'Saved comparison'}).json()['id']
+                imports = []
+                for name, translation in [('subject', 0), ('reference', 10)]:
+                    lines = []
+                    for residue, (x, y, z) in enumerate([(0, 0, 0), (3, 1, 0), (6, 0, 1)], 1):
+                        for offset, atom in enumerate(['N', 'CA', 'C', 'O']):
+                            lines.append(f"ATOM  {len(lines)+1:5d} {atom:>4} GLY A{residue:4d}    {x+offset*.2+translation:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00          {atom[0]:>2}  ")
+                    uploaded = client.post(f'/api/v2/projects/{source}/inputs', json={
+                        'filename': name + '.pdb', 'content_base64': base64.b64encode(('\n'.join(lines)+'\nEND\n').encode()).decode()}).json()
+                    imports.append(node(name, 'protein_io.import_structure', {'project_input_ref': uploaded['project_input_ref']}))
+                run = self.run_workflow(client, source, imports + [
+                    node('subject_axis', 'structure_transform.resolve_candidate_residue_axes'),
+                    node('reference_axis', 'structure_transform.resolve_candidate_residue_axes'),
+                    node('relation', 'collection_ops.relate_to_single_reference'),
+                    node('align', 'structure_comparison.align_pairs', binding='sequence_primary_affine'),
+                    node('score', 'structure_comparison.tm_score_from_alignments', binding='from_alignment_evidence')], [
+                    edge('subject', 'structure_candidates', 'subject_axis', 'structure_candidates'),
+                    edge('reference', 'structure_candidates', 'reference_axis', 'structure_candidates'),
+                    edge('subject', 'structure_candidates', 'relation', 'subjects'),
+                    edge('reference', 'structure_candidates', 'relation', 'references'),
+                    edge('subject_axis', 'residue_axes', 'align', 'subject_residue_axes'),
+                    edge('reference_axis', 'residue_axes', 'align', 'reference_residue_axes'),
+                    edge('relation', 'relation', 'align', 'relation'),
+                    edge('align', 'alignments', 'score', 'alignments'),
+                    edge('subject', 'structure_candidates', 'score', 'subjects'),
+                    edge('reference', 'structure_candidates', 'score', 'references'),
+                    edge('relation', 'relation', 'score', 'relation')])
+                originals = {name: client.get(run + path).content for name, path in {
+                    'score': '/outputs/score/scores/values/0',
+                    'subject': '/outputs/subject/structure_candidates/values/0',
+                    'reference': '/outputs/reference/structure_candidates/values/0',
+                    'evidence': '/outputs/align/alignments/values/0'}.items()}
+                adopted = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
+                    'source_project_id': source, 'source_run_id': run.rsplit('/', 1)[1],
+                    'node_id': 'score', 'output_port': 'scores', 'value_index': 0})
+                self.assertEqual(adopted.status_code, 201, adopted.text)
+                source_node = adopted.json()['source_node'] | {'node_id': 'saved'}
+                self.assertEqual(client.post(f'/api/v2/projects/{source}:trash').status_code, 200)
+                self.assertEqual(client.delete(f'/api/v2/projects/{source}').status_code, 200)
+            with TestClient(create_application(load_example_results=False)) as client:
+                metadata = client.get(f"/api/v2/projects/{target}/inputs/{adopted.json()['project_input_ref']}:adoption").json()
+                self.assertIn(originals['evidence'].decode(), [item['canonical_value'] for item in metadata['dependencies']])
+                self.assertEqual(sum(item['port_type_id'] == 'structure_transform.candidate_resolved_residue_axis_associations' for item in metadata['dependencies']), 2)
+                options = client.post(f'/api/v2/projects/{target}/workflow:observation-options', json={
+                    'workflow': {'nodes': [source_node], 'edges': []}, 'ranking': True})
+                self.assertEqual(options.status_code, 200, options.text)
+                self.assertEqual(len(options.json()['options']), 1)
+                option = options.json()['options'][0]
+                ranked = self.run_workflow(client, target, [source_node,
+                    node('rank', 'selection.sort', {'objective_id': 'comparison'})], [
+                    edge('saved', 'subjects', 'rank', 'candidates'), edge('saved', 'value', 'rank', 'scores')],
+                    objectives=[{'objective_id': 'comparison', 'candidate_input': {'node_id': 'saved', 'output_port': 'subjects'},
+                        'score_collection_input': option['source'], 'metric': {'contract_kind': 'metric', 'contract_id': option['metric_id']},
+                        'method': {'contract_kind': 'method', 'contract_id': option['method_id']}, 'context_selector': option['context'],
+                        'source_partition': option['partition'], 'utility_transform': {'contract_kind': 'utility_transform',
+                            'contract_id': 'structure_comparison.tm_score.explicit_relation.identity'},
+                        'utility_parameters': {}, 'weight': 1, 'match_cardinality': 'exactly_one', 'missing_policy': 'error'}])
+                self.assertEqual(client.get(ranked + '/outputs/saved/value/values/0').content, originals['score'])
+                import json
+                self.assertEqual(client.get(ranked + '/outputs/rank/candidates/values/0').json()['value']['fields']['items'],
+                                 json.loads(originals['subject'])['value']['fields']['items'])
+                self.assertEqual(client.get(ranked + '/outputs/saved/references/values/0').json()['value']['fields']['items'],
+                                 json.loads(originals['reference'])['value']['fields']['items'])
+
+                reused = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
+                    'source_project_id': target, 'source_run_id': ranked.rsplit('/', 1)[1],
+                    'node_id': 'saved', 'output_port': 'references', 'value_index': 0})
+                self.assertEqual(reused.status_code, 201, reused.text)
+                reference_metadata = client.get(f"/api/v2/projects/{target}/inputs/{reused.json()['project_input_ref']}:adoption").json()
+                self.assertEqual(reference_metadata['parameters']['records'][0]['node_id'], 'saved')

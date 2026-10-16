@@ -65,7 +65,7 @@ export async function readComputationParameters(client: PublicV2Client, run: Run
       const node = producer!.commit.workflow.nodes.find(item => item.node_id === original.node_id)
       if (!node) continue
       const definition = producer!.commit.scientific_definitions.find(item => item.contract_kind === 'node_type' && item.contract_id === node.node_type_id)
-      if ((definition?.descriptor as JsonObject | undefined)?.restores_published_value === true) {
+      if ((definition?.descriptor as JsonObject | undefined)?.restored_output_port === original.output_port) {
         const inputRef = node.node_parameters.project_input_ref as string
         const inputKey = JSON.stringify([producer!.run.project_id, inputRef])
         const metadata = adoptedInputs.get(inputKey) ?? await client.adoptionMetadata(producer!.run.project_id, inputRef)

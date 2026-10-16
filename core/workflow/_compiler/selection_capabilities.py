@@ -343,7 +343,9 @@ def _derive_observation_capabilities(
                 method=observation.method, context_profile=observation.context_profile,
                 subject_grain='candidate', source_role='subject',
                 guaranteed_multiplicity=observation.guaranteed_multiplicity,
-                subject_source=None, reference_source=None, pairing_source=None))
+                subject_source=SelectionInput(node_id, observation.subject_output_port) if observation.subject_output_port else None,
+                reference_source=SelectionInput(node_id, observation.reference_output_port) if observation.reference_output_port else None,
+                pairing_source=SelectionInput(node_id, observation.pairing_output_port) if observation.pairing_output_port else None))
         plan = catalog.produced_observation_plan(graph.nodes_by_id[node_id].binding_id)
         for declaration in plan.observations:
             method_source = (

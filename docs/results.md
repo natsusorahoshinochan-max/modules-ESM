@@ -47,7 +47,7 @@ FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显�
 
 画布的“采用历史结果”从项目、Run 与兼容输出选择 Candidate Collection 或 Score Collection。模块通过公共 `result_sources` 声明可采用类型及来源节点；载体先把所选值及依赖写为目标项目的不可变 Project Input，成功后才将来源节点加入当前编辑，用户手动保存流程。取消选择不改变流程，持久化失败不显示成功。
 
-采用保留原始 Candidate ID、数据引用、Score 的 Metric、Method、Context 和值，不生成新谱系。Score 输入保存所需 Candidate、残基轴或比对值，以及已记录的定义和原计算参数；不整体复制来源 Run。已保存的参数导出读取目标本地输入，即使来源项目删除或原模块停用仍保留原参数及 recorded/ambiguous/unavailable 状态。兼容筛选节点可以使用保存的评价定义，不要求重新执行原评分工具。失败 Run 中已发布的值也可明确采用，不改变源 Run 状态或自动启动源下游。相关运行边界见[执行规范](execution.md)。
+采用保留原始 Candidate ID、数据引用、Score 的 Metric、Method、Context 和值，不生成新谱系。Score 输入保存所需 Candidate、残基轴或比对值，以及已记录的定义和原计算参数；不整体复制来源 Run。已保存的参数导出读取目标本地输入，即使来源项目删除或原模块停用仍保留原参数及 recorded/ambiguous/unavailable 状态。兼容筛选节点可以使用保存的评价定义，不要求重新执行原评分工具。Score 来源节点同时提供可表示为单一 Candidate Collection 的 subjects/references 及唯一明确的 subject-reference relation；pairwise 排名能力指向这些真实输出，可直接接入后续排序。失败 Run 中已发布的值也可明确采用，不改变源 Run 状态或自动启动源下游。相关运行边界见[执行规范](execution.md)。
 
 ## 结果入口与展示
 

@@ -31,6 +31,9 @@ class AdoptedObservation:
     method: ExactContractReference
     context_profile: ObservationContextProfile
     guaranteed_multiplicity: str
+    subject_output_port: str | None = None
+    reference_output_port: str | None = None
+    pairing_output_port: str | None = None
 
 
 def with_adopted_definitions(catalog: FrozenCatalog, definitions: tuple[Mapping[str, Any], ...]) -> FrozenCatalog:

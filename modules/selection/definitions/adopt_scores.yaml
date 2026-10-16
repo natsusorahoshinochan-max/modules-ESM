@@ -9,6 +9,9 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Existing observations; adoption does not calculate or reinterpret scores.
+  - {name: subjects, port_type_id: candidate.collection, required: false, multiplicity: one, scientific_meaning: Original Candidate subjects retained with the observations.}
+  - {name: references, port_type_id: candidate.collection, required: false, multiplicity: one, scientific_meaning: Original comparison reference Candidates retained with pairwise observations.}
+  - {name: relation, port_type_id: candidate.relation, required: false, multiplicity: one, scientific_meaning: Exact observed subject-reference relationships; these are not generation parents.}
 parameter_groups: []
 node_parameters:
   project_input_ref:

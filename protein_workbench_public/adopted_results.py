@@ -19,7 +19,7 @@ def _original_parameters(
     run = runtime.projection(project_id, source['source_run_id'])
     commit = authoring.load_commit(project_id, workflow_commit_id=run.workflow_commit_id)
     node = next(node for node in commit.workflow.nodes if node.node_id == source['node_id'])
-    if any(definition['contract_kind'] == 'node_type' and definition['contract_id'] == node.node_type_id and definition['descriptor'].get('restores_published_value') is True for definition in commit.scientific_definitions):
+    if any(definition['contract_kind'] == 'node_type' and definition['contract_id'] == node.node_type_id and definition['descriptor'].get('restored_output_port') == source['output_port'] for definition in commit.scientific_definitions):
         _, payload = projects.read_input(project_id, node.node_parameters['project_input_ref'])
         return read_adopted_snapshot(payload)['parameters']
     publication = next(item for item in run.publications if item.node_id == source['node_id'])
@@ -73,7 +73,7 @@ def dependency_values(source: AdoptedSource, *, runtime: V2RunService,
     """Expose published values to the module that owns dependency selection."""
     run = runtime.projection(source['source_project_id'], source['source_run_id'])
     commit = authoring.load_commit(source['source_project_id'], workflow_commit_id=run.workflow_commit_id)
-    source_nodes = {definition['contract_id'] for definition in commit.scientific_definitions if definition['contract_kind'] == 'node_type' and definition['descriptor'].get('restores_published_value') is True}
+    source_nodes = {definition['contract_id'] for definition in commit.scientific_definitions if definition['contract_kind'] == 'node_type' and definition['descriptor'].get('restored_output_port') is not None}
     for node in commit.workflow.nodes:
         if node.node_type_id in source_nodes:
             _, payload = projects.read_input(source['source_project_id'], node.node_parameters['project_input_ref'])

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from core.catalog.result_adoption import ResultSourceDefinition
-from core.project.adopted_input import AdoptedInputOperation
 
 from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_scores
-from .adopted_scores import adopted_observations, adopted_dependencies
+from .adopted_scores import AdoptedScoreOperation, adopted_observations, adopted_dependencies
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
@@ -134,7 +133,7 @@ _ADOPT_BINDING = ExecutionBindingDefinition(
     method=ExactContractReference("method", "selection.adopt_scores.method"),
     binding_parameters={}, execution_route="direct",
     factory=ScientificOperationFactory(BehaviorReference("selection.adopt_scores/factory"),
-        lambda context: AdoptedInputOperation(context.resources)),
+        lambda context: AdoptedScoreOperation(context.resources)),
     availability=AvailabilityDeclaration(BehaviorReference("selection.adopt_scores/availability"), {}, _available),
     deterministic=True, cacheable=False,
 )
