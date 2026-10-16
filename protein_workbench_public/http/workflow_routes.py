@@ -15,7 +15,6 @@ from core.workflow.authoring import (
     WorkflowAuthoringService,
 )
 from core.workflow.document import (
-    WORKFLOW_SCHEMA_VERSION,
     WorkflowDocumentError,
     workflow_document_from_canonical,
 )
@@ -47,28 +46,6 @@ def register_workflow_routes(
     rest_operations: Mapping[str, Any],
     runtime: V2RunService,
 ) -> None:
-    @app.post(rest_operations["workflow_observation_options"]["route"], include_in_schema=False)
-    async def public_observation_options(request: Request, project_id: str) -> Any:
-        try:
-            query, body = await public_rest_wire_sources(request)
-            admitted = decode_rest_request(
-                "workflow_observation_options", path_parameters={"project_id": project_id},
-                query_parameters=query, json_body=body,
-            )
-            workflow = workflow_document_from_canonical({
-                "schema_version": WORKFLOW_SCHEMA_VERSION,
-                "workflow_id": project_id,
-                **admitted["workflow"],
-            })
-            options = authoring.observation_options(project_id, workflow, ranking=admitted["ranking"])
-        except ProtocolValidationError as error:
-            return protocol_error_response(error)
-        except WorkflowDocumentError as error:
-            return workflow_document_error_response(error, body.get("workflow"))
-        except WorkflowAuthoringError as error:
-            return authoring_error_response(error)
-        return emit_rest_json_success("workflow_observation_options", {"options": options})
-
     @app.get(rest_operations["workflow_commit_snapshot"]["route"], include_in_schema=False)
     async def public_workflow_commit_snapshot(
         request: Request, project_id: str, workflow_commit_id: str,

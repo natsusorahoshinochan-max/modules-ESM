@@ -7,106 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.catalog.errors import CatalogBuildError
-from core.scoring.selection import (
-    ContextSelector,
-    ObservationSelector,
-    PairwiseContextSelector,
-    SelectionInput,
-    SelectionObjective,
-    SelectionError,
-    observation_selector_canonical,
-    selection_objective_canonical,
-)
 from datatypes.i_json import freeze_i_json, thaw_i_json
-from datatypes.exact_reference import ExactContractReference
-from datatypes.observation import (
-    CalibrationObservationContext,
-    IntrinsicObservationContext,
-)
 
 
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
 
-
-def _exact_reference_from_admitted(
-    value: Mapping[str, Any],
-    name: str,
-) -> ExactContractReference:
-    reference = value[name]
-    return ExactContractReference(
-        contract_kind=reference["contract_kind"],
-        contract_id=reference["contract_id"],
-    )
-
-def _selection_input_from_admitted(
-    value: Mapping[str, Any],
-) -> SelectionInput:
-    return SelectionInput(value["node_id"], value["output_port"])
-
-def _context_selector_from_admitted(
-    value: Mapping[str, Any],
-) -> ContextSelector:
-    if value["kind"] == "intrinsic":
-        return IntrinsicObservationContext(value["kind"])
-    if value["kind"] == "calibration":
-        return CalibrationObservationContext(
-            calibration_metric=value["calibration_metric"],
-            calibration_value=value["calibration_value"],
-            calibration_unit=value["calibration_unit"],
-            population_id=value["population_id"],
-            kind=value["kind"],
-        )
-    return PairwiseContextSelector(
-        pairing_mode=value["pairing_mode"],
-        normalization=value["normalization"],
-        subject_role=value["subject_role"],
-        reference_role=value["reference_role"],
-        kind=value["kind"],
-    )
-
-def _observation_selector_from_admitted(
-    value: Mapping[str, Any],
-) -> ObservationSelector:
-    return ObservationSelector(
-        selector_id=value["selector_id"],
-        candidate_input=_selection_input_from_admitted(value["candidate_input"]),
-        score_collection_input=_selection_input_from_admitted(
-            value["score_collection_input"]
-        ),
-        metric=_exact_reference_from_admitted(value, "metric"),
-        method=_exact_reference_from_admitted(value, "method"),
-        context_selector=_context_selector_from_admitted(
-            value["context_selector"]
-        ),
-        source_partition=value["source_partition"],
-        match_cardinality=value["match_cardinality"],
-        missing_policy=value["missing_policy"],
-    )
-
-def _selection_objective_from_admitted(
-    value: Mapping[str, Any],
-) -> SelectionObjective:
-    return SelectionObjective(
-        objective_id=value["objective_id"],
-        candidate_input=_selection_input_from_admitted(value["candidate_input"]),
-        score_collection_input=_selection_input_from_admitted(
-            value["score_collection_input"]
-        ),
-        metric=_exact_reference_from_admitted(value, "metric"),
-        method=_exact_reference_from_admitted(value, "method"),
-        context_selector=_context_selector_from_admitted(
-            value["context_selector"]
-        ),
-        utility_transform=_exact_reference_from_admitted(
-            value,
-            "utility_transform",
-        ),
-        utility_parameters=value["utility_parameters"],
-        weight=value["weight"],
-        source_partition=value["source_partition"],
-        match_cardinality=value["match_cardinality"],
-        missing_policy=value["missing_policy"],
-    )
 
 @dataclass(frozen=True, slots=True)
 class WorkflowNodeInstance:
@@ -199,8 +104,6 @@ class WorkflowDocument:
     workflow_id: str
     nodes: tuple[WorkflowNodeInstance, ...]
     edges: tuple[WorkflowEdge, ...]
-    observation_selectors: tuple[ObservationSelector, ...] = ()
-    selection_objectives: tuple[SelectionObjective, ...] = ()
 
     def canonical_projection(self) -> dict[str, Any]:
         """Project the durable canonical Workflow identity document."""
@@ -212,14 +115,6 @@ class WorkflowDocument:
             ],
             "edges": [
                 edge.canonical_projection() for edge in self.edges
-            ],
-            "observation_selectors": [
-                observation_selector_canonical(selector)
-                for selector in self.observation_selectors
-            ],
-            "selection_objectives": [
-                selection_objective_canonical(objective)
-                for objective in self.selection_objectives
             ],
         }
 
@@ -246,16 +141,8 @@ def workflow_document_from_canonical(
                 WorkflowEdge.from_canonical(edge)
                 for edge in payload["edges"]
             ),
-            observation_selectors=tuple(
-                _observation_selector_from_admitted(selector)
-                for selector in payload.get("observation_selectors", ())
-            ),
-            selection_objectives=tuple(
-                _selection_objective_from_admitted(objective)
-                for objective in payload.get("selection_objectives", ())
-            ),
         )
-    except (CatalogBuildError, SelectionError, TypeError, ValueError) as error:
+    except (CatalogBuildError, TypeError, ValueError) as error:
         raise WorkflowDocumentError(
             "malformed_request",
             f"Workflow document is invalid: {error}",

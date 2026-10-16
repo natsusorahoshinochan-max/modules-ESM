@@ -43,7 +43,7 @@ class RecordedRunReadingTests(unittest.TestCase):
                                    "binding_id": "protein_io.import_sequences.direct",
                                    "node_parameters": {"project_input_ref": uploaded["project_input_ref"]},
                                    "binding_parameters": {}}],
-                        "edges": [], "observation_selectors": [], "selection_objectives": [],
+                        "edges": [],
                     }
                     request("PUT", f"/api/v2/projects/{project_id}/workspace", json={"workflow": workflow, "ui_state": {}})
                     commit = request("POST", f"/api/v2/projects/{project_id}/workflow:commit", json={"workflow": workflow})

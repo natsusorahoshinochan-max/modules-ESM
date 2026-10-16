@@ -310,9 +310,6 @@
         "cacheable": {
           "type": "boolean"
         },
-        "candidate_selection_consumption": {
-          "$ref": "#/$defs/CandidateSelectionConsumptionDeclaration"
-        },
         "contract_id": {
           "$ref": "#/$defs/Identifier"
         },
@@ -386,16 +383,6 @@
             }
           ]
         },
-        "observation_selector_consumption": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/ObservationSelectorConsumptionDeclaration"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "parameter_dependencies": {
           "$ref": "#/$defs/BehaviorReference"
         },
@@ -414,16 +401,6 @@
         },
         "schema_namespace": {
           "const": "protein-workbench-contract/v2"
-        },
-        "selection_objective_consumption": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/SelectionObjectiveConsumptionDeclaration"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       },
       "required": [
@@ -648,22 +625,6 @@
         "filename",
         "size",
         "content_digest"
-      ],
-      "type": "object"
-    },
-    "CandidateSelectionConsumptionDeclaration": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "candidate_output_port": {
-          "$ref": "#/$defs/Identifier"
-        }
-      },
-      "required": [
-        "candidate_input_port",
-        "candidate_output_port"
       ],
       "type": "object"
     },
@@ -2175,6 +2136,10 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "restored_output_port": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -2190,19 +2155,6 @@
         "node_parameters"
       ],
       "type": "object"
-    },
-    "ObservationContextSelector": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/IntrinsicObservationContext"
-        },
-        {
-          "$ref": "#/$defs/CalibrationObservationContext"
-        },
-        {
-          "$ref": "#/$defs/PairwiseContextSelector"
-        }
-      ]
     },
     "ObservationPropagationDeclaration": {
       "oneOf": [
@@ -2314,74 +2266,6 @@
       },
       "type": "object"
     },
-    "ObservationSelector": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "context_selector": {
-          "$ref": "#/$defs/ObservationContextSelector"
-        },
-        "match_cardinality": {
-          "const": "exactly_one"
-        },
-        "method": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "metric": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "missing_policy": {
-          "const": "error"
-        },
-        "score_collection_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "selector_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "source_partition": {
-          "$ref": "#/$defs/Identifier"
-        }
-      },
-      "required": [
-        "selector_id",
-        "candidate_input",
-        "score_collection_input",
-        "source_partition",
-        "metric",
-        "method",
-        "context_selector",
-        "match_cardinality",
-        "missing_policy"
-      ],
-      "type": "object"
-    },
-    "ObservationSelectorConsumptionDeclaration": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "candidate_output_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "score_collection_input_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "selector_ids_parameter": {
-          "$ref": "#/$defs/Identifier"
-        }
-      },
-      "required": [
-        "candidate_input_port",
-        "score_collection_input_port",
-        "candidate_output_port",
-        "selector_ids_parameter"
-      ],
-      "type": "object"
-    },
     "OpaqueCursor": {
       "maxLength": 512,
       "minLength": 1,
@@ -2433,37 +2317,6 @@
         "type",
         "operation_attempt_id",
         "status"
-      ],
-      "type": "object"
-    },
-    "PairwiseContextSelector": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "pairwise"
-        },
-        "normalization": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "pairing_mode": {
-          "enum": [
-            "fixed_reference",
-            "explicit_relation"
-          ]
-        },
-        "reference_role": {
-          "const": "reference"
-        },
-        "subject_role": {
-          "const": "subject"
-        }
-      },
-      "required": [
-        "kind",
-        "subject_role",
-        "reference_role",
-        "pairing_mode",
-        "normalization"
       ],
       "type": "object"
     },
@@ -3705,11 +3558,15 @@
         },
         "value": {
           "$ref": "#/$defs/JsonObject"
+        },
+        "value_content_digest": {
+          "$ref": "#/$defs/Digest"
         }
       },
       "required": [
         "kind",
-        "value"
+        "value",
+        "value_content_digest"
       ],
       "type": "object"
     },
@@ -3720,7 +3577,7 @@
           "$ref": "#/$defs/JsonObject"
         },
         "context_profile": {
-          "$ref": "#/$defs/ObservationContextSelector"
+          "$ref": "#/$defs/ObservationContextProfile"
         },
         "method": {
           "$ref": "#/$defs/ContractReference"
@@ -4166,9 +4023,6 @@
           "$ref": "#/$defs/RunStartedEvent"
         },
         {
-          "$ref": "#/$defs/SelectionTerminalEvent"
-        },
-        {
           "$ref": "#/$defs/RunTerminalEvent"
         }
       ]
@@ -4270,13 +4124,6 @@
           "maxItems": 2048,
           "type": "array"
         },
-        "out_of_scope_selection_ids": {
-          "items": {
-            "$ref": "#/$defs/NodeInstanceId"
-          },
-          "maxItems": 2048,
-          "type": "array"
-        },
         "reused_node_ids": {
           "items": {
             "$ref": "#/$defs/NodeInstanceId"
@@ -4301,8 +4148,7 @@
         "execution_node_ids",
         "forced_node_ids",
         "reused_node_ids",
-        "out_of_scope_node_ids",
-        "out_of_scope_selection_ids"
+        "out_of_scope_node_ids"
       ],
       "type": "object"
     },
@@ -4357,16 +4203,6 @@
         },
         "scope": {
           "$ref": "#/$defs/RunExecutionScope"
-        },
-        "selection_error": {
-          "$ref": "#/$defs/StructuredError"
-        },
-        "selection_results": {
-          "items": {
-            "$ref": "#/$defs/SelectionResult"
-          },
-          "maxItems": 256,
-          "type": "array"
         },
         "status": {
           "enum": [
@@ -4625,291 +4461,6 @@
         "project_id"
       ],
       "type": "object"
-    },
-    "SelectionErrorDetails": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "reason": {
-              "maxLength": 2048,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "reason"
-          ],
-          "type": "object"
-        },
-        {
-          "$ref": "#/$defs/ExceptionErrorDetails"
-        }
-      ]
-    },
-    "SelectionInput": {
-      "additionalProperties": false,
-      "properties": {
-        "node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "output_port": {
-          "$ref": "#/$defs/Identifier"
-        }
-      },
-      "required": [
-        "node_id",
-        "output_port"
-      ],
-      "type": "object"
-    },
-    "SelectionObjective": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "context_selector": {
-          "$ref": "#/$defs/ObservationContextSelector"
-        },
-        "match_cardinality": {
-          "const": "exactly_one"
-        },
-        "method": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "metric": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "missing_policy": {
-          "const": "error"
-        },
-        "objective_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "score_collection_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "source_partition": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "utility_parameters": {
-          "$ref": "#/$defs/JsonObject"
-        },
-        "utility_transform": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "weight": {
-          "exclusiveMinimum": 0,
-          "type": "number"
-        }
-      },
-      "required": [
-        "objective_id",
-        "candidate_input",
-        "score_collection_input",
-        "source_partition",
-        "metric",
-        "method",
-        "context_selector",
-        "utility_transform",
-        "utility_parameters",
-        "weight",
-        "match_cardinality",
-        "missing_policy"
-      ],
-      "type": "object"
-    },
-    "SelectionObjectiveConsumptionDeclaration": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "candidate_output_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "objective_id_parameter": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "objective_ids_parameter": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "score_collection_input_port": {
-          "$ref": "#/$defs/Identifier"
-        }
-      },
-      "required": [
-        "candidate_input_port",
-        "score_collection_input_port",
-        "candidate_output_port"
-      ],
-      "type": "object"
-    },
-    "SelectionObjectiveProvenance": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "context_selector": {
-          "$ref": "#/$defs/ObservationContextSelector"
-        },
-        "declared_weight": {
-          "minimum": 0,
-          "type": "number"
-        },
-        "effective_weight": {
-          "maximum": 1,
-          "minimum": 0,
-          "type": "number"
-        },
-        "match_cardinality": {
-          "const": "exactly_one"
-        },
-        "method": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "metric": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "missing_policy": {
-          "const": "error"
-        },
-        "objective_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "score_collection_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "source_partition": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "utility_parameters": {
-          "$ref": "#/$defs/JsonObject"
-        },
-        "utility_transform": {
-          "$ref": "#/$defs/ContractReference"
-        }
-      },
-      "required": [
-        "objective_id",
-        "candidate_input",
-        "score_collection_input",
-        "source_partition",
-        "metric",
-        "method",
-        "context_selector",
-        "utility_transform",
-        "utility_parameters",
-        "declared_weight",
-        "effective_weight",
-        "match_cardinality",
-        "missing_policy"
-      ],
-      "type": "object"
-    },
-    "SelectionResult": {
-      "additionalProperties": false,
-      "properties": {
-        "candidate_input": {
-          "$ref": "#/$defs/SelectionInput"
-        },
-        "objectives": {
-          "items": {
-            "$ref": "#/$defs/SelectionObjectiveProvenance"
-          },
-          "maxItems": 256,
-          "minItems": 1,
-          "type": "array"
-        },
-        "observation_selectors": {
-          "items": {
-            "$ref": "#/$defs/ObservationSelector"
-          },
-          "maxItems": 256,
-          "minItems": 1,
-          "type": "array"
-        },
-        "selected_candidate_ids": {
-          "items": {
-            "$ref": "#/$defs/Identifier"
-          },
-          "maxItems": 8192,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "selected_candidate_references": {
-          "items": {
-            "$ref": "#/$defs/ResultCandidateReference"
-          },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "selected_collection_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "selection_method": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "selection_node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "status": {
-          "const": "succeeded"
-        }
-      },
-      "required": [
-        "status",
-        "candidate_input",
-        "selected_collection_id",
-        "selected_candidate_ids"
-      ],
-      "type": "object"
-    },
-    "SelectionTerminalEvent": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "result": {
-              "$ref": "#/$defs/SelectionResult"
-            },
-            "status": {
-              "const": "succeeded"
-            },
-            "type": {
-              "const": "selection_terminal"
-            }
-          },
-          "required": [
-            "type",
-            "status",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "error": {
-              "$ref": "#/$defs/StructuredError"
-            },
-            "status": {
-              "const": "failed"
-            },
-            "type": {
-              "const": "selection_terminal"
-            }
-          },
-          "required": [
-            "type",
-            "status",
-            "error"
-          ],
-          "type": "object"
-        }
-      ]
     },
     "SemanticVersion": {
       "maxLength": 64,
@@ -5611,22 +5162,8 @@
           "maxItems": 2048,
           "type": "array"
         },
-        "observation_selectors": {
-          "items": {
-            "$ref": "#/$defs/ObservationSelector"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
         "schema_version": {
           "const": "2.1.0"
-        },
-        "selection_objectives": {
-          "items": {
-            "$ref": "#/$defs/SelectionObjective"
-          },
-          "maxItems": 256,
-          "type": "array"
         },
         "workflow_id": {
           "$ref": "#/$defs/ProjectId"
@@ -5664,62 +5201,6 @@
         "source_port",
         "target_node_id",
         "target_port"
-      ],
-      "type": "object"
-    },
-    "WorkflowObservationOptionsRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "project_id": {
-          "$ref": "#/$defs/ProjectId"
-        },
-        "ranking": {
-          "type": "boolean"
-        },
-        "workflow": {
-          "additionalProperties": false,
-          "properties": {
-            "edges": {
-              "items": {
-                "$ref": "#/$defs/WorkflowEdge"
-              },
-              "maxItems": 8192,
-              "type": "array"
-            },
-            "nodes": {
-              "items": {
-                "$ref": "#/$defs/NodeInstance"
-              },
-              "maxItems": 2048,
-              "type": "array"
-            }
-          },
-          "required": [
-            "nodes",
-            "edges"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "project_id",
-        "workflow",
-        "ranking"
-      ],
-      "type": "object"
-    },
-    "WorkflowObservationOptionsResult": {
-      "additionalProperties": false,
-      "properties": {
-        "options": {
-          "items": {
-            "type": "object"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "options"
       ],
       "type": "object"
     },
@@ -5993,6 +5474,50 @@
         "value_index",
         "slot"
       ]
+    },
+    "ObservationContextProfile": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/IntrinsicObservationContext"
+        },
+        {
+          "$ref": "#/$defs/CalibrationObservationContext"
+        },
+        {
+          "$ref": "#/$defs/PairwiseContextProfile"
+        }
+      ]
+    },
+    "PairwiseContextProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pairwise"
+        },
+        "normalization": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "pairing_mode": {
+          "enum": [
+            "fixed_reference",
+            "explicit_relation"
+          ]
+        },
+        "reference_role": {
+          "const": "reference"
+        },
+        "subject_role": {
+          "const": "subject"
+        }
+      },
+      "required": [
+        "kind",
+        "subject_role",
+        "reference_role",
+        "pairing_mode",
+        "normalization"
+      ],
+      "type": "object"
     }
   },
   "bundle_discovery": {
@@ -6760,20 +6285,6 @@
         "default": "structured_error"
       }
     },
-    "workflow_observation_options": {
-      "method": "POST",
-      "request_schema": "#/$defs/WorkflowObservationOptionsRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/WorkflowObservationOptionsResult",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/workflow:observation-options",
-      "status_mapping": {
-        "200": "response",
-        "default": "structured_error"
-      }
-    },
     "workflow_version": {
       "method": "GET",
       "request_schema": "#/$defs/WorkflowVersionRequest",
@@ -6879,7 +6390,6 @@
       "replay_started",
       "run_admitted",
       "run_started",
-      "selection_terminal",
       "run_terminal"
     ],
     "message_schema": "#/$defs/RunEventStreamMessage",
@@ -7034,12 +6544,6 @@
         "code": "run_not_found",
         "details_schema": "#/$defs/ResourceNotFoundDetails",
         "http_status": 404,
-        "retryable": false
-      },
-      "selection_failed": {
-        "code": "selection_failed",
-        "details_schema": "#/$defs/SelectionErrorDetails",
-        "http_status": 422,
         "retryable": false
       },
       "typed_output_not_found": {

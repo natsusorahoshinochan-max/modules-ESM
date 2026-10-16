@@ -72,14 +72,13 @@ class ScoringChoiceTests(unittest.TestCase):
             "transform_id": "scoring_fixture.success_fraction.native", "weight": 2}]}
         workflow = {"schema_version": "2.1.0", "workflow_id": project, "nodes": [{
             "node_id": "rank", "node_type_id": "selection.weighted_rank", "binding_id": "selection.weighted_rank.direct",
-            "node_parameters": parameters, "binding_parameters": {}}], "edges": [],
-            "selection_objectives": [], "observation_selectors": []}
+            "node_parameters": parameters, "binding_parameters": {}}], "edges": []}
         saved = self.client.put(f"/api/v2/projects/{project}/workspace", json={"workflow": workflow, "ui_state": {}})
         self.assertEqual(saved.status_code, 200, saved.text)
         reopened = self.client.get(f"/api/v2/projects/{project}/workspace")
         self.assertEqual(reopened.status_code, 200, reopened.text)
         self.assertEqual(reopened.json()["draft"]["workflow"]["nodes"][0]["node_parameters"], parameters)
-        self.assertEqual(reopened.json()["draft"]["workflow"]["selection_objectives"], [])
+        self.assertNotIn("selection_objectives", reopened.json()["draft"]["workflow"])
 
     def test_weighted_calculation_is_available_for_module_owned_choices(self):
         response = self.client.get("/api/v2/catalog")
@@ -94,6 +93,42 @@ class ScoringChoiceTests(unittest.TestCase):
         for contract in response.json()['contracts']:
             if contract['reference']['contract_kind'] == 'binding':
                 validate_schema('#/$defs/BindingContractDescriptor', contract['descriptor'])
+
+    def test_complete_catalog_is_valid_for_external_public_clients(self):
+        response = self.client.get('/api/v2/catalog')
+        self.assertEqual(response.status_code, 200, response.text)
+        validate_schema('#/$defs/CatalogSnapshot', response.json())
+
+    def test_published_protocol_has_no_unresolved_schema_references(self):
+        response = self.client.get('/api/v2/protocol')
+        self.assertEqual(response.status_code, 200, response.text)
+        bundle = response.json()
+
+        def visit(value):
+            if isinstance(value, dict):
+                if '$ref' in value:
+                    target = bundle
+                    for part in value['$ref'].removeprefix('#/').split('/'):
+                        self.assertIn(part, target, value['$ref'])
+                        target = target[part]
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(bundle)
+
+    def test_current_workspace_uses_only_node_owned_configuration(self):
+        project = self.client.post('/api/v2/projects', json={'name': 'Node rules'}).json()['id']
+        workflow = {'schema_version': '2.1.0', 'workflow_id': project, 'nodes': [], 'edges': []}
+        response = self.client.put(f'/api/v2/projects/{project}/workspace',
+                                  json={'workflow': workflow, 'ui_state': {}})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['draft']['workflow'], workflow)
+        response = self.client.put(f'/api/v2/projects/{project}/workspace',
+                                  json={'workflow': {**workflow, 'selection_objectives': []}, 'ui_state': {}})
+        self.assertEqual(response.status_code, 400, response.text)
 
 
 if __name__ == "__main__":

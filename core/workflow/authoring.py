@@ -6,7 +6,7 @@ from core.catalog.result_adoption import AdoptedObservation, with_adopted_defini
 from core.project.adopted_input import read_adopted_snapshot
 from core.project.storage import StoragePathError, validate_identifier
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
@@ -19,7 +19,7 @@ import uuid
 
 from datatypes.i_json import freeze_i_json, thaw_i_json
 from core.catalog.model import FrozenCatalog
-from core.catalog.declarations import NodeTypeDefinition
+from core.catalog.declarations import ExecutionBindingDefinition, NodeTypeDefinition
 from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
     WEBUI_3GB1_PROJECT_ID,
@@ -36,6 +36,8 @@ from core.workflow.document import (
 )
 from core.workflow.errors import WorkflowCompileError
 from core.workflow.plan import ExecutionPlan
+from core.workflow.graph import WorkflowGraphDescription
+from core.workflow._compiler.graph import _admit_workflow_graph
 
 
 _REVISION_FILENAME_WIDTH = 20
@@ -54,6 +56,15 @@ class WorkflowAuthoringError(RuntimeError):
         self.code = code
         self.details = dict(details)
         super().__init__(message)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowAuthoringDescription:
+    """Carrier-owned graph and unfiltered declarations for module inspection."""
+
+    catalog: FrozenCatalog
+    graph: WorkflowGraphDescription
+    adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,10 +157,7 @@ def _scientific_identity(plan: ExecutionPlan) -> Mapping[str, Any]:
         "nodes": [
             {
                 "node_id": node.node_id,
-                "node_parameters": {
-                    key: thaw_i_json(value) for key, value in node.node_parameters.items()
-                    if key not in node.result_identity_plan_facts.node_parameter_indirections
-                },
+                "node_parameters": thaw_i_json(node.node_parameters),
                 "project_input_parameters": list(node._runtime.project_input_parameters),
                 "binding_parameters": thaw_i_json(node.binding_parameters),
                 "result_identity_plan_facts": node.result_identity_plan_facts.canonical_projection(),
@@ -469,7 +477,7 @@ class WorkflowAuthoringService:
                 details={"field_path": ["workflow", "workflow_id"]},
             )
 
-    def _compilation_request(self, project_id: str, workflow: WorkflowDocument, *, editing: bool = False) -> CompilationRequest:
+    def _compilation_request(self, project_id: str, workflow: WorkflowDocument, *, editing: bool = False, input_reader: Callable[[str], tuple[ProjectInputDescriptor, bytes]] | None = None) -> CompilationRequest:
         declarations = {source.node_type_id: source for source in self._catalog.result_sources}
         observations: dict[str, tuple[AdoptedObservation, ...]] = {}
         definitions: dict[tuple[str, str], Mapping[str, Any]] = {}
@@ -480,12 +488,16 @@ class WorkflowAuthoringService:
             reference = node.node_parameters['project_input_ref']
             try:
                 validate_identifier(reference, 'project_input_ref')
-                _, payload = self._projects.read_input(project_id, reference)
+                _, payload = (input_reader(reference) if input_reader is not None else self._projects.read_input(project_id, reference))
             except (StoragePathError, FileNotFoundError) as error:
                 if editing:
                     continue
                 raise WorkflowCompileError('project_input_not_found', 'Adopted Project Input is unavailable',
                     node_id=node.node_id, field_path=('node_parameters', 'project_input_ref')) from error
+            except WorkflowAuthoringError as error:
+                if editing and error.code == 'project_input_not_found':
+                    continue
+                raise
             snapshot = read_adopted_snapshot(payload)
             if source.observations is not None:
                 observations[node.node_id] = source.observations(snapshot['canonical_value'].encode('utf-8'))
@@ -497,17 +509,33 @@ class WorkflowAuthoringService:
                     definitions[key] = definition
         return CompilationRequest(workflow, observations, tuple(definitions.values()))
 
-    def observation_options(self, project_id: str, workflow: WorkflowDocument, *, ranking: bool) -> list[dict[str, Any]]:
-        from core.workflow.compiler import observation_options
-
+    def describe(
+        self, project_id: str, workflow: WorkflowDocument, *,
+        input_reader: Callable[[str], tuple[ProjectInputDescriptor, bytes]] | None = None,
+    ) -> WorkflowAuthoringDescription:
+        """Describe an incomplete graph and available adopted declarations."""
         self._require_project(project_id)
+        self._validate_draft_submission(project_id, workflow)
         try:
-            request = self._compilation_request(project_id, workflow, editing=True)
+            request = self._compilation_request(project_id, workflow, editing=True, input_reader=input_reader)
             try:
                 catalog = with_adopted_definitions(self._catalog, request.adopted_definitions)
             except ValueError as error:
                 raise WorkflowCompileError('adopted_definition_conflict', str(error)) from error
-            return observation_options(workflow, catalog, ranking=ranking, adopted_observations=request.adopted_observations)
+            plan_nodes = {}
+            for node in workflow.nodes:
+                if node.preserved_configuration is not None:
+                    continue
+                node_contract = catalog.get_contract('node_type', node.node_type_id)
+                binding_contract = catalog.get_contract('binding', node.binding_id)
+                if node_contract is None or binding_contract is None:
+                    continue
+                plan_nodes[node.node_id] = (
+                    cast(NodeTypeDefinition, node_contract.definition),
+                    cast(ExecutionBindingDefinition, binding_contract.definition),
+                )
+            graph = _admit_workflow_graph(workflow, plan_nodes, require_complete=False)
+            return WorkflowAuthoringDescription(catalog, graph, request.adopted_observations)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
 
@@ -802,7 +830,7 @@ class WorkflowAuthoringService:
         workflow_project_id: str, workflow: WorkflowDocument,
     ) -> dict[str, Any]:
         """Compare current admitted Draft science to the original Commit facts."""
-        original = self.load_commit(project_id, workflow_commit_id=workflow_commit_id)
+        original = self.recorded_commit(project_id, workflow_commit_id=workflow_commit_id)
         self._require_project(workflow_project_id)
         self._validate_draft_submission(workflow_project_id, workflow)
         result: dict[str, Any] = {
@@ -1046,7 +1074,7 @@ class WorkflowAuthoringService:
         root = self._projects.workflow_storage_root(WEBUI_3GB1_PROJECT_ID)
         return tuple(
             ((collection, path.name), path.read_bytes())
-            for collection in ("drafts", "draft-readings", "commits", "workspaces", "ui-states")
+            for collection in ("drafts", "draft-readings", "commits", "commit-status", "workspaces", "ui-states")
             for path in sorted((root / collection).glob("*.json"))
         )
 

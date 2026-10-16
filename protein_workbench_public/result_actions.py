@@ -40,7 +40,8 @@ class ResultActionReader:
                     location['node_id'], location['output_port'], location['value_index'])
                 if metadata['typed_value']['port_type']['contract_id'] != declaration.port_type_id:
                     raise V2RunError('malformed_request', f'Result action input {name!r} does not support this Port Type', details={'field_path': ['inputs', name]})
-                slots.setdefault(location['slot'], []).append(ResultActionValue(body, references))
+                slots.setdefault(location['slot'], []).append(ResultActionValue(
+                    body, references, metadata['typed_value']['value_content_digest']))
             values[name] = {slot: tuple(items) for slot, items in slots.items()}
         try:
             admitted = admit_values(action.parameters, parameters)

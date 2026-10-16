@@ -447,61 +447,6 @@ class EnvironmentFieldDeclaration:
 
 
 @dataclass(frozen=True, slots=True)
-class SelectionObjectiveConsumptionDefinition:
-    """Closed declaration binding a Node to Workflow-owned objectives."""
-
-    candidate_input_port: str
-    score_collection_input_port: str
-    candidate_output_port: str
-    objective_id_parameter: str | None = None
-    objective_ids_parameter: str | None = None
-
-    def descriptor_template(self) -> dict[str, str]:
-        descriptor = {
-            "candidate_input_port": self.candidate_input_port,
-            "score_collection_input_port": self.score_collection_input_port,
-            "candidate_output_port": self.candidate_output_port,
-        }
-        if self.objective_id_parameter is not None:
-            descriptor["objective_id_parameter"] = self.objective_id_parameter
-        else:
-            descriptor["objective_ids_parameter"] = self.objective_ids_parameter
-        return descriptor
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateSelectionConsumptionDefinition:
-    """A Candidate-only selection with no Score dependency."""
-
-    candidate_input_port: str
-    candidate_output_port: str
-
-    def descriptor_template(self) -> dict[str, str]:
-        return {
-            "candidate_input_port": self.candidate_input_port,
-            "candidate_output_port": self.candidate_output_port,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationSelectorConsumptionDefinition:
-    """Closed declaration binding a Node to ordered raw Observation selectors."""
-
-    candidate_input_port: str
-    score_collection_input_port: str
-    candidate_output_port: str
-    selector_ids_parameter: str
-
-    def descriptor_template(self) -> dict[str, str]:
-        return {
-            "candidate_input_port": self.candidate_input_port,
-            "score_collection_input_port": self.score_collection_input_port,
-            "candidate_output_port": self.candidate_output_port,
-            "selector_ids_parameter": self.selector_ids_parameter,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class ParameterDependencies:
     """Actual definition and connected-slot dependencies selected by parameters."""
 
@@ -539,15 +484,6 @@ class ExecutionBindingDefinition:
     produced_observations: tuple[ProducedObservation, ...] = ()
     adapter_behavior: BehaviorReference | None = None
     observation_propagation: ObservationPropagation | None = None
-    selection_objective_consumption: (
-        SelectionObjectiveConsumptionDefinition | None
-    ) = None
-    observation_selector_consumption: (
-        ObservationSelectorConsumptionDefinition | None
-    ) = None
-    candidate_selection_consumption: (
-        CandidateSelectionConsumptionDefinition | None
-    ) = None
     effective_randomness_parameters: tuple[str, ...] = ()
     effective_randomness_resolver: EffectiveRandomnessResolver | None = field(
         default=None,
@@ -623,18 +559,6 @@ class ExecutionBindingDefinition:
             descriptor["readiness_declaration"] = self.readiness.descriptor()
         if self.parameter_dependencies is not None:
             descriptor["parameter_dependencies"] = self.parameter_dependencies.behavior.descriptor()
-        if self.selection_objective_consumption is not None:
-            descriptor["selection_objective_consumption"] = (
-                self.selection_objective_consumption.descriptor_template()
-            )
-        if self.observation_selector_consumption is not None:
-            descriptor["observation_selector_consumption"] = (
-                self.observation_selector_consumption.descriptor_template()
-            )
-        if self.candidate_selection_consumption is not None:
-            descriptor["candidate_selection_consumption"] = (
-                self.candidate_selection_consumption.descriptor_template()
-            )
         if self.effective_randomness_parameters:
             descriptor["effective_randomness_parameters"] = list(
                 self.effective_randomness_parameters

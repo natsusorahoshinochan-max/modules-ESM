@@ -107,9 +107,6 @@ class SelectionMigrationApplicationTests(unittest.TestCase):
     def test_current_node_owned_rules_still_save_reopen_and_run_after_conversion(self):
         workflow = study.SelectionApplicationTests.workflow(self)
         original = deepcopy(workflow)
-        workflow['observation_selectors'] = []
-        workflow['selection_objectives'] = []
-
         converted = convert_selection_workflow(workflow)
 
         self.assertEqual(converted, original)

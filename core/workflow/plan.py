@@ -9,12 +9,6 @@ from typing import Any
 from datatypes.i_json import thaw_i_json
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.observation_plan import ProducedObservationPlan
-from core.scoring.selection import (
-    ObservationSelector,
-    ResolvedSelectionObjective,
-    SelectionObjective,
-    SelectionInput,
-)
 from core.workflow.document import (
     WorkflowEdge,
 )
@@ -56,7 +50,6 @@ class ResultIdentityPlanFacts:
     """Immutable compile-resolved static facts for one Result Identity."""
 
     identity_facts: Mapping[str, Any]
-    node_parameter_indirections: tuple[str, ...]
 
     def identity_projection(self) -> dict[str, Any]:
         """Return one isolated canonical projection shared by runtime users."""
@@ -66,9 +59,6 @@ class ResultIdentityPlanFacts:
         """Return the complete compiler-owned scientific plan facts."""
         return {
             "identity_facts": self.identity_projection(),
-            "node_parameter_indirections": list(
-                self.node_parameter_indirections
-            ),
         }
 
     def result_identity_projection(
@@ -158,16 +148,6 @@ class _ExecutionPlanNodeRuntime:
         repr=False,
         compare=False,
     )
-    selection_objectives: tuple[ResolvedSelectionObjective, ...] = field(
-        repr=False,
-        compare=False,
-    )
-    observation_selectors: tuple[ObservationSelector, ...] = field(
-        repr=False,
-        compare=False,
-    )
-    selection_candidate_output_port: str | None
-    selection_candidate_input: SelectionInput | None
     artifact_outputs: tuple[ArtifactOutputPlan, ...]
 
 @dataclass(frozen=True, slots=True)
@@ -202,5 +182,3 @@ class ExecutionPlan:
     node_order: tuple[str, ...]
     scientific_definitions: tuple[Mapping[str, Any], ...]
     _runtime: _ExecutionPlanRuntime = field(repr=False, compare=False)
-    observation_selectors: tuple[ObservationSelector, ...]
-    selection_objectives: tuple[SelectionObjective, ...]

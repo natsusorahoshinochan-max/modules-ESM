@@ -24,10 +24,6 @@ from datatypes.i_json import admit_i_json
 
 if TYPE_CHECKING:
     from core.catalog.observation import ProducedObservation
-    from core.scoring.selection import (
-        ObservationSelector,
-        ResolvedSelectionObjective,
-    )
 
 
 PortMultiplicity = Literal["one", "many"]
@@ -498,8 +494,6 @@ class OperationContext:
 
     method: ExactContractReference
     produced_observations: tuple[ProducedObservation, ...]
-    selection_objectives: tuple[ResolvedSelectionObjective, ...]
-    observation_selectors: tuple[ObservationSelector, ...]
     environment: BindingEnvironment
     resources: OperationResources
     resolved_definitions: Mapping[tuple[str, str], Any] = field(default_factory=lambda: MappingProxyType({}), repr=False, compare=False)

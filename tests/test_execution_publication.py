@@ -19,6 +19,7 @@ from core.project.objects import ProjectObjectStore
 from core.workflow.authoring import WorkflowAuthoringService
 from modules.selection.package import MODULE_PACKAGE as SELECTION
 from protein_workbench_public.http.app import create_http_app
+from protein_workbench_public.protocol import validate_schema
 from tests.scoring_fixture import registration
 
 
@@ -67,6 +68,7 @@ class ScientificPublicationTests(unittest.TestCase):
             response = self.client.get(run_path)
             self.assertEqual(response.status_code, 200, response.text)
             projection = response.json()
+            validate_schema('#/$defs/RunProjection', projection)
             if projection["status"] not in ("admitted", "running"):
                 return run_path, projection
             time.sleep(0.01)
@@ -77,6 +79,7 @@ class ScientificPublicationTests(unittest.TestCase):
         with self.client.websocket_connect(run_path + "/events") as stream:
             while True:
                 message = stream.receive_json()
+                validate_schema('#/$defs/RunEventStreamMessage', message)
                 if message["event"]["type"] == "replay_complete":
                     return events
                 if message["event"]["type"] != "replay_started":
@@ -115,6 +118,7 @@ class ScientificPublicationTests(unittest.TestCase):
             "node_id": "measurements", "output_port": "scores", "value_index": 0,
         })
         self.assertEqual(reading.status_code, 200, reading.text)
+        validate_schema('#/$defs/PublishedResultValue', reading.json())
         self.assertEqual(reading.json()["value_content_digest"], canonical.headers["Digest"])
 
     def test_failed_measurement_keeps_an_independent_scientific_publication_readable(self):
