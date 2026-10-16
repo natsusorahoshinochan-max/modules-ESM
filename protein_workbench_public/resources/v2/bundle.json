@@ -5508,7 +5508,7 @@
           "type": "integer"
         },
         "workflow": {
-          "$ref": "#/$defs/WorkflowDocument"
+          "$ref": "#/$defs/RecordedWorkflow"
         },
         "workflow_commit_id": {
           "$ref": "#/$defs/WorkflowCommitId"
@@ -5897,6 +5897,21 @@
         "action_id"
       ],
       "additionalProperties": false
+    },
+    "RecordedWorkflow": {
+      "type": "object",
+      "required": [
+        "nodes"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeInstance"
+          }
+        }
+      },
+      "additionalProperties": true
     }
   },
   "bundle_discovery": {

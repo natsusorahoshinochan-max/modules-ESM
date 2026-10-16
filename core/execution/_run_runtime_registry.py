@@ -12,6 +12,7 @@ from core.execution.ledger import (
 )
 from core.project.manager import ProjectManager
 from core.project.storage import StoragePathError
+from core.execution.recorded_run import RecordedRun
 
 
 class _RunRegistry:
@@ -51,6 +52,12 @@ class _RunRegistry:
         project_id: str,
         run_id: str,
     ) -> None:
+        reading = RecordedRun.load(self._projects, project_id, run_id)
+        if reading is not None:
+            record = _RunRecord(compiled=None, ledger=reading)
+            record.mark_worker_completed()
+            self.register(project_id, run_id, record)
+            return
         ledger = Ledger.load(
             self._projects,
             project_id,

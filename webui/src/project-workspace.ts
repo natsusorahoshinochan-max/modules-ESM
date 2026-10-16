@@ -1,4 +1,4 @@
-import type { JsonObject, ProjectMetadata, RunProjection, Workflow, WorkflowDraft } from './protocol/client'
+import type { JsonObject, ProjectMetadata, RunProjection, Workflow, WorkflowDraft, WorkflowNode } from './protocol/client'
 
 export type WorkspaceProject = ProjectMetadata & {
   created_at: string
@@ -33,11 +33,13 @@ export type WorkflowVersionView = {
   return_workspace_revision: number
 }
 
+export type RecordedWorkflow = JsonObject & { nodes: WorkflowNode[] }
+
 export type WorkflowCommitSnapshot = {
   project_id: string
   workflow_commit_id: string
   source_draft_revision: number
-  workflow: Workflow
+  workflow: RecordedWorkflow
   scientific_definitions: JsonObject[]
   scientific_identity: JsonObject
 }

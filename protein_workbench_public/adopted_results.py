@@ -17,15 +17,15 @@ def _original_parameters(
 ) -> dict[str, Any]:
     project_id = source['source_project_id']
     run = runtime.projection(project_id, source['source_run_id'])
-    commit = authoring.load_commit(project_id, workflow_commit_id=run.workflow_commit_id)
-    node = next(node for node in commit.workflow.nodes if node.node_id == source['node_id'])
-    if any(definition['contract_kind'] == 'node_type' and definition['contract_id'] == node.node_type_id and definition['descriptor'].get('restored_output_port') == source['output_port'] for definition in commit.scientific_definitions):
-        _, payload = projects.read_input(project_id, node.node_parameters['project_input_ref'])
+    commit = authoring.recorded_commit(project_id, workflow_commit_id=run.workflow_commit_id)
+    node = next(node for node in commit.workflow['nodes'] if node['node_id'] == source['node_id'])
+    if any(definition['contract_kind'] == 'node_type' and definition['contract_id'] == node['node_type_id'] and definition['descriptor'].get('restored_output_port') == source['output_port'] for definition in commit.scientific_definitions):
+        _, payload = projects.read_input(project_id, node['node_parameters']['project_input_ref'])
         return read_adopted_snapshot(payload)['parameters']
     publication = next(item for item in run.publications if item.node_id == source['node_id'])
     output = next(item for item in publication.outputs if item.output_port == source['output_port'])
     producer = runtime.projection(project_id, output.producer_run_id)
-    producer_commit = authoring.load_commit(project_id, workflow_commit_id=producer.workflow_commit_id)
+    producer_commit = authoring.recorded_commit(project_id, workflow_commit_id=producer.workflow_commit_id)
     matches = [original.node_id for original in producer.publications
         if original.result_identity == publication.result_identity
         for value in original.outputs
@@ -34,7 +34,7 @@ def _original_parameters(
         and value.value_manifest_reference == output.value_manifest_reference
         and value.materialization['resolution'] == 'executed'
         and (output.materialization['resolution'] != 'executed' or original.node_id == source['node_id'])]
-    recorded = producer_commit.workflow.canonical_projection()['nodes']
+    recorded = thaw_i_json(producer_commit.workflow)['nodes']
     admitted = thaw_i_json(producer_commit.scientific_identity)['nodes']
     records = []
     for node_id in dict.fromkeys(matches):
@@ -72,11 +72,11 @@ def dependency_values(source: AdoptedSource, *, runtime: V2RunService,
                       catalog: FrozenCatalog) -> Iterator[AdoptedSnapshot]:
     """Expose published values to the module that owns dependency selection."""
     run = runtime.projection(source['source_project_id'], source['source_run_id'])
-    commit = authoring.load_commit(source['source_project_id'], workflow_commit_id=run.workflow_commit_id)
+    commit = authoring.recorded_commit(source['source_project_id'], workflow_commit_id=run.workflow_commit_id)
     source_nodes = {definition['contract_id'] for definition in commit.scientific_definitions if definition['contract_kind'] == 'node_type' and definition['descriptor'].get('restored_output_port') is not None}
-    for node in commit.workflow.nodes:
-        if node.node_type_id in source_nodes:
-            _, payload = projects.read_input(source['source_project_id'], node.node_parameters['project_input_ref'])
+    for node in commit.workflow['nodes']:
+        if node['node_type_id'] in source_nodes:
+            _, payload = projects.read_input(source['source_project_id'], node['node_parameters']['project_input_ref'])
             snapshot = read_adopted_snapshot(payload)
             yield snapshot
             yield from snapshot['dependencies']
