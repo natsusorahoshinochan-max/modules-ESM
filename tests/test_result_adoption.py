@@ -59,3 +59,12 @@ class ResultAdoption(unittest.TestCase):
                 restored = client.get(target_run + '/outputs/adopted/value/values/0')
                 self.assertEqual(restored.status_code, 200, restored.text)
                 self.assertEqual(restored.content, original.content)
+
+    def test_missing_target_reports_project_not_found_without_adopting(self):
+        with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            with TestClient(create_application(load_example_results=False)) as client:
+                response = client.post('/api/v2/projects/missing/inputs:adopt', json={
+                    'source_project_id': 'source', 'source_run_id': 'run',
+                    'node_id': 'import', 'output_port': 'sequence_candidates', 'value_index': 0})
+                self.assertEqual(response.status_code, 404, response.text)
+                self.assertEqual(response.json()['error']['code'], 'project_not_found')

@@ -1,15 +1,37 @@
 """Independent immutable snapshots of explicitly adopted published values."""
 from dataclasses import dataclass
 import json
-from typing import Any
+from typing import TypedDict, cast
 
 from core.operation import OperationCall, OperationResources
+
+
+class AdoptedCandidateReference(TypedDict):
+    candidate_id: str
+    data_type_id: str
+    content_digest: str
+
+
+class AdoptedSource(TypedDict):
+    source_project_id: str
+    source_run_id: str
+    node_id: str
+    output_port: str
+    value_index: int
+
+
+class AdoptedSnapshot(TypedDict):
+    port_type_id: str
+    canonical_value: str
+    content_digest: str
+    candidate_data: list[AdoptedCandidateReference]
+    source: AdoptedSource
 
 
 @dataclass(frozen=True, slots=True)
 class RestoredOutput:
     """Canonical output read from this operation's declared Project Input."""
-    snapshot: dict[str, Any]
+    snapshot: AdoptedSnapshot
 
 
 class AdoptedInputOperation:
@@ -18,4 +40,4 @@ class AdoptedInputOperation:
 
     def execute(self, call: OperationCall) -> dict[str, RestoredOutput]:
         _, payload = self.resources.read_project_input(call.node_parameters['project_input_ref'])
-        return {'value': RestoredOutput(json.loads(payload))}
+        return {'value': RestoredOutput(cast(AdoptedSnapshot, json.loads(payload)))}
