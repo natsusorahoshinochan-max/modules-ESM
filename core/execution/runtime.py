@@ -507,6 +507,14 @@ class V2RunService:
                 self._worker_condition.wait()
         self._node_attempt_factory.shutdown()
 
+    def project_runs(self, project_id: str) -> tuple[RunProjection, ...]:
+        """Read every admitted Run of an existing Project."""
+        self._projects.require_meta(project_id)
+        return tuple(
+            self.projection(project_id, run_id)
+            for run_id in self._registry.project_run_ids(project_id)
+        )
+
     def projection(self, project_id: str, run_id: str) -> RunProjection:
         return self._queries.projection(project_id, run_id)
 
