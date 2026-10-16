@@ -20,6 +20,6 @@ export function ScoringChoiceEditor({ value, catalog, onChange }: { value: Obser
       {choices.map((item) => <option key={item.reference.contract_id} value={item.reference.contract_id}>{String(item.descriptor.title)}</option>)}
     </select></label>
     {selected && <><p>{String(selected.descriptor.meaning)}</p><p>适用条件：{String(selected.descriptor.applicability)}</p><ul aria-label="评分方式限制">{(selected.descriptor.limitations as string[]).map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></>}
-    {!selected && <p role="status">{choices.length === 0 ? '当前评价没有适用评分方式，加权不可用。原值筛选、排序和 Pareto 仍可使用。' : '请选择适用评分方式；已保存的不适用选择不会自动替换。'}</p>}
+    {value.weight === 0 ? <p role="status">此项权重为 0，不参与计算，无需评分方式。</p> : !selected && <p role="status">{choices.length === 0 ? '当前评价没有适用评分方式，加权不可用。原值筛选、排序和 Pareto 仍可使用。' : '请选择适用评分方式；已保存的不适用选择不会自动替换。'}</p>}
   </div>
 }

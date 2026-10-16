@@ -77,6 +77,17 @@ test('the editor accepts a zero relative weight as an inactive term', () => {
   assert.match(view, /aria-label="观察条件 2 的有效权重">有效权重：0%/)
 })
 
+test('an inactive term does not claim that an otherwise configured weighted choice is unavailable', () => {
+  const draft = createSelectionDraft('weighted_rank')
+  draft.observations = [
+    { ...newObservation(), metricId: 'success_fraction', methodId: 'trials', partition: 'measured', transformId: 'success.native', weight: 1 },
+    { ...newObservation(), metricId: 'no_scoring_mode', methodId: 'other', partition: 'unused', weight: 0 },
+  ]
+  const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: saveSelectionDraft(workflow, 'rank', draft), nodeId: 'rank', onChange: () => {} }))
+  assert.match(view, /此项权重为 0，不参与计算，无需评分方式/)
+  assert.doesNotMatch(view, /当前评价没有适用评分方式，加权不可用/)
+})
+
 test('switching to weighted choices replaces the previous operation score dependencies', () => {
   const raw = createSelectionDraft('sort')
   raw.direction = 'ascending'

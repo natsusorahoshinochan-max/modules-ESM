@@ -39,45 +39,22 @@ def _node(
     }
 
 
-def _edge(source: str, source_port: str, target: str, target_port: str) -> dict[str, str]:
+def _edge(source: str, source_port: str, target: str, target_port: str, target_slot: str | None = None) -> dict[str, str]:
     return {
         "source_node_id": source,
         "source_port": source_port,
         "target_node_id": target,
         "target_port": target_port,
+        **({"target_slot": target_slot} if target_slot else {}),
     }
 
 
-def _objective(
-    objective_id: str,
-    *,
-    candidates: str,
-    scores: str,
-    metric: str,
-    method: str,
-    source_partition: str,
-    utility_transform: str,
-    weight: float,
-    context: dict[str, Any],
-    score_port: str = "scores",
-) -> dict[str, Any]:
-    return {
-        "objective_id": objective_id,
-        "candidate_input": {"node_id": candidates, "output_port": "structure_candidates"},
-        "score_collection_input": {"node_id": scores, "output_port": score_port},
-        "source_partition": source_partition,
-        "metric": {"contract_kind": "metric", "contract_id": metric},
-        "method": {"contract_kind": "method", "contract_id": method},
-        "context_selector": context,
-        "utility_transform": {
-            "contract_kind": "utility_transform",
-            "contract_id": utility_transform,
-        },
-        "utility_parameters": {},
-        "weight": weight,
-        "match_cardinality": "exactly_one",
-        "missing_policy": "error",
-    }
+def _raw_sort(node_id: str, *, metric: str, method: str, partition: str, context: dict[str, Any]) -> dict[str, Any]:
+    return _node(node_id, "selection.sort", "selection.sort.direct", {
+        "selection": {"score_input": node_id + ".scores", "metric_id": metric,
+                      "method_id": method, "source_partition": partition, "context": context},
+        "direction": "descending",
+    })
 
 
 def _author_document() -> dict[str, Any]:
@@ -123,7 +100,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     nodes = [
         _node("generate-paired", "esm3.generate_paired", "esm3.generate_paired.biohub_medium", {"num_samples": 7}),
         _node("confidence-generated", "structure_prediction.materialize_confidence", "structure_prediction.materialize_confidence.direct"),
-        _node("rank-generated", "selection.weighted_rank", "selection.weighted_rank.direct", {"objective_ids": ["generated-plddt"], "tie_policy": "candidate_id_ascending"}),
+        _raw_sort("rank-generated", metric="structure.plddt.mean_residue", method="esm3.generate_paired.esm3_medium_2024_08", partition="prediction_confidence", context={"kind": "intrinsic"}),
         _node("take-top-four", "collection_ops.take_candidates", "collection_ops.take_candidates.direct", {"k": 4}),
         _node("relation-generated-structure-parent", "collection_ops.relate_by_parent", "collection_ops.relate_by_parent.direct"),
         _node("relation-generated-pairs", "collection_ops.invert_relation", "collection_ops.invert_relation.direct"),
@@ -137,7 +114,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         _node("align-stage-one", "structure_comparison.align_pairs", "structure_comparison.align_pairs.sequence_primary_affine"),
         _node("tm-stage-one", "structure_comparison.tm_score_from_alignments", "structure_comparison.tm_score_from_alignments.from_alignment_evidence"),
         _node("scores-stage-one", "collection_ops.merge_scores", "collection_ops.merge_scores.direct"),
-        _node("rank-stage-one", "selection.weighted_rank", "selection.weighted_rank.direct", {"objective_ids": ["stage-one-plddt", "stage-one-parent-tm"], "tie_policy": "candidate_id_ascending"}),
+        _raw_sort("rank-stage-one", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", partition="structure_comparison.tm_score.explicit_relation", context={"kind": "pairwise", "subject_role": "subject", "reference_role": "reference", "pairing_mode": "explicit_relation", "normalization": "reference-axis-residue-count"}),
         _node("take-top-two", "collection_ops.take_candidates", "collection_ops.take_candidates.direct", {"k": 2}),
         _node("axes-top-two", "structure_transform.resolve_candidate_residue_axes", "structure_transform.resolve_candidate_residue_axes.direct"),
         _node("design-children", "proteinmpnn.design", "proteinmpnn.design.local", {"effective_seed": 1603, "num_sequences": 3}),
@@ -150,7 +127,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         _node("align-final", "structure_comparison.align_pairs", "structure_comparison.align_pairs.sequence_primary_affine"),
         _node("tm-final", "structure_comparison.tm_score_from_alignments", "structure_comparison.tm_score_from_alignments.from_alignment_evidence"),
         _node("scores-final", "collection_ops.merge_scores", "collection_ops.merge_scores.direct"),
-        _node("rank-final", "selection.weighted_rank", "selection.weighted_rank.direct", {"objective_ids": ["final-plddt", "final-parent-tm"], "tie_policy": "candidate_id_ascending"}),
+        _raw_sort("rank-final", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", partition="structure_comparison.tm_score.explicit_relation", context={"kind": "pairwise", "subject_role": "subject", "reference_role": "reference", "pairing_mode": "explicit_relation", "normalization": "reference-axis-residue-count"}),
         _node("take-top-three", "collection_ops.take_candidates", "collection_ops.take_candidates.direct", {"k": 3}),
         _node("export-final", "protein_io.export_structure", "protein_io.export_structure.direct"),
     ]
@@ -160,7 +137,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         e("generate-paired", "structure_candidates", "confidence-generated", "structure_candidates"),
         e("generate-paired", "confidence_facts", "confidence-generated", "confidence_facts"),
         e("generate-paired", "structure_candidates", "rank-generated", "candidates"),
-        e("confidence-generated", "observations", "rank-generated", "scores"),
+        e("confidence-generated", "observations", "rank-generated", "scores", "rank-generated.scores"),
         e("rank-generated", "candidates", "take-top-four", "candidates"),
         e("generate-paired", "structure_candidates", "relation-generated-structure-parent", "subjects"),
         e("generate-paired", "sequence_candidates", "relation-generated-structure-parent", "parents"),
@@ -187,7 +164,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         e("confidence-stage-one", "observations", "scores-stage-one", "scores_a"),
         e("tm-stage-one", "scores", "scores-stage-one", "scores_b"),
         e("fold-stage-one", "structure_candidates", "rank-stage-one", "candidates"),
-        e("scores-stage-one", "scores", "rank-stage-one", "scores"),
+        e("scores-stage-one", "scores", "rank-stage-one", "scores", "rank-stage-one.scores"),
         e("rank-stage-one", "candidates", "take-top-two", "candidates"),
         e("take-top-two", "candidates", "axes-top-two", "structure_candidates"),
         e("axes-top-two", "residue_axes", "design-children", "structure_residue_axes"),
@@ -211,7 +188,7 @@ def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         e("confidence-final", "observations", "scores-final", "scores_a"),
         e("tm-final", "scores", "scores-final", "scores_b"),
         e("fold-final", "structure_candidates", "rank-final", "candidates"),
-        e("scores-final", "scores", "rank-final", "scores"),
+        e("scores-final", "scores", "rank-final", "scores", "rank-final.scores"),
         e("rank-final", "candidates", "take-top-three", "candidates"),
         e("take-top-three", "candidates", "export-final", "structures"),
     ]
@@ -267,27 +244,13 @@ def main() -> None:
         ),
     ]
     ordinary_nodes, ordinary_edges = _ordinary_graph()
-    intrinsic = {"kind": "intrinsic"}
-    pairwise = {
-        "kind": "pairwise",
-        "subject_role": "subject",
-        "reference_role": "reference",
-        "pairing_mode": "explicit_relation",
-        "normalization": "reference-axis-residue-count",
-    }
     workflow = {
         "schema_version": "2.1.0",
         "workflow_id": WEBUI_3GB1_PROJECT_ID,
         "nodes": [*source_nodes, *ordinary_nodes],
         "edges": [*source_edges, *ordinary_edges],
         "observation_selectors": [],
-        "selection_objectives": [
-            _objective("generated-plddt", candidates="generate-paired", scores="confidence-generated", metric="structure.plddt.mean_residue", method="esm3.generate_paired.esm3_medium_2024_08", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esm3_medium_2024_08.percent_to_unit", weight=1.0, context=intrinsic, score_port="observations"),
-            _objective("stage-one-plddt", candidates="fold-stage-one", scores="scores-stage-one", metric="structure.plddt.mean_residue", method="folding.fold.esmfold2_fast_biohub_2026_05", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit", weight=0.5, context=intrinsic),
-            _objective("stage-one-parent-tm", candidates="fold-stage-one", scores="scores-stage-one", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
-            _objective("final-plddt", candidates="fold-final", scores="scores-final", metric="structure.plddt.mean_residue", method="folding.fold.esmfold2_fast_biohub_2026_05", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit", weight=0.5, context=intrinsic),
-            _objective("final-parent-tm", candidates="fold-final", scores="scores-final", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
-        ],
+        "selection_objectives": [],
     }
     admitted = decode_workflow_document(workflow)
     compile(CompilationRequest(admitted), catalog)
