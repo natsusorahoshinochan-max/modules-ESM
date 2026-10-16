@@ -86,4 +86,3 @@ class ExampleResultsPreservationTests(unittest.TestCase):
                 for name, payload in original.items():
                     if name not in {"manifest.json", "readings.json"}:
                         self.assertEqual(exported.read(name), payload, name)
-
