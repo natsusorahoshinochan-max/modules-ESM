@@ -96,11 +96,6 @@ class _RunScopeAdmission:
             execution_node_ids=tuple(n for n in ordered if n in execution),
             reused_node_ids=tuple(n for n in ordered if n in reused_ids),
             out_of_scope_node_ids=tuple(n for n in ordered if n not in execution),
-            out_of_scope_selection_ids=tuple(
-                node.node_id for node in plan.nodes
-                if node.node_id not in execution
-                and node._runtime.selection_candidate_output_port is not None
-            ),
             source_run_id=request.source_run_id,
         )
         publications = {}

@@ -15,7 +15,6 @@ if TYPE_CHECKING:
         PublishedArtifact,
         PublishedOutput,
         OutputsPublished,
-        SelectionTerminal,
         StructuredError,
     )
     from core.execution.ledger.projections import RunCursor
@@ -52,7 +51,6 @@ class PlanNodeEvidence:
     method: ExactContractReference
     execution_route: Literal["direct", "adapter"]
     artifact_outputs: tuple[ArtifactOutputEvidence, ...] = ()
-    selection_consumer: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,9 +124,7 @@ class NodeTerminationPublication:
 
 @dataclass(frozen=True, slots=True)
 class RunClosure:
-    """The complete normal Selection and Run Closure conclusion."""
-
-    selections: tuple[SelectionTerminal, ...] = ()
+    """Close a Run after all ordinary node outcomes have been published."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -35,7 +35,6 @@ from core.execution.ledger.facts import (
     RunScopeBound,
     RunStarted,
     RunTerminal,
-    SelectionTerminal,
 )
 from core.execution.ledger.reducer import (
     LedgerReducer,
@@ -257,23 +256,6 @@ class Ledger:
         with self._condition:
             return self._state.cancellation_sequence is not None
 
-    @property
-    def all_dispositions_succeeded(self) -> bool:
-        """Return whether the durable Plan disposition set is all-success."""
-        with self._condition:
-            return (
-                set(self._state.dispositions) == set(self._plan_node_order)
-                and all(
-                    disposition.outcome == "succeeded"
-                    for disposition in self._state.dispositions.values()
-                )
-            )
-
-    @property
-    def selection_consumer_ids(self) -> tuple[str, ...]:
-        """Return the Selection consumers fixed by durable Run scope."""
-        return self._reducer.selection_consumer_ids
-
     def _cursor_at(self, sequence: int) -> RunCursor:
         return run_cursor(
             sequence,
@@ -341,7 +323,7 @@ class Ledger:
         if isinstance(transition, NodeTerminationPublication):
             return self._record_node_termination(transition)
         if isinstance(transition, RunClosure):
-            return self._record_run_closure(transition)
+            return self._record_run_closure()
         raise TypeError("Run Evidence Ledger transition is not current")
 
     def record_if_active(
@@ -365,7 +347,6 @@ class Ledger:
                     run_id=self._run_id,
                     workflow_commit_id=scope.workflow_commit_id,
                     plan_nodes=self._reducer.plan_evidence,
-                    selection_terminal_keys=self._reducer.selection_consumer_ids,
                     derived_from=scope.derived_from,
                     execution_scope=scope.execution_scope,
                 ),
@@ -511,21 +492,9 @@ class Ledger:
         )
         return self._commit(tuple(facts))
 
-    def _record_run_closure(
-        self,
-        closure: RunClosure,
-    ) -> LedgerAcknowledgement:
-        selections = closure.selections
-        run_status = run_terminal_status(
-            self._state.dispositions.values(),
-            selections,
-        )
-        return self._commit(
-            (
-                *selections,
-                RunTerminal(run_status),
-            )
-        )
+    def _record_run_closure(self) -> LedgerAcknowledgement:
+        run_status = run_terminal_status(self._state.dispositions.values())
+        return self._commit((RunTerminal(run_status),))
 
     def _commit(
         self,

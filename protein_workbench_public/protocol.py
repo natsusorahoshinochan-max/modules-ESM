@@ -399,14 +399,7 @@ def _project_structured_error_details(
     code: str,
     details: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if code == "selection_failed":
-        fields = (
-            (("reason",), ())
-            if "reason" in details
-            else (("exception_type",), ("cleanup_exception_types",))
-        )
-    else:
-        fields = _STRUCTURED_ERROR_DETAILS_FIELDS[code]
+    fields = _STRUCTURED_ERROR_DETAILS_FIELDS[code]
     required, optional = fields
     projected = {name: details[name] for name in required}
     projected.update(

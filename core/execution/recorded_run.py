@@ -140,7 +140,6 @@ class RecordedRun:
                     execution_node_ids=tuple(value["execution_scope"]["execution_node_ids"]),
                     reused_node_ids=tuple(value["execution_scope"]["reused_node_ids"]),
                     out_of_scope_node_ids=tuple(value["execution_scope"]["out_of_scope_node_ids"]),
-                    out_of_scope_selection_ids=(),
                     source_run_id=value["execution_scope"].get("source_run_id"),
                 )
                                  if value["execution_scope"] is not None else None),
@@ -165,8 +164,8 @@ def preserve_run_reading(projects: ProjectManager, projection: RunProjection, ev
         "publications": [payload_to_canonical(item) for item in projection.publications],
         "terminal_sequence": projection.terminal_sequence,
         "derived_from_run_id": projection.derived_from_run_id,
-        "execution_scope": ({key: value for key, value in projection.execution_scope.projection().items()
-                             if key != "out_of_scope_selection_ids"} if projection.execution_scope is not None else None),
+        "execution_scope": (projection.execution_scope.projection()
+                            if projection.execution_scope is not None else None),
         "diagnostic": ({
             "code": projection.diagnostic.code,
             "message": projection.diagnostic.message,

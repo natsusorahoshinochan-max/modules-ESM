@@ -88,8 +88,6 @@ def _result_identity_descriptor(
     resolved_binding_parameters = thaw_i_json(
         effective_randomness_snapshot.binding_parameters
     )
-    for parameter_name in plan_facts.node_parameter_indirections:
-        resolved_node_parameters.pop(parameter_name, None)
     for parameter_name in node._runtime.project_input_parameters:
         resolved_node_parameters.pop(parameter_name, None)
     declared_randomness = node._runtime.effective_randomness_parameters

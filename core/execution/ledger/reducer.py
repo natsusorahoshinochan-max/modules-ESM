@@ -25,7 +25,6 @@ from core.execution.ledger.facts import (
     RunScopeBound,
     RunStarted,
     RunTerminal,
-    SelectionTerminal,
 )
 from core.execution.ledger.transitions import (
     PlanNodeEvidence,
@@ -48,31 +47,17 @@ def _typed_reference_key(
 
 def run_terminal_status(
     dispositions: Iterable[NodeDisposition],
-    selection_terminals: tuple[SelectionTerminal, ...],
 ) -> Literal["succeeded", "failed", "cancelled", "interrupted"]:
     outcomes = {
         disposition.outcome for disposition in dispositions
     }
-    if "failed" in outcomes or any(
-        terminal.status == "failed"
-        for terminal in selection_terminals
-    ):
+    if "failed" in outcomes:
         return "failed"
     if "interrupted" in outcomes:
         return "interrupted"
     if "cancelled" in outcomes:
         return "cancelled"
     return "succeeded"
-
-
-def _selection_result_keys(
-    terminals: Iterable[SelectionTerminal],
-) -> set[str]:
-    return {
-        terminal.result.selection_node_id
-        for terminal in terminals
-        if terminal.result is not None
-    }
 
 
 @dataclass(slots=True)
@@ -112,8 +97,6 @@ class LedgerReducerState:
     nonempty_output_ports: dict[str, set[str]]
     run_admitted: bool
     run_started: bool
-    expected_selection_terminal_keys: tuple[str, ...]
-    selection_terminals: list[SelectionTerminal]
     run_terminal: bool
     cancellation_sequence: int | None
 
@@ -124,8 +107,6 @@ class LedgerReducerState:
             node_attempts={}, node_attempt_by_node={}, operations={},
             invocations={}, dispositions={},
             nonempty_output_ports={}, run_admitted=False, run_started=False,
-            expected_selection_terminal_keys=(),
-            selection_terminals=[],
             run_terminal=False, cancellation_sequence=None,
         )
 
@@ -152,10 +133,6 @@ class LedgerReducerState:
             },
             run_admitted=self.run_admitted,
             run_started=self.run_started,
-            expected_selection_terminal_keys=(
-                self.expected_selection_terminal_keys
-            ),
-            selection_terminals=list(self.selection_terminals),
             run_terminal=self.run_terminal,
             cancellation_sequence=self.cancellation_sequence,
         )
@@ -168,14 +145,6 @@ class LedgerReducer:
     project_id: str
     run_id: str
     plan_evidence: tuple[PlanNodeEvidence, ...]
-
-    @property
-    def selection_consumer_ids(self) -> tuple[str, ...]:
-        return tuple(
-            node.node_id
-            for node in self.plan_evidence
-            if node.selection_consumer
-        )
 
     def apply_facts(
         self,
@@ -241,8 +210,6 @@ class LedgerReducer:
                 state.facts
                 or payload.project_id != self.project_id
                 or payload.run_id != self.run_id
-                or payload.selection_terminal_keys
-                != self.selection_consumer_ids
             ):
                 raise _causal_error()
             return
@@ -599,44 +566,6 @@ class LedgerReducer:
             ):
                 raise _causal_error()
             return
-        if isinstance(payload, SelectionTerminal):
-            selection_key = (
-                payload.result.selection_node_id
-                if payload.result is not None
-                else "__failed__"
-            )
-            if (
-                not state.run_started
-                or not state.expected_selection_terminal_keys
-                or set(state.dispositions) != set(plan_nodes)
-                or any(
-                    disposition.outcome != "succeeded"
-                    for disposition in state.dispositions.values()
-                )
-                or (
-                    payload.status == "succeeded"
-                    and (
-                        selection_key
-                        not in state.expected_selection_terminal_keys
-                        or selection_key in _selection_result_keys(
-                            state.selection_terminals
-                        )
-                    )
-                )
-                or (
-                    payload.status == "failed"
-                    and state.selection_terminals
-                )
-                or (
-                    payload.status == "succeeded"
-                    and any(
-                        terminal.status == "failed"
-                        for terminal in state.selection_terminals
-                    )
-                )
-            ):
-                raise _causal_error()
-            return
         if isinstance(payload, RunTerminal):
             if (
                 payload.status == "interrupted"
@@ -646,12 +575,7 @@ class LedgerReducer:
                 return
             expected_status = run_terminal_status(
                 state.dispositions.values(),
-                tuple(state.selection_terminals),
             )
-            outcomes = {
-                disposition.outcome
-                for disposition in state.dispositions.values()
-            }
             if (
                 not state.run_started
                 or set(state.dispositions) != set(plan_nodes)
@@ -667,17 +591,6 @@ class LedgerReducer:
                     invocation.terminal is None
                     for invocation in state.invocations.values()
                 )
-                or (
-                    state.expected_selection_terminal_keys
-                    and not outcomes.intersection(
-                        {"failed", "interrupted", "cancelled"}
-                    )
-                    and payload.status == "succeeded"
-                    and _selection_result_keys(
-                        state.selection_terminals
-                    )
-                    != set(state.expected_selection_terminal_keys)
-                )
                 or payload.status != expected_status
             ):
                 raise _causal_error()
@@ -689,11 +602,7 @@ class LedgerReducer:
         state: LedgerReducerState,
         payload: FactPayload,
     ) -> None:
-        if isinstance(payload, RunScopeBound):
-            state.expected_selection_terminal_keys = (
-                payload.selection_terminal_keys
-            )
-        elif isinstance(payload, AvailabilityBound):
+        if isinstance(payload, AvailabilityBound):
             state.availability_by_binding[
                 _typed_reference_key(payload.binding)
             ] = payload
@@ -741,8 +650,6 @@ class LedgerReducer:
             } | {artifact.output_port for artifact in payload.artifacts}
         elif isinstance(payload, NodeDisposition):
             state.dispositions[payload.node_id] = payload
-        elif isinstance(payload, SelectionTerminal):
-            state.selection_terminals.append(payload)
         elif isinstance(payload, RunTerminal):
             state.run_terminal = True
 
@@ -751,20 +658,8 @@ class LedgerReducer:
         state: LedgerReducerState,
         facts: tuple[Fact, ...],
     ) -> None:
-        closure_facts = [
-            fact
-            for fact in facts
-            if isinstance(fact.payload, (SelectionTerminal, RunTerminal))
-        ]
-        if closure_facts:
-            if (
-                closure_facts != list(facts)
-                or not isinstance(facts[-1].payload, RunTerminal)
-                or any(
-                    not isinstance(fact.payload, SelectionTerminal)
-                    for fact in facts[:-1]
-                )
-            ):
+        if any(isinstance(fact.payload, RunTerminal) for fact in facts):
+            if len(facts) != 1:
                 raise _causal_error()
             return
         operation_terminals = [

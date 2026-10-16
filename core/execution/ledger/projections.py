@@ -22,8 +22,6 @@ from core.execution.ledger.facts import (
     RunScopeBound,
     RunStarted,
     RunTerminal,
-    SelectionResult,
-    SelectionTerminal,
     StructuredError,
 )
 
@@ -39,7 +37,6 @@ _EVENT_PAYLOAD_TYPES = (
     OperationAttemptTerminal,
     NodeAttemptTerminal,
     NodeDisposition,
-    SelectionTerminal,
     RunTerminal,
 )
 
@@ -82,8 +79,6 @@ class RunProjection:
     ledger_cursor: RunCursor
     node_dispositions: tuple[NodeDispositionProjection, ...]
     publications: tuple[OutputsPublished, ...]
-    selection_results: tuple[SelectionResult, ...] | None = None
-    selection_error: StructuredError | None = None
     terminal_sequence: int | None = None
     derived_from_run_id: str | None = None
     execution_scope: RunExecutionScope | None = None
@@ -149,8 +144,6 @@ def project_run(
         "cancelled",
         "interrupted",
     ] = "admitted"
-    selection_results: list[SelectionResult] = []
-    selection_error: StructuredError | None = None
     terminal_sequence: int | None = None
     for fact in facts:
         payload = fact.payload
@@ -168,11 +161,6 @@ def project_run(
             )
         elif isinstance(payload, OutputsPublished):
             published_by_node[payload.node_id] = payload
-        elif isinstance(payload, SelectionTerminal):
-            if payload.result is not None:
-                selection_results.append(payload.result)
-            else:
-                selection_error = payload.error
         elif isinstance(payload, RunTerminal):
             status = payload.status
             terminal_sequence = fact.sequence
@@ -191,11 +179,6 @@ def project_run(
         ledger_cursor=cursor,
         node_dispositions=tuple(dispositions),
         publications=publications,
-        selection_results=(
-            tuple(selection_results) if scope.selection_terminal_keys else None
-        ),
-        selection_error=selection_error,
-        diagnostic=selection_error,
         terminal_sequence=terminal_sequence,
         execution_scope=scope.execution_scope,
         derived_from_run_id=(

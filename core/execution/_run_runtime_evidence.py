@@ -62,10 +62,6 @@ def plan_evidence(
                 )
                 for output in node._runtime.artifact_outputs
             ),
-            selection_consumer=bool(
-                node._runtime.selection_candidate_output_port is not None
-                and (scope is None or node.node_id in scope.execution_node_ids)
-            ),
         )
         for node in plan.nodes
         if node.node_id in active
