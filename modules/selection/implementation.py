@@ -72,7 +72,7 @@ class SelectionImplementation:
                 if item.candidate_id in selected_ids
             ])
         scores = call.inputs["scores"].value
-        if self._operation in {"weighted_rank", "pareto", "diversity"}:
+        if self._operation in {"weighted_rank", "diversity"}:
             return self._execute_multi_objective(
                 candidates=candidates,
                 score_collections=scores,
@@ -149,44 +149,6 @@ class SelectionImplementation:
         aggregate = weighted_utility_totals(profile)
         if self._operation == "weighted_rank":
             selected = list(rank_candidates_by_weighted_utility(profile))
-        elif self._operation == "pareto":
-            dominated: set[str] = set()
-            candidate_ids = tuple(sorted(profile.utilities))
-            for candidate_id in candidate_ids:
-                vector = profile.utilities[candidate_id]
-                for other_id in candidate_ids:
-                    if other_id == candidate_id:
-                        continue
-                    other = profile.utilities[other_id]
-                    if (
-                        all(
-                            other_value >= value
-                            for other_value, value in zip(
-                                other,
-                                vector,
-                                strict=True,
-                            )
-                        )
-                        and any(
-                            other_value > value
-                            for other_value, value in zip(
-                                other,
-                                vector,
-                                strict=True,
-                            )
-                        )
-                    ):
-                        dominated.add(candidate_id)
-                        break
-            candidates_by_id = {
-                candidate.candidate_id: candidate
-                for candidate in candidates.items
-            }
-            selected = [
-                candidates_by_id[candidate_id]
-                for candidate_id in candidate_ids
-                if candidate_id not in dominated
-            ]
         else:
             k = node_parameters["k"]
             if k > len(candidates.items):

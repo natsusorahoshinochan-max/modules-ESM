@@ -5,7 +5,7 @@ from dataclasses import replace
 from core.catalog.builtins import builtin_port_types
 from datatypes.candidate import Candidate, CandidateCollection, CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
-from datatypes.observation import PairwiseObservationContext, PairwiseParticipant, ScoreCollection, ScoreObservation
+from datatypes.observation import IntrinsicObservationContext, PairwiseObservationContext, PairwiseParticipant, ScoreCollection, ScoreObservation
 from datatypes.sequence import ProteinSequence
 from modules.selection.compute import SelectionError, select_candidates
 from modules.selection.published_reading import read_scores
@@ -112,6 +112,22 @@ class ConditionApplicationTests(unittest.TestCase):
 
 
 class ConditionMatchingTests(unittest.TestCase):
+    def test_condition_uses_candidate_identity_when_reference_order_differs(self):
+        candidates = CandidateCollection('study', 'protein.sequence', (
+            Candidate('one', ProteinSequence('AA')), Candidate('two', ProteinSequence('AC'))))
+        first = CandidateDataReference('one', 'protein.sequence', 'sha256:' + '1' * 64)
+        second = CandidateDataReference('two', 'protein.sequence', 'sha256:' + '2' * 64)
+        scores = ScoreCollection('scores', tuple(ScoreObservation(reference, ExactContractReference('metric', 'test.raw'),
+            ExactContractReference('method', 'test.measure'), IntrinsicObservationContext(), 'raw', value)
+            for reference, value in [(first, 10), (second, 1)]))
+        selection = {'score_input': 'score', 'metric_id': 'test.raw', 'method_id': 'test.measure',
+            'source_partition': 'raw', 'context': {'kind': 'intrinsic'}}
+        result = select_candidates(candidates, (second, first), {'score': (scores,)}, {
+            'condition': {'kind': 'group', 'operator': 'and', 'children': [
+                {'kind': 'comparison', 'selection': selection, 'operator': '>=', 'threshold': 5},
+                {'kind': 'comparison', 'selection': selection, 'operator': '<=', 'threshold': 12}]}}, operation='filter')
+        self.assertEqual(result, replace(candidates, items=(candidates.items[0],)))
+
     def test_exact_reference_and_region_choices_ignore_unselected_evaluations_and_keep_provenance(self):
         candidates = CandidateCollection('study', 'protein.sequence', (
             Candidate('one', ProteinSequence('AA'), ('real-parent',), {'source': 'experiment-one'}),

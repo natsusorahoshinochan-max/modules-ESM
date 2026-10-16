@@ -132,6 +132,56 @@ class SelectionApplicationTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail('Study run did not finish')
 
+    def pareto_workflow(self):
+        workflow = self.workflow()
+        first = workflow['nodes'][-1]['node_parameters']['selection']
+        second = dict(first, score_input='cost-score')
+        workflow['nodes'][1]['node_parameters'] = {'values': [12, 8, 6]}
+        workflow['nodes'].insert(2, dict(workflow['nodes'][1], node_id='costs', node_parameters={'values': [9, 2, 5]}))
+        workflow['edges'].extend([
+            {'source_node_id': 'population', 'source_port': 'candidates', 'target_node_id': 'costs', 'target_port': 'candidates'},
+            {'source_node_id': 'costs', 'source_port': 'scores', 'target_node_id': 'chosen', 'target_port': 'scores', 'target_slot': 'cost-score'},
+        ])
+        workflow['nodes'][-1].update(node_type_id='selection.pareto', binding_id='selection.pareto.direct', node_parameters={
+            'objectives': [{'selection': first, 'direction': 'descending'}, {'selection': second, 'direction': 'ascending'}]})
+        return workflow
+
+    def test_save_reopen_run_pareto_retains_original_non_dominated_candidates_in_input_order(self):
+        workflow = self.pareto_workflow()
+        saved = self.client.put(f'/api/v2/projects/{self.project}/workspace', json={'workflow': workflow, 'ui_state': {}})
+        self.assertEqual(saved.status_code, 200, saved.text)
+        reopened = self.client.get(f'/api/v2/projects/{self.project}/workspace').json()['draft']['workflow']
+        self.assertEqual(reopened['nodes'][-1]['node_parameters'], workflow['nodes'][-1]['node_parameters'])
+        run_id, projection = self.execute_workflow(reopened)
+        self.assertEqual(projection['status'], 'succeeded', projection)
+        original = self.client.get(f'/api/v2/projects/{self.project}/runs/{run_id}/outputs/population/candidates/values/0').json()
+        chosen = self.client.get(f'/api/v2/projects/{self.project}/runs/{run_id}/outputs/chosen/candidates/values/0').json()
+        self.assertEqual(chosen['value']['fields']['items'], original['value']['fields']['items'][:2])
+
+    def test_pareto_missing_a_required_objective_stops_the_node(self):
+        workflow = self.pareto_workflow()
+        workflow['nodes'][2]['node_parameters']['values'] = [9, None, 5]
+        _, projection = self.execute_workflow(workflow)
+        self.assertEqual(projection['status'], 'failed', projection)
+        self.assertEqual({item['node_id']: item['outcome'] for item in projection['node_dispositions']},
+            {'population': 'succeeded', 'measurements': 'succeeded', 'costs': 'succeeded', 'chosen': 'failed'})
+
+    def test_incomplete_or_legacy_pareto_settings_save_but_cannot_run(self):
+        for change in ('missing_direction', 'disconnected_score', 'legacy'):
+            with self.subTest(change=change):
+                workflow = self.pareto_workflow()
+                parameters = workflow['nodes'][-1]['node_parameters']
+                if change == 'missing_direction':
+                    del parameters['objectives'][1]['direction']
+                elif change == 'disconnected_score':
+                    workflow['edges'][-1]['target_slot'] = 'another-source'
+                else:
+                    workflow['nodes'][-1]['node_parameters'] = {'objective_ids': ['old-objective'], 'tie_policy': 'candidate_id_ascending'}
+                saved = self.client.put(f'/api/v2/projects/{self.project}/workspace', json={'workflow': workflow, 'ui_state': {}})
+                self.assertEqual(saved.status_code, 200, saved.text)
+                committed = self.client.post(f'/api/v2/projects/{self.project}/workflow:commit', json={'workflow': workflow})
+                self.assertEqual(committed.status_code, 422, committed.text)
+
     def test_missing_required_evaluation_blocks_dependents_and_keeps_independent_results(self):
         workflow = self.workflow()
         workflow['nodes'][1]['node_parameters'] = {'values': [12, None, -8]}

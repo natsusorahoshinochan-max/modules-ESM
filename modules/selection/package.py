@@ -44,7 +44,7 @@ OPERATIONS = (
     "manual",
 )
 MULTI_OBJECTIVE_OPERATIONS = frozenset(
-    {"weighted_rank", "pareto", "diversity"}
+    {"weighted_rank", "diversity"}
 )
 
 
@@ -64,7 +64,7 @@ def _factory(operation: str):
     def build(context: OperationContext):
         if operation == "weighted_rank":
             raise SelectionError("weighted_execution_pending", "Weighted ranking execution is pending #132")
-        if operation in {"filter", "sort", "top_k"}:
+        if operation in {"filter", "sort", "top_k", "pareto"}:
             return RawSelectionOperation(operation)
         return SelectionImplementation(
             operation=operation,
@@ -106,7 +106,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         cacheable=operation != "weighted_rank",
         selection_objective_consumption=(
             None
-            if operation in {"filter", "manual", "sort", "top_k", "weighted_rank"}
+            if operation in {"filter", "manual", "sort", "top_k", "pareto", "weighted_rank"}
             else SelectionObjectiveConsumptionDefinition(
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
