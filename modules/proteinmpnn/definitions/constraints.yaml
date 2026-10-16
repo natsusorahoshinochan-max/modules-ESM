@@ -21,6 +21,7 @@ parameter_groups:
       - designable_residue_ids
       - fixed_residue_ids
       - tied_residue_groups
+      - tied_weights
       - bias_by_residue
   - id: chain_constraints
     title: Chain constraints
@@ -31,6 +32,11 @@ parameter_groups:
     title: Amino-acid constraints
     parameters:
       - omit_amino_acids
+      - amino_acid_bias
+      - omit_by_residue
+  - id: pssm
+    title: Position-specific scoring matrix
+    parameters: [pssm_by_residue, pssm_multi, pssm_bias_flag, pssm_log_odds_flag, pssm_threshold]
 node_parameters:
   designable_residue_ids:
     parameter_scope: scientific
@@ -84,7 +90,7 @@ node_parameters:
     default: []
   tied_residue_groups:
     parameter_scope: scientific
-    scientific_meaning: Disjoint groups of two or more stable designable residue identities constrained to share one sampled amino acid.
+    scientific_meaning: Disjoint groups sharing one sampled amino acid. Every member must have identical position omissions, biases and PSSM rows because the official tied sampler reads these controls from the last member.
     value_contract:
       type: array
       items:
@@ -118,5 +124,136 @@ node_parameters:
           bias:
             field_scope: scientific
             scientific_meaning: Finite additive ProteinMPNN sampling-logit bias.
+            type: number
+    default: []
+  omit_by_residue:
+    parameter_scope: scientific
+    scientific_meaning: Per-position amino acids excluded after PSSM processing, addressed on the supplied residue axis.
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [residue_id, amino_acids]
+        properties:
+          residue_id:
+            field_scope: scientific
+            scientific_meaning: Selected backbone residue.
+            type: string
+            pattern: *residue_identity_pattern
+          amino_acids:
+            field_scope: scientific
+            scientific_meaning: Standard amino acids excluded at this position.
+            type: array
+            uniqueItems: true
+            minItems: 1
+            items:
+              type: string
+              enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y]
+    default: []
+  pssm_by_residue:
+    parameter_scope: scientific
+    scientific_meaning: Selected residue PSSM rows; arrays follow ACDEFGHIKLMNPQRSTVWY. Unspecified residues use the provider's neutral row.
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [residue_id, coefficient, probabilities, log_odds]
+        properties:
+          residue_id:
+            field_scope: scientific
+            scientific_meaning: Selected backbone residue.
+            type: string
+            pattern: *residue_identity_pattern
+          coefficient:
+            field_scope: scientific
+            scientific_meaning: Per-position multiplier of pssm_multi in the probability mixture.
+            type: number
+            minimum: 0
+            maximum: 1
+          probabilities:
+            field_scope: scientific
+            scientific_meaning: Normalized probabilities in ACDEFGHIKLMNPQRSTVWY order.
+            type: array
+            minItems: 20
+            maxItems: 20
+            items:
+              type: number
+              minimum: 0
+              maximum: 1
+          log_odds:
+            field_scope: scientific
+            scientific_meaning: Log-odds values in ACDEFGHIKLMNPQRSTVWY order, compared strictly greater than pssm_threshold.
+            type: array
+            minItems: 20
+            maxItems: 20
+            items:
+              type: number
+    default: []
+  pssm_multi:
+    parameter_scope: scientific
+    scientific_meaning: Global PSSM probability mixing weight multiplied by each position coefficient.
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 1
+    default: 0
+  pssm_bias_flag:
+    parameter_scope: scientific
+    scientific_meaning: Enable mixing the PSSM probabilities with model probabilities.
+    value_contract:
+      type: boolean
+    default: false
+  pssm_log_odds_flag:
+    parameter_scope: scientific
+    scientific_meaning: Enable the official soft log-odds mask, retaining its 0.001 probability floor before normalization.
+    value_contract:
+      type: boolean
+    default: false
+  pssm_threshold:
+    parameter_scope: scientific
+    scientific_meaning: Strict lower threshold used by the official PSSM log-odds mask.
+    value_contract:
+      type: number
+    default: 0
+  amino_acid_bias:
+    parameter_scope: scientific
+    scientific_meaning: Global additive amino-acid logit bias, divided by temperature by the official sampler.
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [amino_acid, bias]
+        properties:
+          amino_acid:
+            field_scope: scientific
+            scientific_meaning: Standard amino acid receiving the bias.
+            type: string
+            enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y]
+          bias:
+            field_scope: scientific
+            scientific_meaning: Additive logit bias.
+            type: number
+    default: []
+  tied_weights:
+    parameter_scope: scientific
+    scientific_meaning: Member logit weights for tied groups; omitted members use one. The official sampler sums weighted logits and divides by group size, not by the sum of weights.
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [residue_id, weight]
+        properties:
+          residue_id:
+            field_scope: scientific
+            scientific_meaning: Selected member of a tied group.
+            type: string
+            pattern: *residue_identity_pattern
+          weight:
+            field_scope: scientific
+            scientific_meaning: Finite multiplier of this member's logits, without normalization by the sum of weights.
             type: number
     default: []

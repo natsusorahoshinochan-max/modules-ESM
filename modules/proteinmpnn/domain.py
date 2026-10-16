@@ -35,6 +35,10 @@ class ProteinMPNNConstraints:
     partition. ``omit_amino_acids`` is a global sampling exclusion.
     ``tied_residue_groups`` contains identity groups sampled as the same amino
     acid. ``bias_by_residue`` maps identities to per-amino-acid logit biases.
+    ``omit_by_residue`` applies position exclusions after PSSM processing.
+    ``pssm_by_residue`` stores coefficient, 20 probabilities and 20 log-odds
+    in ACDEFGHIKLMNPQRSTVWY order. Tied members share position controls;
+    ``tied_weights`` weights their logits before division by group size.
     None means no constraint in that dimension.
     """
     layout: ResidueLayout
@@ -43,6 +47,14 @@ class ProteinMPNNConstraints:
     designed_chains: Optional[tuple[str, ...]] = None
     fixed_chains: Optional[tuple[str, ...]] = None
     omit_amino_acids: Optional[tuple[str, ...]] = None
+    amino_acid_bias: Mapping[str, float] | None = None
+    tied_weights: Mapping[str, float] | None = None
+    pssm_by_residue: Mapping[str, Mapping[str, Any]] | None = None
+    pssm_multi: float = 0.0
+    pssm_bias_flag: bool = False
+    pssm_log_odds_flag: bool = False
+    pssm_threshold: float = 0.0
+    omit_by_residue: Mapping[str, tuple[str, ...]] | None = None
     tied_residue_groups: Optional[tuple[tuple[str, ...], ...]] = None
     bias_by_residue: Optional[Mapping[str, Mapping[str, float]]] = None
 
@@ -76,6 +88,13 @@ class ProteinMPNNConstraints:
                     )
                 ),
             )
+        for name in ("amino_acid_bias", "tied_weights"):
+            if getattr(self, name) is not None:
+                object.__setattr__(self, name, freeze_i_json(getattr(self, name)))
+        if self.pssm_by_residue is not None:
+            object.__setattr__(self, "pssm_by_residue", freeze_i_json(self.pssm_by_residue))
+        if self.omit_by_residue is not None:
+            object.__setattr__(self, "omit_by_residue", freeze_i_json(self.omit_by_residue))
         if self.bias_by_residue is not None:
             object.__setattr__(
                 self,
@@ -214,8 +233,54 @@ def validate_proteinmpnn_constraints(
             "omit_amino_acids must leave at least one amino acid available"
         )
 
+    omissions = constraints.omit_by_residue or {}
+    for residue_id, symbols in omissions.items():
+        residue_identity_chain(residue_id, subject="omit_by_residue key")
+        selected = _strings(symbols, "omit_by_residue amino acids")
+        if not set(selected) <= PROTEINMPNN_ALPHABET:
+            raise ValueError("omit_by_residue requires standard amino acids")
+        if set(selected) | set(omitted) == PROTEINMPNN_ALPHABET:
+            raise ValueError("omit_by_residue must leave an amino acid available")
+
+    pssm = constraints.pssm_by_residue or {}
+    validate_i_json(pssm, path="pssm_by_residue")
+    validate_i_json(constraints.pssm_threshold, path="pssm_threshold")
+    if not 0 <= constraints.pssm_multi <= 1:
+        raise ValueError("pssm_multi must be between zero and one")
+    for residue_id, row in pssm.items():
+        if set(row) != {"coefficient", "probabilities", "log_odds"}:
+            raise ValueError("PSSM rows require coefficient, probabilities and log_odds")
+        if not 0 <= row["coefficient"] <= 1:
+            raise ValueError("PSSM coefficient must be between zero and one")
+        if len(row["probabilities"]) != 20 or len(row["log_odds"]) != 20:
+            raise ValueError("PSSM rows use 20 entries in ACDEFGHIKLMNPQRSTVWY order")
+        if any(value < 0 for value in row["probabilities"]) or abs(sum(row["probabilities"]) - 1) > 1e-6:
+            raise ValueError("PSSM probabilities must be nonnegative and sum to one")
+
     tied_groups = _tied_residue_groups(constraints.tied_residue_groups)
     biases = _biases(constraints.bias_by_residue)
+    global_bias = constraints.amino_acid_bias or {}
+    weights = constraints.tied_weights or {}
+    validate_i_json(global_bias, path="amino_acid_bias")
+    validate_i_json(weights, path="tied_weights")
+    if not set(global_bias) <= PROTEINMPNN_ALPHABET:
+        raise ValueError("amino_acid_bias requires standard amino acids")
+    if not set(weights) <= {residue for group in tied_groups for residue in group}:
+        raise ValueError("tied_weights must address members of tied groups")
+    for group in tied_groups:
+        first = group[0]
+        for residue_id in group[1:]:
+            if (
+                set(omissions.get(residue_id, ())) != set(omissions.get(first, ()))
+                or biases.get(residue_id, {}) != biases.get(first, {})
+                or pssm.get(residue_id) != pssm.get(first)
+            ):
+                raise ValueError(
+                    "Tied residues share one sample: every member must have the same "
+                    "position omissions, logit biases and PSSM row; the official "
+                    "sampler reads these controls from the group's last member"
+                )
+
     overlapping_residues = sorted(set(designable) & set(fixed))
     if overlapping_residues:
         raise ValueError(
@@ -231,12 +296,6 @@ def validate_proteinmpnn_constraints(
             + ", ".join(overlapping_chains)
         )
     for residue_id, amino_acid_biases in biases.items():
-        for group_index, group in enumerate(tied_groups):
-            if residue_id in group:
-                raise ValueError(
-                    f"bias_by_residue {residue_id} belongs to tied "
-                    f"residue group {group_index}"
-                )
         for amino_acid in amino_acid_biases:
             if amino_acid in omitted:
                 raise ValueError(
@@ -316,7 +375,7 @@ def validate_proteinmpnn_constraints(
                     f"tied residue group {group_index} includes non-designable "
                     f"residue {residue_id}"
                 )
-    for residue_id in biases:
+    for residue_id in (*biases, *omissions, *pssm):
         _, chain = validate_residue(residue_id, "bias_by_residue")
         if chain not in effective_designed or residue_id in effective_fixed:
             raise ValueError(
@@ -329,6 +388,35 @@ def _optional_list(value: object, name: str) -> list[Any] | None:
     if name == "tied_residue_groups":
         items = [list(item) for item in items]
     return items or None
+
+
+def _author_omissions(entries: Any) -> dict[str, tuple[str, ...]] | None:
+    omissions = {}
+    for entry in entries:
+        residue_id = entry["residue_id"]
+        if residue_id in omissions:
+            raise ValueError("omit_by_residue cannot repeat a residue")
+        omissions[residue_id] = tuple(entry["amino_acids"])
+    return omissions or None
+
+
+def _author_pssm(entries: Any) -> dict[str, dict[str, Any]] | None:
+    rows = {}
+    for entry in entries:
+        residue_id = entry["residue_id"]
+        if residue_id in rows:
+            raise ValueError("pssm_by_residue cannot repeat a residue")
+        rows[residue_id] = {key: value for key, value in entry.items() if key != "residue_id"}
+    return rows or None
+
+
+def _author_weights(entries: Any, key: str, value: str) -> dict[str, float] | None:
+    weights = {}
+    for entry in entries:
+        if entry[key] in weights:
+            raise ValueError(f"{key} cannot repeat in {value} entries")
+        weights[entry[key]] = entry[value]
+    return weights or None
 
 
 def author_constraints(
@@ -378,6 +466,14 @@ def author_constraints(
             parameters["tied_residue_groups"],
             "tied_residue_groups",
         ),
+        omit_by_residue=_author_omissions(parameters["omit_by_residue"]),
+        amino_acid_bias=_author_weights(parameters["amino_acid_bias"], "amino_acid", "bias"),
+        tied_weights=_author_weights(parameters["tied_weights"], "residue_id", "weight"),
+        pssm_by_residue=_author_pssm(parameters["pssm_by_residue"]),
+        pssm_multi=parameters["pssm_multi"],
+        pssm_bias_flag=parameters["pssm_bias_flag"],
+        pssm_log_odds_flag=parameters["pssm_log_odds_flag"],
+        pssm_threshold=parameters["pssm_threshold"],
         bias_by_residue=bias_by_residue or None,
     )
 
