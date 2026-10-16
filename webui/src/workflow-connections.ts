@@ -1,6 +1,6 @@
 import type { CatalogSnapshot, PromptAuthoringDocument, Workflow } from './protocol/client'
-import { nodeTypePresentation, type PortPresentation } from './workflow-authoring'
-import { removeWorkflowNodes, type FragmentNotice } from './workflow-fragments'
+import { missingPortPresentation, nodeTypePresentation, type PortPresentation } from './workflow-authoring'
+import { removeWorkflowNodes } from './workflow-fragments'
 
 export type WorkflowPort = { nodeId: string; portName: string; direction: 'input' | 'output' }
 export type WorkflowEdge = Workflow['edges'][number]
@@ -14,6 +14,7 @@ export function workflowPortPresentation(workflow: Workflow, catalog: CatalogSna
   const node = workflow.nodes.find(item => item.node_id === port.nodeId)
   if (!node) throw new Error(`Workflow Node ${port.nodeId} is absent`)
   const presentation = nodeTypePresentation(catalog, node.node_type_id)
+  if (node.preserved_configuration || presentation.missing) return missingPortPresentation(port.portName)
   const descriptor = (port.direction === 'input' ? presentation.inputs : presentation.outputs).find(item => item.name === port.portName)
   if (!descriptor) throw new Error(`Port ${port.nodeId}/${port.portName} is absent`)
   return descriptor
@@ -33,7 +34,7 @@ export function workflowPortsMatch(output: Pick<PortPresentation, 'portTypeId' |
 export function compatibleWorkflowPorts(workflow: Workflow, catalog: CatalogSnapshot, anchor: WorkflowPort): WorkflowPort[] {
   const descriptor = workflowPortPresentation(workflow, catalog, anchor)
   return workflow.nodes.flatMap(node => {
-    if (node.node_id === anchor.nodeId) return []
+    if (node.node_id === anchor.nodeId || node.preserved_configuration) return []
     const presentation = nodeTypePresentation(catalog, node.node_type_id)
     const ports = anchor.direction === 'input' ? presentation.outputs : presentation.inputs
     return ports.filter(port => anchor.direction === 'input' ? workflowPortsMatch(port, descriptor) : workflowPortsMatch(descriptor, port)).map((port): WorkflowPort => ({ nodeId: node.node_id, portName: port.name, direction: anchor.direction === 'input' ? 'output' : 'input' }))
@@ -100,13 +101,13 @@ export function reconnectWorkflowPorts(workflow: Workflow, catalog: CatalogSnaps
   return editConnection(workflow, catalog, output, input, previous)
 }
 
-/** Delete one atomic set, retaining Selection-reference cleanup and Prompt merge intent. */
-export function deleteWorkflowElements(workflow: Workflow, catalog: CatalogSnapshot, selection: { nodeIds: ReadonlySet<string>; edges: readonly WorkflowEdge[] }): { workflow: Workflow; notices: FragmentNotice[] } {
+/** Delete one atomic set while retaining opaque configuration and Prompt merge intent. */
+export function deleteWorkflowElements(workflow: Workflow, selection: { nodeIds: ReadonlySet<string>; edges: readonly WorkflowEdge[] }): { workflow: Workflow } {
   const removedEdgeIds = new Set(selection.edges.map(workflowEdgeId))
   const deletesNodes = workflow.nodes.some(node => selection.nodeIds.has(node.node_id))
   const deletesEdges = workflow.edges.some(edge => removedEdgeIds.has(workflowEdgeId(edge)))
-  if (!deletesNodes && !deletesEdges) return { workflow, notices: [] }
-  const result = deletesNodes ? removeWorkflowNodes(workflow, selection.nodeIds, catalog) : { workflow, notices: [] }
-  const changed = deletesEdges ? { ...result.workflow, edges: result.workflow.edges.filter(edge => !removedEdgeIds.has(workflowEdgeId(edge))) } : result.workflow
-  return { workflow: protectPromptMergeSources(workflow, changed), notices: result.notices }
+  if (!deletesNodes && !deletesEdges) return { workflow }
+  const retained = deletesNodes ? removeWorkflowNodes(workflow, selection.nodeIds) : workflow
+  const changed = deletesEdges ? { ...retained, edges: retained.edges.filter(edge => !removedEdgeIds.has(workflowEdgeId(edge))) } : retained
+  return { workflow: protectPromptMergeSources(workflow, changed) }
 }

@@ -11,7 +11,7 @@ import { InputSourceDialog } from './InputSourceDialog'
 import type { CandidateInputPlan, PromptSourcePlan } from './input-sources'
 import { ProjectWorkspaceDialog } from './ProjectWorkspaceDialog'
 import { workspaceErrorMessage, type ProjectWorkspace, type WorkflowVersionView } from './project-workspace'
-import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type JsonObject } from './protocol/client'
+import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type JsonObject, type WorkflowNode } from './protocol/client'
 import { RunHistoryDialog } from './RunHistoryDialog'
 import { rememberedRun, rememberRun, useProjectExecution, useProjectRunHistory } from './project-run-history'
 import { RunDialog } from './RunDialog'
@@ -23,6 +23,7 @@ import { WorkspaceEditor, type WorkspaceEditSession } from './workspace-editor'
 import { WorkflowPorts, type PortSource } from './WorkflowPorts'
 import { connectWorkflowPorts, reconnectWorkflowPorts, deleteWorkflowElements as deleteGraphElements, workflowEdgeId, workflowPortsMatch, PromptMergeSourcesLockedError } from './workflow-connections'
 import { WorkflowParameters } from './WorkflowParameters'
+import { SavedNodeConfiguration } from './SavedNodeConfiguration'
 import { loadWorkflowParameterChoices, type NodeParameterChoices, type WorkflowParameterChoices } from './parameter-choices'
 import { loadNodeEditor, nodeEditor, type ModuleEditorProps, type ModuleUiManifest } from './module-ui'
 import { CanvasOperationPicker } from './CanvasOperationPicker'
@@ -35,7 +36,7 @@ type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' 
 type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
 type StageControlView = { kind: 'parameter'; nodeId: string; parameter: Parameter; choices?: NodeParameterChoices } | { kind: 'prompt' | 'selection'; nodeId: string; label: string }
 type StageState = { status: NodeRunStatus | 'idle'; label: string; completed: number; total: number }
-type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; retainedConfiguration?: JsonObject; readOnly?: boolean; publishedOutputs?: PublishedOutput[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; moduleEditorTitle?: string; onEditModule?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
+type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; savedNode?: WorkflowNode; readOnly?: boolean; publishedOutputs?: PublishedOutput[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; moduleEditorTitle?: string; onEditModule?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
 type FlowNode = Node<WorkflowNodeData>
 type RunProgress = { status: RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; projectId?: string; runId?: string; }
 type PendingNodeDrop = { nodeTypeId: string; position: { x: number; y: number }; bindings: BindingOption[]; connectionFrom?: { nodeId: string; portName: string }; connectionPort?: string }
@@ -80,7 +81,7 @@ function flowFromDraft(draft: WorkflowDraft, catalog?: CatalogSnapshot, stored: 
   const nodes = draft.workflow.nodes.map((node, index): FlowNode => {
     const presentation = nodeTypePresentation(catalog, node.node_type_id)
     const missingContracts = missingNodeContracts(catalog, node)
-    if (presentation.missing) {
+    if (presentation.missing || node.preserved_configuration) {
       const endpoints = [
         ...draft.workflow.edges.flatMap(edge => [
           ...(edge.source_node_id === node.node_id ? [{ direction: 'output', name: edge.source_port }] : []),
@@ -91,7 +92,7 @@ function flowFromDraft(draft: WorkflowDraft, catalog?: CatalogSnapshot, stored: 
       presentation.inputs = [...new Set(endpoints.filter(port => port.direction === 'input').map(port => port.name))].map(missingPortPresentation)
       presentation.outputs = [...new Set(endpoints.filter(port => port.direction === 'output').map(port => port.name))].map(missingPortPresentation)
     }
-    return { id: node.node_id, type: 'workflow', position: positionOverrides[node.node_id] ?? stored.positions[node.node_id] ?? defaultNodePosition(index), data: { missingContracts, retainedConfiguration: { node_parameters: node.node_parameters, binding_parameters: node.binding_parameters }, kind: node.node_type_id === promptAuthorNodeTypeId ? 'prompt' : 'ordinary', eyebrow: presentation.category.toUpperCase(), title: presentation.title, subtitle: node.node_type_id, index: String(index + 1).padStart(2, '0'), inputs: presentation.inputs, outputs: presentation.outputs, sources: Object.fromEntries(presentation.inputs.map(port => [port.name, draft.workflow.edges.filter(edge => edge.target_node_id === node.node_id && edge.target_port === port.name).map(edge => ({ nodeId: edge.source_node_id, outputPort: edge.source_port }))])), parameters: nodeParameters(node.node_id, draft.workflow, catalog), accent: categoryColors[presentation.category] ?? '#9aa69b', count: '', sourceNodeId: node.node_id, bindingId: node.binding_id, collapsed: stored.collapsed.includes(node.node_id) } }
+    return { id: node.node_id, type: 'workflow', position: positionOverrides[node.node_id] ?? stored.positions[node.node_id] ?? defaultNodePosition(index), data: { missingContracts, savedNode: node, kind: node.node_type_id === promptAuthorNodeTypeId ? 'prompt' : 'ordinary', eyebrow: presentation.category.toUpperCase(), title: presentation.title, subtitle: node.node_type_id, index: String(index + 1).padStart(2, '0'), inputs: presentation.inputs, outputs: presentation.outputs, sources: Object.fromEntries(presentation.inputs.map(port => [port.name, draft.workflow.edges.filter(edge => edge.target_node_id === node.node_id && edge.target_port === port.name).map(edge => ({ nodeId: edge.source_node_id, outputPort: edge.source_port }))])), parameters: nodeParameters(node.node_id, draft.workflow, catalog), accent: categoryColors[presentation.category] ?? '#9aa69b', count: '', sourceNodeId: node.node_id, bindingId: node.binding_id, collapsed: stored.collapsed.includes(node.node_id) } }
   })
   const edges = draft.workflow.edges.map((edge): Edge => ({ id: workflowEdgeId(edge), data: { workflowEdge: edge }, reconnectable: !stored.collapsed.includes(edge.source_node_id) && !stored.collapsed.includes(edge.target_node_id), source: edge.source_node_id, sourceHandle: `out-${edge.source_port}`, target: edge.target_node_id, targetHandle: `in-${edge.target_port}`, type: 'default', style: { stroke: '#637168', strokeWidth: 1.6 } }))
   const scope = currentCanvasGroup(stored)
@@ -171,13 +172,13 @@ function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
   const runStatusLabel: Record<NodeRunStatus, string> = { waiting: '等待', running: '运行中', succeeded: '成功', failed: '失败', blocked: '未执行', cancelled: '已取消', interrupted: '已中断', outside: '范围外', reused: '仅复用' }
   return <article className={`workflow-node ${selected ? 'is-selected' : ''} ${data.collapsed ? 'is-collapsed' : ''} ${data.runState ? `run-status-${data.runState.status}` : ''} ${data.scopeState ? `scope-${data.scopeState}` : ''}`} style={{ '--node-accent': data.accent } as React.CSSProperties}>
     <header className="node-header"><span className="node-icon"><Icon size={15} /></span><div><span className="node-eyebrow">{data.eyebrow}</span><details className="node-title-details nodrag"><summary><h3 title={data.title}>{data.title}</h3></summary><div><strong>{data.title}</strong><code>{data.sourceNodeId}</code></div></details></div>{data.runState ? <span className={`node-run-status ${data.runState.status}`} aria-label={`${data.title}：${runStatusLabel[data.runState.status]}`}>{data.runState.status === 'running' ? <LoaderCircle size={11} /> : data.runState.status === 'succeeded' ? <Check size={11} /> : data.runState.status === 'failed' ? <X size={11} /> : <span />}{runStatusLabel[data.runState.status]}</span> : <span className="node-run-status" />}<span className="node-index">{data.index}</span><button className="icon-button nodrag" aria-label={`${data.collapsed ? '展开' : '折叠'}节点 ${data.title}`} aria-expanded={!data.collapsed} onClick={() => data.onToggle?.(id)}><ChevronDown size={15} /></button></header>
-    {!!data.missingContracts?.length && <p className="parameter-empty-hint" role="status">缺失模块：{data.missingContracts.join('、')}。已保留配置；安装并启用兼容模块后重新打开项目。</p>}
-    {!data.collapsed && <><div className="node-meta">{data.bindingOptions && (data.bindingOptions.length > 1 || !!data.missingContracts?.length && data.bindingOptions.length > 0) ? <select disabled={data.readOnly} className="node-binding-select nodrag" aria-label={`${data.title}的执行模型`} value={data.bindingId} onChange={(event) => data.onBinding?.(data.sourceNodeId, event.target.value)}>{!data.bindingOptions.some(option => option.id === data.bindingId) && <option value={data.bindingId}>{data.bindingId}（缺失）</option>}{data.bindingOptions.map((option) => <option value={option.id} key={option.id} title={option.availabilityReason?.message}>{option.label}{option.available ? '' : '（不可用）'}</option>)}</select> : <span>{data.bindingOptions?.find((option) => option.id === data.bindingId)?.label ?? data.subtitle}{data.bindingOptions?.some((option) => option.id === data.bindingId && !option.available) ? '（不可用）' : ''}</span>}<strong>{data.count}</strong></div></>}
+    {data.savedNode && <SavedNodeConfiguration node={data.savedNode} missingContracts={data.missingContracts ?? []} collapsed={data.collapsed} />}
+    {!data.collapsed && <><div className="node-meta">{data.bindingOptions && (data.bindingOptions.length > 1 || !!data.missingContracts?.length && data.bindingOptions.length > 0) ? <select disabled={data.readOnly || !!data.savedNode?.preserved_configuration} className="node-binding-select nodrag" aria-label={`${data.title}的执行模型`} value={data.bindingId} onChange={(event) => data.onBinding?.(data.sourceNodeId, event.target.value)}>{!data.bindingOptions.some(option => option.id === data.bindingId) && <option value={data.bindingId}>{data.bindingId}（缺失）</option>}{data.bindingOptions.map((option) => <option value={option.id} key={option.id} title={option.availabilityReason?.message}>{option.label}{option.available ? '' : '（不可用）'}</option>)}</select> : <span>{data.bindingOptions?.find((option) => option.id === data.bindingId)?.label ?? data.subtitle}{data.bindingOptions?.some((option) => option.id === data.bindingId && !option.available) ? '（不可用）' : ''}</span>}<strong>{data.count}</strong></div></>}
     <WorkflowPorts nodeId={id} inputs={data.inputs} outputs={data.outputs} sources={data.sources} collapsed={!!data.collapsed} prompt={data.kind === 'prompt'} readOnly={data.readOnly} />
     <NodeResultLinks data={data} />
     {!data.collapsed && <>
       {data.bindingOptions?.find((option) => option.id === data.bindingId)?.availabilityReason?.message && <p className="parameter-empty-hint">{data.bindingOptions.find((option) => option.id === data.bindingId)!.availabilityReason!.message}</p>}
-      {data.missingContracts?.length ? <details className="nodrag nowheel"><summary>已保留配置</summary><pre>{JSON.stringify(data.retainedConfiguration, null, 2)}</pre></details> : data.onEditModule ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditModule}>{data.moduleEditorTitle} <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
+      {data.savedNode?.preserved_configuration || data.missingContracts?.length ? null : data.onEditModule ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditModule}>{data.moduleEditorTitle} <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
     </>}
   </article>
 }
@@ -550,10 +551,9 @@ function App() {
     const current = editor.getSnapshot().desired!
     const canvas = canvasFromUi(current.ui_state)
     const selected = new Set(deletedNodes.filter(node => node.data.kind !== 'boundary').map(node => node.id))
-    const removed = deleteGraphElements(current.workflow, catalog!, { nodeIds: selectedLeafNodes(canvas, selected), edges: deletedEdges.filter(edge => edge.selectable !== false).map(edge => edge.data!.workflowEdge as Workflow['edges'][number]) })
+    const removed = deleteGraphElements(current.workflow, { nodeIds: selectedLeafNodes(canvas, selected), edges: deletedEdges.filter(edge => edge.selectable !== false).map(edge => edge.data!.workflowEdge as Workflow['edges'][number]) })
     if (removed.workflow === current.workflow && !selected.size) return
-    const saved = await editWorkflow(() => removed.workflow, {}, ui => ({ ...ui, canvas: cleanCanvasGroups(canvasFromUi(ui), new Set(removed.workflow.nodes.map(node => node.node_id)), selected) }), '删除所选节点与连线')
-    if (saved && removed.notices.length) setNotice({ workspace: saved, message: `已删除；${removed.notices.length} 项依赖来源的筛选配置需要重新设置` })
+    await editWorkflow(() => removed.workflow, {}, ui => ({ ...ui, canvas: cleanCanvasGroups(canvasFromUi(ui), new Set(removed.workflow.nodes.map(node => node.node_id)), selected) }), '删除所选节点与连线')
   }, [beforeWorkspaceAction, editor, catalog, editWorkflow])
   const dropPaletteNode = useCallback((event: React.DragEvent) => { if (!catalog || !flowInstance.current) return; event.preventDefault(); const nodeTypeId = event.dataTransfer.getData('application/protein-workbench-node-type'); if (!nodeTypeId) return; const point = flowInstance.current.screenToFlowPosition({ x: event.clientX, y: event.clientY }); const drop = { nodeTypeId, position: { x: point.x - 137, y: point.y - 30 }, bindings: bindingOptions(catalog, nodeTypeId) }; if (drop.bindings.length === 1) void addDroppedNode(drop, drop.bindings[0].id).catch(reportSaveError); else setPendingNodeDrop(drop) }, [addDroppedNode, catalog, reportSaveError])
   const addPaletteNode = (nodeTypeId: string) => {
@@ -641,7 +641,7 @@ function App() {
     if (!selected.size) return
     const canvas = canvasFromNodes(nodesRef.current, canvasFromUi(current.ui_state))
     const withPorts = { ...canvas, groups: (canvas.groups ?? []).map(group => ({ ...group, ports: groupPorts(canvas, current.workflow, group.id) })) }
-    clipboard.current = { fragment: copyWorkflowFragment(current.workflow, selectedLeafNodes(canvas, selected), catalog, canvas.positions), canvas: structuredClone(withPorts), selected: [...selected] }
+    clipboard.current = { fragment: copyWorkflowFragment(current.workflow, selectedLeafNodes(canvas, selected), canvas.positions), canvas: structuredClone(withPorts), selected: [...selected] }
   }, [catalog, editor])
   const pasteSelection = useCallback(async () => {
     if (!clipboard.current) return
@@ -660,7 +660,7 @@ function App() {
       const groups: CanvasGroup[] = copiedGroups.map(group => copyCanvasGroup(group, nodeMap, groupMap, scope))
       return { ...ui, canvas: { ...canvas, groups: [...(canvas.groups ?? []).map(group => group.id === scope ? { ...group, nodeIds: [...group.nodeIds, ...fragment.nodes.filter(node => !copiedIds.has(node.node_id)).map(node => nodeMap.get(node.node_id)!)] } : group), ...groups] } }
     }, '粘贴独立副本')
-    if (saved) { setNotice({ workspace: saved, message: pasted.notices.length ? '独立副本已粘贴；外部来源的选择配置需要重新连接' : '片段已粘贴' }); requestAnimationFrame(() => { setNodes(current => { const next = current.map(node => ({ ...node, selected: [...groupMap.values(), ...pasted.nodeIds].includes(node.id) })); nodesRef.current = next; return next }); document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true }) }) }
+    if (saved) { setNotice({ workspace: saved, message: '片段已粘贴' }); requestAnimationFrame(() => { setNodes(current => { const next = current.map(node => ({ ...node, selected: [...groupMap.values(), ...pasted.nodeIds].includes(node.id) })); nodesRef.current = next; return next }); document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true }) }) }
   }, [beforeWorkspaceAction, editor, editWorkflow])
   const openModuleEditor = useCallback(async (nodeId: string, prepared?: { session: WorkspaceEditSession; workflow: Workflow }) => {
     const request = ++moduleOpenRevision.current
@@ -670,6 +670,7 @@ function App() {
     if (!session) return
     const workflow = prepared?.workflow ?? session.base.workflow
     const member = workflow.nodes.find(node => node.node_id === nodeId)!
+    if (member.preserved_configuration) throw new Error(member.preserved_configuration.reason)
     const registration = nodeEditor(moduleUi, member.node_type_id)
     if (!registration) throw new Error(`节点 ${nodeId} 没有已启用的模块编辑器`)
     const Component = await loadNodeEditor(registration)
@@ -692,7 +693,7 @@ function App() {
     const sourceNode = draft?.workflow.nodes.find(item => item.node_id === node.id)
     const stageControls: StageControlView[] | undefined = node.data.stage?.controls.flatMap((control): StageControlView[] => {
       const member = draft!.workflow.nodes.find(item => item.node_id === control.nodeId)!
-      if (missingNodeContracts(catalog!, member).length) return []
+      if (member.preserved_configuration || missingNodeContracts(catalog!, member).length) return []
       if (control.kind !== 'parameter') return [control]
       const parameter = parameterPresentations(catalog!, member).find(item => item.scope === 'node' && item.key === control.key)!
       const raw = activeParameterEdits.current.get(`${control.nodeId}:${parameter.scope}:${parameter.key}`)
@@ -715,11 +716,11 @@ function App() {
       onFocusError: () => { const failed = [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)].find(id => runProgress?.nodeStates[id]?.status === 'failed'); if (failed) focusCanvasNode(failed) },
       onCancelParameter: (nodeId, parameter) => { activeParameterEdits.current.delete(`${nodeId}:${parameter.scope}:${parameter.key}`); setRawEditCount(activeParameterEdits.current.size); setInputError(''); const value = parameterPresentations(catalog!, draft!.workflow.nodes.find(item => item.node_id === nodeId)!).find(item => item.key === parameter.key && item.scope === parameter.scope)!; setNodes(current => { const next = current.map(item => item.id === nodeId ? { ...item, data: { ...item.data, parameters: item.data.parameters.map(item => item.key === parameter.key && item.scope === parameter.scope ? value : item) } } : item); nodesRef.current = next; return next }) },
       parameterChoices: parameterChoices && parameterChoices.workflow === draft?.workflow && !parameterChoicesError ? parameterChoices.values[node.id] : { choices: {}, ...(parameterChoicesError ? { notice: `参数来源读取失败：${parameterChoicesError}` } : {}) },
-      bindingOptions: catalog && sourceNode ? bindingOptions(catalog, sourceNode.node_type_id) : [],
+      bindingOptions: catalog && sourceNode && !sourceNode.preserved_configuration ? bindingOptions(catalog, sourceNode.node_type_id) : [],
       runState: runProgress?.nodeStates[node.data.sourceNodeId],
       scopeState: scopePreview?.reused_node_ids.includes(node.id) ? 'reuse' : scopePreview?.execution_node_ids.includes(node.id) ? 'execute' : undefined,
       moduleEditorTitle: sourceNode ? nodeEditor(moduleUi, sourceNode.node_type_id)?.definition.title : undefined,
-      onEditModule: sourceNode && nodeEditor(moduleUi, sourceNode.node_type_id) ? () => { void openModuleEditor(node.id).catch(reportSaveError) } : undefined,
+      onEditModule: sourceNode && !sourceNode.preserved_configuration && nodeEditor(moduleUi, sourceNode.node_type_id) ? () => { void openModuleEditor(node.id).catch(reportSaveError) } : undefined,
       onToggle: id => { const next = nodesRef.current.map(item => item.id === id ? { ...item, data: { ...item.data, collapsed: !item.data.collapsed } } : item); nodesRef.current = next; setNodes(next); void persistCanvas(next).catch(reportSaveError) },
       onParameter: (nodeId, parameter, raw, commit) => {
         if (editor.getSnapshot().readOnly) return
@@ -877,7 +878,7 @@ function App() {
         const port = resolveCanvasPort(canvasFromUi(current.ui_state), current.workflow, state.fromNode.id, state.fromHandle.id!.slice(4), 'output')
         if (!port) return
         const source = current.workflow.nodes.find(node => node.node_id === port.nodeId)!
-        if (nodeTypePresentation(catalog!, source.node_type_id).missing) return
+        if (source.preserved_configuration || nodeTypePresentation(catalog!, source.node_type_id).missing) return
         const presented = nodeTypePresentation(catalog!, source.node_type_id).outputs.find(item => item.name === port.portName)!
         if (presented.missing) return
         const point = 'changedTouches' in event ? event.changedTouches[0] : event

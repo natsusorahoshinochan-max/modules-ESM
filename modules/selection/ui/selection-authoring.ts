@@ -193,7 +193,7 @@ export function selectionSources(workflow: Workflow, catalog: CatalogSnapshot, e
     changed = false
     for (const edge of workflow.edges) if (descendants.has(edge.source_node_id) && !descendants.has(edge.target_node_id)) { descendants.add(edge.target_node_id); changed = true }
   }
-  return workflow.nodes.filter((node) => !descendants.has(node.node_id)).flatMap((node) => {
+  return workflow.nodes.filter((node) => !node.preserved_configuration && !descendants.has(node.node_id)).flatMap((node) => {
     const contract = catalog.contracts.find((item) => item.reference.contract_kind === 'node_type' && item.reference.contract_id === node.node_type_id)
     if (!contract) return []
     return (contract.descriptor.outputs as Array<{ name: string; port_type: ContractReference; multiplicity: string }>).filter((output) => output.port_type.contract_id === portType && (output.multiplicity === 'one' || acceptsMany)).map((output) => ({ node_id: node.node_id, output_port: output.name, label: `${contract.descriptor.title} · ${node.node_id} / ${output.name}` }))
