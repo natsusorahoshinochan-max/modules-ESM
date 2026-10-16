@@ -7,7 +7,7 @@ from core.catalog.declarations import (
 from core.catalog.definition_resource import DefinitionResource
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 from core.catalog.result_reading import ResultReaderDefinition
-from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
+from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition, RunViewerDefinition
 from core.operation import OperationCall, OperationContext
 from datatypes.exact_reference import ExactContractReference
 
@@ -62,7 +62,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     ui_extensions=(ModuleUiDefinition(
         extension_id='reader_demo.viewers', resource_package=__name__, entry='viewers.js',
-        styles=(), react_major=19, editors=(), viewers=(
+        styles=(), react_major=19, editors=(),
+        run_viewers=(
+            RunViewerDefinition('reader_demo.run', '保存的观测', ('reader_demo.temperature',), 'RunReading'),
+            RunViewerDefinition('reader_demo.unavailable', '未构建的查看器', ('reader_demo.temperature',), 'Unavailable'),
+        ),
+        viewers=(
             ResultViewerDefinition('reader_demo.celsius', '摄氏温度', 'reader_demo.temperature', 'Celsius', True),
             ResultViewerDefinition('reader_demo.fahrenheit', '华氏温度', 'reader_demo.temperature', 'Fahrenheit'),
         ),

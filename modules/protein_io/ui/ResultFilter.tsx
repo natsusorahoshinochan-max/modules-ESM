@@ -1,4 +1,4 @@
-import type { ComparisonOperator, Predicate } from '../../modules/selection/ui/selection-authoring'
+import type { ComparisonOperator, Predicate } from '../../selection/ui/selection-authoring'
 import type { ResultFilterChoice } from './result-filter'
 
 export function ResultFilter({ value, choices, onChange, onRemove }: { value: Predicate; choices: ResultFilterChoice[]; onChange: (value: Predicate) => void; onRemove?: () => void }) {

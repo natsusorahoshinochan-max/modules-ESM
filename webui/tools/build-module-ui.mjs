@@ -19,6 +19,7 @@ for (const entry of await readdir(resolve(root, 'modules'), { withFileTypes: tru
   await build({
     entryPoints: [resolve(moduleDirectory, 'ui', config.entry)],
     outfile: resolve(destination, 'modules', entry.name, 'ui', config.output),
+    nodePaths: [resolve(toolchain, 'node_modules')],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', jsx: 'automatic',
     minify: false, legalComments: 'none',
     plugins: [{ name: 'shared-react', setup(builder) {

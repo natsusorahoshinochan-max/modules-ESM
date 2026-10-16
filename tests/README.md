@@ -55,7 +55,7 @@ PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8188 npm run dev -- --port 5188 -
 WORKBENCH_TEST_URL=http://127.0.0.1:5188 npx playwright test tests/result-viewers.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-reader-test-results
 ```
 
-测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算、候选分页迁移或其他业务切片。
+测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算；候选分页和组合展示见下方官方查看器切片。
 
 ## 模块设置
 
@@ -104,6 +104,32 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
 
+## 未保存编辑提醒
+
+启用官方模块的正常应用使用独立临时数据目录，启动后在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5194 npx playwright test tests/unsaved-exit.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-exit-test-results
+```
+
+覆盖未保存布局切换项目时仅放弃或取消；取消保留编辑，放弃后原保存内容不被改写。使用公共 API 准备未完成流程，不调用模型。浏览器原生提醒的触发条件由浏览器控制。
+
+## 官方序列与 Prompt 查看器
+
+使用启用默认官方模块的独立临时应用目录（不用 reader_demo 清单），正常启动后端和前端；在 `webui/` 运行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-readers.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-official-readers
+```
+
+通过公共接口导入序列或创建空白 Prompt 后执行，完整应用中打开模块查看器并重新打开项目。检查序列原值不变及 Prompt 残基分页、Mask 和整轨缺失区别；候选面板跨页勾选、比较与 Workflow 往返；确定性结构对齐和 RMSD 结果的角色、单位、变换、来源及重开。只运行确定性模块，不调用 Provider。
+
+候选读取公共 action 的应用重开、分页顺序/引用及结构原文切片：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_candidate_reading.py
+```
+
 ## ESMC 可选数值
 
 `.venv/bin/python -m unittest discover -s tests -p test_esmc_values.py` 通过公共 Run 和受控官方 SDK 边界覆盖 embedding-only、logits-only、both 的请求选择、CLS/EOS 去除、持久值重开读取及传入外部下游模块。受控数值不证明模型质量。
@@ -123,3 +149,11 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 `.venv/bin/python -m unittest discover -s tests -p test_structure_conformers.py` 覆盖公共输入检查、PDB/mmCIF 选择和拆分、来源身份、重开、拒绝未选/不存在的模型，以及真实残基轴下游对单构象的读取。不调用模型。
 
 使用独立临时数据目录启动正常应用后端及前端（启用默认模块），在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5206 npx playwright test tests/structure-conformers.spec.ts --workers=1 --reporter=line --output=/tmp/conformers-results`。覆盖完整来源界面的单文件上传、构象勾选、保存重开，以及 Prompt 来源构象与链的对应。
+
+## SimpleFold 定义失败与批内续算
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p 'test_simplefold_*.py'
+```
+
+不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。
