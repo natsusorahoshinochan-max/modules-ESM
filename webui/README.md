@@ -139,12 +139,14 @@ the complete [backend execution policy and gates](../docs/backend-verification.m
 and these frontend entry points. This document records commands, not a claim
 that the current working tree has passed them.
 
-Run all verification on the remote verification host, reusing its existing
-Python 3.12 `.venv` and installed frontend dependencies. Do not run tests or builds
-on the local workstation unless explicitly authorized. For this governance task,
-the user authorized local verification while excluding actual local ESM-3,
-SimpleFold and ESMFold2 execution. This exception does not change the standing
-remote policy. From the verification snapshot's `webui/` directory:
+Run all verification on the local machine, using its Python 3.12 `.venv`,
+installed frontend dependencies and an explicitly specified private Execution
+Profile. Remote-service Providers continue to call their configured official
+APIs. Local ESM-3, SimpleFold and ESMFold2 execution is excluded; retain
+model-free browser contracts and report real journeys requiring those routes as
+excluded, never passed. Other local models and Biohub routes remain required.
+The [backend scope](../docs/backend-verification.md#current-model-verification-scope)
+also applies to real browser journeys. From the verification snapshot's `webui/` directory:
 
 ```bash
 npm run typecheck

@@ -102,7 +102,7 @@ _SOLUPROT = (("PROTEIN_WORKBENCH_SOLUPROT_ROOT",),)
 _PROTEIN_SOL = (("PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT",),)
 
 
-CANONICAL_ACCEPTANCE_TIERS = (
+ALL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-biohub-esmc",
         (
@@ -372,6 +372,22 @@ CANONICAL_ACCEPTANCE_TIERS = (
 )
 
 
+# Local heavy-model invocation is outside the current verification scope.
+# Keep definitions and deterministic contracts; exclusion never certifies a gate.
+EXCLUDED_ACCEPTANCE_TIERS = MappingProxyType({
+    tier.name: "local ESM-3, SimpleFold and ESMFold2 invocation excluded"
+    for tier in ALL_ACCEPTANCE_TIERS
+    if any(
+        names in (*_LOCAL_ESM3, *_LOCAL_ESMFOLD2, *_SIMPLEFOLD)
+        for names in tier.environment_configuration
+    )
+})
+CANONICAL_ACCEPTANCE_TIERS = tuple(
+    tier for tier in ALL_ACCEPTANCE_TIERS
+    if tier.name not in EXCLUDED_ACCEPTANCE_TIERS
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionProfile:
     """Private Environment Configuration for one Acceptance Campaign."""
@@ -389,7 +405,7 @@ class ExecutionProfile:
             raise RuntimeError("acceptance Provider configuration is invalid")
         allowed = {
             name
-            for tier in CANONICAL_ACCEPTANCE_TIERS
+            for tier in ALL_ACCEPTANCE_TIERS
             for alternatives in tier.environment_configuration
             for name in alternatives
         }
@@ -614,7 +630,7 @@ class TierExecutionOutcome:
 
 def acceptance_tier(name: str) -> AcceptanceTier:
     """Return one canonical tier by exact identity."""
-    for tier in CANONICAL_ACCEPTANCE_TIERS:
+    for tier in ALL_ACCEPTANCE_TIERS:
         if tier.name == name:
             return tier
     raise KeyError(name)
@@ -624,6 +640,7 @@ def acceptance_definition() -> dict[str, Any]:
     """Project the immutable canonical tier sequence for preparation."""
     return {
         "schema_namespace": CAMPAIGN_DEFINITION_SCHEMA_NAMESPACE,
+        "excluded_tiers": dict(EXCLUDED_ACCEPTANCE_TIERS),
         "tiers": [
             {
                 "name": tier.name,
@@ -1064,9 +1081,11 @@ def campaign_status(root: Path) -> dict[str, Any]:
             execution["acceptance_result"] is not None
             for execution in manifest["executions"]
         ),
-        "total_tiers": len(CANONICAL_ACCEPTANCE_TIERS),
+        "total_tiers": len(ALL_ACCEPTANCE_TIERS),
+        "excluded_tiers": dict(EXCLUDED_ACCEPTANCE_TIERS),
         "outcomes": {
-            tier.name: outcomes.get(tier.name, "not_run")
-            for tier in CANONICAL_ACCEPTANCE_TIERS
+            **{name: "excluded" for name in EXCLUDED_ACCEPTANCE_TIERS},
+            **{tier.name: outcomes.get(tier.name, "not_run")
+               for tier in CANONICAL_ACCEPTANCE_TIERS}
         },
     }

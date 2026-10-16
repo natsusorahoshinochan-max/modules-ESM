@@ -25,7 +25,8 @@ from typing import Iterator, Mapping
 
 from core.provider_support import read_private_credential_file
 from verification.acceptance_campaign import (
-    CANONICAL_ACCEPTANCE_TIERS,
+    ALL_ACCEPTANCE_TIERS,
+    EXCLUDED_ACCEPTANCE_TIERS,
     TierExecutionOutcome,
     write_tier_execution_outcome,
 )
@@ -176,10 +177,6 @@ TIERS = {
             "tests/providers/test_esmfold2_v2.py::"
             "test_remote_esmfold2_v2_folds_3gb1_through_exact_binding"
         ),
-        (
-            "tests/providers/test_esmfold2_v2.py::"
-            "test_local_esmfold2_v2_invokes_configured_models"
-        ),
     ), timeout_seconds=2 * 60 * 60, zero_skip=True),
     **{
         tier.name: Tier(
@@ -188,7 +185,7 @@ TIERS = {
             zero_skip=tier.zero_skip,
             retain_evidence_bundle=True,
         )
-        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for tier in ALL_ACCEPTANCE_TIERS
     },
 }
 
@@ -436,6 +433,10 @@ def run(
             raise RuntimeError(
                 "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT must be absolute"
             )
+    if tier_name in EXCLUDED_ACCEPTANCE_TIERS:
+        print(f"BACKEND VERIFICATION RESULT: excluded ({tier_name}): "
+              f"{EXCLUDED_ACCEPTANCE_TIERS[tier_name]}", flush=True)
+        return 2
     tier = TIERS[tier_name]
     arguments = pytest_override or tier.pytest_arguments
     print(f"BACKEND VERIFICATION TIER: {tier_name}", flush=True)
