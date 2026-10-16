@@ -27,7 +27,7 @@
 
 - **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
 - **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 24–90 行固定导入和注册功能包；[provider_environment](../protein_workbench_public/provider_environment.py)仍按具体 Binding 与工具装配环境配置。
-- **缺失模块打开**：Q14 还要求保留缺失节点、连线和配置并允许打开项目；[前端 authoring](../webui/src/workflow-authoring.ts)第 155、165 行遇到未知 Node Type/Binding 仍直接抛错，缺失占位路径须一并对齐。
+- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现，当前变更的运行验收另行收集。缺失模块的教学副本首次保存仍依赖 Catalog 发现输入，须完善输入依赖持久化；不能猜测引用或丢失所需输入。
 - **局部运行核验**：[项目组合测试](../tests/journeys/test_project_journeys.py)的 `test_missing_module_project_is_preserved_until_catalog_restoration` 本地通过，证明注入缺失 Catalog 时项目内容保留、恢复 Catalog 后可继续使用；不证明前端缺失占位或用户安装、启用、卸载链已实现。
 - **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前固定装配。用户安装管理及通用设置未证实完整，不能以仓库目录结构限制外部模块。
 
@@ -87,11 +87,11 @@
 - **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。[重跑派生](../core/execution/_run_runtime_derived.py)仍按节点重跑。
 - **状态**：批内保留、停止、持久重开和依赖阻断的受控失败回归通过；获准真实 Provider 的成功调用通过不替代线上故障注入验证。Q41 跳过成功请求的主动续算接口仍未完成，不增加自动重试或接纳残缺响应。
 
-### DOC-047｜科学教学实例仍成为启动必要条件
+### DOC-047｜空载体生产启动与项目旅程待验收
 
 - **要求**：空载体独立可用；默认模块与教学实例仍按产品要求提供。
-- **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 104–130 行无条件安装科学教学 Workflow，第 142–147 行的另一分支也安装示例。
-- **状态**：按[架构](architecture.md)解除特定科学模块、Workflow 对基本启动的硬依赖，不能通过取消教学实例或吞掉本地程序错误规避要求。
+- **当前实现**：[bootstrap](../protein_workbench_public/bootstrap.py)读取安装清单，空 Catalog 不安装教学项目；有教学文件且所需节点与 Binding 存在时才安装，编译错误不被吞掉。前端无教学项目时可进入个人项目或创建入口。
+- **状态**：生产空清单的协议与浏览器旅程已添加，尚待冻结源码验证；应用内模块管理入口仍待接入。默认教学入口、原件保护及首次手动保存副本仍须保持通过。
 
 ### DOC-050｜结果 ZIP 缺少已记录的计算参数
 
@@ -117,7 +117,8 @@
 ### DOC-010｜部分输入字符与长度限制的官方依据仍需核对
 
 - **当前证据**：[共用元素规则](../modules/residue_data/elements.py)第 16 行允许 `ACDEFGHIKLMNPQRSTVWYBXZJUO`，具体工具的可表示范围不同。
-- **待核实**：[模块能力](module-capabilities.md)已分别说明共用值和各工具入口的当前字符范围，但代码现状不证明全部额外限制均有官方依据。折叠入口的标准 20 字母限制、Protein-Sol 的最短 21 残基限制等仍需核对适用依据；不能以 ESM3 的限制缩小所有模块用途，也不要求工具处理其不支持字符。
+- **已核实**：[输入限制核实](tool-input-restrictions.md)记录 Protein-Sol 官方入口确实要求过滤后至少21个标准残基；当前拒绝非标准字符避免上游静默删除。ESM-3 SDK 词表和 SoluProt-next 自身 Provider 契约亦已区分。
+- **待核实**：折叠三条路线标准20种检查的完整依据、Biohub ESMC 特殊字符语义仍未证实；词表包含未知类型不等于任意特殊残基可原样通过完整计算。不能以某一工具限制缩小所有模块用途，也不猜测转换。
 
 ### DOC-012｜原始 ESM3 研究记录的实际源码身份未独立核实
 

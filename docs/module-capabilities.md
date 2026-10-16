@@ -44,7 +44,7 @@ ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean e
 
 ### 当前序列输入边界
 
-以下描述当前源码的接纳范围，不把模块限制升级为所有工具的官方限制，也不要求载体统一采用某个工具的字母表。
+以下描述当前源码的接纳范围，不把模块限制升级为所有工具的官方限制，也不要求载体统一采用某个工具的字母表。[输入限制核实](tool-input-restrictions.md)区分官方依据、项目维护 Provider 契约与仍未决的路线边界。
 
 | 当前边界 | 接纳范围 | 源码 |
 |---|---|---|
@@ -53,7 +53,7 @@ ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean e
 | ESM-3 实际 SDK 条件投影 | `ACDEFGHIKLMNPQRSTVWYXBZUO`，未指定位置转 `_`；当前不能表示 `J`。 | [ESM-3 Adapter](../modules/esm3/adapter.py) |
 | 现有 folding 输入 | 大写标准20种残基，且是单链。 | [折叠输入](../modules/folding/_output_construction.py) |
 | 现有 SoluProt、Protein-Sol 输入 | 大写标准20种残基，长度另按对应路线要求；不静默删除未知符号。独立 SoluProt CLI 的不同默认处理见其 README。 | [可溶性入口](../modules/solubility/implementation.py) |
-| ProteinMPNN 序列/约束 | 大写标准20种残基；完整序列按骨架顺序对应，显式身份必须一致，约束按原始残基身份寻址。 | [当前序列检查](../modules/proteinmpnn/implementation.py)、[约束](../modules/proteinmpnn/domain.py) |
+| ProteinMPNN 序列/约束 | 独立序列评分接受大写标准20种残基及官方未知符号 `X`；设计参考序列与约束仍为标准20种。完整序列按骨架顺序对应，显式身份必须一致，约束按原始残基身份寻址。 | [当前序列检查](../modules/proteinmpnn/implementation.py)、[约束](../modules/proteinmpnn/domain.py) |
 
 结构预测置信度与结构内容、预测残基轴及产生它的计算保持对应。PAE 单位为 Å，pTM 为无量纲；pLDDT 原生标度由相应 Adapter 转换，不能把百分数与单位区间混用。缺失 PAE 不补零。现有均值的缺值及范围规则应按具体指标说明，不能用一个简写抹平所有操作。
 

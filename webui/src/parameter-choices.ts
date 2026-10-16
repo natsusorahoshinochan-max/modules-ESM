@@ -92,11 +92,11 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
     const choices: ParameterChoices = Object.fromEntries(parameters.filter(parameter => parameter.resourceKind === 'project_input').map(parameter => [parameter.key, inputChoices]))
     if (!parameters.some(parameter => needsLayout(parameter.key, parameter.contract))) return [node.node_id, { choices, ...(Object.keys(choices).length && !inputs.length ? { notice: '项目暂无 Input；可通过“添加来源”上传或粘贴输入。' } : {}) }]
     const inputPorts = nodeTypePresentation(catalog, node.node_type_id).inputs
-    const edges = workflow.edges.filter(edge => edge.target_node_id === node.node_id && [axisType, 'protein.prompt', 'protein.structure'].includes(inputPorts.find(port => port.name === edge.target_port)!.portTypeId))
+    const edges = workflow.edges.filter(edge => edge.target_node_id === node.node_id && [axisType, 'protein.prompt', 'protein.structure'].includes(inputPorts.find(port => port.name === edge.target_port)!.portTypeId!))
     if (edges.length !== 1) return [node.node_id, { choices, notice: edges.length ? '存在多个布局来源；尚无唯一的参数选项依据。' : '尚未连接可读取的结构、Prompt 或残基轴来源；已有参数值仍保留。' }]
     const edge = edges[0]
     try {
-      const source = await loadSource(workflow.nodes.find(item => item.node_id === edge.source_node_id)!, edge.source_port, inputPorts.find(port => port.name === edge.target_port)!.portTypeId)
+      const source = await loadSource(workflow.nodes.find(item => item.node_id === edge.source_node_id)!, edge.source_port, inputPorts.find(port => port.name === edge.target_port)!.portTypeId!)
       return [node.node_id, { ...source, choices: { ...choices, ...source.choices } }]
     } catch (reason) {
       return [node.node_id, { choices, notice: `来源 ${edge.source_node_id} / ${edge.source_port} 无法提供选项：${workspaceErrorMessage(reason)}` }]

@@ -441,7 +441,7 @@ def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> No
         "missing_backbone": (
             "axis-selected-coordinate-or-provider-NaN-mask"
         ),
-        "sequence": "canonical-20-amino-acid complete backbone order; explicit identities must match",
+        "sequence": "standard-20-amino-acids-plus-X complete backbone order; explicit identities must match",
         "tensorization": "ProteinMPNN tied_featurize all chains designed",
         "mask": "provider mask multiplied by chain_M and chain_M_pos",
         "reduction": "provider _scores masked mean",
@@ -1704,9 +1704,11 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
     )
 
 
+@pytest.mark.parametrize("sequence_text", ["AGSTW", "AGXTW"])
 @pytest.mark.parametrize("generation_parents", [(), ("original-design-backbone",)])
 @pytest.mark.parametrize("residue_ids", [None, ("A:1", "A:2", "B:1", "B:2", "B:3")])
 def test_scoring_independent_reference_does_not_rewrite_generation_source(
+    sequence_text: str,
     generation_parents: tuple[str, ...],
     residue_ids: tuple[str, ...] | None,
 ) -> None:
@@ -1733,7 +1735,7 @@ def test_scoring_independent_reference_does_not_rewrite_generation_source(
     )
     sequence = Candidate(
         "independently-chosen-sequence",
-        ProteinSequence("AGSTW", residue_ids),
+        ProteinSequence(sequence_text, residue_ids),
         generation_parents,
     )
     sequence_data = CandidateDataReference(
@@ -1778,7 +1780,7 @@ def test_scoring_independent_reference_does_not_rewrite_generation_source(
     _controlled_adapter(provider).score(
         residue_axis=axis, sequence=sequence.data, seed=703, backbone_noise=0.25,
     )
-    assert provider.requests[0].provider_sequence == "AGSTW"
+    assert provider.requests[0].provider_sequence == sequence_text
     assert provider.requests[0].seed == 703
     assert provider.requests[0].backbone_noise == 0.25
     assert sequence.data.residue_ids == residue_ids
@@ -1787,7 +1789,7 @@ def test_scoring_independent_reference_does_not_rewrite_generation_source(
 @pytest.mark.parametrize("sequence", [
     ProteinSequence("AGSTW", ["A:1", "A:2", "A:3", "B:1", "B:2"]),
     ProteinSequence("AGST"),
-    ProteinSequence("AGXTW"),
+    ProteinSequence("AGBTW"),
 ])
 def test_scoring_rejects_sequence_residue_layout_drift_before_model_call(
     sequence: ProteinSequence,

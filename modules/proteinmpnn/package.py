@@ -120,7 +120,7 @@ def _method(operation: str) -> MethodDefinition:
                 "missing_backbone": (
                     "axis-selected-coordinate-or-provider-NaN-mask"
                 ),
-                "sequence": "canonical-20-amino-acid complete backbone order; explicit identities must match",
+                "sequence": "standard-20-amino-acids-plus-X complete backbone order; explicit identities must match",
                 "tensorization": (
                     "ProteinMPNN tied_featurize all chains designed"
                 ),

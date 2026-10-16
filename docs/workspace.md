@@ -74,7 +74,7 @@ Draft/UI 内容先追加，最终 workspace record 发布后成为当前工作�
 
 当前应用启动后通过公共协议发现 `webui-3gb1-example`、其 Workflow Draft 与随包分发的已完成运行。浏览这些现有结果不调用 Provider；新运行使用已配置的真实 Provider。受保护示例不能通过普通项目 API 重命名或删除。教学编辑与新增输入保留在当前浏览器会话中；首次手动保存通过 copy 请求一次提交流程、布局与输入，随后切换到没有运行记录或结果引用的个人项目。新增输入的检查与 Prompt 预览使用请求内数据，不创建临时项目或修改教学原件。
 
-默认附带并启用官方功能模块；载体仍须在未启用任何科学模块、没有特定教学资源时正常启动和管理项目及模块。当前启动装配仍固定安装科学目录和示例资源，不能据此承诺空载体已经完成。模块运行设置由模块声明并在应用中配置；当前部署方式与实现差距见[Provider 配置](provider-configuration.md)。
+默认附带并启用官方功能模块。生产启动读取数据目录的 `modules.json` 包清单；没有清单时使用默认包，有空清单时建立空 Catalog。教学资源仅在文件与所需 Node Type/Binding 都存在时安装；实际编译错误仍立即报告，不被忽略。没有教学项目时，前端打开已有个人项目；没有个人项目时显示创建、打开项目入口。新建项目使用同一画布与显式保存路径。应用内安装管理与模块设置仍由模块生命周期工作补齐，不能把生产配置清单当作已完成的用户管理入口；当前配置差距见[Provider 配置](provider-configuration.md)。
 
 ## 画布与参数交互
 
@@ -101,9 +101,9 @@ Draft/UI 内容先追加，最终 workspace record 发布后成为当前工作�
 |---|---|---|
 | 手动保存、未保存退出提醒、保存并运行 | 已实现内存编辑、显式保存与应用内退出选择；相关保存与应用内退出旅程回归通过；浏览器原生提醒不能满足三项要求，产品边界仍待裁定 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[App](../webui/src/App.tsx) |
 | 同一项目运行期间禁改 | 前端编辑 owner 与后端修改边界限制修改，结果阅读仍可用；对应载体与应用旅程回归通过 | [App](../webui/src/App.tsx) |
-| 缺少模块仍能打开并保留项目 | 当前 Workflow 解码要求 Node Type/Binding 存在；需要对齐 | [workflow-authoring](../webui/src/workflow-authoring.ts) |
+| 缺少模块仍能打开并保留项目 | 画布以缺失占位展示未知 Node Type/Binding，保留原始配置、连线与布局；手动保存个人项目不依赖运行编译。模块恢复后的完整用户管理链仍需验收；缺失模块教学副本首次保存的输入依赖发现尚待对齐 | [workflow-authoring](../webui/src/workflow-authoring.ts) |
 | 首次手动保存教学副本 | 首次显式保存一次发布完整个人项目，不带教学运行；命名版本修改亦显式保存；首次保存、重新打开及原件保护回归通过 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[authoring](../core/workflow/authoring.py) |
 | 运行历史及历史/跨项目输入采用 | 现有前端主要打开最近运行；普通项目复制和节点级继续不等于完成这些要求，完整采用路径及来源删除后的可用性仍需核对 | [App](../webui/src/App.tsx)、[结果规范](results.md) |
 | 官方/外部模块、React 专用界面、多个查看器及应用设置 | 固定装配和专用分派尚未形成完整模块接入路径 | [架构](architecture.md)、[Provider 配置](provider-configuration.md) |
 
-内容与链接核对不代表运行验收通过。涉及行为修改时，按[WebUI 验证入口](../webui/README.md#verification)与[后端验证](backend-verification.md#execution-policy)在远端执行对应检查。
+内容与链接核对不代表运行验收通过。涉及行为修改时，按[WebUI 验证入口](../webui/README.md#verification)与[后端验证](backend-verification.md#execution-policy)在本机执行对应检查。

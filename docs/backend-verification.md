@@ -41,8 +41,8 @@ After the non-Provider matrix passes, the same frozen snapshot also requires:
   --profile /absolute/path/to/acceptance-profile.json
 ```
 
-This serial, zero-skip `provider-regressions` tier owns four ProteinMPNN chain,
-segment, missing-backbone and residue-axis regressions plus remote
+This serial, zero-skip `provider-regressions` tier owns five ProteinMPNN chain,
+segment, missing-backbone, residue-axis and unknown-token regressions plus remote
 ESMFold2 invocation/translation regressions. It uses the source Adapter/Binding
 path and the explicit profile's ProteinMPNN and Biohub resources.
 It supplements the installed-artifact Campaign; neither substitutes for the
@@ -116,7 +116,7 @@ are blockers, not exclusions. Profiles need only the in-scope resource paths.
 | Scientific reproduction | `.venv/bin/python -m verification.backend scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
 | Local ESMFold2 translation contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks native-result translation, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python -m verification.backend installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
-| Source Provider regressions | `.venv/bin/python -m verification.backend provider-regressions` | Four real ProteinMPNN axis/topology regressions and one real Biohub ESMFold2 invocation regression, serial and zero-skip; source execution does not certify the installed wheel. |
+| Source Provider regressions | `.venv/bin/python -m verification.backend provider-regressions` | Five real ProteinMPNN axis/topology and unknown-token regressions and one real Biohub ESMFold2 invocation regression, serial and zero-skip; source execution does not certify the installed wheel. |
 | Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
 | Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and retains the applicable existing SDK retry limit. |
 | Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run, retaining the applicable existing SDK retry limit. |
