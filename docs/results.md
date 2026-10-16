@@ -107,7 +107,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 应附带已经记录的原计算参数，保证离开软件后可读；只写 Commit ID 或 Method 定义不足以替代实际节点/Binding 参数。不补造未记录数据，不新增日志或证据体系。结构须提供 PDB/mmCIF 选择，并保留所选非蛋白组分。
 
-当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按候选结构的原格式写 PDB 或 mmCIF；尚无用户选定格式的转换或完整计算参数说明。[结果阅读](../webui/src/published-results.ts)取得原 Commit 后只保留定义，导出材料未传入原 Workflow/参数。不能把现有 ZIP 描述为已满足全部导出要求。
+当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。当前 ZIP 尚缺完整计算参数说明。[结果阅读](../webui/src/published-results.ts)取得原 Commit 后只保留定义，导出材料未传入原 Workflow/参数。不能把现有 ZIP 描述为已满足全部导出要求。
 
 ## 当前差距与核对
 
@@ -115,11 +115,11 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 |---|---|
 | 单条 FASTA | 单条入口拒绝多条记录并提示批量入口，模块及应用旅程回归通过 |
 | 历史/跨项目采用及来源删除独立 | 已有最近运行、节点级复用和输入复制路径；完整采用及来源删除后的可用性尚未证实 |
-| 结构格式、多构象、非蛋白组分 | PDB/mmCIF 导入及原格式输出回归通过；构象选择/拆分及完整组分操作仍未验收 |
+| 结构格式、多构象、非蛋白组分 | PDB/mmCIF 导入及原格式输出回归通过；新增格式转换的完整验证、构象选择/拆分及完整组分操作仍待完成 |
 | 模块查看器 | 内置读取和固定分派须按模块契约开放；多个查看器切换尚待实现 |
 | 结果页转流程 | 已删除入口及节点生成路径，应用旅程回归通过 |
 | ESMC 输出 | 实际 logits 可选输出尚未对齐，不能以矩阵尺寸冒充数值；见[模块能力](module-capabilities.md) |
 | 批次成功结果与续算 | 失败时保留完成结果的受控回归通过；真实工具成功调用不替代失败路径验证；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
-| 导出参数与 mmCIF | 当前 ZIP 尚缺已记录参数说明及格式选择 |
+| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，完整验证待完成；当前 ZIP 尚缺已记录参数说明 |
 
 后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)执行远端检查；本规范不记录旧验收通过数。

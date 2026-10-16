@@ -915,6 +915,16 @@ def build_frozen_catalog(
                 result=availability,
             )
         )
+    result_actions = tuple(action for package in registration_tuple for action in package.result_actions)
+    action_ids: set[str] = set()
+    port_ids = {definition.type_id for _, definition in port_type_entries}
+    for action in result_actions:
+        _require_identifier(action.action_id, "result action_id")
+        if action.action_id in action_ids:
+            raise CatalogBuildError(f"duplicate result action {action.action_id}")
+        if action.port_type_id not in port_ids:
+            raise CatalogBuildError(f"unknown result action Port Type {action.port_type_id}")
+        action_ids.add(action.action_id)
     return FrozenCatalog(
         tuple(
             entry
@@ -923,4 +933,5 @@ def build_frozen_catalog(
         contracts=tuple(resolved[key] for key in sorted(resolved)),
         availability=tuple(availability_snapshots),
         availability_observed_at=observation_time,
+        result_actions=result_actions,
     )
