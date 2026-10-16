@@ -27,8 +27,8 @@
 
 - **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
 - **当前实现**：[模块清单](../protein_workbench_public/module_registry.py)管理启用包；[模块设置](../protein_workbench_public/module_settings.py)按 Binding 声明保存凭据、路径和服务地址，并在空闲时替换后续运行配置。远程 Adapter 使用保存的服务地址；缺少必需配置时 Readiness 明确失败。
-- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现，缺失模块的教学副本首次保存仍依赖 Catalog 发现输入，须完善输入依赖持久化；不能猜测引用或丢失所需输入。
-- **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前实现。设置保存重开、并发字段保存及远程 SDK 参数链已有新公共 API 测试；设置界面保存及刷新重开已有独立浏览器测试；真实本地和远程 Provider 调用仍需核对，不能以边界替身测试宣称真实模型验收。
+- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现；教学副本首次保存从当前 Catalog 或保存的 Commit 定义快照识别并复制所需输入，不猜测引用。
+- **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前实现。设置保存重开、并发字段保存及远程 SDK 参数链已有新公共 API 测试；设置界面保存及刷新重开已有独立浏览器测试；本地 Protein-Sol 与远程 Biohub ESMC 均已通过公共设置保存、重开、实际运行及原始结果读回；该范围不代表其他 Provider 或模块管理的全部路径已核对。
 
 ### DOC-028｜Prompt 合并要求项目用户维护内部身份
 
@@ -84,7 +84,7 @@
 
 - **要求**：批内保留已成功请求；一个请求用完适用重试后失败，停止剩余请求；用户可在相同输入和参数下继续失败及未开始请求，失败节点下游仍阻塞。
 - **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。普通[重跑派生](../core/execution/_run_runtime_derived.py)的 `retry_failed` / `force_selected` 按节点重跑，批内继续使用独立的 `continue_batch` 策略。
-- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 行为测试不等同真实 Biohub 验收。ESM3 与 SimpleFold 的同批续算仍未完成。不增加自动重试或接纳残缺响应。
+- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 测试覆盖中途失败、首请求失败、再次失败与主动继续；一次真实 Biohub 折叠及结构、置信度原值读回已完成，未进行线上故障注入。ESM3 与 SimpleFold 的同批续算仍未完成。不增加自动重试或接纳残缺响应。
 
 ### DOC-047｜空载体生产启动与项目使用路径待核对
 
