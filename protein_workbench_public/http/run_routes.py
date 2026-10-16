@@ -355,6 +355,7 @@ def register_run_routes(
                 admitted["project_id"],
                 admitted["run_id"],
             )
+            continuable = runtime.continuable_node_ids(admitted["project_id"], admitted["run_id"])
         except ProtocolValidationError as error:
             return protocol_error_response(error)
         except V2RunError as error:
@@ -364,6 +365,7 @@ def register_run_routes(
                 error.details,
             )
         projection = encode_run_projection(domain_projection)
+        projection["continuable_node_ids"] = list(continuable)
         return emit_rest_json_success("run_projection", projection)
 
     @app.get(

@@ -80,10 +80,12 @@ class OperationFailedWithOutputs(Exception):
     on the failed Node, but are not eligible for Cache replay or downstream use.
     """
 
-    def __init__(self, error: Exception, outputs: Mapping[str, Any]) -> None:
+    def __init__(self, error: Exception, outputs: Mapping[str, Any], *,
+                 continuation_state: Mapping[str, Any] | None = None) -> None:
         super().__init__("Operation failed after completing some outputs")
         self.error = error
         self.outputs = outputs
+        self.continuation_state = continuation_state
 
 
 class ExecutionTermination(RuntimeError):
@@ -505,6 +507,8 @@ class OperationCall:
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
     effective_randomness: Mapping[str, Any]
+    continuation_state: Mapping[str, Any] | None = None
+    completed_outputs: Mapping[str, AdmittedPort] = field(default_factory=dict)
 
 
 class ScientificOperation(Protocol):

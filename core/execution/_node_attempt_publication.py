@@ -110,6 +110,7 @@ class _AttemptPublication:
                     project_id=state.project_id,
                     materialization_run_id=state.run_id,
                     admitted_output=admitted_output,
+                    continuation_state=state.continuation_state,
                 )
             except ResultStoreWriteError as error:
                 public_error = replace(

@@ -62,9 +62,12 @@ class _NodeArtifact:
 class _NodeResultManifest:
     outputs: tuple[_NodeOutput, ...]
     artifacts: tuple[_NodeArtifact, ...]
+    continuation_state: dict[str, Any] | None = None
 
     def canonical_projection(self) -> dict[str, Any]:
         return {
+            **({"continuation_state": self.continuation_state}
+               if self.continuation_state is not None else {}),
             "outputs": [output.canonical_projection() for output in self.outputs],
             "artifacts": [
                 artifact.canonical_projection() for artifact in self.artifacts
@@ -89,6 +92,7 @@ def _decode_port_manifest(encoded: bytes) -> _PortValueManifest:
 def _decode_node_manifest(encoded: bytes) -> _NodeResultManifest:
     payload = json.loads(encoded)
     return _NodeResultManifest(
+        continuation_state=payload.get("continuation_state"),
         outputs=tuple(_NodeOutput(item["output_port"], StoredObject(**item["value_manifest"]))
                       for item in payload["outputs"]),
         artifacts=tuple(_NodeArtifact(

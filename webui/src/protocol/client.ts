@@ -110,7 +110,7 @@ export type NodeDisposition =
   | NodeDispositionBase & { outcome: 'blocked'; blocked_by: string[] }
   | NodeDispositionBase & { outcome: 'failed' | 'cancelled' | 'interrupted'; blocked_by: [] }
 type SelectionInput = { node_id: string; output_port: string; content_digest: string; result_identity: string }
-export type RunProjection = { project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
+export type RunProjection = { continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
 export type RunDiagnostic = { code: string; message: string; retryable: boolean; correlation_id: string; details: JsonObject }
 export type RunEvent =
   | { type: 'run_admitted'; workflow_commit_id: string }
@@ -176,6 +176,7 @@ export class PublicV2Client {
   observationOptions(workflow: Workflow, ranking: boolean) { return this.json<{ options: Array<{ source: { node_id: string; output_port: string }; partition: string; metric_id: string; method_id: string; context: JsonObject }> }>(`/api/v2/projects/${workflow.workflow_id}/workflow:observation-options`, { method: 'POST', body: JSON.stringify({ workflow: { nodes: workflow.nodes, edges: workflow.edges }, ranking }) }) }
   commitWorkflow(projectId: string, workflow: Workflow) { return this.json<{ workflow_commit_id: string }>(`/api/v2/projects/${projectId}/workflow:commit`, { method: 'POST', body: JSON.stringify({ workflow }) }) }
   previewRunScope(projectId: string, workflowCommitId: string, scope: RunScopeRequest) { return this.json<RunScopePreview>(`/api/v2/projects/${projectId}/runs/preview`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, scope }) }) }
+  continueBatch(projectId: string, sourceRunId: string, nodeId: string) { return this.json<RunReceipt>(`/api/v2/projects/${projectId}/runs:derive`, { method: 'POST', body: JSON.stringify({ source_run_id: sourceRunId, policy: 'continue_batch', node_ids: [nodeId], client_request_id: crypto.randomUUID() }) }) }
   startRun(projectId: string, workflowCommitId: string, scope: RunScopeRequest = { mode: 'full', node_ids: [] }) { return this.json<RunReceipt>(`/api/v2/projects/${projectId}/runs`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, client_request_id: crypto.randomUUID(), scope }) }) }
   projectExecutionState(projectId: string) { return this.json<ProjectExecutionState>(`/api/v2/projects/${projectId}/execution`) }
   projectRuns(projectId: string) { return this.json<{ project_id: string; runs: ProjectRunSummary[] }>(`/api/v2/projects/${projectId}/runs`) }

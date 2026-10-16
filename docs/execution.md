@@ -79,7 +79,11 @@ Run Projection 和 WebSocket 只携带有界输出描述与运行信息，不嵌
 
 主动继续不增加自动重试次数。已核对 ESM3、ESMFold2 SDK 默认对指定错误最多总计五次尝试；这不是所有模块和错误的统一次数规则，也不能把一次 Engine Invocation 等同于一次 SDK 网络尝试。
 
-**当前实现与差距：**[折叠实现](../modules/folding/implementation.py)与 [ESM3 生成](../modules/esm3/implementation.py)在已定义运行失败时交回此前完成的结果；联合生成中序列已完成而结构失败时保留该序列。[节点失败发布](../core/execution/_node_attempt_publication.py)将准入后的保留输出与失败结论一起持久发布，供查看和导出；不写成功缓存，也不将部分输出传给依赖下游。失败请求的残缺响应不被修复或伪装为结果。现有节点重跑仍没有按批内请求跳过成功项，Q41 的主动续算接口尚未完成。
+**当前实现与差距：**[折叠实现](../modules/folding/implementation.py)与 [ESM3 生成](../modules/esm3/implementation.py)在已定义运行失败时交回此前完成的结果；联合生成中序列已完成而结构失败时保留该序列。[节点失败发布](../core/execution/_node_attempt_publication.py)将准入后的保留输出与失败结论一起持久发布，供查看和导出；不写成功缓存，也不将部分输出传给依赖下游。失败请求的残缺响应不被修复或伪装为结果。ESMFold2 已支持通过派生 Run 的 `continue_batch` 继续失败批次：固定原 Run 的 Commit，核对 Result Identity，恢复已完成结构与置信度，只执行失败和未开始请求。首请求失败也保留必要续算状态；再次失败仍停止未开始请求，成功后不再显示可继续能力。ESM3 和 SimpleFold 的批内续算尚未实现。
+
+Run 公共读取的 `continuable_node_ids` 只列出已终结 Run 中具有持久续算状态的失败节点。界面按此显示“继续批次”，明确继续原输入和参数；此操作不保存或采用当前画布修改。已有结果保持可读，成功祖先复用，所选节点成功后再执行其依赖后代，独立分支不重复计算。改变输入或参数后应启动普通新计算。
+
+当前新增公共 API 与浏览器行为测试使用受控官方 SDK 成功/失败响应，覆盖结果保留、重开、累计续算和界面主动操作；这不证明真实 Biohub 线上调用通过，也未运行本地 ESMFold2 模型。
 
 原子持久写入用于确保一次发布完整可靠，与保留已经成功请求并不冲突。这里没有决定废除原子发布、把残缺结果当成功，或增加新的证据和恢复系统。
 
@@ -91,6 +95,7 @@ Run Projection 和 WebSocket 只携带有界输出描述与运行信息，不嵌
 - `to_node` 执行所选节点及其祖先。
 - `from_node` 执行所选节点及后代，执行范围绕过缓存；范围外必要祖先只从明确 source Run 的成功 publication 复用。
 - `retry_failed` 选择原失败节点重跑，仍是节点范围，不等于批内主动续算。
+- `continue_batch` 使用原 Commit 继续所选失败批次及其后代，复用范围外必需的成功祖先。
 
 当前继续及派生运行要求 source Run 已进入终态。范围预览只返回节点范围、操作摘要和缺少的上游 publication，不准备输入、恢复结果或计算依赖实际值的 Result Identity，也不触发 Readiness 或 Provider。预览中依赖输入的随机性标为待输入；继续运行沿用当前 Commit 和输入的有效随机性解析，不隐式更换 seed。
 

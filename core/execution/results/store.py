@@ -77,6 +77,7 @@ class StoredNodeResult:
     node_result_manifest: StoredObject
     outputs: tuple[PublishedOutput, ...]
     artifacts: tuple[PublishedArtifact, ...]
+    continuation_state: dict[str, Any] | None = None
 
 
 class ResultStore:
@@ -149,6 +150,7 @@ class ResultStore:
         project_id: str,
         materialization_run_id: str,
         admitted_output: AdmittedNodeOutput,
+        continuation_state: dict[str, Any] | None = None,
     ) -> StoredNodeResult:
         """Stage one admitted result without creating visibility or an index."""
         node_outputs: list[_NodeOutput] = []
@@ -208,6 +210,7 @@ class ResultStore:
                 self._published_artifact(node_artifact)
             )
         manifest = _NodeResultManifest(
+            continuation_state=continuation_state,
             outputs=tuple(node_outputs),
             artifacts=tuple(node_artifacts),
         )
@@ -225,6 +228,7 @@ class ResultStore:
             node_result_manifest=manifest_object,
             outputs=tuple(published_outputs),
             artifacts=tuple(published_artifacts),
+            continuation_state=manifest.continuation_state,
         )
 
     @staticmethod
@@ -255,6 +259,14 @@ class ResultStore:
                 reference.content_digest,
                 expected_size=reference.size,
             ) from error
+
+    def has_continuation(self, project_id: str, publication: OutputsPublished) -> bool:
+        """Read only the module's persisted capability, without restoring outputs."""
+        reference = publication.node_result_manifest
+        manifest = self._load_node_manifest(
+            project_id, StoredObject(reference.content_digest, reference.size)
+        )
+        return manifest.continuation_state is not None
 
     def _restore_port(
         self,
@@ -338,6 +350,7 @@ class ResultStore:
             node_result_manifest=node_result_manifest,
             outputs=tuple(published_outputs),
             artifacts=tuple(published_artifacts),
+            continuation_state=manifest.continuation_state,
         )
 
     def lookup_replay(

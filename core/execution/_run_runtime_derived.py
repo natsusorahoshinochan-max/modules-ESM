@@ -99,7 +99,7 @@ class _DerivedRunStarter:
             disposition.node_id: disposition.outcome
             for disposition in source_projection.node_dispositions
         }
-        if policy == "retry_failed" and any(
+        if policy in {"retry_failed", "continue_batch"} and any(
             source_outcomes.get(node_id) != "failed"
             for node_id in selected
         ):
@@ -144,6 +144,6 @@ class _DerivedRunStarter:
             _cache_bypass_nodes=forced,
             scope=(
                 RunScopeRequest("from_node", tuple(selected_in_plan_order), source_run_id)
-                if policy == "force_selected" else RunScopeRequest()
+                if policy in {"force_selected", "continue_batch"} else RunScopeRequest()
             ),
         )

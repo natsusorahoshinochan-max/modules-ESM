@@ -35,6 +35,23 @@ class _RunQueries:
         record.require_lifecycle_evidence()
         return projection
 
+    def continuable_node_ids(self, project_id: str, run_id: str) -> tuple[str, ...]:
+        projection = self.projection(project_id, run_id)
+        if projection.terminal_sequence is None:
+            return ()
+        failed = {item.node_id for item in projection.node_dispositions if item.outcome == "failed"}
+        try:
+            return tuple(
+                publication.node_id for publication in projection.publications
+                if publication.node_id in failed
+                and self._result_store.has_continuation(project_id, publication)
+            )
+        except ResultIntegrityError as error:
+            raise V2RunError(
+                "evidence_unavailable", "Required batch result state is unavailable",
+                details={"last_durable_cursor": projection.ledger_cursor.value},
+            ) from error
+
     @staticmethod
     def _typed_value_integrity_error(
         descriptor: PublishedOutput,
