@@ -56,3 +56,50 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5188 npx playwright test tests/result-viewer
 ```
 
 测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算、候选分页迁移或其他业务切片。
+
+## 模块设置
+
+在仓库根目录执行公共 API 切片：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_module_settings.py
+```
+
+界面测试使用启用官方模块的正常应用及独立临时数据目录，不使用上面的 `reader_demo` 清单。启动正常后端和前端后，在 `webui/` 运行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5188 npx playwright test tests/module-settings.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-settings-test-results
+```
+
+覆盖设置保存、重开、实际调用取值及缺少配置时阻止 Provider 执行；界面操作不替代 Provider 行为证明。
+
+## ESMFold2 主动续算
+
+在仓库根目录执行公共 Run 与官方 SDK 调用边界的受控失败切片：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_esmfold2_continuation.py
+```
+
+覆盖批内失败保留结果、下游阻断、独立分支、服务重开继续、首请求及再次失败、候选与置信度身份保持、改参后新计算。SDK 返回受控响应，不运行模型或请求真实 Biohub。
+
+续算界面测试使用单场景服务替换 SDK 边界，应用本身与公共设置、项目、Run 接口保持正常。每次执行该界面测试前重新启动该服务，以重置受控失败序列；使用独立临时数据目录，不使用 `reader_demo` 清单：
+
+```sh
+PROTEIN_WORKBENCH_DATA_ROOT="$(mktemp -d)" PYTHONPATH=. .venv/bin/python tests/serve_continuation.py
+```
+
+等后端显示启动完成，再在另一个终端启动前端：
+
+```sh
+cd webui
+PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8191 npm run dev -- --port 5191 --host 127.0.0.1
+```
+
+在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batch.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-continuation-test-results
+```
+
+覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
