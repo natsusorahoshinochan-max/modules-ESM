@@ -17,6 +17,7 @@ from datatypes.residue import (
     ModifiedResidueNormalizationCollection,
     ResidueLayout,
 )
+from datatypes.structure_format import read_mmcif_atoms, mmcif_dictionary
 from datatypes.structure import (
     ProteinStructure,
     ResolvedStructureResidueAxis,
@@ -63,6 +64,7 @@ class _AtomRecord:
     chain_id: str
     residue_number: str
     insertion_code: str
+    coordinate: tuple[float, float, float]
 
     @property
     def residue_identity(self) -> tuple[str, str, str]:
@@ -88,13 +90,30 @@ def _atom_record(line: str) -> _AtomRecord:
         chain_id=chain_id,
         residue_number=residue_number,
         insertion_code=insertion_code,
+        coordinate=(float(line[30:38]), float(line[38:46]), float(line[46:54])),
     )
 
 
 def _single_model_records(
     structure: ProteinStructure,
 ) -> list[_AtomRecord | None]:
-    lines = structure.pdb_string.splitlines()
+    if structure.format == "mmcif":
+        atoms = read_mmcif_atoms(structure.text)
+        if len({atom.model for atom in atoms}) != 1:
+            raise ValueError("structure transforms require exactly one model")
+        records: list[_AtomRecord | None] = []
+        previous_label: str | None = None
+        for atom in atoms:
+            if previous_label is not None and atom.label_chain != previous_label:
+                records.append(None)
+            records.append(_AtomRecord(
+                "", atom.record.ljust(6), atom.atom_name, atom.altloc,
+                atom.residue_name, atom.chain_id, atom.residue_number,
+                atom.insertion_code, atom.coordinate,
+            ))
+            previous_label = atom.label_chain
+        return records
+    lines = structure.text.splitlines()
     model_count = sum(line.startswith("MODEL ") for line in lines)
     end_model_count = sum(line.startswith("ENDMDL") for line in lines)
     if model_count > 1 or end_model_count > 1:
@@ -220,16 +239,43 @@ def _coordinate_components(
     )
 
 
+def _mmcif_polymer_declarations(structure: ProteinStructure) -> tuple[
+    dict[tuple[str, str, str], tuple[str, str]], dict[str, tuple[str, ...]],
+]:
+    data = mmcif_dictionary(structure.text)
+    modres = {}
+    prefix = "_pdbx_struct_mod_residue."
+    if prefix + "auth_asym_id" in data:
+        chains = data[prefix + "auth_asym_id"]
+        for index, chain in enumerate(chains):
+            insertion = data.get(prefix + "PDB_ins_code", ["?"] * len(chains))[index]
+            modres[(chain, data[prefix + "auth_seq_id"][index], "" if insertion in {"?", "."} else insertion)] = (
+                data[prefix + "auth_comp_id"][index], data[prefix + "parent_comp_id"][index],
+            )
+    seqres: dict[str, tuple[str, ...]] = {}
+    if "_entity_poly_seq.entity_id" in data:
+        by_entity: dict[str, list[str]] = defaultdict(list)
+        for entity, component in zip(data["_entity_poly_seq.entity_id"], data["_entity_poly_seq.mon_id"], strict=True):
+            by_entity[entity].append(component)
+        chains = data.get("_atom_site.auth_asym_id", data["_atom_site.label_asym_id"])
+        for chain, entity in zip(chains, data["_atom_site.label_entity_id"], strict=True):
+            if entity in by_entity:
+                seqres[chain] = tuple(by_entity[entity])
+    return modres, seqres
+
+
 def _pdb_polymer_declarations(
     structure: ProteinStructure,
 ) -> tuple[
     dict[tuple[str, str, str], tuple[str, str]],
     dict[str, tuple[str, ...]],
 ]:
+    if structure.format == "mmcif":
+        return _mmcif_polymer_declarations(structure)
     modres: dict[tuple[str, str, str], tuple[str, str]] = {}
     seqres_records: dict[str, dict[int, tuple[str, ...]]] = defaultdict(dict)
     seqres_counts: dict[str, int] = {}
-    for line in structure.pdb_string.splitlines():
+    for line in structure.text.splitlines():
         if line.startswith("MODRES"):
             if len(line) < 27:
                 raise ValueError("PDB MODRES record is truncated")
@@ -435,11 +481,7 @@ def _selected_coordinates(
             )
         coordinate = tuple(
             0.0 if value == 0.0 else value
-            for value in (
-                float(record.line[30:38]),
-                float(record.line[38:46]),
-                float(record.line[46:54]),
-            )
+            for value in record.coordinate
         )
         if not all(math.isfinite(value) for value in coordinate):
             raise ValueError("resolved residue coordinate is non-finite")
@@ -525,7 +567,7 @@ def resolve_residue_axis(
             parent_name = "MET"
             role = "modified_polymer"
             disposition = "normalized"
-            normalization_source = "pdb_modres"
+            normalization_source = "mmcif_modres" if admitted_structure.format == "mmcif" else "pdb_modres"
             generated_normalizations.append(
                 ModifiedResidueNormalization(
                     component_id="MSE",

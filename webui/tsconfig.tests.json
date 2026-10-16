@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "allowImportingTsExtensions": true
+  },
+  "include": ["tests", "real-tests", "playwright*.ts"]
+}

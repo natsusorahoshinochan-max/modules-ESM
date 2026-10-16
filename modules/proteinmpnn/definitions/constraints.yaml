@@ -40,7 +40,7 @@ node_parameters:
       uniqueItems: true
       items:
         type: string
-        pattern: &residue_identity_pattern "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
+        pattern: &residue_identity_pattern "^[A-Za-z0-9][A-Za-z0-9_.-]*:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]+[A-Za-z]?)$"
     default: []
   fixed_residue_ids:
     parameter_scope: scientific
@@ -60,7 +60,7 @@ node_parameters:
       uniqueItems: true
       items:
         type: string
-        pattern: "^[A-Za-z0-9]$"
+        pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
     default: []
   fixed_chains:
     parameter_scope: scientific
@@ -70,7 +70,7 @@ node_parameters:
       uniqueItems: true
       items:
         type: string
-        pattern: "^[A-Za-z0-9]$"
+        pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
     default: []
   omit_amino_acids:
     parameter_scope: scientific

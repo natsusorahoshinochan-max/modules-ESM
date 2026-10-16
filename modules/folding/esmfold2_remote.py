@@ -98,6 +98,10 @@ def build_remote_engine(environment: Mapping[str, Any]) -> Any:
     )
 
 
+class ESMFold2ProviderError(RuntimeError):
+    """The remote SDK reported an operational folding failure."""
+
+
 class BiohubESMFold2Adapter:
     """Translate one canonical sequence through the exact Biohub route."""
 
@@ -132,13 +136,18 @@ class BiohubESMFold2Adapter:
                     )
                 ),
             ):
-                raw_result = engine.fold(
-                    sequence=sequence.sequence,
-                    model_name=REMOTE_ESMFOLD2_MODEL,
-                    config=config,
-                )
+                try:
+                    raw_result = engine.fold(
+                        sequence=sequence.sequence,
+                        model_name=REMOTE_ESMFOLD2_MODEL,
+                        config=config,
+                    )
+                except ESMProteinError as error:
+                    raise ESMFold2ProviderError(
+                        "remote ESMFold2 provider request failed"
+                    ) from error
                 if isinstance(raw_result, ESMProteinError):
-                    raise RuntimeError(
+                    raise ESMFold2ProviderError(
                         "remote ESMFold2 provider returned an error"
                     )
             return decode_remote_fold_result(raw_result, sequence)

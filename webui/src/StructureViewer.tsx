@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import * as $3Dmol from '3dmol'
-import type { PromptRigidTransform } from './protocol/client'
+import type { PromptRigidTransform, PublishedStructure } from './protocol/client'
 import { axisDisplacement, length, numericValue, planeDisplacement, residueMarkers, rigidTransform, rotationAmount, unit, viewBasis, worldAxes, type TransformMode, type Vec3, type ViewportPoint, type WorldAxis } from './viewport-transform'
 import './structure-viewer.css'
 
@@ -20,7 +20,7 @@ export type ViewportEdit = {
 }
 type ViewerProps = {
   ref?: Ref<StructureViewerHandle>
-  pdb?: string
+  structure?: PublishedStructure
   selectedResidues?: ViewerResidue[]
   residueLabel?: (residue: ViewerResidue) => string
   onSelectResidue?: (residue: ViewerResidue & { toggle: boolean; range: boolean }) => void
@@ -41,7 +41,9 @@ const noSelection: ViewerResidue[] = []
 const markerAtoms = (viewer: $3Dmol.GLViewer) => viewer.selectedAtoms({}).map(atom => ({ chain: atom.chain!, resi: atom.resi!, atom: atom.atom!, x: atom.x!, y: atom.y!, z: atom.z! }))
 
 export function StructureViewer(props: ViewerProps) {
-  const { pdb = '', selectedResidues = noSelection, pivot } = props
+  const { structure, selectedResidues = noSelection, pivot } = props
+  const text = structure?.text ?? ''
+  const format = structure?.format
   const host = useRef<HTMLDivElement>(null), canvasHost = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<$3Dmol.GLViewer | undefined>(undefined)
   const initializedView = useRef(false)
@@ -198,16 +200,16 @@ export function StructureViewer(props: ViewerProps) {
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || transformActive) return
-    if (!pdb) { viewer.clear(); return }
+    if (!text) { viewer.clear(); return }
     const loaded = initializedView.current
     const view = viewer.getView(), slab = viewer.getSlab()
-    viewer.clear(); viewer.addModel(pdb, 'pdb')
+    viewer.clear(); viewer.addModel(text, format === 'mmcif' ? 'cif' : 'pdb')
     viewer.setStyle({}, { cartoon: { color: 'spectrum', opacity: 0.94 }, line: { color: 'spectrum' } })
     viewer.setClickable({}, true, () => undefined)
     if (loaded) { viewer.setView(view); viewer.setSlab(slab.near, slab.far) } else viewer.zoomTo()
     initializedView.current = true
     viewer.render()
-  }, [pdb, transformActive])
+  }, [text, format, transformActive])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -217,7 +219,7 @@ export function StructureViewer(props: ViewerProps) {
     viewer.removeAllShapes(); viewer.removeAllLabels()
     if (activePivot) viewer.addSphere({ center: { x: activePivot[0], y: activePivot[1], z: activePivot[2] }, radius: 0.45, color: '#ff6688', opacity: 0.9 })
     viewer.render()
-  }, [pdb, activePivot, selectedResidues])
+  }, [text, format, activePivot, selectedResidues])
 
   useEffect(() => {
     if (!boxTool) { setMarkers([]); return }
@@ -240,7 +242,7 @@ export function StructureViewer(props: ViewerProps) {
   const point = (event: { pageX: number; pageY: number }): ViewportPoint => ({ x: event.pageX, y: event.pageY })
   const localPoint = (p: ViewportPoint) => { const rect = canvasHost.current!.getBoundingClientRect(); return { x: p.x - rect.left - window.scrollX, y: p.y - rect.top - window.scrollY } }
   const selectable = Boolean(props.onSelectResidues || props.onSelectResidue)
-  return <div ref={host} tabIndex={0} className={`structure-viewer${pdb ? '' : ' is-empty'}`} aria-label="三维结构视口" onKeyDown={event => {
+  return <div ref={host} tabIndex={0} className={`structure-viewer${structure?.text ? '' : ' is-empty'}`} aria-label="三维结构视口" onKeyDown={event => {
     if ((event.target as HTMLElement).matches('input,select,textarea')) return
     const key = event.key.toLowerCase()
     if (modal.current) {
@@ -296,8 +298,8 @@ export function StructureViewer(props: ViewerProps) {
         choose(chosen, drag.shift); setBox(undefined); setBoxMode(false)
       }
     }} onPointerCancel={() => { gesture.current = undefined; setBox(undefined) }} />
-    {!pdb && <p className="structure-empty" role="status">没有可显示的结构坐标</p>}
-    {pdb && <>
+    {!structure?.text && <p className="structure-empty" role="status">没有可显示的结构坐标</p>}
+    {structure?.text && <>
       <div className="sv-tools" onPointerDown={event => event.stopPropagation()}>
         <button disabled={!!operation} onClick={frameAll}>显示全部</button><button disabled={!!operation || !selectedResidues.length} onClick={frameSelection}>聚焦选区</button>
         {selectable && <><select aria-label="三维选择方式" disabled={!!operation} value={selectionMode} onChange={event => { const mode = event.target.value as SelectionMode; selectionModeRef.current = mode; setSelectionMode(mode) }}><option value="replace">替换选区</option><option value="add">增加选区</option><option value="remove">移除选区</option></select><button disabled={!!operation} aria-pressed={boxTool} onClick={() => { setBoxMode(!boxTool); host.current?.focus() }}>B 框选</button></>}

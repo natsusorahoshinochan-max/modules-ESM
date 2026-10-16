@@ -89,7 +89,7 @@ def _structure(label: str) -> ProteinStructure:
         "  1.00 20.00           C"
     ).ljust(80)
     return ProteinStructure(
-        pdb_string=f"{coordinate_record}\nTER\nEND\n",
+        text=f"{coordinate_record}\nTER\nEND\n",
     )
 
 

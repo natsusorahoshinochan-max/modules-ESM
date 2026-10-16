@@ -20,17 +20,20 @@ from core.project.manager import (
     ProjectStateError,
     ProtectedProjectError,
 )
+from core.workflow.document import workflow_document_from_canonical, WorkflowDocumentError
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
 )
 from protein_workbench_public.http.errors import (
     authoring_error_response,
+    workflow_document_error_response,
     protocol_error_response,
     public_error_response,
     public_rest_wire_sources,
 )
 from protein_workbench_public.http.emission import emit_rest_json_success
+from protein_workbench_public.http.project_inputs import prospective_project_inputs
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
     decode_rest_request,
@@ -137,11 +140,13 @@ def register_project_routes(
                 query_parameters=query, json_body=body,
             )
             if operation == "rename_project":
-                meta = projects.rename(project_id, admitted["name"])
+                with runtime.project_mutation(project_id):
+                    meta = projects.rename(project_id, admitted["name"])
             elif operation == "duplicate_project":
                 meta = authoring.duplicate_project(project_id, name=admitted["name"])
             elif operation == "restore_project":
-                meta = projects.restore(project_id)
+                with runtime.project_mutation(project_id):
+                    meta = projects.restore(project_id)
             elif operation == "trash_project":
                 meta = runtime.trash_project(project_id)
             else:
@@ -252,9 +257,15 @@ def register_project_routes(
             meta = authoring.copy_project(
                 admitted["project_id"],
                 name=admitted["name"],
+                workflow=(workflow_document_from_canonical(admitted["workflow"])
+                          if "workflow" in admitted else None),
+                ui_state=admitted.get("ui_state"),
+                inputs=prospective_project_inputs(admitted.get("inputs", ())),
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, json_body.get("workflow"))
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         return emit_rest_json_success(
@@ -294,12 +305,15 @@ def register_project_routes(
                 },
             )
         try:
-            published = manager.publish_input(
-                admitted["project_id"],
-                f"input-{uuid.uuid4().hex}",
-                content,
-                filename=admitted["filename"],
-            )
+            with runtime.project_mutation(project_id):
+                published = manager.publish_input(
+                    admitted["project_id"],
+                    f"input-{uuid.uuid4().hex}",
+                    content,
+                    filename=admitted["filename"],
+                )
+        except V2RunError as error:
+            return public_error_response(error.code, str(error), error.details)
         except ProtectedProjectError:
             return public_error_response(
                 "cross_scope_access_denied",

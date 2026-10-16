@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datatypes.observation import IntrinsicContextProfile
+from datatypes.observation import PairwiseContextProfile
 
 from core.catalog.observation import ObservationPortSource
 
@@ -98,8 +98,8 @@ def _method(operation: str) -> MethodDefinition:
             algorithm_identity={
                 "name": "ProteinMPNN conditional sequence scoring",
                 "provider_operation": "score_sequence",
-                "decoding_order": "fixed-local-torch-seed",
-                "decoding_order_seed": 42,
+                "decoding_order": "explicit-local-torch-seed",
+                "decoding_order_seed": "effective_seed",
                 "seed_application": "after-resident-model-resolution",
             },
             model_identity={
@@ -120,7 +120,7 @@ def _method(operation: str) -> MethodDefinition:
                 "missing_backbone": (
                     "axis-selected-coordinate-or-provider-NaN-mask"
                 ),
-                "sequence": "canonical-20-amino-acid exact target layout",
+                "sequence": "canonical-20-amino-acid complete backbone order; explicit identities must match",
                 "tensorization": (
                     "ProteinMPNN tied_featurize all chains designed"
                 ),
@@ -128,7 +128,7 @@ def _method(operation: str) -> MethodDefinition:
                     "provider mask multiplied by chain_M and chain_M_pos"
                 ),
                 "reduction": "provider _scores masked mean",
-                "decoding_order_seed": 42,
+                "decoding_order_seed": "effective_seed",
             },
             scale_contract={
                 "value": (
@@ -172,7 +172,7 @@ def _method(operation: str) -> MethodDefinition:
                     "one-based-position"
                 ),
                 "constraints": "ProteinMPNN tied_featurize",
-                "reference_sequence": "exact-chain-layout",
+                "reference_sequence": "complete-backbone-order-explicit-identities-match",
                 "sequence_decoding": "complete-parsed-target-layout",
                 "incomplete_backbone": (
                     "axis-selected-coordinate-or-provider-NaN-mask;"
@@ -240,23 +240,36 @@ def _resolve_design_randomness(
     }
 
 
+def _resolve_score_randomness(
+    *,
+    inputs: Mapping[str, AdmittedPort],
+    node_parameters: Mapping[str, Any],
+    binding_parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    del inputs, binding_parameters
+    return {
+        name: node_parameters[name]
+        for name in ("effective_seed", "backbone_noise")
+    }
+
+
 def _binding(operation: str) -> ExecutionBindingDefinition:
     is_design = operation == "design"
     is_model = operation in {"design", "score"}
-    randomness_parameters = (
-        (
-            "effective_seed",
-            "num_sequences",
-            "temperature",
-            "backbone_noise",
+    if is_design:
+        randomness_parameters = (
+            "effective_seed", "num_sequences", "temperature", "backbone_noise",
         )
-        if is_design
-        else (
-            ("effective_seed", "fraction")
-            if operation == "random_fixed_positions"
-            else ()
-        )
-    )
+        randomness_resolver = _resolve_design_randomness
+    elif operation == "score":
+        randomness_parameters = ("effective_seed", "backbone_noise")
+        randomness_resolver = _resolve_score_randomness
+    elif operation == "random_fixed_positions":
+        randomness_parameters = ("effective_seed", "fraction")
+        randomness_resolver = _resolve_random_fixed_randomness
+    else:
+        randomness_parameters = ()
+        randomness_resolver = None
     method_id = (
         f"proteinmpnn.{operation}.v_48_020_8907e667"
         if is_model
@@ -271,7 +284,13 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "metric",
                     "proteinmpnn.native_sequence_nll",
                 ),
-                context_profile=IntrinsicContextProfile(),
+                context_profile=PairwiseContextProfile(
+                    subject_role="subject",
+                    reference_role="reference",
+                    pairing_mode="fixed_reference",
+                    normalization="provider_masked_mean",
+                ),
+                reference_source=ObservationPortSource("input", "structure_residue_axes"),
                 subject_input="sequence_candidates",
                 axis_source=ObservationPortSource("input", "structure_residue_axes"),
                 guaranteed_multiplicity="one",
@@ -394,13 +413,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                         )
                     },
                 ),
-                resolve=(
-                    _resolve_design_randomness
-                    if is_design
-                    else _resolve_random_fixed_randomness
-                ),
+                resolve=randomness_resolver,
             )
-            if randomness_parameters
+            if randomness_resolver is not None
             else None
         ),
         produced_observations=produced_observations,

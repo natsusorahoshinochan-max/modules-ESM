@@ -1,0 +1,456 @@
+"""Repository-owned v2 example and fixture acceptance for Ticket 33.
+
+The pre-agreed seams are the immutable production Catalog, the public v2
+Workflow document/compiler contract, the Module Package/Contract Test Kit
+registration seam, and the built artifact inventory.
+"""
+
+from __future__ import annotations
+
+from protein_workbench_public.bootstrap import module_registrations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+)
+from core.workflow.document import WorkflowDocumentError
+from protein_workbench_public.workflow_codec import (
+    decode_workflow_document,
+    encode_workflow_document,
+)
+from examples.v2_suite import (
+    PRODUCTION_WORKFLOW_PATHS,
+    verify_repository_examples,
+)
+from modules.prompt_authoring.package import (
+    MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+)
+from modules.residue_data.package import (
+    MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+)
+from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
+from modules.structure_comparison.package import (
+    MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
+)
+from modules.structure_transform.package import (
+    MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+)
+from tests.fixtures.multi_objective_selection_sources.package import (
+    FIXED_PARTITION,
+    PAIRED_PARTITION,
+    MODULE_PACKAGE as SELECTION_SOURCE_PACKAGE,
+)
+from tests.fixtures.prompt_authoring_sources.package import (
+    MODULE_PACKAGE as PROMPT_AUTHORING_SOURCE_PACKAGE,
+)
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SELECTION_FIXTURE = (
+    PROJECT_ROOT
+    / "tests"
+    / "fixtures"
+    / "v2_workflows"
+    / "exact_multi_objective_selection.workflow.json"
+)
+PROMPT_TRACK_FIXTURE = (
+    PROJECT_ROOT
+    / "tests"
+    / "fixtures"
+    / "v2_workflows"
+    / "exact_prompt_tracks.workflow.json"
+)
+CTK_WORKFLOW_PATHS = (PROMPT_TRACK_FIXTURE, SELECTION_FIXTURE)
+UNSUPPORTED_WORKFLOW_FIXTURE = (
+    PROJECT_ROOT
+    / "tests"
+    / "fixtures"
+    / "v2_workflows"
+    / "unsupported_schema_version.workflow.json"
+)
+def _load(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_prompt_examples_use_canonical_materializer_nodes() -> None:
+    for filename in (
+        "canonical-3gb1.workflow.json",
+        "source-bound-2emo.workflow.json",
+        "source-bound-5g53.workflow.json",
+    ):
+        workflow = _load(PROJECT_ROOT / "examples" / "v2" / filename)
+        nodes = workflow["nodes"]
+        prompt_nodes = [
+            node
+            for node in nodes
+            if node["node_type_id"].startswith("prompt_authoring.")
+        ]
+        assert prompt_nodes
+        assert all(
+            node["node_id"].startswith("prompt-composition-")
+            for node in prompt_nodes
+        )
+
+
+def _selection_catalog():
+    return build_frozen_catalog(
+        (
+            SELECTION_PACKAGE,
+            STRUCTURE_COMPARISON_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+            SELECTION_SOURCE_PACKAGE,
+        )
+    )
+
+
+def _walk(value: object):
+    yield value
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _walk(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk(item)
+
+
+def test_repository_examples_are_compilable_v2_workflows() -> None:
+    catalog = build_frozen_catalog(module_registrations())
+
+    assert PRODUCTION_WORKFLOW_PATHS
+    for path in PRODUCTION_WORKFLOW_PATHS:
+        payload = _load(path)
+        workflow = decode_workflow_document(payload)
+        assert workflow.schema_version == "2.1.0"
+        compiled = compile(
+            CompilationRequest(workflow),
+            catalog,
+        )
+        assert compiled.workflow_id == workflow.workflow_id
+        for node in workflow.nodes:
+            node_type = catalog.require_contract(
+                "node_type",
+                node.node_type_id,
+            )
+            binding = catalog.require_contract(
+                "binding",
+                node.binding_id,
+            )
+            assert binding.descriptor["node_type"] == node_type.reference()
+
+
+def test_prompt_downstream_example_closes_fold_and_proteinmpnn_interfaces() -> None:
+    payload = _load(
+        PROJECT_ROOT
+        / "examples"
+        / "v2"
+        / "prompt-downstream-interfaces.workflow.json"
+    )
+    edges = {
+        (
+            edge["source_node_id"],
+            edge["source_port"],
+            edge["target_node_id"],
+            edge["target_port"],
+        )
+        for edge in payload["edges"]
+    }
+    assert {
+        (
+            "author-prompt",
+            "protein_prompt",
+            "decompose-prompt",
+            "protein_prompt",
+        ),
+        (
+            "decompose-prompt",
+            "sequence",
+            "materialize-prompt-sequence",
+            "sequence",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence_candidates",
+            "fold-prompt-sequence",
+            "sequence_candidates",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence",
+            "design-with-reference",
+            "sequence",
+        ),
+        (
+            "resolve-proteinmpnn-targets",
+            "residue_axes",
+            "design-with-reference",
+            "structure_residue_axes",
+        ),
+    } <= edges
+
+
+def test_examples_never_select_methods_or_environment_implicitly() -> None:
+    payloads = [_load(path) for path in PRODUCTION_WORKFLOW_PATHS]
+    payloads.extend(_load(path) for path in CTK_WORKFLOW_PATHS)
+
+    forbidden_keys = {
+        "credential",
+        "credential_file",
+        "directory",
+        "fallback",
+        "model_name",
+        "path",
+        "provider",
+        "runtime_path",
+    }
+    forbidden_values = {"latest", "fallback", "auto"}
+    for payload in payloads:
+        for node in payload["nodes"]:
+            assert node["binding_id"]
+            assert set(node) == {
+                "node_id",
+                "node_type_id",
+                "binding_id",
+                "node_parameters",
+                "binding_parameters",
+            }
+            assert forbidden_keys.isdisjoint(node["node_parameters"])
+            assert forbidden_keys.isdisjoint(node["binding_parameters"])
+        assert not any(
+            isinstance(value, str) and value.lower() in forbidden_values
+            for value in _walk(payload)
+        )
+
+
+def test_prediction_confidence_is_materialized_by_explicit_nodes() -> None:
+    """Required prediction facts cross the canonical materialization seam."""
+    catalog = build_frozen_catalog(module_registrations())
+    producer_candidate_ports = {
+        "esm3.generate_paired": "structure_candidates",
+        "esm3.generate_structure": "structure_candidates",
+        "folding.fold": "structure_candidates",
+    }
+
+    for path in PRODUCTION_WORKFLOW_PATHS:
+        payload = _load(path)
+        nodes = {node["node_id"]: node for node in payload["nodes"]}
+        edges = {
+            (
+                edge["source_node_id"],
+                edge["source_port"],
+                edge["target_node_id"],
+                edge["target_port"],
+            )
+            for edge in payload["edges"]
+        }
+        for producer in nodes.values():
+            candidate_port = producer_candidate_ports.get(
+                producer["node_type_id"]
+            )
+            if candidate_port is None:
+                continue
+            node_type = catalog.require_contract(
+                "node_type",
+                producer["node_type_id"],
+            )
+            required_outputs = {
+                output["name"]
+                for output in node_type.descriptor["outputs"]
+                if output["required"]
+            }
+            assert {candidate_port, "confidence_facts"} <= required_outputs
+            materializers = [
+                node
+                for node in nodes.values()
+                if node["node_type_id"]
+                == "structure_prediction.materialize_confidence"
+                and (
+                    producer["node_id"],
+                    candidate_port,
+                    node["node_id"],
+                    "structure_candidates",
+                )
+                in edges
+                and (
+                    producer["node_id"],
+                    "confidence_facts",
+                    node["node_id"],
+                    "confidence_facts",
+                )
+                in edges
+            ]
+            assert len(materializers) == 1, (
+                f"{path.name}:{producer['node_id']} must explicitly "
+                "materialize its required confidence facts"
+            )
+
+
+def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
+    catalog = _selection_catalog()
+    workflow = decode_workflow_document(_load(SELECTION_FIXTURE))
+
+    compiled = compile(
+        CompilationRequest(workflow),
+        catalog,
+    )
+    assert compiled.workflow_id == workflow.workflow_id
+    assert {
+        objective.source_partition for objective in workflow.selection_objectives
+    } == {
+        FIXED_PARTITION,
+        PAIRED_PARTITION,
+    }
+    assert {
+        objective.context_selector.pairing_mode
+        for objective in workflow.selection_objectives
+    } == {"fixed_reference", "explicit_relation"}
+    assert all(
+        objective.metric.contract_id
+        == "contract_test.multi_objective_selection_score"
+        and objective.method.contract_id
+        == "contract_test.multi_objective_selection_source.method"
+        and objective.utility_transform.contract_id
+        in {
+            "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
+            "contract_test.multi_objective_selection_score.paired_esm3.identity",
+        }
+        and objective.context_selector.normalization
+        == "literal-unit-interval"
+        and objective.match_cardinality == "exactly_one"
+        and objective.missing_policy == "error"
+        for objective in workflow.selection_objectives
+    )
+    serialized = json.dumps(encode_workflow_document(workflow), sort_keys=True)
+    assert "score_id" not in serialized
+
+
+def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
+    catalog = build_frozen_catalog(
+        (
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+            PROMPT_AUTHORING_SOURCE_PACKAGE,
+        )
+    )
+    workflow = decode_workflow_document(_load(PROMPT_TRACK_FIXTURE))
+
+    compiled = compile(
+        CompilationRequest(workflow),
+        catalog,
+    )
+    assert compiled.workflow_id == workflow.workflow_id
+    assert {
+        node.binding_id
+        for node in workflow.nodes
+        if node.binding_id.startswith("prompt_authoring.")
+    } == {
+        "prompt_authoring.author.direct",
+        "prompt_authoring.author.direct",
+    }
+
+
+def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    node_ids = {
+        contract.contract_id
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+    }
+
+    assert "stub.echo" not in node_ids
+    assert "scoring.aggregate_confidence" not in node_ids
+    assert {
+        "esm3.generate",
+        "esmfold2.fold",
+        "structure.pairwise_align",
+        "structure.batch_tm_score",
+        "scoring.merge",
+    }.isdisjoint(node_ids)
+
+    comparison_nodes = {
+        contract.contract_id
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("structure_comparison.")
+    }
+    assert comparison_nodes == {
+        "structure_comparison.align_pairs",
+        "structure_comparison.classify_three_way_consistency",
+        "structure_comparison.evaluate_inserted_loop",
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.tm_score_from_alignments",
+    }
+    comparison_bindings = {
+        contract.contract_id
+        for contract in catalog.contracts
+        if contract.contract_kind == "binding"
+        and contract.contract_id.startswith("structure_comparison.")
+    }
+    assert comparison_bindings == {
+        "structure_comparison.align_pairs.sequence_primary_affine",
+        "structure_comparison.align_pairs.structure_first_tm_align",
+        "structure_comparison.classify_three_way_consistency.direct",
+        "structure_comparison.evaluate_inserted_loop.direct",
+        "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
+        "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
+    }
+    comparison_scientific_contracts = {
+        (contract.contract_kind, contract.contract_id)
+        for contract in catalog.contracts
+        if contract.contract_kind in {
+            "method",
+            "metric",
+            "utility_transform",
+        }
+        and contract.contract_id.startswith("structure_comparison.")
+    }
+    assert comparison_scientific_contracts
+    assert {kind for kind, _ in comparison_scientific_contracts} == {
+        "method",
+        "metric",
+        "utility_transform",
+    }
+
+
+def test_legacy_sample_exists_only_as_an_explicit_unsupported_fixture() -> None:
+    payload = _load(UNSUPPORTED_WORKFLOW_FIXTURE)
+
+    assert payload == {
+        "schema_version": "1.0.0",
+        "workflow_id": "unsupported-v1-fixture",
+        "nodes": [],
+        "edges": []}
+    with pytest.raises(
+        WorkflowDocumentError,
+        match="Workflow document is invalid",
+    ) as caught:
+        decode_workflow_document(payload)
+    assert caught.value.code == "unsupported_schema_version"
+
+
+def test_routine_example_verification_is_pure_and_provider_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "application-data"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
+
+    assert verify_repository_examples() == {
+        "workflow_count": len(PRODUCTION_WORKFLOW_PATHS),
+    }
+    assert not data_root.exists()
+
+
+def test_example_verification_is_deterministic() -> None:
+    first = verify_repository_examples()
+    second = verify_repository_examples()
+
+    assert first == second

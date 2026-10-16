@@ -103,6 +103,9 @@ def _builtin_port_type(
         "envelope_namespace": PORT_VALUE_NAMESPACE,
         "value_kind": value_kind,
     }
+    if type_id == "protein.structure":
+        validator_parameters["structure_formats"] = ["pdb", "mmcif"]
+        codec_parameters["structure_format_fields"] = ["pdb_string", "mmcif_string"]
     if type_id == "protein.sequence":
         validator_parameters["sequence_invariants"] = {
             "alphabet": "ACDEFGHIKLMNPQRSTVWYBXZJUO",

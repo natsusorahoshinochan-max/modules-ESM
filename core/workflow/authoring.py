@@ -20,6 +20,7 @@ from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
     WEBUI_3GB1_PROJECT_ID,
     ProjectManager,
+    ProjectInputDescriptor,
     ProjectMeta,
     ProtectedProjectError,
 )
@@ -468,6 +469,7 @@ class WorkflowAuthoringService:
         workflow: WorkflowDocument | None = None,
         ui_state: Mapping[str, Any] | None = None,
         expected_draft_revision: int | None = None,
+        expected_workspace_revision: int | None = None,
     ) -> ProjectWorkspace:
         """Publish all submitted parts of one edit in a single workspace record."""
         self._require_project(project_id)
@@ -475,6 +477,14 @@ class WorkflowAuthoringService:
         if workflow is not None:
             self._validate_draft_submission(project_id, workflow)
         current = self._read_workspace_head(project_id)
+        if (
+            expected_workspace_revision is not None
+            and expected_workspace_revision != current.workspace_revision
+        ):
+            raise WorkflowAuthoringError(
+                "malformed_request", "Workspace changed while the editor was open; reopen before saving",
+                details={"field_path": ["expected_workspace_revision"]},
+            )
         if expected_draft_revision is not None and expected_draft_revision != current.draft_revision:
             raise WorkflowAuthoringError(
                 "malformed_request", "Workflow changed while the editor was open; reopen before saving",
@@ -505,7 +515,12 @@ class WorkflowAuthoringService:
         self._projects.touch(project_id)
         return self._workspace_value(project_id, head, draft=draft, ui_state=ui_state)
 
-    def copy_project(self, source_project_id: str, *, name: str) -> ProjectMeta:
+    def copy_project(
+        self, source_project_id: str, *, name: str,
+        workflow: WorkflowDocument | None = None,
+        ui_state: Mapping[str, Any] | None = None,
+        inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]] | None = None,
+    ) -> ProjectMeta:
         """Create the first personal copy of one protected example Project."""
         source = self._require_project(source_project_id)
         if source_project_id != WEBUI_3GB1_PROJECT_ID or not source.seed:
@@ -515,7 +530,7 @@ class WorkflowAuthoringService:
                 details={"requested_project_id": source_project_id},
             )
         return self._copy_workspace(
-            source_project_id, name, reference_results=True,
+            source_project_id, name, workflow=workflow, ui_state=ui_state, inputs=inputs,
         )
 
     def duplicate_project(self, source_project_id: str, *, name: str) -> ProjectMeta:
@@ -525,7 +540,9 @@ class WorkflowAuthoringService:
 
     def _copy_workspace(
         self, source_project_id: str, name: str,
-        *, reference_results: bool = False,
+        *, workflow: WorkflowDocument | None = None,
+        ui_state: Mapping[str, Any] | None = None,
+        inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]] | None = None,
     ) -> ProjectMeta:
         head = self._read_workspace_head(source_project_id)
         source_draft = self._load_draft_revision(
@@ -534,9 +551,17 @@ class WorkflowAuthoringService:
         source_workspace = self._workspace_value(
             source_project_id, head, draft=source_draft,
         )
+        selected_workflow = workflow if workflow is not None else source_draft.workflow
+        self._validate_draft_submission(source_project_id, selected_workflow)
+        new_inputs = inputs if inputs is not None else {}
+        if set(new_inputs) & set(self._projects.stored_input_references(source_project_id)):
+            raise WorkflowAuthoringError(
+                "malformed_request", "New Inputs must use unused references",
+                details={"field_path": ["inputs"]},
+            )
         referenced_inputs = {
             node.node_parameters[parameter.name]
-            for node in source_draft.workflow.nodes
+            for node in selected_workflow.nodes
             for parameter in cast(
                 NodeTypeDefinition,
                 self._catalog.require_contract("node_type", node.node_type_id).definition,
@@ -546,19 +571,24 @@ class WorkflowAuthoringService:
         }
         with self._projects.copy_destination(
             name, copied_from_project_id=source_project_id,
-            reference_results_project_id=(source_project_id if reference_results else None),
         ) as target:
-            for input_reference in sorted(referenced_inputs):
+            for input_reference in sorted(referenced_inputs - new_inputs.keys()):
                 descriptor, payload = self._projects.read_input(
                     source_project_id, input_reference,
                 )
                 self._projects.publish_input(
                     target.id, input_reference, payload, filename=descriptor.filename,
                 )
-            workflow_projection = source_draft.workflow.canonical_projection()
+            for input_reference, (descriptor, payload) in new_inputs.items():
+                self._projects.publish_input(
+                    target.id, input_reference, payload, filename=descriptor.filename,
+                )
+            workflow_projection = selected_workflow.canonical_projection()
             workflow_projection["workflow_id"] = target.id
             workflow = workflow_document_from_canonical(workflow_projection)
-            ui_revision = self._publish_ui_state(target.id, source_workspace.ui_state)
+            ui_revision = self._publish_ui_state(
+                target.id, ui_state if ui_state is not None else source_workspace.ui_state,
+            )
             draft = self._append_draft(target.id, workflow)
             self._publish_workspace(target.id, _WorkspaceHead(
                 draft_revision=draft.draft_revision, ui_state_revision=ui_revision,

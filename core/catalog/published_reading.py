@@ -46,4 +46,5 @@ def read_sequence(encoded: bytes) -> dict[str, Any]:
 
 
 def read_structure(encoded: bytes) -> dict[str, str]:
-    return {"pdb": json.loads(encoded)["value"]["fields"]["pdb_string"]}
+    structure = _wire_to_value(json.loads(encoded)["value"])
+    return {"text": structure.text, "format": structure.format}

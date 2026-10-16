@@ -8,6 +8,7 @@ from typing import Any, cast
 from core.operation import (
     AdmittedPort,
     OperationCall,
+    OperationFailedWithOutputs,
 )
 from datatypes.candidate import (
     Candidate,
@@ -30,6 +31,8 @@ from modules.structure_prediction.port_types import (
 
 from .adapter import (
     ESM3CallParameters,
+    ESM3ProviderError,
+    ESM3PairFailure,
     ESM3Confidence,
     ESM3GenerationAdapter,
 )
@@ -212,13 +215,18 @@ class ESM3GenerationOperation:
         reconstructions: list[Candidate] = []
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
+        failure: ESM3ProviderError | None = None
         for sample_index in range(num_samples):
-            result = self._adapter.generate_sequence(
-                prompt,
-                parameters=parameters,
-                base_seed=effective_seed,
-                sample_index=sample_index,
-            )
+            try:
+                result = self._adapter.generate_sequence(
+                    prompt,
+                    parameters=parameters,
+                    base_seed=effective_seed,
+                    sample_index=sample_index,
+                )
+            except ESM3ProviderError as error:
+                failure = error
+                break
             candidate = Candidate(
                 f"sequence-{sample_index}",
                 result.sequence,
@@ -264,6 +272,8 @@ class ESM3GenerationOperation:
                 )
                 reconstructions.append(reconstruction)
                 reconstruction_facts.append(fact)
+        if failure is not None and not candidates:
+            raise failure
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
                 "esm3-sequence-candidates",
@@ -283,6 +293,8 @@ class ESM3GenerationOperation:
                 observation_method=self._method,
                 pending_facts=tuple(reconstruction_facts),
             )
+        if failure is not None:
+            raise OperationFailedWithOutputs(failure, outputs) from failure
         return outputs
 
     def _generate_structure(
@@ -298,13 +310,18 @@ class ESM3GenerationOperation:
         candidates: list[Candidate] = []
         confidence_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
+        failure: ESM3ProviderError | None = None
         for sample_index in range(num_samples):
-            result = self._adapter.generate_structure(
-                prompt,
-                parameters=parameters,
-                base_seed=effective_seed,
-                sample_index=sample_index,
-            )
+            try:
+                result = self._adapter.generate_structure(
+                    prompt,
+                    parameters=parameters,
+                    base_seed=effective_seed,
+                    sample_index=sample_index,
+                )
+            except ESM3ProviderError as error:
+                failure = error
+                break
             candidate_id = f"structure-{sample_index}"
             fact = self._pending_confidence_fact(
                 candidate_id=candidate_id,
@@ -333,7 +350,9 @@ class ESM3GenerationOperation:
             )
             candidates.append(candidate)
             confidence_facts.append(fact)
-        return {
+        if failure is not None and not candidates:
+            raise failure
+        outputs: dict[str, Any] = {
             "structure_candidates": CandidateCollection(
                 "esm3-structure-candidates",
                 "protein.structure",
@@ -344,6 +363,9 @@ class ESM3GenerationOperation:
                 pending_facts=tuple(confidence_facts),
             ),
         }
+        if failure is not None:
+            raise OperationFailedWithOutputs(failure, outputs) from failure
+        return outputs
 
     def _generate_paired(
         self,
@@ -361,16 +383,28 @@ class ESM3GenerationOperation:
         reconstruction_candidates: list[Candidate] = []
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
+        failure: ESM3ProviderError | None = None
         for sample_index in range(num_samples):
-            result = self._adapter.generate_pair(
-                prompt,
-                parameters=parameters,
-                base_seed=effective_seed,
-                sample_index=sample_index,
-            )
+            try:
+                result = self._adapter.generate_pair(
+                    prompt,
+                    parameters=parameters,
+                    base_seed=effective_seed,
+                    sample_index=sample_index,
+                )
+            except ESM3PairFailure as error:
+                failure = error
+                sequence_result = error.sequence
+                structure_result = None
+            except ESM3ProviderError as error:
+                failure = error
+                break
+            else:
+                sequence_result = result.sequence
+                structure_result = result.structure
             sequence_candidate = Candidate(
                 f"sequence-{sample_index}",
-                result.sequence.sequence,
+                sequence_result.sequence,
                 [],
                 self._candidate_metadata(
                     operation="generate_sequence",
@@ -380,12 +414,12 @@ class ESM3GenerationOperation:
                     parameters=parameters,
                     call_track="sequence",
                     effective_call_seed=(
-                        result.sequence.effective_call_seed
+                        sequence_result.effective_call_seed
                     ),
-                    effective_num_steps=result.sequence.effective_num_steps,
+                    effective_num_steps=sequence_result.effective_num_steps,
                 ),
             )
-            if result.sequence.reconstruction is not None:
+            if sequence_result.reconstruction is not None:
                 reconstruction_id = (
                     f"reconstructed-structure-{sample_index}"
                 )
@@ -393,18 +427,18 @@ class ESM3GenerationOperation:
                     candidate_id=reconstruction_id,
                     output_role="sequence_reconstruction_candidates",
                     output_slot=len(reconstruction_candidates),
-                    structure=result.sequence.reconstruction,
+                    structure=sequence_result.reconstruction,
                     prompt=prompt,
                     prompt_reference=prompt_reference,
-                    sequence=result.sequence.sequence,
+                    sequence=sequence_result.sequence,
                     confidence=cast(
                         ESM3Confidence,
-                        result.sequence.confidence,
+                        sequence_result.confidence,
                     ),
                 )
                 reconstruction = Candidate(
                     reconstruction_id,
-                    result.sequence.reconstruction,
+                    sequence_result.reconstruction,
                     [sequence_candidate.candidate_id],
                     self._candidate_metadata(
                         operation="generate_sequence",
@@ -414,29 +448,32 @@ class ESM3GenerationOperation:
                         parameters=parameters,
                         call_track="sequence",
                         effective_call_seed=(
-                            result.sequence.effective_call_seed
+                            sequence_result.effective_call_seed
                         ),
                         effective_num_steps=(
-                            result.sequence.effective_num_steps
+                            sequence_result.effective_num_steps
                         ),
                     ),
                 )
                 reconstruction_candidates.append(reconstruction)
                 reconstruction_facts.append(reconstruction_fact)
+            sequence_candidates.append(sequence_candidate)
+            if structure_result is None:
+                break
             structure_id = f"structure-{sample_index}"
             structure_fact = self._pending_confidence_fact(
                 candidate_id=structure_id,
                 output_role="structure_candidates",
                 output_slot=len(structure_candidates),
-                structure=result.structure.structure,
+                structure=structure_result.structure,
                 prompt=prompt,
                 prompt_reference=prompt_reference,
-                sequence=result.structure.sequence,
-                confidence=result.structure.confidence,
+                sequence=structure_result.sequence,
+                confidence=structure_result.confidence,
             )
             structure_candidate = Candidate(
                 structure_id,
-                result.structure.structure,
+                structure_result.structure,
                 [sequence_candidate.candidate_id],
                 self._candidate_metadata(
                     operation="generate_structure",
@@ -446,36 +483,34 @@ class ESM3GenerationOperation:
                     parameters=parameters,
                     call_track="structure",
                     effective_call_seed=(
-                        result.structure.effective_call_seed
+                        structure_result.effective_call_seed
                     ),
                     effective_num_steps=(
-                        result.structure.effective_num_steps
+                        structure_result.effective_num_steps
                     ),
                     effective_num_steps_by_track={
-                        "sequence": result.sequence.effective_num_steps,
-                        "structure": result.structure.effective_num_steps,
+                        "sequence": sequence_result.effective_num_steps,
+                        "structure": structure_result.effective_num_steps,
                     },
                 ),
             )
-            sequence_candidates.append(sequence_candidate)
             structure_candidates.append(structure_candidate)
             confidence_facts.append(structure_fact)
+        if failure is not None and not sequence_candidates:
+            raise failure
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
-                "esm3-paired-sequences",
-                "protein.sequence",
-                sequence_candidates,
-            ),
-            "structure_candidates": CandidateCollection(
-                "esm3-paired-structures",
-                "protein.structure",
-                structure_candidates,
-            ),
-            "confidence_facts": confidence_output_identity_intent(
-                observation_method=self._method,
-                pending_facts=tuple(confidence_facts),
+                "esm3-paired-sequences", "protein.sequence", sequence_candidates,
             ),
         }
+        if structure_candidates:
+            outputs["structure_candidates"] = CandidateCollection(
+                "esm3-paired-structures", "protein.structure", structure_candidates,
+            )
+            outputs["confidence_facts"] = confidence_output_identity_intent(
+                observation_method=self._method,
+                pending_facts=tuple(confidence_facts),
+            )
         if reconstruction_candidates:
             outputs["sequence_reconstruction_candidates"] = (
                 CandidateCollection(
@@ -490,6 +525,8 @@ class ESM3GenerationOperation:
                 observation_method=self._method,
                 pending_facts=tuple(reconstruction_facts),
             )
+        if failure is not None:
+            raise OperationFailedWithOutputs(failure, outputs) from failure
         return outputs
 
 

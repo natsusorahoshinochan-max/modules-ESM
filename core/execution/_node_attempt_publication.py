@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from dataclasses import replace
 from typing import Literal, cast
 
 from core.execution._node_attempt_errors import (
@@ -17,6 +19,7 @@ from core.execution.ledger import (
     ImmutableObjectReference,
     Ledger,
     NodeFailurePublication,
+    OutputsPublished,
     NodeDisposition,
     NodeSuccessPublication,
     NodeTerminationPublication,
@@ -62,6 +65,7 @@ class _AttemptPublication:
             "operation",
             "publication",
         ],
+        retained_outputs: OutputsPublished | None = None,
         only_if_active: bool = False,
     ) -> AttemptOutcome | None:
         transition = NodeFailurePublication(
@@ -75,6 +79,7 @@ class _AttemptPublication:
             resolution=state.resolution,
             error=public_error,
             failure_origin=failure_origin,
+            retained_outputs=retained_outputs,
         )
         acknowledged = (
             self._ledger.record_if_active(transition)
@@ -96,7 +101,48 @@ class _AttemptPublication:
             "operation",
             "publication",
         ],
+        admitted_output: AdmittedNodeOutput | None = None,
     ) -> AttemptOutcome:
+        retained_outputs = None
+        if admitted_output is not None:
+            try:
+                stored = self._result_store.store(
+                    project_id=state.project_id,
+                    materialization_run_id=state.run_id,
+                    admitted_output=admitted_output,
+                )
+            except ResultStoreWriteError as error:
+                public_error = replace(
+                    public_error,
+                    details={
+                        **cast(Mapping[str, object], public_error.details),
+                        "retained_output_failure": {
+                            "node_id": state.node.node_id,
+                            "publication_stage": error.stage,
+                        },
+                    },
+                )
+            else:
+                retained_outputs = OutputsPublished(
+                    node_id=state.node.node_id,
+                    result_identity=admitted_output.result_identity,
+                    node_result_manifest=ImmutableObjectReference(
+                        content_digest=stored.node_result_manifest.content_digest,
+                        size=stored.node_result_manifest.size,
+                    ),
+                    outputs=stored.outputs,
+                    artifacts=stored.artifacts,
+                )
+        if retained_outputs is not None:
+            recorded = self._record_failure(
+                state,
+                public_error=public_error,
+                failure_origin=failure_origin,
+                retained_outputs=retained_outputs,
+                only_if_active=True,
+            )
+            if recorded is not None:
+                return recorded
         return cast(
             AttemptOutcome,
             self._record_failure(

@@ -86,30 +86,15 @@ class _SequenceSource:
         inputs = call.inputs
         node_parameters = call.node_parameters
         binding_parameters = call.binding_parameters
-        if (
-            set(inputs) != {"structure_candidates"}
-            or node_parameters
-            or binding_parameters
-        ):
-            raise ValueError("3GB1 sequence source requires one exact parent")
-        parents = inputs["structure_candidates"].value
-        if (
-            type(parents) is not CandidateCollection
-            or parents.item_type != "protein.structure"
-            or len(parents.items) != 1
-        ):
-            raise ValueError("3GB1 sequence parent is ambiguous")
+        if inputs or node_parameters or binding_parameters:
+            raise ValueError("3GB1 sequence source takes no inputs or parameters")
         if hashlib.sha256(_SEQUENCE.encode()).hexdigest() != _SEQUENCE_SHA256:
             raise RuntimeError("3GB1 sequence fixture does not match its source")
-        parent = parents.items[0]
         with self._resources.engine_invocation():
             candidate = Candidate(
                 "source-bound-3gb1-sequence",
-                ProteinSequence(
-                    _SEQUENCE,
-                    [f"A:{index}" for index in range(1, 57)],
-                ),
-                [parent.candidate_id],
+                ProteinSequence(_SEQUENCE),
+                (),
                 {"source_sha256": _SEQUENCE_SHA256},
             )
         return {

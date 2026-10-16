@@ -29,7 +29,7 @@
 
 ## 2. 当前项目能够支持的准确表述
 
-项目要求以[当前有效决策](../documentation-governance-decisions.md)为准，术语见 [CONTEXT.md](../../CONTEXT.md)；实现文件仅用于确认机制和能力边界。
+项目要求以[当前有效决策](../documentation-governance-decisions.md)为准，术语见 [GLOSSARY.md](../../GLOSSARY.md)；实现文件仅用于确认机制和能力边界。
 
 | 环节 | 当前机制 | 撰写时的准确表述 |
 | --- | --- | --- |

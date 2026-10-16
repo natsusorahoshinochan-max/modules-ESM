@@ -7,7 +7,7 @@ inputs:
     port_type_id: protein.structure
     required: true
     multiplicity: one
-    scientific_meaning: Exact single-model PDB structure preserved inside the resolved value.
+    scientific_meaning: Exact single-model PDB or mmCIF structure preserved inside the resolved value.
   - name: modified_residue_normalizations
     port_type_id: structure_transform.modified_residue_normalizations
     required: false

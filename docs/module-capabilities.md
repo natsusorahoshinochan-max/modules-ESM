@@ -8,23 +8,31 @@
 
 | 已确认的功能职责 | 当前相关代码 | 已存在的能力及边界 |
 |---|---|---|
-| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、结构导入及序列/结构导出。当前结构路径主要使用 PDB；PDB/mmCIF 双格式、多构象选择及拆分等仍需对齐当前决定。单条 FASTA 的拼接行为为待修正缺陷，不能当作输入规范。 |
+| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出，相关非 Provider 回归通过。用户选择格式转换、多构象选择及拆分仍需实现。 |
 | 序列与设计条件编辑 | [`prompt_authoring`](../modules/prompt_authoring/definitions/)、[`residue_data`](../modules/residue_data/definitions/) | Prompt 组合、拆解与编辑，带残基身份的轨道及序列物化。随机插入和局部采用按[Prompt 编辑要求](prompt-editing.md)落实，内部位置映射由模块处理。 |
-| 序列生成与设计 | [`esm3`](../modules/esm3/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/) | ESM-3 的序列、结构轨道和配对生成；现有 ProteinMPNN 的设计和约束能力。ProteinMPNN 功能已决定从头重做，旧节点不构成兼容要求。 |
+| 序列生成与设计 | [`esm3`](../modules/esm3/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/) | ESM-3 的序列、结构轨道和配对生成；ProteinMPNN 按骨架与约束生成序列，并保留真实生成父结构和逐次调用 seed。 |
 | 结构预测 | [`folding`](../modules/folding/definitions/) | ESMFold2 本地/远程与 SimpleFold 折叠，保留对应结构与预测置信度。 |
 | 结构编辑与处理 | [`structure_transform`](../modules/structure_transform/definitions/) | 链选择、残基轴解析、骨架和序列提取，以及已明确的 CSH 归一化等。选择评价区域不等同于裁剪或改写输入结构。 |
 | 结构比较 | [`structure_comparison`](../modules/structure_comparison/definitions/) | 配对对齐、RMSD/TM-score 投影、三方一致性分类与插入环分析。特定实例分析不替代链上不连续区域的通用比较要求。 |
-| 候选评价 | [`solubility`](../modules/solubility/definitions/)、[`folding`](../modules/folding/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/)、[`structure_annotation`](../modules/structure_annotation/definitions/) | SoluProt/Protein-Sol、已有结构 SimpleFold confidence、ProteinMPNN 评分、DSSP 注释及二级结构一致性。评价与生成来源分开；现有 ProteinMPNN 强制父结构绑定必须解除。 |
+| 候选评价 | [`solubility`](../modules/solubility/definitions/)、[`folding`](../modules/folding/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/)、[`structure_annotation`](../modules/structure_annotation/definitions/) | SoluProt/Protein-Sol、已有结构 SimpleFold confidence、ProteinMPNN 评分、DSSP 注释及二级结构一致性。ProteinMPNN 评价接受独立序列与所选骨架，以 pairwise 结果记录评价关系，不改写生成来源。 |
 | 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度与结构比较结果的物化、统计和派生指标。已有节点不是全部通用区域统计需求已经完成的证明。 |
 | 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、多样性、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
 
 ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean embedding 与 `(L+2, 64)` logits 形状。Q27 要求整条序列 embedding 和实际逐位置 logits 均以可选输出提供，供查看及后续模块使用；其最终功能模块归属未由此预定。logits 不等于概率。
 
+### ProteinMPNN 设计与评价
+
+设计与评价分别使用独立请求。设计保留骨架父结构、约束、完整链/片段映射、每个父结构的有效 seed 与采样顺序；评价接收一个完整序列和用户选择的一个骨架，返回 `fixed_reference` / `provider_masked_mean` 的 pairwise 标量，明确记录序列 subject 与骨架 reference。评价不要求二者存在生成父子关系。
+
+没有残基身份的独立序列按完整骨架残基轴的位置顺序对应，长度必须相同；已有显式身份时必须与所选轴一致，不猜测或静默重排。Adapter 将轴的每个共价片段映射为工具安全链名和连续编号，保留原链和残基身份对应。PDB 或 mmCIF 的来源格式不改变这一工具输入合同。
+
+设计开放 seed、数量、温度、骨架噪声及声明的设计约束；评价开放 seed 与骨架噪声。评分默认 seed 42 是本模块的明确可重复默认值，零也作为精确 seed；噪声默认 0 与固定上游一致。数量、温度、噪声不施加工具无依据的额外上限。默认模型仍为 `v_48_020`，本次不新增计算模式。源码与声明已更新，非 Provider 回归及真实 ProteinMPNN 安装产物和源码验收通过；范围见[测试说明](testing.md)。这不证明全部 Q26 参数开放或未确认的额外输出已经完成。
+
 ### ProteinMPNN 输出范围
 
 现有评分实现公开的是整序列标量，虽然注册中已存在逐残基 NLL 指标定义，尚无对应公开输出。定义存在不等于功能已实现，也不自动确认逐残基输出是重做的必需功能。
 
-固定上游采样可返回逐位置概率等附带值，当前集成未完整保留。采样时的分布与按给定序列另做 forward 后得到的 NLL 不是同一结果，不能互相冒充。重做须先按已确认功能正确传参和接回所需结果；尚未确认保留哪些额外采样字段，不扩建指标或证据体系。源码入口见[现有实现](../modules/proteinmpnn/implementation.py)、[Provider 翻译](../modules/proteinmpnn/provider_runtime.py)及[上游采样](../repositories/ProteinMPNN/protein_mpnn_utils.py)。
+固定上游采样可返回逐位置概率等附带值，当前集成未完整保留。采样时的分布与按给定序列另做 forward 后得到的 NLL 不是同一结果，不能互相冒充。实现按已确认功能正确传参和接回所需结果；尚未确认保留哪些额外采样字段，不扩建指标或证据体系。源码入口见[现有实现](../modules/proteinmpnn/implementation.py)、[Provider 翻译](../modules/proteinmpnn/provider_runtime.py)及[上游采样](../repositories/ProteinMPNN/protein_mpnn_utils.py)。
 
 ## 跨模块数据约定
 
@@ -45,7 +53,7 @@ ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean e
 | ESM-3 实际 SDK 条件投影 | `ACDEFGHIKLMNPQRSTVWYXBZUO`，未指定位置转 `_`；当前不能表示 `J`。 | [ESM-3 Adapter](../modules/esm3/adapter.py) |
 | 现有 folding 输入 | 大写标准20种残基，且是单链。 | [折叠输入](../modules/folding/_output_construction.py) |
 | 现有 SoluProt、Protein-Sol 输入 | 大写标准20种残基，长度另按对应路线要求；不静默删除未知符号。独立 SoluProt CLI 的不同默认处理见其 README。 | [可溶性入口](../modules/solubility/implementation.py) |
-| 现有 ProteinMPNN 序列/约束 | 大写标准20种残基，并满足相应结构残基轴要求；重做仍须依据实际工具接口。 | [当前序列检查](../modules/proteinmpnn/implementation.py)、[约束](../modules/proteinmpnn/domain.py) |
+| ProteinMPNN 序列/约束 | 大写标准20种残基；完整序列按骨架顺序对应，显式身份必须一致，约束按原始残基身份寻址。 | [当前序列检查](../modules/proteinmpnn/implementation.py)、[约束](../modules/proteinmpnn/domain.py) |
 
 结构预测置信度与结构内容、预测残基轴及产生它的计算保持对应。PAE 单位为 Å，pTM 为无量纲；pLDDT 原生标度由相应 Adapter 转换，不能把百分数与单位区间混用。缺失 PAE 不补零。现有均值的缺值及范围规则应按具体指标说明，不能用一个简写抹平所有操作。
 

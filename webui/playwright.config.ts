@@ -6,7 +6,12 @@ import { join } from 'node:path'
 const testDataRoot = mkdtempSync(join(tmpdir(), 'protein-workbench-webui-playwright-'))
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: './tests/journeys',
+  globalSetup: './tests/support/journey-environment.ts',
+  metadata: { backendDataRoot: testDataRoot },
+  retries: 0,
+  outputDir: 'test-results/journeys',
+  reporter: [['line'], ['junit', { outputFile: 'test-results/journeys.xml' }]],
   timeout: 60_000,
   workers: 4,
   use: {

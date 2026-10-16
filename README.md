@@ -10,7 +10,7 @@ product behavior; the [open issues](docs/2026-10-15-documentation-governance-iss
 identify implementation differences and facts still needing clarification.
 Documented requirements do not imply that the current application implements them.
 
-The source repository owns the [domain vocabulary](CONTEXT.md),
+The source repository owns the [domain vocabulary](GLOSSARY.md),
 [architecture](docs/architecture.md), [backend verification entry points](docs/backend-verification.md),
 and [WebUI startup and verification instructions](webui/README.md).
 Operational documentation, repository tests, verification tooling, and Provider

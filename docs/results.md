@@ -25,7 +25,7 @@
 
 `POST /api/v2/projects/{project_id}/inputs/{project_input_ref}:inspect` 当前只接受显式 `format: "fasta" | "pdb"`，不按扩展名、内容或 MIME 猜格式。它读取已上传的不可变输入，返回项目、输入引用、摘要及所选格式，不创建 Draft、Run、Candidate 或 Cache。
 
-FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显示名、起始行号、长度和总长度；非法记录使检查整体失败。PDB 检查按 `ATOM`/`HETATM` 首次出现顺序返回链身份，不推断序列、残基对应，也不提前执行蛋白残基轴准入。尚未选择的非蛋白链不应因此阻止蛋白链选择。
+FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显示名、起始行号、长度和总长度；非法记录使检查整体失败。结构检查支持 PDB/mmCIF，按坐标记录首次出现顺序返回链身份，不推断序列、残基对应，也不提前执行蛋白残基轴准入。尚未选择的非蛋白链不应因此阻止蛋白链选择。
 
 不存在项目或输入使用既有 `project_not_found` / `project_input_not_found`；内容解释失败返回 HTTP 422 `project_input_invalid`，保留输入引用与明确格式。内容解释由 `protein_io.inspection` 负责，HTTP 和浏览器不重复实现。
 
@@ -79,7 +79,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 当前 `workflow:observation-options` 读取编译器的可用观察投影，只提交 `workflow.nodes`、`workflow.edges` 与 `ranking`。未完成 Selector/Objective 配置不能阻止来源枚举；完整配置在 Commit 边界处理。手动选择的 `candidate_selection_consumption` 及有序完整引用终局记录由现有编译和运行边界负责，空引用数组与没有该分支分别表达。
 
-现有结果页“勾选保存为流程”、条件和 Top-N 转流程入口须删除，不以改名保留。此要求不取消普通筛选节点、查看、导出、历史采用或局部 Prompt 采用，也不新增对外部插件的同类功能禁令。
+现有结果页已移除“勾选保存为流程”、条件和 Top-N 转流程入口，相关应用旅程回归通过；不得以改名恢复。此要求不取消普通筛选节点、查看、导出、历史采用或局部 Prompt 采用，也不新增对外部插件的同类功能禁令。
 
 ## 当前结果读取边界
 
@@ -107,19 +107,19 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 应附带已经记录的原计算参数，保证离开软件后可读；只写 Commit ID 或 Method 定义不足以替代实际节点/Binding 参数。不补造未记录数据，不新增日志或证据体系。结构须提供 PDB/mmCIF 选择，并保留所选非蛋白组分。
 
-当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest 及有结构候选的 PDB，尚无 mmCIF 选择或完整计算参数说明。[结果阅读](../webui/src/published-results.ts)取得原 Commit 后只保留定义，导出材料未传入原 Workflow/参数。不能把现有 ZIP 描述为已满足全部导出要求。
+当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按候选结构的原格式写 PDB 或 mmCIF；尚无用户选定格式的转换或完整计算参数说明。[结果阅读](../webui/src/published-results.ts)取得原 Commit 后只保留定义，导出材料未传入原 Workflow/参数。不能把现有 ZIP 描述为已满足全部导出要求。
 
 ## 当前差距与核对
 
 | 范围 | 当前状态 |
 |---|---|
-| 单条 FASTA | 仍拼接多条记录，须改为提示批量入口 |
+| 单条 FASTA | 单条入口拒绝多条记录并提示批量入口，模块及应用旅程回归通过 |
 | 历史/跨项目采用及来源删除独立 | 已有最近运行、节点级复用和输入复制路径；完整采用及来源删除后的可用性尚未证实 |
-| 结构格式、多构象、非蛋白组分 | 现有 PDB/单候选路径不足；组分选择与导出覆盖还须核对 |
+| 结构格式、多构象、非蛋白组分 | PDB/mmCIF 导入及原格式输出回归通过；构象选择/拆分及完整组分操作仍未验收 |
 | 模块查看器 | 内置读取和固定分派须按模块契约开放；多个查看器切换尚待实现 |
-| 结果页转流程 | 现有入口仍在，已决定移除 |
+| 结果页转流程 | 已删除入口及节点生成路径，应用旅程回归通过 |
 | ESMC 输出 | 实际 logits 可选输出尚未对齐，不能以矩阵尺寸冒充数值；见[模块能力](module-capabilities.md) |
-| 批次成功结果与续算 | 当前整节点返回/重跑不能满足批内结果保留及跳过成功请求；见[执行规范](execution.md) |
+| 批次成功结果与续算 | 失败时保留完成结果的受控回归通过；真实工具成功调用不替代失败路径验证；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
 | 导出参数与 mmCIF | 当前 ZIP 尚缺已记录参数说明及格式选择 |
 
 后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)执行远端检查；本规范不记录旧验收通过数。

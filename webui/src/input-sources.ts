@@ -17,18 +17,18 @@ export type FastaInputInspection = InputInspectionIdentity & {
   records: Array<{ record_index: number; header: string; display_name: string; line_number: number; length: number }>
   total_length: number
 }
-export type PdbInputInspection = InputInspectionIdentity & { format: 'pdb'; chain_ids: string[] }
-export type ProjectInputInspection = FastaInputInspection | PdbInputInspection
+export type StructureInputInspection = InputInspectionIdentity & { format: 'pdb' | 'mmcif'; chain_ids: string[] }
+export type ProjectInputInspection = FastaInputInspection | StructureInputInspection
 export type InputSourceClient = {
   listProjectInputs: (projectId: string) => Promise<{ project_id: string; inputs: ProjectInputPublication[] }>
-  publishProjectInput: (projectId: string, input: { filename: string; content_base64: string }) => Promise<ProjectInputPublication>
-  inspectProjectInput: (projectId: string, inputRef: string, format: 'fasta' | 'pdb') => Promise<ProjectInputInspection>
+  publishProjectInput: (projectId: string, input: { filename: string; content_base64: string }, format: 'fasta' | 'pdb' | 'mmcif') => Promise<ProjectInputPublication>
+  inspectProjectInput: (projectId: string, inputRef: string, format: 'fasta' | 'pdb' | 'mmcif' | 'structure') => Promise<ProjectInputInspection>
 }
 
 export type PromptSourceChoice =
   | { kind: 'blank'; chains: PromptChainDeclaration[] }
   | { kind: 'fasta'; projectInputRef: string; chains: PromptChainDeclaration[] }
-  | { kind: 'pdb'; projectInputRef: string; chainIds: string[] }
+  | { kind: 'structure'; projectInputRef: string; chainIds: string[] }
   | { kind: 'prompt'; nodeId: string; outputPort: string }
 
 export type PromptSourcePlan = { workflow: Workflow; nodeId: string; document: PromptAuthoringDocument; addedNodeIds: string[] }
@@ -55,8 +55,8 @@ export function preparePromptSource(workflow: Workflow, catalog: CatalogSnapshot
   if (source.kind === 'fasta') {
     const nodeId = add('protein_io.import_sequence', 'source-fasta', { project_input_ref: source.projectInputRef })
     upstream = { nodeId, outputPort: 'sequence', targetPort: 'sequence_source' }
-  } else if (source.kind === 'pdb') {
-    const imported = add('protein_io.import_structure', 'source-pdb', { project_input_ref: source.projectInputRef })
+  } else if (source.kind === 'structure') {
+    const imported = add('protein_io.import_structure', 'source-structure', { project_input_ref: source.projectInputRef })
     const selected = add('structure_transform.select_chains', 'source-chains', { chain_ids: [...source.chainIds] })
     const resolved = add('structure_transform.resolve_residue_axis', 'source-axis', {})
     connect(imported, 'structure', selected, 'structure')

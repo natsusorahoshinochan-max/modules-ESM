@@ -806,6 +806,12 @@
     "CopyExampleProjectRequest": {
       "additionalProperties": false,
       "properties": {
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ProspectiveProjectInput"
+          },
+          "type": "array"
+        },
         "name": {
           "maxLength": 256,
           "minLength": 1,
@@ -813,6 +819,12 @@
         },
         "project_id": {
           "$ref": "#/$defs/ProjectId"
+        },
+        "ui_state": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
         }
       },
       "required": [
@@ -1260,6 +1272,9 @@
         },
         "operation_diagnostic": {
           "$ref": "#/$defs/JsonObject"
+        },
+        "retained_output_failure": {
+          "$ref": "#/$defs/NodePublicationFailureDetails"
         }
       },
       "required": [
@@ -2348,7 +2363,7 @@
       "properties": {
         "chain_ids": {
           "items": {
-            "pattern": "^[A-Za-z0-9]$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
             "type": "string"
           },
           "minItems": 1,
@@ -2359,7 +2374,10 @@
           "$ref": "#/$defs/Digest"
         },
         "format": {
-          "const": "pdb"
+          "enum": [
+            "pdb",
+            "mmcif"
+          ]
         },
         "project_id": {
           "$ref": "#/$defs/ProjectId"
@@ -2661,7 +2679,9 @@
         "format": {
           "enum": [
             "fasta",
-            "pdb"
+            "pdb",
+            "mmcif",
+            "structure"
           ],
           "type": "string"
         },
@@ -2681,9 +2701,14 @@
         "format": {
           "enum": [
             "fasta",
-            "pdb"
+            "pdb",
+            "mmcif",
+            "structure"
           ],
           "type": "string"
+        },
+        "input": {
+          "$ref": "#/$defs/ProspectiveProjectInput"
         },
         "project_id": {
           "$ref": "#/$defs/ProjectId"
@@ -3258,6 +3283,12 @@
         "project_id": {
           "$ref": "#/$defs/ProjectId"
         },
+        "prospective_inputs": {
+          "items": {
+            "$ref": "#/$defs/ProspectiveProjectInput"
+          },
+          "type": "array"
+        },
         "workflow": {
           "$ref": "#/$defs/WorkflowDocument"
         }
@@ -3367,6 +3398,12 @@
         "project_id": {
           "$ref": "#/$defs/ProjectId"
         },
+        "prospective_inputs": {
+          "items": {
+            "$ref": "#/$defs/ProspectiveProjectInput"
+          },
+          "type": "array"
+        },
         "version_context": {
           "$ref": "#/$defs/PromptVersionContext"
         },
@@ -3456,7 +3493,7 @@
       "additionalProperties": false,
       "properties": {
         "chain_id": {
-          "pattern": "^[A-Za-z0-9]$",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
           "type": "string"
         },
         "length": {
@@ -3861,7 +3898,7 @@
             },
             "eligible_chain_ids": {
               "items": {
-                "pattern": "^[A-Za-z0-9]$",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
                 "type": "string"
               },
               "type": "array",
@@ -3874,6 +3911,30 @@
               "maximum": 9007199254740991,
               "minimum": 0,
               "type": "integer"
+            },
+            "target_residues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "residue_id",
+                  "origin"
+                ],
+                "properties": {
+                  "residue_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "source",
+                      "inserted"
+                    ]
+                  }
+                }
+              }
             }
           },
           "required": [
@@ -4480,6 +4541,28 @@
       },
       "required": [
         "version_id"
+      ],
+      "type": "object"
+    },
+    "ProspectiveProjectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "$ref": "#/$defs/ProjectInputContentBase64"
+        },
+        "filename": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_input_ref": {
+          "$ref": "#/$defs/ProjectInputReference"
+        }
+      },
+      "required": [
+        "project_input_ref",
+        "filename",
+        "content_base64"
       ],
       "type": "object"
     },
@@ -5455,12 +5538,20 @@
     "ResultStructure": {
       "additionalProperties": false,
       "properties": {
-        "pdb": {
+        "text": {
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "pdb",
+            "mmcif"
+          ],
           "type": "string"
         }
       },
       "required": [
-        "pdb"
+        "text",
+        "format"
       ],
       "type": "object"
     },
@@ -6028,6 +6119,10 @@
       ],
       "properties": {
         "expected_draft_revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_workspace_revision": {
           "minimum": 0,
           "type": "integer"
         },

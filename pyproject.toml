@@ -75,6 +75,8 @@ modules = [
 ]
 
 [tool.pytest.ini_options]
+# The authoritative routine entry is verification.backend; it also delegates
+# dedicated selectors to their own tiers. Direct pytest remains focused diagnosis.
 testpaths = ["tests"]
 addopts = [
     "--strict-markers",

@@ -48,7 +48,7 @@ class _StructureSource:
                 Candidate(
                     candidate_id=f"fixture-structure-{index:02d}",
                     data=ProteinStructure(
-                        pdb_string=(
+                        text=(
                             f"REMARK provider-native-{index:02d}\n"
                             f"MODEL     {index + 1:4d}\n"
                             "ATOM      1  CA  GLY A   1    "
@@ -88,7 +88,7 @@ class _ScalarSource:
                 return {"sequence": ProteinSequence(sequence="ACDEFG")}
             return {
                 "structure": ProteinStructure(
-                    pdb_string=(
+                    text=(
                         "REMARK contract-test-provider-native\n"
                         "ATOM      1  CA  GLY A   1       "
                         "1.000   2.000   3.000  1.00 20.00           C  \n"

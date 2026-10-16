@@ -39,12 +39,17 @@ from core.execution.ledger import (
     V2RunError,
     run_timestamp,
 )
-from core.execution.output_admission.admission import admit_node_output
+from core.execution.output_admission.admission import (
+    AdmittedNodeOutput,
+    admit_failed_operation_outputs,
+    admit_node_output,
+)
 from core.execution.resources import LocalProviderMemory, RunResources
 from core.execution.results.cache import ResultIndexError
 from core.execution.results.store import ResultIntegrityError, ResultStore
 from core.operation import (
     OperationCall,
+    OperationFailedWithOutputs,
     OperationContext,
     retain_secondary_cleanup_exception,
 )
@@ -320,6 +325,7 @@ class _NodeAttempt:
         error: BaseException,
         *,
         failure_origin: Literal["attempt", "operation"],
+        admitted_output: AdmittedNodeOutput | None = None,
     ) -> AttemptOutcome:
         if self._ledger.cancellation_requested:
             state.cancellation.wait_for_cleanup()
@@ -347,6 +353,7 @@ class _NodeAttempt:
                 state,
                 public_error=public_error,
                 failure_origin=failure_origin,
+                admitted_output=admitted_output,
             )
         return self._publication.commit_termination(
             state,
@@ -413,8 +420,15 @@ class _NodeAttempt:
         result_identity: str | None,
     ) -> AttemptOutcome:
         body_error: BaseException | None = None
+        admitted_node_output: AdmittedNodeOutput | None = None
+        retain_completed_outputs = False
         try:
-            raw_outputs = operation_execute(operation_call)
+            try:
+                raw_outputs = operation_execute(operation_call)
+            except OperationFailedWithOutputs as failure:
+                body_error = failure.error
+                retain_completed_outputs = True
+                raw_outputs = failure.outputs
             if self._ledger.cancellation_requested:
                 raise ExecutionTermination("cancelled")
             if result_identity is None:
@@ -424,7 +438,10 @@ class _NodeAttempt:
                     resolved_resource_inputs=resources.result_identity_inputs,
                     effective_randomness_snapshot=effective_randomness,
                 )
-            admitted_node_output = admit_node_output(
+            admit_outputs = (
+                admit_failed_operation_outputs if retain_completed_outputs else admit_node_output
+            )
+            admitted_node_output = admit_outputs(
                 node_plan=_node_output_plan(
                     state.node,
                     state.candidate_data_port_types,
@@ -461,7 +478,13 @@ class _NodeAttempt:
                 state,
                 body_error,
                 failure_origin="operation",
+                admitted_output=(
+                    admitted_node_output
+                    if retain_completed_outputs and not self._ledger.cancellation_requested
+                    else None
+                ),
             )
+        assert admitted_node_output is not None
         return self._publication.commit_success(
             state,
             admitted_output=admitted_node_output,

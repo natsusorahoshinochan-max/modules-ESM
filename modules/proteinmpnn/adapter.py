@@ -29,12 +29,14 @@ from .assets import check_proteinmpnn_readiness
 from .provider_request import (
     ProteinMPNNDesignRequest,
     _prepare_design_request,
+    ProteinMPNNScoreRequest,
+    sequence_in_provider_chain_order,
 )
 from .provider_runtime import _LocalProteinMPNNProvider
 
 
 PROTEINMPNN_MODEL = "v_48_020"
-PROTEINMPNN_SCORING_SEED = 42
+PROTEINMPNN_DEFAULT_SCORING_SEED = 42
 _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
@@ -61,8 +63,7 @@ class ProteinMPNNProvider(Protocol):
 
     def score(
         self,
-        request: ProteinMPNNDesignRequest,
-        sequence: ProteinSequence,
+        request: ProteinMPNNScoreRequest,
     ) -> float:
         """Score one exact sequence on one already-validated target."""
 
@@ -235,7 +236,7 @@ def _prepare_local_design_request(
 
 
 def _provider_residue_projection(
-    request: ProteinMPNNDesignRequest,
+    request: ProteinMPNNDesignRequest | ProteinMPNNScoreRequest,
 ) -> ProviderResidueProjection:
     """Project the exact Workbench layout used by one provider invocation."""
     return ProviderResidueProjection(
@@ -309,27 +310,29 @@ def _prepare_local_scoring_request(
     provider: ProteinMPNNProvider,
     residue_axis: ResolvedStructureResidueAxis,
     sequence: ProteinSequence,
-) -> ProteinMPNNDesignRequest:
-    """Translate one admitted Candidate pair into the scoring request."""
+    seed: int,
+    backbone_noise: float,
+) -> ProteinMPNNScoreRequest:
+    """Translate a complete sequence/backbone pair, with no design defaults."""
     projection = _stage_provider_structure(residue_axis)
     parsed = provider.parse_structure(projection.pdb_string)
-    request = _prepare_design_request(
-        parsed,
-        PROTEINMPNN_MODEL,
-        1,
-        0.1,
-        0.0,
-        PROTEINMPNN_SCORING_SEED,
-        None,
-        sequence.sequence,
+    chains = projection.provider_structure_chain_order
+    chain_order = tuple(sorted(chains))
+    return ProteinMPNNScoreRequest(
+        pdb_dict_list=parsed,
+        model_name=PROTEINMPNN_MODEL,
+        backbone_noise=backbone_noise,
+        seed=seed,
         target_layout=residue_axis.layout,
         residue_identity_mapping=projection.residue_identity_mapping,
         workbench_chain_order=projection.workbench_chain_order,
-        provider_structure_chain_order=(
-            projection.provider_structure_chain_order
+        provider_structure_chain_order=chains,
+        provider_chain_order=chain_order,
+        chain_dict={parsed[0]["name"]: (list(chains), [])},
+        provider_sequence=sequence_in_provider_chain_order(
+            sequence.sequence, projection.residue_identity_mapping, chain_order,
         ),
     )
-    return request
 
 
 class LocalProteinMPNNAdapter:
@@ -421,6 +424,8 @@ class LocalProteinMPNNAdapter:
         *,
         residue_axis: ResolvedStructureResidueAxis,
         sequence: ProteinSequence,
+        seed: int = PROTEINMPNN_DEFAULT_SCORING_SEED,
+        backbone_noise: float = 0.0,
     ) -> float:
         """Run one exact sequence scoring call and admit its native scale."""
         with self._provider_execution(
@@ -430,6 +435,8 @@ class LocalProteinMPNNAdapter:
                 provider=provider,
                 residue_axis=residue_axis,
                 sequence=sequence,
+                seed=seed,
+                backbone_noise=backbone_noise,
             )
             provider.activate(request.model_name, request.backbone_noise)
             with self._resources.engine_invocation(
@@ -437,11 +444,11 @@ class LocalProteinMPNNAdapter:
                 invocation_provenance=EngineInvocationProvenance(
                     effective_randomness=InvocationRandomness(
                         control="exact_seed",
-                        effective_seed=PROTEINMPNN_SCORING_SEED,
+                        effective_seed=seed,
                     ),
                     provider_residue_projection=(
                         _provider_residue_projection(request)
                     ),
                 ),
             ):
-                return provider.score(request, sequence)
+                return provider.score(request)

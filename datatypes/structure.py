@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
+from typing import Literal
 import re
 
 from datatypes.residue import ModifiedResidueNormalizationCollection, ResidueLayout
@@ -61,12 +62,10 @@ _PDB_RECORD_NAMES = frozenset({
 
 @dataclass(frozen=True, slots=True)
 class ProteinStructure:
-    """Canonical PDB string representation of a protein structure.
+    """Structure text in its declared format, retaining authored identities."""
 
-    pdb_string: full PDB-format text.
-    """
-
-    pdb_string: str
+    text: str
+    format: Literal["pdb", "mmcif"] = "pdb"
 
 
 def validate_protein_structure(
@@ -74,10 +73,16 @@ def validate_protein_structure(
     *,
     subject: str = "protein structure",
 ) -> ProteinStructure:
-    """Admit canonical PDB text without imposing operation-specific biology."""
+    """Admit a declared structure format without operation-specific biology."""
     if type(value) is not ProteinStructure:
         raise ValueError(f"{subject} must be a ProteinStructure")
-    pdb_string = value.pdb_string
+    if value.format == "mmcif":
+        from .structure_format import read_mmcif_atoms
+        read_mmcif_atoms(value.text)
+        return value
+    if value.format != "pdb":
+        raise ValueError(f"{subject} has an unsupported structure format")
+    pdb_string = value.text
     if (
         type(pdb_string) is not str
         or not pdb_string
@@ -337,7 +342,7 @@ class ResolvedStructureResidueAxis:
         raise KeyError(f"resolved residue axis has no residue {residue_id}")
 
     def coordinate_for(self, residue_id: str, atom_name: str) -> Coordinate3D:
-        """Return one admitted named-atom coordinate without reparsing PDB."""
+        """Return one admitted named-atom coordinate without reparsing source text."""
         for item in self.coordinates_for(residue_id):
             if item.atom_name == atom_name:
                 return item.coordinate

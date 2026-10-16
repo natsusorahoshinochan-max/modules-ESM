@@ -16,8 +16,8 @@ from datatypes.i_json import FrozenList, freeze_i_json
 
 
 _RESIDUE_IDENTITY = re.compile(
-    r"^(?P<chain>[A-Za-z0-9]):(?P<label>"
-    r"(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?))$"
+    r"^(?P<chain>[A-Za-z0-9][A-Za-z0-9_.-]*):(?P<label>"
+    r"(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]+[A-Za-z]?))$"
 )
 
 T = TypeVar("T")

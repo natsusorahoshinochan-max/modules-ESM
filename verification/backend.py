@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Mapping
@@ -68,83 +68,83 @@ TIERS = {
         "not acceptance and not installed_package "
         "and not deterministic_acceptance "
         "and not live_provider and not local_provider "
-        "and not slow and not scientific_repro",
+        "and not slow",
         "-n",
         "auto",
     )),
-    "examples-v2": Tier(("tests/test_repository_examples_v2.py",)),
+    "examples-v2": Tier(("tests/journeys/test_repository_examples_v2.py",)),
     "deterministic-acceptance": Tier((
-        "tests/test_canonical_3gb1_v2.py",
+        "tests/journeys/test_canonical_3gb1_v2.py",
         (
-            "tests/test_run_runtime.py::"
+            "tests/carrier/test_run_runtime.py::"
             "test_branch_failure_closes_every_disposition_and_unrelated_work_continues"
         ),
         (
-            "tests/test_run_cancel_derive_v2.py::"
+            "tests/carrier/test_run_cancel_derive_v2.py::"
             "test_cancel_during_operation_is_idempotent_and_closes_active_evidence"
         ),
         (
-            "tests/test_run_cancel_derive_v2.py::"
+            "tests/carrier/test_run_cancel_derive_v2.py::"
             "test_cancel_and_derive_are_scoped_by_project_run_lookup"
         ),
-        "tests/deterministic_acceptance",
+        "tests/journeys/test_esm3_v2.py",
         "-m",
         "deterministic_acceptance",
     )),
     "workflow-stress": Tier((
         (
-            "tests/test_source_bound_1pga_v2.py::"
+            "tests/journeys/test_source_bound_1pga_v2.py::"
             "test_source_bound_1pga_public_journey_closes_complete_evidence"
         ),
         (
-            "tests/test_source_bound_2emo_v2.py::"
+            "tests/journeys/test_source_bound_2emo_v2.py::"
             "test_source_bound_2emo_public_journey_closes_exact_evidence"
         ),
         (
-            "tests/test_source_bound_5g53_v2.py::"
+            "tests/journeys/test_source_bound_5g53_v2.py::"
             "test_source_bound_5g53_public_journey_closes_large_scientific_evidence"
         ),
-        "tests/test_workflow_stress_v2.py",
+        "tests/journeys/test_workflow_stress_v2.py",
         (
-            "tests/test_collection_ops_v2.py::"
+            "tests/modules/collection_ops/test_collection_ops_v2.py::"
             "test_public_relation_uses_exact_parent_identity_not_collection_order"
         ),
         (
-            "tests/test_collection_ops_v2.py::"
+            "tests/modules/collection_ops/test_collection_ops_v2.py::"
             "test_public_score_merge_preserves_observation_identity_and_partitions"
         ),
         "-s",
     ), timeout_seconds=10 * 60),
     "scientific-repro": Tier((
         (
-            "tests/test_esm3_v2.py::"
+            "tests/modules/esm3/test_esm3_v2.py::"
             "test_adapter_preserves_every_representable_prompt_track_and_symbol"
         ),
     )),
     "local-esmfold2-v2-contract": Tier((
         (
-            "tests/acceptance/test_esmfold2_v2.py::"
+            "tests/providers/test_esmfold2_v2.py::"
             "test_local_esmfold2_v2_native_result_translation"
         ),
         (
-            "tests/test_folding_v2.py::"
+            "tests/modules/folding/test_folding_v2.py::"
             "test_native_plddt_is_statically_scaled_and_projects_protein_tokens"
         ),
         (
-            "tests/test_folding_v2.py::"
+            "tests/modules/folding/test_folding_v2.py::"
             "test_remote_provider_native_result_translates_to_canonical_confidence"
         ),
         (
-            "tests/test_folding_v2.py::"
+            "tests/modules/folding/test_folding_v2.py::"
             "test_local_provider_native_result_translates_to_canonical_confidence"
         ),
         (
-            "tests/test_folding_v2.py::"
+            "tests/modules/folding/test_folding_v2.py::"
             "test_selected_binding_folds_without_fallback_and_publishes_exact_lineage"
             "[local]"
         ),
         (
-            "tests/test_folding_v2.py::"
+            "tests/modules/folding/test_folding_v2.py::"
             "test_remote_and_local_bindings_pass_shared_contract_test_kit"
         ),
         "-m",
@@ -152,24 +152,35 @@ TIERS = {
     )),
     "installed-package": Tier((
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_built_artifact_is_reproducible_complete_and_fixture_free"
         ),
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_protocol_catalog_identity_and_"
             "separate_availability"
         ),
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_server_preserves_project_identity_across_"
             "working_directories"
         ),
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_backend_completes_full_public_v2_journey"
         ),
     )),
+    "provider-regressions": Tier((
+        "tests/providers/test_proteinmpnn_chain_order_v2.py",
+        (
+            "tests/providers/test_esmfold2_v2.py::"
+            "test_remote_esmfold2_v2_folds_3gb1_through_exact_binding"
+        ),
+        (
+            "tests/providers/test_esmfold2_v2.py::"
+            "test_local_esmfold2_v2_invokes_configured_models"
+        ),
+    ), timeout_seconds=2 * 60 * 60, zero_skip=True),
     **{
         tier.name: Tier(
             tier.pytest_arguments,
@@ -180,6 +191,30 @@ TIERS = {
         for tier in CANONICAL_ACCEPTANCE_TIERS
     },
 }
+
+
+# A dedicated tier owns its exact selectors. Routine retains every other
+# deterministic case, including other parameter cases in the same test file.
+# Derive these exclusions from the actual entry points rather than a second
+# list of markers or paths that can drift independently.
+ROUTINE_DESELECT_ARGUMENTS = tuple(
+    f"--deselect={selector}"
+    for selector in sorted({
+        argument
+        for name, tier in TIERS.items()
+        if name != "routine"
+        for argument in tier.pytest_arguments
+        if argument.startswith("tests/")
+    })
+)
+TIERS["routine"] = replace(
+    TIERS["routine"],
+    pytest_arguments=(
+        *TIERS["routine"].pytest_arguments[:-2],
+        *ROUTINE_DESELECT_ARGUMENTS,
+        *TIERS["routine"].pytest_arguments[-2:],
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)

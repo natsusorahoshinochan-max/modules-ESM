@@ -40,6 +40,16 @@ def verify_repository(profile: campaign.ExecutionProfile) -> None:
         )
 
 
+def verify_provider_regressions(profile: campaign.ExecutionProfile) -> None:
+    """Run source Adapter regressions separately from installed Campaign gates."""
+    subprocess.run(
+        [sys.executable, "-m", "verification.backend", "provider-regressions"],
+        cwd=PROJECT_ROOT,
+        env=profile.complete_environment(),
+        check=True,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -53,6 +63,8 @@ def main() -> int:
     status.add_argument("root", type=Path)
     repository = subparsers.add_parser("verify-repository")
     repository.add_argument("--profile", required=True, type=Path)
+    regressions = subparsers.add_parser("verify-provider-regressions")
+    regressions.add_argument("--profile", required=True, type=Path)
     args = parser.parse_args()
     if args.command == "status":
         print(
@@ -65,6 +77,8 @@ def main() -> int:
     profile = campaign.ExecutionProfile.load(args.profile.resolve())
     if args.command == "verify-repository":
         verify_repository(profile)
+    elif args.command == "verify-provider-regressions":
+        verify_provider_regressions(profile)
     elif args.command == "prepare":
         campaign.prepare_campaign(args.root.resolve(), profile)
     else:

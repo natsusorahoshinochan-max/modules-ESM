@@ -199,6 +199,41 @@ def admit_node_output(
     raw_outputs: object,
     result_identity: str,
 ) -> AdmittedNodeOutput:
+    """Admit a successful operation's complete output contract."""
+    return _admit_node_output(
+        node_plan=node_plan, admitted_inputs=admitted_inputs,
+        raw_outputs=raw_outputs, result_identity=result_identity,
+        require_complete=True,
+    )
+
+
+def admit_failed_operation_outputs(
+    *,
+    node_plan: NodeOutputPlan,
+    admitted_inputs: Mapping[str, AdmittedPort],
+    raw_outputs: object,
+    result_identity: str,
+) -> AdmittedNodeOutput:
+    """Admit only completed outputs explicitly retained by a failed operation.
+
+    Missing outputs are not manufactured. Every supplied output still follows
+    the same nominal type, multiplicity, identity and observation contracts.
+    """
+    return _admit_node_output(
+        node_plan=node_plan, admitted_inputs=admitted_inputs,
+        raw_outputs=raw_outputs, result_identity=result_identity,
+        require_complete=False,
+    )
+
+
+def _admit_node_output(
+    *,
+    node_plan: NodeOutputPlan,
+    admitted_inputs: Mapping[str, AdmittedPort],
+    raw_outputs: object,
+    result_identity: str,
+    require_complete: bool,
+) -> AdmittedNodeOutput:
     """Admit every raw output through one complete scientific boundary."""
     if not isinstance(raw_outputs, Mapping):
         raise PortValueError("Direct implementation output must be an object")
@@ -206,7 +241,7 @@ def admit_node_output(
     if set(raw_outputs) - set(declarations):
         raise PortValueError("Direct implementation returned unknown outputs")
     for output_port, declaration in declarations.items():
-        if declaration.required and output_port not in raw_outputs:
+        if require_complete and declaration.required and output_port not in raw_outputs:
             raise PortValueError(
                 f"Required output Port {output_port!r} is missing"
             )

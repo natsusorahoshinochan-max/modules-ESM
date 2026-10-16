@@ -1,18 +1,13 @@
 node_type_id: contract_test.proteinmpnn_3gb1_sequence
 title: Exact 3GB1 sequence Candidate source
-summary: Emits the exact 3GB1 sequence as a child of its source-bound structure Candidate.
+summary: Emits the independently sourced exact 3GB1 sequence without structure ancestry or residue identities.
 category: contract_test
-inputs:
-  - name: structure_candidates
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: The one exact 3GB1 parent structure Candidate.
+inputs: []
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
     required: true
     multiplicity: one
-    scientific_meaning: The exact 3GB1 sequence Candidate with formal parent lineage.
+    scientific_meaning: The exact 3GB1 sequence Candidate with its sequence-file provenance.
 parameter_groups: []
 node_parameters: {}

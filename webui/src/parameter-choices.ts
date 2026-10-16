@@ -3,7 +3,7 @@ import type { ParameterChoices } from './WorkflowParameters'
 import { nodeTypePresentation, parameterPresentations, type ParameterValueContract } from './workflow-authoring'
 import type { PublishedResults } from './published-results'
 import { workspaceErrorMessage } from './project-workspace'
-import type { PdbInputInspection } from './input-sources'
+import type { StructureInputInspection } from './input-sources'
 
 export type NodeParameterChoices = { choices: ParameterChoices; source?: string; notice?: string }
 export type WorkflowParameterChoices = Record<string, NodeParameterChoices>
@@ -59,7 +59,7 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
     pending = (async (): Promise<NodeParameterChoices> => {
       const sourceLabel = `${source.node_id} / ${outputPort}`
       if (portType === 'protein.structure' && source.node_type_id === 'protein_io.import_structure') {
-        const inspection = await client.inspectProjectInput(projectId, source.node_parameters.project_input_ref as string, 'pdb') as PdbInputInspection
+        const inspection = await client.inspectProjectInput(projectId, source.node_parameters.project_input_ref as string, 'structure') as StructureInputInspection
         return { choices: { chains: inspection.chain_ids.map(value => ({ value, label: `Chain ${value}` })) }, source: `${sourceLabel} · 后端 Input 链检查` }
       }
       const output = publishedRun?.outputs.find(item => item.node_id === source.node_id && item.output_port === outputPort && item.port_type.contract_id === axisType && item.value_count === 1)

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
         ImmutableObjectReference,
         PublishedArtifact,
         PublishedOutput,
+        OutputsPublished,
         SelectionTerminal,
         StructuredError,
     )
@@ -102,6 +103,7 @@ class NodeFailurePublication:
         "operation",
         "publication",
     ]
+    retained_outputs: OutputsPublished | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -38,6 +38,23 @@ class ProteinMPNNDesignRequest:
     reference_sequences: dict[str, str] | None
 
 
+@dataclass(frozen=True)
+class ProteinMPNNScoreRequest:
+    """One full-backbone evaluation, independent of design controls and ancestry."""
+
+    pdb_dict_list: list[dict[str, Any]]
+    model_name: str
+    backbone_noise: float
+    seed: int
+    target_layout: ResidueLayout
+    residue_identity_mapping: tuple[tuple[str, int, str, int], ...]
+    workbench_chain_order: tuple[str, ...]
+    provider_structure_chain_order: tuple[str, ...]
+    provider_chain_order: tuple[str, ...]
+    chain_dict: dict[str, tuple[list[str], list[str]]]
+    provider_sequence: str
+
+
 def _chain_sequences(
     pdb_entry: dict[str, Any],
 ) -> list[tuple[str, str]]:
@@ -140,25 +157,21 @@ def _chain_partition(
     return provider_chain_ids, []
 
 
-def _sequence_in_provider_chain_order(
+def sequence_in_provider_chain_order(
     sequence: str,
-    request: ProteinMPNNDesignRequest,
+    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
+    provider_chain_order: tuple[str, ...],
 ) -> str:
-    sequence_by_provider_chain = {
-        chain: [""] * len(request.pdb_dict_list[0][f"seq_chain_{chain}"])
-        for chain in request.provider_structure_chain_order
+    """Project full backbone-order sequence positions onto provider chains."""
+    sequence_by_chain: dict[str, list[str]] = {
+        chain: [] for chain in provider_chain_order
     }
-    for amino_acid, (_, _, provider_chain, provider_position) in zip(
-        sequence,
-        request.residue_identity_mapping,
-        strict=True,
+    for amino_acid, (_, _, chain, _) in zip(
+        sequence, residue_identity_mapping, strict=True,
     ):
-        sequence_by_provider_chain[provider_chain][provider_position - 1] = (
-            amino_acid
-        )
+        sequence_by_chain[chain].append(amino_acid)
     return "".join(
-        "".join(sequence_by_provider_chain[chain])
-        for chain in request.provider_chain_order
+        "".join(sequence_by_chain[chain]) for chain in provider_chain_order
     )
 
 

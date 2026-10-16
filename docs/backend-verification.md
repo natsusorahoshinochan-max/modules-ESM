@@ -33,7 +33,21 @@ Run the final repository matrix from one explicit Acceptance Execution Profile:
 
 This command launches the documented repository tiers serially with the complete
 child-process environment produced by `ExecutionProfile.complete_environment()`.
-It does not prepare or run an Acceptance Campaign.
+It does not prepare or run an Acceptance Campaign or real Provider regressions.
+After the non-Provider matrix passes, the same frozen snapshot also requires:
+
+```bash
+.venv/bin/python -m verification.acceptance_cli verify-provider-regressions \
+  --profile /absolute/path/to/acceptance-profile.json
+```
+
+This serial, zero-skip `provider-regressions` tier owns four ProteinMPNN chain,
+segment, missing-backbone and residue-axis regressions plus remote and local
+ESMFold2 invocation/translation regressions. It uses the source Adapter/Binding
+path and the explicit profile's ProteinMPNN, ESMFold2/ESMC and Biohub resources.
+It supplements the installed-artifact Campaign; neither substitutes for the
+other. Keep its independent exit code and retained JUnit result. Do not run it
+concurrently with resource-heavy Campaign or browser Provider work.
 
 Each invocation replaces Project, Cache, output, and Run roots only in the
 child process. It never writes configured production roots. After pytest exits,
@@ -63,7 +77,8 @@ editing, searching and diff inspection.
 4. Start real Provider acceptance only after all non-Provider checks pass and
    failures and blockers are cleared. Use artifacts built from the final source
    snapshot. CPU checks may run independently; resource-heavy Provider work is
-   serial. Preserve the formal Campaign's existing stop-on-failure semantics.
+   serial. Run the fixed `provider-regressions` tier as well as the Campaign.
+   Preserve the formal Campaign's existing stop-on-failure semantics.
 5. During both the non-Provider diagnostic batch and the real Provider phase,
    inspect remote status only once every 30 minutes, with no intermediate status,
    log or process polling. Wait silently between inspections and let started work
@@ -78,13 +93,14 @@ required real acceptance; do not add skips or weaken gates to obtain a pass.
 
 | Tier | Command | Contract |
 | --- | --- | --- |
-| Routine backend regression | `.venv/bin/python -m verification.backend routine` | Runs deterministic current backend tests across the machine's physical CPU cores and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
+| Routine backend regression | `.venv/bin/python -m verification.backend routine` | Runs deterministic current backend tests across the machine's physical CPU cores. Excludes acceptance, installed-package, Provider and slow markers, and delegates exact selectors owned by other tiers to those tiers. |
 | Repository v2 examples | `.venv/bin/python -m verification.backend examples-v2` | Parses and compiles the maintained stable-ID Workflow suite and checks its representative scientific topology, Port compatibility, parameters, and references against the active source Catalog. |
 | Task-shaped Workflow stress | `.venv/bin/python -m verification.backend workflow-stress` | Executes seven task-shaped scenarios through the public v2 protocol: source-bound three-way comparison, fixed-backbone design, function-conditioned Prompt generation, loop insertion, 2×2×2 multi-parent design/folding, all six Selection operations with a legal zero-pass result, and Provider-backed downstream-only Commit invalidation. Every scenario performs a second Run according to each Binding's declared Cache policy and emits a compact cardinality, disposition, Engine Invocation, and oracle report. |
 | Deterministic backend acceptance | `.venv/bin/python -m verification.backend deterministic-acceptance` | Runs the current canonical v2 3GB1 public-protocol journey and its failure, readiness, cancellation, isolation, and replay variants. |
 | Scientific reproduction | `.venv/bin/python -m verification.backend scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
 | Local ESMFold2 translation contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks native-result translation, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python -m verification.backend installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
+| Source Provider regressions | `.venv/bin/python -m verification.backend provider-regressions` | Four real ProteinMPNN axis/topology regressions and two real ESMFold2 remote/local invocation regressions, serial and zero-skip; source execution does not certify the installed wheel. |
 | Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
 | Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and retains the applicable existing SDK retry limit. |
 | Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run, retaining the applicable existing SDK retry limit. |
@@ -107,7 +123,7 @@ required real acceptance; do not add skips or weaken gates to obtain a pass.
 
 The stress documents live in `tests/fixtures/workflow_stress/`. After an
 intentional scientific contract or scenario change, regenerate them with
-`.venv/bin/python -m tests.support.generate_workflow_stress_fixtures`; the
+`.venv/bin/python -m tests.scenarios.generate_workflow_stress_fixtures`; the
 stress suite verifies topology, stable references, scientific Port compatibility,
 and scenario behavior without storing internal contract versions or a Contract
 Lock.
@@ -175,7 +191,7 @@ contract and cannot replace that invocation.
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, or generic live-provider tier. It exposes eight exact
 source-bound tier routes covering four scientific Workflows, with separate Biohub
-and local-model routes. Every Provider gate consumes
+and local-model routes. Every installed Campaign Provider gate consumes
 current Run Evidence Ledger facts; an Adapter-owned JSONL stream,
 readiness-only result, historical manifest, skip, or Cache-only replay cannot
 satisfy it. A fixed expected call count is useful only together with exact
@@ -289,7 +305,7 @@ require package-wide exact-set case coverage or a separate Capability Inventory.
 Run the focused package contract with:
 
 ```bash
-.venv/bin/pytest -q tests/test_contract_test_kit_v2.py
+.venv/bin/pytest -q tests/contracts/test_contract_test_kit_v2.py
 ```
 
 The synthetic echo package exists only under
@@ -298,6 +314,27 @@ Neither the wheel nor the sdist contains the repository test tree, fixture
 resources, or synthetic echo package.
 
 ## Test ownership and shared helpers
+
+The public tier definitions in `verification/backend.py` own non-Campaign
+selection; Campaign definitions remain the sole authority for canonical installed
+acceptance and backend derives those entries directly. Routine's `--deselect`
+arguments are derived from every dedicated tier's exact selectors. This removes
+only duplicate execution: a selected case still runs in its dedicated gate, and
+other cases in the same file remain in routine. Required failures remain failures
+in their owning gate. Direct `pytest` is a diagnostic entry, not a complete matrix.
+
+`verification/installed_cases.py` owns the inner installed-Provider selectors.
+The installed ProteinMPNN gate intentionally also runs its staging/axis contracts
+inside the isolated artifact: that checks packaged translation, whereas routine
+checks the source implementation. This is a distinct installation responsibility.
+
+Verifier self-tests use small synthetic subprocess probes for isolation, success,
+failure, skipped outcomes, collection failure, interruption and retained results.
+Probe filenames are not discovered as ordinary tests. They never recursively run
+repository examples, scientific reproduction or the Provider case matrix. Provider
+resource and package configuration tests belong to installed-test support checks;
+they do not invoke the real tools. JUnit/exit admission and the existing Campaign
+handoff remain the result authority; no parallel report system is introduced.
 
 Package and scenario tests own their inputs, expected terminal status, parameter
 translation, outputs, and required relationships. Shared helpers own protocol
@@ -579,9 +616,9 @@ WebUI and start the full Run there. Supply its Project ID as
 Inspect the two imported Candidates, prefilter, fold lineage, real Scores,
 ranking, and threshold results. Exercise ZIP export of sequence-only, folded
 structure, and mixed selections; compare manifest references with the published
-stage pages. The journey subsequently creates a `from_node` Run. Take the
-original full Run ID from Playwright's `actual-run-receipt` attachment or
-`Actual UI Run:` log, rather than the final page or latest Project Run.
+stage pages. Take the actual full Run ID from Playwright's
+`actual-run-receipt` attachment or `Actual UI Run:` log, so the report reads
+the exact Run exercised by the browser.
 
 After browser acceptance finishes, read that terminal Run from the same live
 backend. Replace the example server URL and receipt identifier:

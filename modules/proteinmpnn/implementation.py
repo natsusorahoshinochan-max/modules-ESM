@@ -19,7 +19,8 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
 )
 from datatypes.observation import (
-    IntrinsicObservationContext,
+    PairwiseObservationContext,
+    PairwiseParticipant,
     ScoreCollection,
     ScoreObservation,
 )
@@ -46,7 +47,11 @@ def _require_sequence_axis(
     subject: str,
 ) -> None:
     if not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS or (
-        sequence.residue_ids != residue_axis.layout.residue_ids
+        len(sequence.sequence) != residue_axis.layout.length
+        or (
+            sequence.residue_ids is not None
+            and sequence.residue_ids != residue_axis.layout.residue_ids
+        )
     ):
         raise ValueError(f"{subject} sequence must use the exact resolved residue axis")
 
@@ -224,7 +229,7 @@ class ProteinMPNNDesignImplementation:
 
 
 class ProteinMPNNScoreImplementation:
-    """Observe one exact sequence Candidate on its exact parent structure."""
+    """Evaluate an existing sequence against an independently chosen backbone."""
 
     def __init__(
         self,
@@ -238,7 +243,7 @@ class ProteinMPNNScoreImplementation:
         self._metric = metric
 
     @staticmethod
-    def _subject(
+    def _evaluation_pair(
         call: OperationCall,
     ) -> tuple[
         Candidate,
@@ -247,11 +252,11 @@ class ProteinMPNNScoreImplementation:
         ResolvedStructureResidueAxis,
         ResidueAxisReference,
     ]:
-        parents = _resolved_axis_entries(call)
+        backbones = _resolved_axis_entries(call)
         admitted_sequences = call.inputs["sequence_candidates"]
         sequences = cast(CandidateCollection, admitted_sequences.value)
         if (
-            len(parents) != 1
+            len(backbones) != 1
             or sequences.item_type != "protein.sequence"
             or len(sequences.items) != 1
         ):
@@ -259,13 +264,8 @@ class ProteinMPNNScoreImplementation:
                 "ProteinMPNN scoring requires one structure Candidate and "
                 "one sequence Candidate"
             )
-        structure_reference, residue_axis, axis_reference = parents[0]
+        structure_reference, residue_axis, axis_reference = backbones[0]
         sequence = sequences.items[0]
-        if sequence.parent_ids != (structure_reference.candidate_id,):
-            raise ValueError(
-                "ProteinMPNN scoring inputs do not identify one sequence "
-                "Candidate and its exact parent structure"
-            )
         sequence_reference = admitted_sequences.candidate_data[0]
         return (
             sequence,
@@ -278,22 +278,29 @@ class ProteinMPNNScoreImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         (
             sequence_candidate,
-            _structure_reference,
+            structure_reference,
             sequence_reference,
             residue_axis,
             axis_reference,
-        ) = self._subject(call)
+        ) = self._evaluation_pair(call)
         sequence = cast(ProteinSequence, sequence_candidate.data)
         _require_sequence_axis(sequence, residue_axis, "scoring")
         score = self._adapter.score(
             residue_axis=residue_axis,
             sequence=sequence,
+            seed=call.node_parameters["effective_seed"],
+            backbone_noise=call.node_parameters["backbone_noise"],
         )
         observation = ScoreObservation(
             subject=sequence_reference,
             metric=self._metric,
             method=self._method,
-            context=IntrinsicObservationContext(),
+            context=PairwiseObservationContext(
+                subject=PairwiseParticipant("subject", sequence_reference),
+                reference=PairwiseParticipant("reference", structure_reference),
+                pairing_mode="fixed_reference",
+                normalization="provider_masked_mean",
+            ),
             source_partition="default",
             value=score,
             residue_axis=axis_reference,

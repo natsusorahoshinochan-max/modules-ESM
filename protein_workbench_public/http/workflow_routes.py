@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import nullcontext
 from typing import Any
 
 from fastapi import FastAPI, Request
 
+from core.execution.ledger import V2RunError
+from core.execution.runtime import V2RunService
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -19,6 +22,7 @@ from core.workflow.document import (
 from protein_workbench_public.http.errors import (
     authoring_error_response,
     protocol_error_response,
+    public_error_response,
     public_rest_wire_sources,
     workflow_document_error_response,
 )
@@ -41,6 +45,7 @@ def register_workflow_routes(
     app: FastAPI,
     authoring: WorkflowAuthoringService,
     rest_operations: Mapping[str, Any],
+    runtime: V2RunService,
 ) -> None:
     @app.post(rest_operations["workflow_observation_options"]["route"], include_in_schema=False)
     async def public_observation_options(request: Request, project_id: str) -> Any:
@@ -124,54 +129,62 @@ def register_workflow_routes(
                 },
                 query_parameters=query, json_body=body,
             )
-            if operation == "project_workspace":
-                payload = encode_project_workspace(authoring.load_workspace(project_id))
-            elif operation == "save_project_workspace":
-                workflow_payload = admitted.get("workflow")
-                workflow = (
-                    workflow_document_from_canonical(workflow_payload)
-                    if workflow_payload is not None else None
-                )
-                payload = encode_project_workspace(authoring.save_workspace(
-                    project_id, workflow=workflow, ui_state=admitted.get("ui_state"),
-                    expected_draft_revision=admitted.get("expected_draft_revision"),
-                ))
-            elif operation == "list_workflow_versions":
-                payload = {
-                    "project_id": project_id,
-                    "versions": [encode_workflow_version(v) for v in authoring.list_versions(project_id)],
-                }
-            elif operation == "name_workflow_version":
-                payload = encode_workflow_version(authoring.name_version(
-                    project_id, name=admitted["name"],
-                ))
-            elif operation == "workflow_version":
-                version = authoring.load_version(project_id, admitted["version_id"])
-                payload = {
-                    "version": encode_workflow_version(version),
-                    "workspace": encode_project_workspace(authoring.load_workspace(
-                        project_id, revision=version.workspace_revision,
-                    )),
-                    "return_workspace_revision": authoring.load_workspace(project_id).workspace_revision,
-                }
-            elif operation == "fork_workflow_version":
-                workflow_payload = admitted["workflow"]
-                workflow = workflow_document_from_canonical(workflow_payload)
-                payload = encode_project_workspace(authoring.fork_version(
-                    project_id, version_id=admitted["version_id"],
-                    return_workspace_revision=admitted["return_workspace_revision"],
-                    workflow=workflow, ui_state=admitted["ui_state"],
-                ))
-            else:
-                payload = encode_project_workspace(authoring.return_workspace(
-                    project_id, workspace_revision=admitted["workspace_revision"],
-                ))
+            mutation = operation in {
+                "save_project_workspace", "name_workflow_version",
+                "fork_workflow_version", "return_project_workspace",
+            }
+            with runtime.project_mutation(project_id) if mutation else nullcontext():
+                if operation == "project_workspace":
+                    payload = encode_project_workspace(authoring.load_workspace(project_id))
+                elif operation == "save_project_workspace":
+                    workflow_payload = admitted.get("workflow")
+                    workflow = (
+                        workflow_document_from_canonical(workflow_payload)
+                        if workflow_payload is not None else None
+                    )
+                    payload = encode_project_workspace(authoring.save_workspace(
+                        project_id, workflow=workflow, ui_state=admitted.get("ui_state"),
+                        expected_draft_revision=admitted.get("expected_draft_revision"),
+                        expected_workspace_revision=admitted.get("expected_workspace_revision"),
+                    ))
+                elif operation == "list_workflow_versions":
+                    payload = {
+                        "project_id": project_id,
+                        "versions": [encode_workflow_version(v) for v in authoring.list_versions(project_id)],
+                    }
+                elif operation == "name_workflow_version":
+                    payload = encode_workflow_version(authoring.name_version(
+                        project_id, name=admitted["name"],
+                    ))
+                elif operation == "workflow_version":
+                    version = authoring.load_version(project_id, admitted["version_id"])
+                    payload = {
+                        "version": encode_workflow_version(version),
+                        "workspace": encode_project_workspace(authoring.load_workspace(
+                            project_id, revision=version.workspace_revision,
+                        )),
+                        "return_workspace_revision": authoring.load_workspace(project_id).workspace_revision,
+                    }
+                elif operation == "fork_workflow_version":
+                    workflow_payload = admitted["workflow"]
+                    workflow = workflow_document_from_canonical(workflow_payload)
+                    payload = encode_project_workspace(authoring.fork_version(
+                        project_id, version_id=admitted["version_id"],
+                        return_workspace_revision=admitted["return_workspace_revision"],
+                        workflow=workflow, ui_state=admitted["ui_state"],
+                    ))
+                else:
+                    payload = encode_project_workspace(authoring.return_workspace(
+                        project_id, workspace_revision=admitted["workspace_revision"],
+                    ))
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)
         except WorkflowDocumentError as error:
             return workflow_document_error_response(error, workflow_payload)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
+        except V2RunError as error:
+            return public_error_response(error.code, str(error), error.details)
         return emit_rest_json_success(operation, payload)
 
     @app.get(rest_operations["project_workspace"]["route"], include_in_schema=False)
@@ -283,16 +296,19 @@ def register_workflow_routes(
             )
             workflow_payload = admitted["workflow"]
             workflow = workflow_document_from_canonical(workflow_payload)
-            receipt = encode_workflow_commit_receipt(
-                authoring.commit(
-                    admitted["project_id"],
-                    workflow=workflow,
+            with runtime.project_mutation(project_id):
+                receipt = encode_workflow_commit_receipt(
+                    authoring.commit(
+                        admitted["project_id"],
+                        workflow=workflow,
+                    )
                 )
-            )
         except WorkflowDocumentError as error:
             return workflow_document_error_response(error, workflow_payload)
         except ProtocolValidationError as error:
             return protocol_error_response(error, json_body)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
+        except V2RunError as error:
+            return public_error_response(error.code, str(error), error.details)
         return emit_rest_json_success("commit_project_workflow", receipt)

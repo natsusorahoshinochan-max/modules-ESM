@@ -14,7 +14,7 @@
 
 ## 2. 项目比较基线
 
-本节比较现有源码机制，术语见 [CONTEXT.md](../../CONTEXT.md)。这些机制不是不可修改的产品要求，也不授权新增科学证据体系；目标行为与实现差异见[项目技术事实](2026-10-13-patent-project-evidence.md)。
+本节比较现有源码机制，术语见 [GLOSSARY.md](../../GLOSSARY.md)。这些机制不是不可修改的产品要求，也不授权新增科学证据体系；目标行为与实现差异见[项目技术事实](2026-10-13-patent-project-evidence.md)。
 
 ```mermaid
 flowchart LR
@@ -30,14 +30,14 @@ flowchart LR
 
 | 编号 | 当前项目可用于比较的特征 | 规格依据与比较边界 |
 |---|---|---|
-| F1 | 一个 Module Package Registration 一次贡献 Node Types、Methods、Execution Bindings、Port Type Definitions、Metric Definitions、Utility Transforms、Availability/Readiness 声明 | [CONTEXT.md](../../CONTEXT.md)。用户安装启用的要求已确认，完整入口尚待实现；“存在扩展合同”不能证明“已实现用户插件安装”。 |
-| F2 | Node Type 表示可复用科学操作；Method 表示算法/模型变体；Execution Binding 选定执行关联；Adapter 翻译部署或 Provider 表示，保留科学语义与 provenance | [CONTEXT.md](../../CONTEXT.md)。科学身份、部署机制与环境配置分别有明确角色；不能只用类名变化证明区别。 |
+| F1 | 一个 Module Package Registration 一次贡献 Node Types、Methods、Execution Bindings、Port Type Definitions、Metric Definitions、Utility Transforms、Availability/Readiness 声明 | [GLOSSARY.md](../../GLOSSARY.md)。用户安装启用的要求已确认，完整入口尚待实现；“存在扩展合同”不能证明“已实现用户插件安装”。 |
+| F2 | Node Type 表示可复用科学操作；Method 表示算法/模型变体；Execution Binding 选定执行关联；Adapter 翻译部署或 Provider 表示，保留科学语义与 provenance | [GLOSSARY.md](../../GLOSSARY.md)。科学身份、部署机制与环境配置分别有明确角色；不能只用类名变化证明区别。 |
 | F3 | Startup-frozen FrozenCatalog 一次准入稳定 ID 和跨声明关系；Compiler 添加具体 Workflow 来源；runtime 检查实际输出是否兑现同一声明 | [架构说明](../architecture.md)。不是通用服务目录或动态插件管理器。 |
 | F4 | Port compatibility 按 exact nominal Port Type；科学合同拥有单位、形状、missing/mask 语义；相同 carrier 不代表相同科学含义 | [架构说明](../architecture.md)。类型化端口本身已有先例；须比较其科学语义及执行效果。 |
 | F5 | Candidate Data Reference = Candidate identity + nominal data type + canonical content digest；显式 Candidate Relation 承担配对，消费 Method 声明 cardinality | [模块能力说明](../module-capabilities.md)。关系不靠独立列表位置猜测；同内容的不同 Candidate 仍保留不同主体。 |
-| F6 | Score Observation 绑定精确主体、Metric、Method、Observation Context；Selection Objective 显式选定 Utility Transform、weight 和 missing policy | [CONTEXT.md](../../CONTEXT.md)、[结果与筛选说明](../results.md)、[架构说明](../architecture.md)。不能将一般评分/加权排序直接视为新特征。 |
+| F6 | Score Observation 绑定精确主体、Metric、Method、Observation Context；Selection Objective 显式选定 Utility Transform、weight 和 missing policy | [GLOSSARY.md](../../GLOSSARY.md)、[结果与筛选说明](../results.md)、[架构说明](../architecture.md)。不能将一般评分/加权排序直接视为新特征。 |
 | F7 | 残基值与 identity-complete layout 闭合；Candidate-associated residue axes 精确关联；预测时的 residue axis 与输出结构解析后的 axis 分开；共享 alignment correspondence/transform/normalization evidence | [架构说明](../architecture.md)、[模块能力说明](../module-capabilities.md)。残基映射的算法、适用条件和技术效果还需单独比较。 |
-| F8 | 不可变 Workflow Commit 存最小科学定义快照；Result Identity 覆盖科学/执行 ID、规范输入参数与有效随机性；Run Ledger 区分 Cache replay、实际 Operation Attempt 与 Engine Invocation | [CONTEXT.md](../../CONTEXT.md)、[运行说明](../execution.md)。版本、溯源和内容缓存有大量先例；项目的具体闭合规则仍需比对。 |
+| F8 | 不可变 Workflow Commit 存最小科学定义快照；Result Identity 覆盖科学/执行 ID、规范输入参数与有效随机性；Run Ledger 区分 Cache replay、实际 Operation Attempt 与 Engine Invocation | [GLOSSARY.md](../../GLOSSARY.md)、[运行说明](../execution.md)。版本、溯源和内容缓存有大量先例；项目的具体闭合规则仍需比对。 |
 
 ## 3. 最接近的五组专利公开
 

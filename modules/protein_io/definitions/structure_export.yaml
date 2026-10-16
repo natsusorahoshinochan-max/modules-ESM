@@ -7,12 +7,12 @@ inputs:
     port_type_id: protein.structure
     required: false
     multiplicity: one
-    scientific_meaning: Protein structure to serialize in provider-native PDB text.
+    scientific_meaning: Protein structure to serialize in its declared source format.
   - name: structures
     port_type_id: candidate.collection
     required: false
     multiplicity: one
-    scientific_meaning: Ordered protein structure Candidates to serialize without changing identity or PDB text.
+    scientific_meaning: Ordered protein structure Candidates to serialize without changing identity or source text.
 input_constraints:
   - kind: exactly_one
     ports:
@@ -33,5 +33,19 @@ outputs:
     scientific_meaning: Ordered Candidate-bound native PDB bytes for opaque Run-bound publication.
     artifact_kind: candidate
     artifact_media_type: chemical/x-pdb
+  - name: standalone_mmcif_artifact
+    port_type_id: protein_io.artifact_payload
+    required: false
+    multiplicity: one
+    scientific_meaning: Original mmCIF bytes for opaque Run-bound publication.
+    artifact_kind: standalone
+    artifact_media_type: chemical/x-mmcif
+  - name: candidate_mmcif_artifacts
+    port_type_id: protein_io.artifact_payload
+    required: false
+    multiplicity: many
+    scientific_meaning: Ordered Candidate-bound original mmCIF bytes.
+    artifact_kind: candidate
+    artifact_media_type: chemical/x-mmcif
 parameter_groups: []
 node_parameters: {}

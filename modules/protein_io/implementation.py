@@ -21,8 +21,8 @@ from .fasta import admit_fasta_record, parse_fasta_entries, parse_fasta_sequence
 from .inspection import read_structure_input
 
 
-def _native_pdb_bytes(structure: ProteinStructure) -> bytes:
-    return structure.pdb_string.encode("ascii")
+def _native_structure_bytes(structure: ProteinStructure) -> bytes:
+    return structure.text.encode("utf-8")
 
 
 class SequenceImportImplementation:
@@ -101,7 +101,7 @@ class SequenceBatchImportImplementation:
 
 
 class StructureImportImplementation:
-    """Parse one immutable Project-scoped PDB value."""
+    """Parse one immutable Project-scoped PDB or mmCIF value."""
 
     def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
@@ -163,7 +163,7 @@ class SequenceExportImplementation:
 
 
 class StructureExportImplementation:
-    """Serialize one ProteinStructure without changing its PDB text."""
+    """Serialize one ProteinStructure in its declared source format."""
 
     def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
@@ -173,25 +173,28 @@ class StructureExportImplementation:
         if "structures" in inputs:
             structures = inputs["structures"].value
             with self._run_resources.engine_invocation():
-                artifacts = []
+                artifacts: dict[str, list[ArtifactPayload]] = {}
                 for index, candidate in enumerate(structures.items):
-                    body = _native_pdb_bytes(candidate.data)
-                    artifacts.append(
+                    body = _native_structure_bytes(candidate.data)
+                    is_mmcif = candidate.data.format == "mmcif"
+                    port = "candidate_mmcif_artifacts" if is_mmcif else "candidate_artifacts"
+                    artifacts.setdefault(port, []).append(
                         ArtifactPayload(
                             body=body,
-                            media_type="chemical/x-pdb",
-                            filename=f"structure-{index:04d}.pdb",
+                            media_type="chemical/x-mmcif" if is_mmcif else "chemical/x-pdb",
+                            filename=f"structure-{index:04d}.{'cif' if is_mmcif else 'pdb'}",
                             candidate_id=candidate.candidate_id,
                         )
                     )
-            return {"candidate_artifacts": artifacts}
+            return artifacts
         structure = inputs["structure"].value
         with self._run_resources.engine_invocation():
-            body = _native_pdb_bytes(structure)
+            body = _native_structure_bytes(structure)
+        is_mmcif = structure.format == "mmcif"
         return {
-            "standalone_artifact": ArtifactPayload(
+            "standalone_mmcif_artifact" if is_mmcif else "standalone_artifact": ArtifactPayload(
                 body=body,
-                media_type="chemical/x-pdb",
-                filename="structure.pdb",
+                media_type="chemical/x-mmcif" if is_mmcif else "chemical/x-pdb",
+                filename="structure.cif" if is_mmcif else "structure.pdb",
             )
         }

@@ -112,7 +112,14 @@ class _RunScopeAdmission:
                     "malformed_request", "Continue requires a terminal source Run",
                     details={"field_path": ["scope", "source_run_id"]},
                 )
-            publications = {item.node_id: item for item in source_projection.publications}
+            succeeded = {
+                item.node_id for item in source_projection.node_dispositions
+                if item.outcome == "succeeded"
+            }
+            publications = {
+                item.node_id: item for item in source_projection.publications
+                if item.node_id in succeeded
+            }
         values: dict[tuple[str, str], AdmittedPort] = {}
         reused: dict[str, StoredNodeResult] = {}
         blockers: list[dict[str, Any]] = []

@@ -15,6 +15,7 @@ from core.operation import (
 )
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure, ResolvedStructureResidueAxis
+from datatypes.structure_format import select_mmcif_chains, write_mmcif_dictionary
 
 from .residue_axis import (
     _AtomRecord,
@@ -46,8 +47,12 @@ def select_chains(
         raise ValueError(
             "requested chains are absent: " + ", ".join(missing)
         )
+    if structure.format == "mmcif":
+        return ProteinStructure(
+            select_mmcif_chains(structure.text, admitted_chain_ids), "mmcif"
+        )
     declaration_lines: dict[str, list[str]] = defaultdict(list)
-    for line in structure.pdb_string.splitlines():
+    for line in structure.text.splitlines():
         if line.startswith("SEQRES"):
             if len(line) < 12:
                 raise ValueError("PDB SEQRES record has no chain identity")
@@ -74,7 +79,7 @@ def select_chains(
         raise ValueError("chain selection produced no coordinate records")
     output_lines.append("END")
     return ProteinStructure(
-        pdb_string="\n".join(output_lines) + "\n",
+        text="\n".join(output_lines) + "\n",
     )
 
 
@@ -139,6 +144,8 @@ def extract_backbone(
         raise ValueError(
             "resolved residues lack backbone atoms: " + ", ".join(incomplete)
         )
+    if residue_axis.structure.format == "mmcif":
+        return _mmcif_backbone(residue_axis)
     residue_names_by_id = dict(
         zip(
             residue_axis.layout.residue_ids,
@@ -167,9 +174,39 @@ def extract_backbone(
         output_lines.append("TER")
     output_lines.append("END")
     backbone = ProteinStructure(
-        pdb_string="\n".join(output_lines) + "\n",
+        text="\n".join(output_lines) + "\n",
     )
     return backbone
+
+
+def _mmcif_backbone(axis: ResolvedStructureResidueAxis) -> ProteinStructure:
+    columns = {
+        name: [] for name in (
+            "group_PDB", "id", "type_symbol", "label_atom_id", "label_alt_id",
+            "label_comp_id", "label_asym_id", "label_entity_id", "label_seq_id",
+            "pdbx_PDB_ins_code", "Cartn_x", "Cartn_y", "Cartn_z", "occupancy",
+            "B_iso_or_equiv", "auth_seq_id", "auth_asym_id", "pdbx_PDB_model_num",
+        )
+    }
+    names = dict(zip(axis.layout.residue_ids, axis.residue_names, strict=True))
+    for segment in axis.segments:
+        for position, residue_id in enumerate(segment.residue_ids, 1):
+            chain, label = residue_id.split(":", 1)
+            match = re.fullmatch(r"([+-]?[0-9]+)([A-Za-z]?)", label)
+            if match is None:
+                raise ValueError("structure residue label cannot be written to mmCIF")
+            for atom_name, coordinate in axis.backbone_coordinates_for(residue_id).items():
+                row = (
+                    "ATOM", str(len(columns["id"]) + 1), atom_name[0], atom_name,
+                    ".", names[residue_id], str(segment.segment_index + 1), "1", str(position),
+                    match[2] or "?", *(str(v) for v in coordinate), "1.0", "0.0",
+                    match[1], chain, "1",
+                )
+                for column, value in zip(columns.values(), row, strict=True):
+                    column.append(value)
+    return ProteinStructure(write_mmcif_dictionary({
+        "data_": "backbone", **{"_atom_site." + k: v for k, v in columns.items()},
+    }), "mmcif")
 
 
 def extract_sequence(
@@ -187,7 +224,21 @@ def validate_backbone_structure(value: object) -> None:
     if type(value) is not ProteinStructure:
         raise ValueError("backbone must be a ProteinStructure")
     _STRUCTURE_CONTENT_TYPE.validate(value)
-    text = value.pdb_string
+    if value.format == "mmcif":
+        segments = _coordinate_segments(_single_model_records(value))
+        for segment in segments:
+            by_residue: dict[tuple[str, str, str], list[_AtomRecord]] = defaultdict(list)
+            for record in segment:
+                by_residue[record.residue_identity].append(record)
+            for records in by_residue.values():
+                if (
+                    {record.atom_name for record in records} != set(_BACKBONE_ATOMS)
+                    or len(records) != 4
+                    or any(record.record != "ATOM  " or record.altloc != " " for record in records)
+                ):
+                    raise ValueError("backbone requires exactly N/CA/C/O without alternates")
+        return
+    text = value.text
     if not text.endswith("\n") or "\r" in text or "\n\n" in text:
         raise ValueError("backbone PDB text is not canonical LF text")
     lines = text.splitlines()
@@ -329,6 +380,7 @@ class BackboneToStructureImplementation:
         with self._run_resources.engine_invocation():
             return {
                 "structure": ProteinStructure(
-                    pdb_string=backbone.pdb_string,
+                    text=backbone.text,
+                    format=backbone.format,
                 )
             }

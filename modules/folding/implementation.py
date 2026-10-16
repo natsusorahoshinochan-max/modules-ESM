@@ -7,7 +7,8 @@ import hashlib
 import math
 from typing import Any
 
-from core.operation import OperationCall
+from core.operation import OperationCall, OperationFailedWithOutputs
+from .esmfold2_remote import ESMFold2ProviderError
 from core.catalog.observation import ProducedObservation
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import (
@@ -87,13 +88,20 @@ class ESMFold2FoldingImplementation:
                         sample_index,
                     )
                 )
-                adapter_result = self._adapter.fold(
-                    sequence=parent.sequence,
-                    derived_call_seed=call_seed,
-                    engine_role=(
-                        f"fold_parent_{parent.slot}_sample_{sample_index}"
-                    ),
-                )
+                try:
+                    adapter_result = self._adapter.fold(
+                        sequence=parent.sequence,
+                        derived_call_seed=call_seed,
+                        engine_role=(
+                            f"fold_parent_{parent.slot}_sample_{sample_index}"
+                        ),
+                    )
+                except ESMFold2ProviderError as error:
+                    if not completed_samples:
+                        raise
+                    raise OperationFailedWithOutputs(
+                        error, construction.construct(tuple(completed_samples))
+                    ) from error
                 completed_samples.append(
                     CompletedFoldingSample(
                         parent_slot=parent.slot,

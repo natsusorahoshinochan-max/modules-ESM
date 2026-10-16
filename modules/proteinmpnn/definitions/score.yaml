@@ -1,23 +1,43 @@
 node_type_id: proteinmpnn.score
 title: Score a sequence with ProteinMPNN
-summary: Observes the exact ProteinMPNN native sequence score for one identified sequence Candidate against its one identified parent structure Candidate.
+summary: Evaluate one existing sequence against one independently chosen backbone with ProteinMPNN; generation ancestry is unchanged.
 category: protein_scoring
 inputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
     required: true
     multiplicity: one
-    scientific_meaning: Exactly one complete sequence Candidate whose sole parent is the structure Candidate identified by the supplied residue axis.
+    scientific_meaning: Exactly one complete canonical-amino-acid sequence Candidate. Without residue identities, sequence positions follow the complete supplied backbone axis; explicit residue identities must match that axis.
   - name: structure_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     required: true
     multiplicity: one
-    scientific_meaning: Exactly one exact-reference-associated resolved residue axis whose subject Candidate identifies the parent structure; a different entry count fails before the engine is invoked.
+    scientific_meaning: Exactly one reference-associated complete backbone residue axis, selected independently of sequence generation ancestry.
 outputs:
   - name: scores
     port_type_id: score.collection
     required: true
     multiplicity: one
-    scientific_meaning: One typed intrinsic ProteinMPNN score Observation for the exact sequence Candidate.
-parameter_groups: []
-node_parameters: {}
+    scientific_meaning: One pairwise ProteinMPNN masked-mean score identifying both sequence subject and backbone reference.
+parameter_groups:
+  - id: evaluation
+    title: ProteinMPNN evaluation
+    parameters:
+      - effective_seed
+      - backbone_noise
+node_parameters:
+  effective_seed:
+    parameter_scope: scientific
+    scientific_meaning: Explicit Torch seed for the scoring decoding order and backbone noise; zero is an exact seed rather than a request for a random seed.
+    value_contract:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
+    default: 42
+  backbone_noise:
+    parameter_scope: scientific
+    scientific_meaning: Standard deviation in angstroms of Gaussian noise applied to backbone atom coordinates by ProteinMPNN.
+    value_contract:
+      type: number
+      minimum: 0
+    default: 0

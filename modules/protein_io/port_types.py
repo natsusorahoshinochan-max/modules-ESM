@@ -16,7 +16,7 @@ def _validate_artifact_payload(value: object) -> None:
     if type(value.body) is not bytes or len(value.body) > 64 * 1024 * 1024:
         raise ValueError("artifact body is invalid or too large")
     if (
-        value.media_type not in {"text/x-fasta", "chemical/x-pdb"}
+        value.media_type not in {"text/x-fasta", "chemical/x-pdb", "chemical/x-mmcif"}
         or _SAFE_NAME.fullmatch(value.filename) is None
     ):
         raise ValueError("artifact metadata is invalid")
@@ -58,6 +58,7 @@ ARTIFACT_PAYLOAD_PORT_TYPE = PortTypeDefinition(
             "accepted_value_kind": "artifact_payload",
             "artifact_publication": {
                 "media_types": [
+                    "chemical/x-mmcif",
                     "chemical/x-pdb",
                     "text/x-fasta",
                 ],

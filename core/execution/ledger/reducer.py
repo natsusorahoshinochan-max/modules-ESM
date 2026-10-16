@@ -207,12 +207,13 @@ class LedgerReducer:
         state: LedgerReducerState,
         node_id: str,
     ) -> frozenset[str]:
-        blockers: set[str] = set()
-        required_inputs = next(
-            node.required_input_sources
-            for node in self.plan_evidence
-            if node.node_id == node_id
-        )
+        plan_node = next(node for node in self.plan_evidence if node.node_id == node_id)
+        blockers = {
+            dependency for dependency in plan_node.dependencies
+            if dependency in state.dispositions
+            and state.dispositions[dependency].outcome != "succeeded"
+        }
+        required_inputs = plan_node.required_input_sources
         for required_input in required_inputs:
             if any(
                 source.output_port
@@ -422,7 +423,7 @@ class LedgerReducer:
                 if operation.node_attempt_id == attempt_id
             ]
             if child_operations and any(
-                state.operations[operation_id].terminal != "succeeded"
+                state.operations[operation_id].terminal not in {"succeeded", "failed"}
                 for operation_id in child_operations
             ):
                 raise _causal_error()
@@ -809,8 +810,16 @@ class LedgerReducer:
             fact.payload.node_id for fact in output_publications
         }
         if (
-            terminal_succeeded != (len(output_publications) == 1)
-            or (not terminal_succeeded and output_publications)
+            (terminal_succeeded and len(output_publications) != 1)
+            or len(output_publications) > 1
+            or (
+                output_publications and not terminal_succeeded
+                and not (
+                    node_terminal.status == "failed"
+                    and node_terminal.failure_origin == "operation"
+                    and node_terminal.resolution == "executed"
+                )
+            )
             or publication_node_ids - {attempt.node_id}
         ):
             raise _causal_error()
@@ -840,7 +849,7 @@ class LedgerReducer:
                 if operation_terminals
                 else ()
             ),
-            *((OutputsPublished,) if terminal_succeeded else ()),
+            *((OutputsPublished,) if output_publications else ()),
             NodeAttemptTerminal,
             NodeDisposition,
         ]

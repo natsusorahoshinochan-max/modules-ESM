@@ -4,7 +4,7 @@
 
 检索日：2026-10-13。用途：中国大陆发明专利的技术交底准备。检索重心是**模块开发者封装计算能力，项目用户安装启用模块后连接节点，构建和执行蛋白质研究 Workflow 的整体软件**。这里的注册不是在网页填写任意 API 地址，也不预设热加载。上游蛋白质模型的专利与论文仅作为应用背景。
 
-项目科学词义依据 [CONTEXT.md](../../CONTEXT.md) 与 [README.md](../../README.md)。Node Type、Module Package、Adapter、Execution Binding、Workflow 是不同对象；不能把调用某个模型、模型训练和扩展框架混成一项发明。本文不从代码推断科学语义，也不替代项目实现核查。
+项目科学词义依据 [GLOSSARY.md](../../GLOSSARY.md) 与 [README.md](../../README.md)。Node Type、Module Package、Adapter、Execution Binding、Workflow 是不同对象；不能把调用某个模型、模型训练和扩展框架混成一项发明。本文不从代码推断科学语义，也不替代项目实现核查。
 
 ## 初步结论
 

@@ -6,18 +6,22 @@
 
 更新时直接替换失效内容，不保留 AI 对话记录、开发流水账、失效开发阶段叙事、旧方案或旧验收档案。可以记录当前问题、证据位置和核验范围；问题解决后更新当前结论，不保留演变流水。未经确认的实现偏差不得写成新需求。
 
-## 当前工作：文档治理
+## 当前工作：测试组件治理
 
-现行说明按架构、执行、工作区、结果、Prompt、模块与配置组织，入口见[文档索引](docs/README.md)。当前文档治理维护尚未解决的实现差异与待核实事实。开始审查或修改项目文档前，阅读以下依据：
+当前工作面向测试组件的治理，检查测试、夹具、共用测试支持和验证入口是否准确覆盖当前要求，识别过时断言、重复检查、错误模拟和覆盖缺口。开始审查或修改测试组件前，阅读以下依据：
 
 - [当前有效决策](docs/documentation-governance-decisions.md)：用户已确认的产品要求、开发约束和范围边界，是判断目标行为的依据。
 - [文档治理问题清单](docs/2026-10-15-documentation-governance-issues.md)：已发现问题、证据及处理状态，是排查入口；其中疑点和未核实事项不是已确认需求或已证明缺陷。
+- [文档索引](docs/README.md)：现行架构、执行、工作区、结果、Prompt、模块与配置说明。
+- [后端验证](docs/backend-verification.md)与 [WebUI 验证](webui/README.md#verification)：测试职责、验证入口与远端执行要求。
 
-按当前决策核对并修正文档，同步更新问题状态；问题清单仅保留当前未解决项。其他文档的“已确认”“已完成”等自述不能覆盖上述决策；代码只读用于核实实现。除非用户另行授权，文档治理不修改应用代码或启动功能重构。移除失效文档前提取其中仍有效的要求，不另存历史档案，不删除用户项目、运行结果或原始研究数据。
+以当前有效要求判断测试是否正确，不以现有测试通过或现有实现反推需求。区分测试本身的问题与测试暴露的实现缺陷；不通过删除有效断言、增加跳过或放宽预期掩盖实现问题。测试组件的具体修改按用户授权的任务范围执行，不因测试治理自动扩大为应用功能重构。
+
+同步维护相关说明与未解决问题，不保留治理流水或已解决项历史。只读审查不运行测试；需要执行验证时遵守下方 Verification 及其引用规则。保留仍有效的测试覆盖，不删除用户项目、运行结果或原始研究数据。
 
 ## Priorities
 
-本项目对科学性的定义是：正确传参数。按照用户要求和工具官方接口正确传递输入与参数。使用 [CONTEXT.md](CONTEXT.md) 中与当前有效要求一致的术语；发现冲突时明确指出并修正文档，不以旧定义限制已确认功能。
+本项目对科学性的定义是：正确传参数。按照用户要求和工具官方接口正确传递输入与参数。使用 [GLOSSARY.md](GLOSSARY.md) 中与当前有效要求一致的术语；发现冲突时明确指出并修正文档，不以旧定义限制已确认功能。
 
 There is no historical compatibility obligation. Do not add shims, aliases, legacy parsers, dual paths, deprecation layers, or speculative abstractions. When changing code, change all current producers, consumers, tests, examples, and documentation together; delete superseded code. Superseded development artifacts may be invalidated without compatibility support. This does not permit silent loss of saved user work or invalidating an adopted input when its source project is deleted.
 

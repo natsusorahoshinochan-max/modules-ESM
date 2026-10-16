@@ -47,7 +47,7 @@ function ValuePresentation({ payload }: { payload: PublishedResultValue }) {
     const value = payload.value
     return <section aria-label="已发布序列"><p>{value.sequence.length} 个序列位置</p><pre className="published-sequence">{value.sequence}</pre>{value.residue_ids === null ? <p>该序列未提供残基身份列表。</p> : <RawValue value={value.residue_ids} label="查看已发布残基身份" />}</section>
   }
-  if (payload.kind === 'structure') return <section aria-label="已发布结构"><Suspense fallback={<p role="status">加载结构查看器…</p>}><StructureViewer pdb={payload.value.pdb} /></Suspense><RawValue value={payload.value.pdb} label="查看原始 PDB 文本" /></section>
+  if (payload.kind === 'structure') return <section aria-label="已发布结构"><Suspense fallback={<p role="status">加载结构查看器…</p>}><StructureViewer structure={payload.value} /></Suspense><RawValue value={payload.value.text} label={`查看原始 ${payload.value.format === 'pdb' ? 'PDB' : 'mmCIF'} 文本`} /></section>
   if (payload.kind === 'prompt') return <PromptValue value={payload.value} />
   return <RawValue value={payload.value} label="查看已发布科学事实" />
 }

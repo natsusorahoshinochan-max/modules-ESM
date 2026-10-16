@@ -956,6 +956,12 @@ def _evaluate_prompt_recipe(
                 "kind": "insert",
                 "residue_ids": residue_ids,
             }
+            prompt = _reindex_to_target(
+                prompt,
+                operation.get("target_residues"),
+                replace_annotations="function_annotations" in document,
+                declared_chains=declared_chains,
+            )
     prompt, merge_targets = _apply_merges(prompt, merge_sources or (), document, declared_chains=declared_chains)
     overrides = _collect_overrides(document.get("track_edits"))
     prompt = _apply_track_overrides(prompt, overrides)

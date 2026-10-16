@@ -12,11 +12,11 @@ from typing import Any
 from core.operation import retain_secondary_cleanup_exception
 from datatypes.sequence import ProteinSequence
 
-from . import provider_request as _provider_request
 from .assets import _checkpoint_path
 from .provider_request import (
     _ALPHABET_DICT,
     ProteinMPNNDesignRequest,
+    ProteinMPNNScoreRequest,
 )
 
 
@@ -116,7 +116,7 @@ def _parse_structure(
 
 
 def _featurize(
-    request: ProteinMPNNDesignRequest,
+    request: ProteinMPNNDesignRequest | ProteinMPNNScoreRequest,
     device: torch.device,
     provider_root: Path,
 ) -> dict[str, Any]:
@@ -130,11 +130,14 @@ def _featurize(
         request.pdb_dict_list,
         device,
         request.chain_dict,
-        request.fixed_position_dict,
+        (request.fixed_position_dict
+         if isinstance(request, ProteinMPNNDesignRequest) else None),
         None,  # global omit rules are applied by tied_sample
-        request.tied_positions_dict,
+        (request.tied_positions_dict
+         if isinstance(request, ProteinMPNNDesignRequest) else None),
         None,  # pssm_dict
-        request.bias_by_res_dict,
+        (request.bias_by_res_dict
+         if isinstance(request, ProteinMPNNDesignRequest) else None),
     )
     # tied_featurize returns a tuple; convert to dict for downstream use
     keys = [
@@ -361,8 +364,7 @@ class _LocalProteinMPNNProvider:
 
     def score(
         self,
-        request: ProteinMPNNDesignRequest,
-        sequence: ProteinSequence,
+        request: ProteinMPNNScoreRequest,
     ) -> float:
         import torch
 
@@ -386,10 +388,7 @@ class _LocalProteinMPNNProvider:
             return _compute_score(
                 model,
                 batch,
-                _provider_request._sequence_in_provider_chain_order(
-                    sequence.sequence,
-                    request,
-                ),
+                request.provider_sequence,
                 device,
                 self._provider_root,
             )

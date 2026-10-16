@@ -164,7 +164,7 @@ class _StructureSource:
             candidate = Candidate(
                 "fixture-structure",
                 ProteinStructure(
-                    pdb_string=pdb_string,
+                    text=pdb_string,
                 ),
                 [],
                 {"source": "independent-literal"},

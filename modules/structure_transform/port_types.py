@@ -20,17 +20,17 @@ from .projections import validate_backbone_structure
 
 
 def _backbone_to_wire(value: ProteinStructure) -> object:
-    return {"pdb_string": value.pdb_string}
+    return {"pdb_string" if value.format == "pdb" else "mmcif_string": value.text}
 
 
 def _backbone_from_wire(value: object) -> object:
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"pdb_string"}
-        or type(value["pdb_string"]) is not str
-    ):
+    if not isinstance(value, dict):
         raise ValueError("backbone wire value is invalid")
-    return ProteinStructure(pdb_string=value["pdb_string"])
+    if set(value) == {"pdb_string"} and type(value["pdb_string"]) is str:
+        return ProteinStructure(value["pdb_string"], "pdb")
+    if set(value) == {"mmcif_string"} and type(value["mmcif_string"]) is str:
+        return ProteinStructure(value["mmcif_string"], "mmcif")
+    raise ValueError("backbone wire value is invalid")
 
 
 BACKBONE_STRUCTURE_PORT_TYPE = PortTypeDefinition(
@@ -42,6 +42,7 @@ BACKBONE_STRUCTURE_PORT_TYPE = PortTypeDefinition(
             "embedded_structure_contract": "protein.structure",
             "record_contract": {
                 "records": ["ATOM", "TER", "END"],
+                "formats": ["pdb", "mmcif"],
                 "atoms": ["N", "CA", "C", "O"],
                 "alternate_locations": "resolved",
                 "missing_atoms": "rejected",
@@ -53,7 +54,8 @@ BACKBONE_STRUCTURE_PORT_TYPE = PortTypeDefinition(
         "structure_transform.backbone_structure/codec",
         {
             "canonicalization": "RFC 8785",
-            "pdb_line_endings": "LF",
+            "line_endings": "LF",
+            "format_fields": ["pdb_string", "mmcif_string"],
         },
     ),
     content_identity=BehaviorReference(

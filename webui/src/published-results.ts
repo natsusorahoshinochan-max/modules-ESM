@@ -1,4 +1,4 @@
-import { type CanonicalTypedValue, type PublishedResultValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
+import { type PublishedStructure, type CanonicalTypedValue, type PublishedResultValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
 import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
 
 export type RunReference = Pick<RunProjection, 'project_id' | 'run_id'>
@@ -35,7 +35,7 @@ type Session = {
   pending: Map<string, Promise<void>>
   values: Map<string, Promise<PublishedResultValue>>
   rawValues: Map<string, Promise<CanonicalTypedValue>>
-  structures: Map<string, Promise<string>>
+  structures: Map<string, Promise<PublishedStructure>>
 }
 
 const emptyIndex = (): ResultIndex => buildResultIndex({ collections: [], scores: [], alignments: [], sequences: {}, definitions: [] }, false)
@@ -153,7 +153,7 @@ export class PublishedResults {
     }
   }
 
-  async structure(key: string): Promise<string | null | undefined> {
+  async structure(key: string): Promise<PublishedStructure | null | undefined> {
     const session = this.session
     if (!session) return undefined
     const candidate = this.snapshot.index.candidates.get(key)!
@@ -162,12 +162,12 @@ export class PublishedResults {
     let pending = session.structures.get(contentKey)
     if (!pending) {
       pending = this.client.resultStructure(session.reference.project_id, session.reference.run_id, candidate.source, candidate.item_index)
-        .then(value => value.pdb).catch(error => { session.structures.delete(contentKey); throw error })
+        .catch(error => { session.structures.delete(contentKey); throw error })
       session.structures.set(contentKey, pending)
     }
     try {
-      const pdb = await pending
-      return this.session === session ? pdb : undefined
+      const structure = await pending
+      return this.session === session ? structure : undefined
     } catch (error) { if (this.session === session) throw error }
   }
 

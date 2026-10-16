@@ -110,6 +110,7 @@ def _validate_component_disposition(
     allowed = {
         ("polymer", "included", None),
         ("modified_polymer", "normalized", "pdb_modres"),
+        ("modified_polymer", "normalized", "mmcif_modres"),
         ("modified_polymer", "normalized", "explicit_mapping"),
         ("ligand", "excluded", None),
         ("water", "excluded", None),
@@ -151,7 +152,7 @@ def _validate_component_disposition(
         or len(value.parent_sequence) != 1
     ):
         raise ValueError("standard polymer disposition must own one identity")
-    if value.normalization_source == "pdb_modres" and (
+    if value.normalization_source in {"pdb_modres", "mmcif_modres"} and (
         value.parent_residue_ids != (value.observed_residue_id,)
         or len(value.parent_sequence) != 1
     ):
@@ -225,9 +226,9 @@ def validate_resolved_axis(value: object) -> None:
             or type(segment.segment_index) is not int
             or segment.segment_index != index
             or type(segment.chain_id) is not str
-            or len(segment.chain_id) != 1
+            or not segment.chain_id
             or not segment.chain_id.isascii()
-            or not segment.chain_id.isalnum()
+            or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-" for c in segment.chain_id)
             or not segment.residue_ids
             or any(
                 residue_id.split(":", 1)[0] != segment.chain_id

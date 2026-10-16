@@ -44,7 +44,7 @@ _OPERATIONS = ("candidate_source", "value_source")
 
 def _structure() -> ProteinStructure:
     return ProteinStructure(
-        pdb_string=(
+        text=(
             "ATOM      1  CA  GLY A   1       "
             "1.000   2.000   3.000  1.00 20.00           C  \n"
             "ATOM      2  CA  ALA A   2       "

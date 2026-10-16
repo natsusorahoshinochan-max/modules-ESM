@@ -111,7 +111,8 @@ class PublishedResultReader:
                 "malformed_request", "Candidate has no structure",
                 details={"field_path": ["output_port"]},
             )
-        return {"pdb": cast(ProteinStructure, collection.items[0].data).pdb_string}
+        structure = cast(ProteinStructure, collection.items[0].data)
+        return {"text": structure.text, "format": structure.format}
 
     def value(
         self, project_id: str, run_id: str, node_id: str,

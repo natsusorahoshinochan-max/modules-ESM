@@ -1,10 +1,21 @@
 import type { PromptAuthoringDocument, PromptMergeCorrespondence, PromptTargetResidue, PromptTrackEdit } from './protocol/client'
 
+/** Layout edits follow the last random insertion, preserving its seed and identities. */
+export function promptLayoutTargets(document: PromptAuthoringDocument): PromptTargetResidue[] | undefined {
+  const insertion = [...document.random_operations ?? []].reverse().find(operation => operation.kind === 'insert')
+  return insertion?.kind === 'insert' ? insertion.target_residues : document.target_residues
+}
+
+function withLayout(document: PromptAuthoringDocument, targets: PromptTargetResidue[]): PromptAuthoringDocument {
+  const index = (document.random_operations ?? []).reduce((last, operation, position) => operation.kind === 'insert' ? position : last, -1)
+  if (index < 0) return { ...document, target_residues: targets }
+  return { ...document, random_operations: document.random_operations!.map((operation, position) => position === index && operation.kind === 'insert' ? { ...operation, target_residues: targets } : operation) }
+}
+
 /** Explicit deletions turn only the affected source relations into source gaps. */
 export function deletePromptResidues(document: PromptAuthoringDocument, targets: PromptTargetResidue[], removed: ReadonlySet<string>): PromptAuthoringDocument {
   return {
-    ...document,
-    target_residues: targets.filter(item => !removed.has(item.residue_id)),
+    ...withLayout(document, targets.filter(item => !removed.has(item.residue_id))),
     track_edits: document.track_edits?.filter(item => !removed.has(item.residue_id)),
     rigid_transforms: document.rigid_transforms?.map(item => ({ ...item, residue_ids: item.residue_ids.filter(id => !removed.has(id)) })).filter(item => item.residue_ids.length > 0),
     source_merges: document.source_merges?.map(merge => {
@@ -28,8 +39,7 @@ export function insertPromptResidues(document: PromptAuthoringDocument, targets:
   const targetIndex = targetPredecessor === undefined ? -1 : targets.findIndex(item => item.residue_id === targetPredecessor)
   const targetRows: PromptTargetResidue[] = residueIds.map(residue_id => ({ residue_id, origin: 'inserted' }))
   return {
-    ...document,
-    target_residues: [...targets.slice(0, targetIndex + 1), ...targetRows, ...targets.slice(targetIndex + 1)],
+    ...withLayout(document, [...targets.slice(0, targetIndex + 1), ...targetRows, ...targets.slice(targetIndex + 1)]),
     track_edits: [...document.track_edits ?? [], ...sequenceEdits],
     source_merges: document.source_merges?.map(merge => {
       const predecessor = predecessors.find(id => merge.correspondence.some(row => row.disposition !== 'source_gap' && row.target_residue_id === id))

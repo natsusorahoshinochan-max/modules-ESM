@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate'
-import type { CandidateReference, CatalogSnapshot, PublishedAlignment, PublishedObservation, PublishedOutput, ResultCandidate, ResultLocation, RunProjection } from './protocol/client'
+import type { CandidateReference, CatalogSnapshot, PublishedStructure, PublishedAlignment, PublishedObservation, PublishedOutput, ResultCandidate, ResultLocation, RunProjection } from './protocol/client'
 
 export type CandidateView = ResultCandidate & { source: ResultLocation; output: PublishedOutput; sequenceSource?: ResultLocation }
 export type ScoreView = PublishedObservation & { source: ResultLocation }
@@ -16,7 +16,7 @@ export type ResultIndex = ResultFacts & {
   subjectScores: Map<string, ScoreView[]>
   subjectAlignments: Map<string, AlignmentView[]>
 }
-export type CandidateExportMaterial = { candidates: CandidateView[]; structures: Map<string, string | null>; index: ResultIndex; run: RunProjection }
+export type CandidateExportMaterial = { candidates: CandidateView[]; structures: Map<string, PublishedStructure | null>; index: ResultIndex; run: RunProjection }
 
 export function referenceKey(reference: CandidateReference) {
   return JSON.stringify([reference.candidate_id, reference.data_type_id, reference.content_digest])
@@ -94,9 +94,9 @@ export function candidateExportFiles({ candidates, structures, index, run }: Can
   const alignments = [...new Set([...selected].flatMap(key => index.subjectAlignments.get(key) ?? []))]
   const manifestItems = candidates.map((candidate, ordinal) => {
     const basename = `candidate-${String(ordinal + 1).padStart(4, '0')}`
-    const pdb = structures.get(candidateViewKey(candidate))!
-    const structureFile = pdb === null ? null : `structures/${basename}.pdb`
-    if (structureFile) files[structureFile] = strToU8(pdb!)
+    const structure = structures.get(candidateViewKey(candidate))!
+    const structureFile = structure === null ? null : `structures/${basename}.${structure.format === 'pdb' ? 'pdb' : 'cif'}`
+    if (structureFile) files[structureFile] = strToU8(structure!.text)
     return { reference: candidate.reference, parent_ids: candidate.parent_ids, parents: resolveParentReferences(candidate, index), metadata: candidate.metadata, source: candidate.source, output: candidate.output, sequence_source: candidate.sequenceSource ?? candidate.source, has_sequence: candidate.sequence !== null, structure_file: structureFile }
   })
   files['candidates.fasta'] = strToU8(candidates.filter(candidate => candidate.sequence !== null).map(candidate => `>${candidate.reference.candidate_id}\n${candidate.sequence}`).join('\n') + '\n')

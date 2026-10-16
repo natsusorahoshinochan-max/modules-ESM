@@ -345,6 +345,11 @@ def _value_to_wire(value: Any) -> Any:
         ]
         entries.sort(key=lambda entry: _canonical.canonical_json_bytes(entry[0]))
         return {"$map": entries}
+    if type(value) is ProteinStructure:
+        return {
+            "$dataclass": "protein_structure",
+            "fields": {"pdb_string" if value.format == "pdb" else "mmcif_string": value.text},
+        }
     return {
         "$dataclass": _TAG_BY_DATACLASS[type(value)],
         "fields": {
@@ -398,6 +403,14 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
         value_type = _DATACLASS_BY_TAG.get(tag)
         if value_type is None or not isinstance(raw_fields, dict):
             raise _errors.PortValueError(f"{path} names an unknown runtime value kind")
+        if value_type is ProteinStructure:
+            if set(raw_fields) == {"pdb_string"}:
+                return ProteinStructure(raw_fields["pdb_string"], "pdb")
+            if set(raw_fields) == {"mmcif_string"}:
+                return ProteinStructure(raw_fields["mmcif_string"], "mmcif")
+            raise _errors.PortValueError(
+                f"{path} fields do not match the complete protein_structure contract"
+            )
         expected_fields = {item.name for item in fields(value_type)}
         if set(raw_fields) != expected_fields:
             raise _errors.PortValueError(

@@ -25,7 +25,7 @@ type ChainRow = { chain_id: string; length: string }
 const sourceModes: Array<{ value: SourceMode; title: string; description: string }> = [
   { value: 'blank', title: '空白 Prompt', description: '声明一条或多条链' },
   { value: 'fasta', title: 'FASTA → Prompt', description: '完整序列与明确链布局' },
-  { value: 'pdb', title: 'PDB → Prompt', description: '选择有序结构链' },
+  { value: 'pdb', title: 'PDB / mmCIF → Prompt', description: '选择有序结构链' },
   { value: 'prompt', title: '已有 ProteinPrompt', description: '连接现有节点输出' },
   { value: 'batch', title: '批量 FASTA Candidates', description: '每条 record 独立导入' },
 ]
@@ -37,6 +37,7 @@ function errorText(error: unknown) {
 export function InputSourceDialog({ projectId, workflow, catalog, client, preparePublication, saveAccepted = false, saveError, onRetrySave, mergeTargetNodeId, onPreparePrompt, onImportCandidates, onClose }: InputSourceDialogProps) {
   const publishedInputs = useRef(new Map<string, ProjectInputPublication[]>())
   const [mode, setMode] = useState<SourceMode>('blank')
+  const [structureFormat, setStructureFormat] = useState<'pdb' | 'mmcif'>('pdb')
   const [inputMode, setInputMode] = useState<InputMode>('file')
   const [inputs, setInputs] = useState<ProjectInputPublication[]>([])
   const [inputsLoading, setInputsLoading] = useState(true)
@@ -52,11 +53,11 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
   const [error, setError] = useState('')
   const promptSources = existingPromptSources(workflow, catalog, mergeTargetNodeId)
   const selectedPrompt = promptSources.find(item => `${item.nodeId}/${item.outputPort}` === promptKey)
-  const format = mode === 'pdb' ? 'pdb' : 'fasta'
+  const format = mode === 'pdb' ? structureFormat : 'fasta'
   const usesInput = mode === 'fasta' || mode === 'pdb' || mode === 'batch'
   const selectedInput = inputs.find(item => item.project_input_ref === inputRef)
   const chainLength = chains.reduce((total, chain) => total + Number(chain.length), 0)
-  const chainLengthMatches = mode !== 'fasta' || inspection?.format === 'fasta' && chainLength === inspection.total_length
+  const chainLengthMatches = mode !== 'fasta' || inspection?.format === 'fasta' && inspection.records.length === 1 && chainLength === inspection.total_length
 
   useEffect(() => {
     let active = true
@@ -84,7 +85,7 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
       else {
         const content = inputMode === 'file' ? new Uint8Array(await file!.arrayBuffer()) : new TextEncoder().encode(pasted)
         const scope = await preparePublication()
-        const publication = await client.publishProjectInput(scope.projectId, { filename: inputMode === 'file' ? file!.name : filename, content_base64: inputContentBase64(content) })
+        const publication = await client.publishProjectInput(scope.projectId, { filename: inputMode === 'file' ? file!.name : filename, content_base64: inputContentBase64(content) }, format)
         publishedInputs.current.set(scope.projectId, [...(publishedInputs.current.get(scope.projectId) ?? []), publication])
         setInputs(current => [...new Map([...current, publication].map(input => [input.project_input_ref, input])).values()]); setInputRef(publication.project_input_ref)
         await inspect(publication.project_input_ref, scope.projectId)
@@ -100,7 +101,7 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
         let source: PromptSourceChoice
         if (mode === 'blank') source = { kind: 'blank', chains: chains.map(chain => ({ chain_id: chain.chain_id, length: Number(chain.length) })) }
         else if (mode === 'fasta') source = { kind: 'fasta', projectInputRef: inputRef, chains: chains.map(chain => ({ chain_id: chain.chain_id, length: Number(chain.length) })) }
-        else if (mode === 'pdb') source = { kind: 'pdb', projectInputRef: inputRef, chainIds: pdbChains }
+        else if (mode === 'pdb') source = { kind: 'structure', projectInputRef: inputRef, chainIds: pdbChains }
         else source = { kind: 'prompt', nodeId: selectedPrompt!.nodeId, outputPort: selectedPrompt!.outputPort }
         await onPreparePrompt(preparePromptSource(workflow, catalog, source, mergeTargetNodeId))
       }
@@ -120,9 +121,9 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
       <form onSubmit={event => { void prepare(event) }}>
         <fieldset disabled={busy || saveAccepted}>
           {usesInput && <section className="input-source-section" aria-label="输入文件">
-            <div className="input-source-tabs">{([{ value: 'file', title: '上传文件' }, { value: 'paste', title: '粘贴文本' }, { value: 'existing', title: '已有 Input' }] as const).map(item => <button key={item.value} type="button" aria-pressed={inputMode === item.value} onClick={() => changeInputMode(item.value)}>{item.title}</button>)}</div>
-            {inputMode === 'file' && <label>选择 {format === 'pdb' ? 'PDB' : 'FASTA'} 文件<input aria-label="来源文件" type="file" key={mode} accept={format === 'pdb' ? '.pdb,.ent' : '.fasta,.fa,.faa,.fas,.txt'} onChange={event => { setFile(event.target.files?.[0]); setInspection(undefined); setError('') }} /></label>}
-            {inputMode === 'paste' && <><label>保存的文件名<input aria-label="输入文件名" value={filename} onChange={event => { setFilename(event.target.value); setInspection(undefined) }} /></label><label>{format === 'pdb' ? 'PDB 文本' : 'FASTA 文本'}<textarea aria-label="来源文本" rows={7} spellCheck={false} value={pasted} onChange={event => { setPasted(event.target.value); setInspection(undefined) }} placeholder={format === 'fasta' ? '>record name\nACDEFGHIKLMNPQRSTVWY' : '粘贴完整 PDB 文本'} /></label></>}
+            <>{mode === 'pdb' && <label>结构格式<select aria-label="结构输入格式" value={structureFormat} onChange={event => { const next = event.target.value as 'pdb' | 'mmcif'; setStructureFormat(next); setInspection(undefined); setFilename(next === 'pdb' ? 'input.pdb' : 'input.cif') }}><option value="pdb">PDB</option><option value="mmcif">mmCIF</option></select></label>}</><div className="input-source-tabs">{([{ value: 'file', title: '上传文件' }, { value: 'paste', title: '粘贴文本' }, { value: 'existing', title: '已有 Input' }] as const).map(item => <button key={item.value} type="button" aria-pressed={inputMode === item.value} onClick={() => changeInputMode(item.value)}>{item.title}</button>)}</div>
+            {inputMode === 'file' && <label>选择 {mode === 'pdb' ? (structureFormat === 'pdb' ? 'PDB' : 'mmCIF') : 'FASTA'} 文件<input aria-label="来源文件" type="file" key={mode} accept={mode === 'pdb' ? structureFormat === 'pdb' ? '.pdb,.ent' : '.cif,.mmcif' : '.fasta,.fa,.faa,.fas,.txt'} onChange={event => { setFile(event.target.files?.[0]); setInspection(undefined); setError('') }} /></label>}
+            {inputMode === 'paste' && <><label>保存的文件名<input aria-label="输入文件名" value={filename} onChange={event => { setFilename(event.target.value); setInspection(undefined) }} /></label><label>{mode === 'pdb' ? `${structureFormat === 'pdb' ? 'PDB' : 'mmCIF'} 文本` : 'FASTA 文本'}<textarea aria-label="来源文本" rows={7} spellCheck={false} value={pasted} onChange={event => { setPasted(event.target.value); setInspection(undefined) }} placeholder={format === 'fasta' ? '>record name\nACDEFGHIKLMNPQRSTVWY' : '粘贴完整结构文本'} /></label></>}
             {inputMode === 'existing' && <label>项目内的原始输入<select aria-label="已有 Input" value={inputRef} onChange={event => { setInputRef(event.target.value); setInspection(undefined); setError('') }}><option value="">{inputsLoading ? '正在读取输入列表…' : inputs.length ? '选择 Input' : '项目中尚无 Input'}</option>{inputs.map(input => <option key={input.project_input_ref} value={input.project_input_ref}>{input.filename} · {input.size.toLocaleString()} bytes · {input.project_input_ref}</option>)}</select></label>}
             <button type="button" className="input-source-secondary" disabled={inputMode === 'file' ? !file : inputMode === 'paste' ? !filename.trim() || !pasted.trim() : !inputRef} onClick={() => { void readInput() }}>{inputMode === 'existing' ? '检查所选 Input' : '上传并检查输入'}</button>
             {selectedInput && inspection && <p className="input-source-provenance">{selectedInput.filename} · {selectedInput.size.toLocaleString()} bytes<br /><code>{selectedInput.project_input_ref}</code><br /><small>内容身份：{inspection.content_digest}</small></p>}
@@ -131,7 +132,7 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
           {inspection?.format === 'fasta' && <section className="input-source-section" aria-label="FASTA 记录预览">
             <h3>{inspection.records.length} 条记录 · {inspection.total_length} 个残基</h3>
             <div className="input-source-table"><table><thead><tr><th>记录</th><th>名称 / Header</th><th>来源行</th><th>长度</th></tr></thead><tbody>{inspection.records.map(record => <tr key={record.record_index}><td>{record.record_index}</td><td>{record.display_name}<small>{record.header || '无名称；以记录序号显示'}</small></td><td>{record.line_number}</td><td>{record.length}</td></tr>)}</tbody></table></div>
-            <p>{mode === 'batch' ? '每条 record 形成独立 Candidate；名称或序列重复仍保留。输入顺序与原始来源保存在结果中。' : '这些 record 按输入顺序组成一个完整序列。下方明确声明 Prompt 链长度；Header 不会自动成为链标识。'}</p>
+            <p>{mode === 'batch' ? '每条 record 形成独立 Candidate；名称或序列重复仍保留。输入顺序与原始来源保存在结果中。' : '单条 Prompt 来源只接受一条记录。多条记录请改用批量导入；Header 不会自动成为链标识。'}</p>
           </section>}
 
           {(mode === 'blank' || mode === 'fasta' && inspection?.format === 'fasta') && <section className="input-source-section" aria-label="Prompt 链布局">
@@ -141,7 +142,7 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
             {mode === 'fasta' && <p className={chainLengthMatches ? '' : 'input-source-warning'}>链总长度 {chainLength} / 序列长度 {inspection?.format === 'fasta' ? inspection.total_length : 0}。按所列链顺序分配序列。</p>}
           </section>}
 
-          {mode === 'pdb' && inspection?.format === 'pdb' && <section className="input-source-section" aria-label="PDB 链选择">
+          {mode === 'pdb' && (inspection?.format === 'pdb' || inspection?.format === 'mmcif') && <section className="input-source-section" aria-label="PDB 链选择">
             <h3>选择结构链</h3><p>链身份来自后端 PDB 读取。选择顺序决定输出顺序。</p>
             <div className="input-source-chain-options">{inspection.chain_ids.map(chain => <label key={chain}><input type="checkbox" aria-label={`选择 PDB Chain ${chain}`} checked={pdbChains.includes(chain)} onChange={event => setPdbChains(current => event.target.checked ? [...current, chain] : current.filter(item => item !== chain))} />Chain {chain}</label>)}</div>
             <ol className="input-source-order">{pdbChains.map((chain, index) => <li key={chain}><span>Chain {chain}</span><button type="button" aria-label={`上移 PDB Chain ${chain}`} disabled={index === 0} onClick={() => movePdbChain(index, -1)}>↑</button><button type="button" aria-label={`下移 PDB Chain ${chain}`} disabled={index === pdbChains.length - 1} onClick={() => movePdbChain(index, 1)}>↓</button></li>)}</ol>
@@ -151,7 +152,7 @@ export function InputSourceDialog({ projectId, workflow, catalog, client, prepar
           {mode === 'prompt' && <section className="input-source-section"><label>ProteinPrompt 输出<select aria-label="已有 ProteinPrompt 输出" value={promptKey} onChange={event => setPromptKey(event.target.value)}><option value="">{promptSources.length ? '选择节点输出' : '当前流程没有可连接的 ProteinPrompt 输出'}</option>{promptSources.map(source => <option key={`${source.nodeId}/${source.outputPort}`} value={`${source.nodeId}/${source.outputPort}`}>{source.title} · {source.nodeId} / {source.outputPort}</option>)}</select></label><p>连线保留精确节点与输出端口。来源中的轨道、Mask 和注释由 Prompt 预览解释。</p></section>}
         </fieldset>
         {error && <p className="input-source-error" role="alert">{error}</p>}
-        <footer><p>{mergeTargetNodeId ? '来源先进入手动对应编辑；确认保存时一并写入来源、连线与 Prompt。' : mode === 'batch' ? '确认后添加独立记录导入节点；可从其候选输出连接评分、筛选与折叠。' : '下一步进入 Prompt Studio；确认保存时一并写入来源、连线与 Prompt。'}<small>取消不改动 Workflow；已上传的 Input 保留在项目输入列表。</small></p><div><button type="button" disabled={busy} onClick={onClose}>取消</button><button className="input-source-primary" type="submit" disabled={saveAccepted || busy || usesInput && !inspection || !chainLengthMatches || mode === 'pdb' && !pdbChains.length || mode === 'prompt' && !selectedPrompt}>{busy ? '处理中…' : mode === 'batch' ? '确认导入独立 Candidates' : '进入 Prompt 预览'}</button></div></footer>
+        <footer><p>{mergeTargetNodeId ? '来源先进入手动对应编辑；确认保存时一并写入来源、连线与 Prompt。' : mode === 'batch' ? '确认后添加独立记录导入节点；可从其候选输出连接评分、筛选与折叠。' : '下一步进入 Prompt Studio；确认保存时一并写入来源、连线与 Prompt。'}<small>取消不改动 Workflow；个人项目已上传的 Input 保留在项目输入列表；教学试编辑的输入随手动保存采用，放弃项目修改后释放。</small></p><div><button type="button" disabled={busy} onClick={onClose}>取消</button><button className="input-source-primary" type="submit" disabled={saveAccepted || busy || usesInput && !inspection || !chainLengthMatches || mode === 'pdb' && !pdbChains.length || mode === 'prompt' && !selectedPrompt}>{busy ? '处理中…' : mode === 'batch' ? '确认导入独立 Candidates' : '进入 Prompt 预览'}</button></div></footer>
       </form>
   </InteractionDialog>
 }

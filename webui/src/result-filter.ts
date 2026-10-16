@@ -28,8 +28,3 @@ export function resultFilterOutcome(predicate: Predicate, reference: CandidateRe
 export function resultFilterKeys(predicate: Predicate): string[] {
   return predicate.kind === 'comparison' ? [predicate.selectorId] : predicate.children.flatMap(resultFilterKeys)
 }
-
-export function remapResultFilter(predicate: Predicate, ids: Map<string, string>): Predicate {
-  return predicate.kind === 'comparison' ? { ...predicate, selectorId: ids.get(predicate.selectorId)! } : { ...predicate, children: predicate.children.map((child) => remapResultFilter(child, ids)) }
-}
-

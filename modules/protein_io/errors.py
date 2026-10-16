@@ -4,4 +4,4 @@ from core.operation import OperationDiagnosticError
 
 
 class ProteinInputError(OperationDiagnosticError):
-    """An explicitly selected FASTA/PDB input cannot be scientifically read."""
+    """An explicitly selected FASTA/PDB/mmCIF input cannot be scientifically read."""

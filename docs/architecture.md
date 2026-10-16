@@ -1,6 +1,6 @@
 # 架构与共用数据
 
-本文件说明载体、模块及共用数据的职责，并记录当前后端实现约定。目标行为以[当前有效决策](documentation-governance-decisions.md)为准；“当前实现”只表示源码可核对的结构，不表示运行验收通过。未解决差异见[治理问题清单](2026-10-15-documentation-governance-issues.md)，术语见 [CONTEXT](../CONTEXT.md)。
+本文件说明载体、模块及共用数据的职责，并记录当前后端实现约定。目标行为以[当前有效决策](documentation-governance-decisions.md)为准；“当前实现”只表示源码可核对的结构，不表示运行验收通过。未解决差异见[治理问题清单](2026-10-15-documentation-governance-issues.md)，术语见 [GLOSSARY](../GLOSSARY.md)。
 
 ## 载体、模块与工具
 
@@ -69,7 +69,7 @@ Node Definition 说明操作及跨 Binding 参数；Binding 关联 Method 和实
 
 跨 Port 的精确关联使用完整 `CandidateDataReference`：Candidate ID、数据类型、内容摘要。集合位置不建立对象对应；相同结构内容也不自动合并不同主体。
 
-生成来源记录数据实际由哪些输入与计算产生。评价关系记录这次使用的主体和参考对象，按用户连线与明确关系决定，两者分别维护。ProteinMPNN 强制原始父结构的限制是待重做缺陷，不能作为新的模块开发规范。
+生成来源记录数据实际由哪些输入与计算产生。评价关系记录这次使用的主体和参考对象，按用户连线与明确关系决定，两者分别维护。当前 ProteinMPNN 评分使用独立的评分请求，接收一个序列与一个选定骨架，以 pairwise 评价记录双方引用，不改写生成父项；这不表示所有参数开放与功能重做要求已验收。
 
 完整引用足以确定主体和新子项的父身份，但不包含原值、完整 lineage 或 metadata。原样透传旧 Candidate 必须有完整原值并保持其内容和元信息；仅有引用时，不为新构造值冒用旧身份。新输出由身份 owner 赋予实际产生身份；父身份要求来自实际输入或同次合法新输出。歧义、未知父项与循环按实际边界失败，不任取最后一个匹配。
 
@@ -79,7 +79,7 @@ Score Observation 保留 Metric、Method、Context、主体、区域及来源。
 
 ## 结构解释、区域与预测置信度
 
-当前 [ProteinStructure](../datatypes/structure.py)使用 PDB 文本表示。用户导入和导出须支持 PDB/mmCIF，工具所需转换由 Adapter 处理。这不要求内部存储改成 mmCIF。多构象及非蛋白组分的用户操作要求见[模块能力](module-capabilities.md)，不能从蛋白残基轴的范围推导界面应丢弃配体、水或核酸。
+当前 [ProteinStructure](../datatypes/structure.py)以 `text` 和 `format` 表示 PDB 或 mmCIF 原文。[存储 codec](../core/catalog/_port_value_codec.py)采用互斥的 `pdb_string` / `mmcif_string` 格式分支；PDB 分支编码字节保持不变，不另设旧格式回退。工具所需转换由 Adapter 处理。按原格式导出已接入，不等于用户选择 PDB/mmCIF 并转换的要求已完成。多构象及非蛋白组分的用户操作要求见[模块能力](module-capabilities.md)，不能从蛋白残基轴的范围推导界面应丢弃配体、水或核酸。
 
 当前[结构残基轴](../modules/structure_transform/residue_axis.py)解释明确的结构、残基身份、片段拓扑、命名原子、mask、组分处理及修饰残基转换。实际处理有明确的 owner 和来源，不按 HETATM 标签或列表序号猜对应。
 
@@ -89,7 +89,7 @@ Score Observation 保留 Metric、Method、Context、主体、区域及来源。
 
 结构比较、结构处理和指标分析须共用可表达指定链上不连续区域的约定，并保持真实编号和对应。当前若干专用表达与全轴接口尚未形成完整共用契约；不能把某个旧节点只接完整轴写成产品不支持局部区域，也不能因此自行确定新节点数量或参数格式。
 
-预测残基轴来自实际预测输入，不从输出 PDB 反推。预测结构与置信度事实通过 Prediction Key 和内容身份关联，之后物化为 Candidate-associated 评价；独立结构评价不冒充重新折叠。当前共享[折叠输出构造](../modules/folding/_output_construction.py)维护 parent/sample 顺序、真实父项、预测轴及匹配置信度。它目前要求完整批次，尚需对齐批内成功保留要求，见[执行](execution.md#批内失败与主动继续)。
+预测残基轴来自实际预测输入，不从输出 PDB 反推。预测结构与置信度事实通过 Prediction Key 和内容身份关联，之后物化为 Candidate-associated 评价；独立结构评价不冒充重新折叠。当前共享[折叠输出构造](../modules/folding/_output_construction.py)维护 parent/sample 顺序、真实父项、预测轴及匹配置信度。折叠操作可在明确运行失败时提交已完成请求的输出，节点保持失败；ESM3 生成也保留已完成样本及联合生成中已完成的序列。对应受控失败回归已通过；获准真实 Provider 的成功调用不替代失败路径验证，见[执行](execution.md#批内失败与主动继续)。
 
 统计含义由具体方法明确：当前[整体 pLDDT 均值](../modules/structure_prediction/implementation.py)使用非空值，[专用区域方法](../modules/structure_comparison/inserted_loop.py)要求范围内值全部存在。两者不能用一个含糊的“平均值”概述替代，也不因规则不同直接认定错误。区域、缺值和有效数量说明按实际方法保留，不另设统一默认。
 

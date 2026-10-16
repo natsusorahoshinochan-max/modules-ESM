@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type CSSProperties } from 'react'
 import { Check, ChevronLeft, Info, Plus, RotateCcw, RotateCw, Save, Trash2, X } from 'lucide-react'
 import type { JsonObject, PromptAuthoringDocument, PromptDiagnostic, PromptDocumentFunctionAnnotation, PromptPreview, PromptRandomOperation, PromptSnapshot, PromptTrackEdit, PromptTrackKey, PromptTrackValue, PromptRigidTransform } from './protocol/client'
 import { StructureViewer, type StructureViewerHandle, type ViewerResidue } from './StructureViewer'
 import { PromptTransformEditor } from './PromptTransformEditor'
 import { PromptMergeEditor, type PromptMergeDraft } from './PromptMergeEditor'
-import { promptStructurePdb } from './prompt-structure'
-import { deletePromptResidues, insertPromptResidues } from './prompt-layout'
+import { promptStructure } from './prompt-structure'
+import { deletePromptResidues, insertPromptResidues, promptLayoutTargets } from './prompt-layout'
 import { ResidueMatrix } from './ResidueMatrix'
 import { cellKey, parseMatrixValue, type MatrixCell, type MatrixEdit, type MatrixSelection } from './residue-matrix'
 import { InteractionDialog } from './InteractionDialog'
@@ -232,12 +232,8 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   const selectedText = selectionText(selection, { ...projection, residues: orderedResidues }, displayLocators)
   const hasCoordinates = projection.tracks.coordinates.values.some((item) => item.value != null && item.state !== 'pending-delete')
   const selectedPositions = useMemo(() => projection.residues.filter((item) => selection.includes(item.residue_handle) && currentHandles.has(item.residue_handle)).map((item) => ({ chain: item.chain_id, resi: item.position })), [currentHandles, projection.residues, selection])
-  const projectionPdb = useMemo(() => promptStructurePdb(projection), [projection])
-  const randomInsertHandles = new Set(projection.random_selections.filter((operation) => operation.kind === 'insert').flatMap((operation) => operation.realized_residue_handles))
-  const deletionBlocked = selection.some((handle) => randomInsertHandles.has(handle))
-  const insertionBlocked = randomInsertHandles.has(focus.handle)
-  const randomLayoutReason = '随机生成残基保留 seed 规则，可编辑轨道值，但不能单独删除或作为插入锚点。'
-  const targetIntent = () => visibleDocument.target_residues ?? (projection.merge_targets[0]?.residues ?? committedProjection.merge_targets[0]?.residues ?? []).filter((item) => item.state !== 'pending-delete' && !randomInsertHandles.has(item.residue_handle)).map((item) => ({ residue_id: item.residue_id, origin: 'source' as const }))
+  const projectionStructure = useMemo(() => promptStructure(projection), [projection])
+  const targetIntent = () => promptLayoutTargets(visibleDocument) ?? (projection.merge_targets[0]?.residues ?? committedProjection.merge_targets[0]?.residues ?? []).filter((item) => item.state !== 'pending-delete').map((item) => ({ residue_id: item.residue_id, origin: 'source' as const }))
   const canEditChains = ['blank', 'fasta'].includes(String(snapshot.source.kind)) || document.chains !== undefined || !committedProjection.residues.length
   const chainsReady = chainRows.length > 0 && chainRows.every((chain) => chain.chain_id.length > 0 && /^\d+$/.test(chain.length) && Number(chain.length) > 0)
   const operationBlocked = busy || saveAccepted || viewportActive || saving
@@ -420,7 +416,6 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   }
 
   const deleteSelection = () => {
-    if (deletionBlocked) { setRequestError(randomLayoutReason); return }
     const selectedIds = new Set(selection.map((handle) => residueIdByHandle.get(handle)).filter((item): item is string => Boolean(item)))
     const next = deletePromptResidues(visibleDocument, targetIntent(), selectedIds)
     void propose(next, `删除 ${selection.length} 个残基`)
@@ -431,7 +426,6 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
     if (!Number.isInteger(count) || count < 1 || ![0, 1, count].includes(sequence.length) || ![...sequence].every((letter) => aminoAcids.has(letter))) return
     const anchorHandle = anchorOverride ?? focus.handle ?? selection.at(-1)
     if (!anchorHandle) return
-    if (randomInsertHandles.has(anchorHandle)) { setRequestError(randomLayoutReason); return }
     const anchorResidue = projection.residues.find((item) => item.residue_handle === anchorHandle)
     if (!anchorResidue) return
     const replacedIds = anchorOverride ? localPreview?.insertedResidueIds ?? [] : []
@@ -441,7 +435,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
     const insertedResidueIds = Array.from({ length: count }, () => `${anchorResidue.chain_id}:inserted.${crypto.randomUUID().replaceAll('-', '')}`)
     const letters = sequence.length === 1 ? Array(count).fill(sequence) : sequence.split('')
     const sequenceEdits = insertedResidueIds.map((residue_id, index) => letters[index] ? { track: 'sequence' as const, residue_id, action: 'replace' as const, value: letters[index] } : { track: 'sequence' as const, residue_id, action: 'clear' as const })
-    const next = insertPromptResidues(baseDocument, baseDocument.target_residues!, precedingIds, insertedResidueIds, sequenceEdits)
+    const next = insertPromptResidues(baseDocument, promptLayoutTargets(baseDocument)!, precedingIds, insertedResidueIds, sequenceEdits)
     void propose(next, `插入 ${count} 个残基`, insertedResidueIds, anchorHandle)
   }
 
@@ -567,7 +561,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   }
   const selectionKey = selection.join(',')
   const sequenceSelection = selectedValue('sequence'), ssSelection = selectedValue('secondary_structure'), sasaSelection = selectedValue('sasa')
-  useEffect(() => { setSequenceValue(sequenceSelection); setSsValue(ssSelection); setSasaValue(sasaSelection) }, [sequenceSelection, ssSelection, sasaSelection, focus.handle, selectionKey])
+  useLayoutEffect(() => { setSequenceValue(sequenceSelection); setSsValue(ssSelection); setSasaValue(sasaSelection) }, [sequenceSelection, ssSelection, sasaSelection, focus.handle, selectionKey])
   useEffect(() => { setFunctionValue(focusedFunction?.label ?? '') }, [focusedFunction?.label, focus.handle])
   const selectedCoordinateRows = projection.tracks.coordinates.values.filter(row => selection.includes(row.residue_handle))
   const selectedAtoms = selectedCoordinateRows.flatMap(row => typeof row.value === 'object' && row.value !== null ? row.value.atoms : [])
@@ -630,7 +624,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
       <div className={`ps-workgrid view-${narrowView} ${hasCoordinates ? '' : 'without-structure'}`} style={{ '--structure-width': `${structureWidth}%` } as CSSProperties}>
         {hasCoordinates && <><aside className="ps-structure-card">
           <header><span className="ps-kicker">STRUCTURE</span><strong>当前 Prompt · {selectedText}</strong></header>
-          <StructureViewer ref={viewer} pdb={projectionPdb} residueLabel={structureResidueLabel} selectedResidues={selectedPositions} onSelectResidue={selectFromStructure} onSelectResidues={selectStructure} pivot={transformOrigin ?? centroid} viewportEdit={{ enabled: !saving && !saveAccepted && !localPreview && !matrixProcessing.current && !unpreviewed, origin: transformOrigin ?? centroid, residueIds: selection.map(handle => residueIdByHandle.get(handle)!).filter(Boolean), blockedReason: !selection.length ? '先选择残基' : selectedCoordinateRows.some(row => row.value === null) ? '选区含无坐标残基，请先移除' : undefined, busy, onBegin: beginTransform, onPreviewTransform: previewTransform, onConfirm: async () => { const pending = pendingRef.current; if (!pending || diagnosticsHaveError(pending.preview)) return false; acceptPreview(pending); transformStart.current = undefined; setViewportActive(false); return true }, onCancel: cancelTransform }} />
+          <StructureViewer ref={viewer} structure={projectionStructure} residueLabel={structureResidueLabel} selectedResidues={selectedPositions} onSelectResidue={selectFromStructure} onSelectResidues={selectStructure} pivot={transformOrigin ?? centroid} viewportEdit={{ enabled: !saving && !saveAccepted && !localPreview && !matrixProcessing.current && !unpreviewed, origin: transformOrigin ?? centroid, residueIds: selection.map(handle => residueIdByHandle.get(handle)!).filter(Boolean), blockedReason: !selection.length ? '先选择残基' : selectedCoordinateRows.some(row => row.value === null) ? '选区含无坐标残基，请先移除' : undefined, busy, onBegin: beginTransform, onPreviewTransform: previewTransform, onConfirm: async () => { const pending = pendingRef.current; if (!pending || diagnosticsHaveError(pending.preview)) return false; acceptPreview(pending); transformStart.current = undefined; setViewportActive(false); return true }, onCancel: cancelTransform }} />
           <small>{selectedText}</small>
         </aside><div className="ps-pane-divider" role="separator" aria-label="调整结构与矩阵宽度" aria-orientation="vertical" aria-valuemin={20} aria-valuemax={60} aria-valuenow={structureWidth} tabIndex={0} onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setStructureWidth(width => Math.max(20, Math.min(60, width + (event.key === 'ArrowLeft' ? -2 : 2)))) } }} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={event => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setStructureWidth(Math.max(20, Math.min(60, (event.clientX - rect.left) / rect.width * 100))) }} onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)} /></>}
         <section className="ps-ledger" aria-label="Residue ledger">
@@ -678,7 +672,7 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
       <button disabled={operationBlocked} onClick={() => { setUnpreviewed(true); setChainRows([...chainRows, { chain_id: '', length: '' }]) }}>添加 Chain</button>
       <button disabled={operationBlocked || !chainsReady} onClick={() => void propose({ ...visibleDocument, chains: chainRows.map((chain) => ({ chain_id: chain.chain_id, length: Number(chain.length) })) }, '更新 Chain declarations')}>预览 Chains</button>
     </section>}
-          {editorPanel === 'layout' && <div className="ps-editor-section ps-layout-actions"><span className="ps-kicker">ORDERED RESIDUES</span>{(deletionBlocked || insertionBlocked) && <p className="ps-help">{randomLayoutReason}</p>}<div className="ps-insert-fields"><input aria-label="插入数量" type="number" min="1" value={insertCount} onChange={(event) => setInsertCount(event.target.value)} /><input aria-label="插入序列" placeholder="Mask 或等长序列" value={insertSequence} onChange={(event) => setInsertSequence(event.target.value.toUpperCase())} /></div>{!insertionInputValid && <p className="ps-help"><Info size={13} /> 序列必须为空、单字母，或与插入数量等长。</p>}<button disabled={!selection.length || operationBlocked || !insertionInputValid || insertionBlocked} onClick={() => insertResidues()}><Plus size={13} /> Insert after focus</button><button className="danger" disabled={!selection.length || operationBlocked || committedHandles.size === selection.length || deletionBlocked} onClick={deleteSelection}><Trash2 size={13} /> Delete selected</button></div>}
+          {editorPanel === 'layout' && <div className="ps-editor-section ps-layout-actions"><span className="ps-kicker">ORDERED RESIDUES</span><div className="ps-insert-fields"><input aria-label="插入数量" type="number" min="1" value={insertCount} onChange={(event) => setInsertCount(event.target.value)} /><input aria-label="插入序列" placeholder="Mask 或等长序列" value={insertSequence} onChange={(event) => setInsertSequence(event.target.value.toUpperCase())} /></div>{!insertionInputValid && <p className="ps-help"><Info size={13} /> 序列必须为空、单字母，或与插入数量等长。</p>}<button disabled={!selection.length || operationBlocked || !insertionInputValid} onClick={() => insertResidues()}><Plus size={13} /> Insert after focus</button><button className="danger" disabled={!selection.length || operationBlocked || committedHandles.size === selection.length} onClick={deleteSelection}><Trash2 size={13} /> Delete selected</button></div>}
 
           {editorPanel === 'structure' && <PromptTransformEditor projection={projection} selection={selection} document={visibleDocument} busy={busy} mode={transformMode} axis={transformAxis} amount={transformAmount} onAmount={setTransformAmount} onMode={setTransformMode} onAxis={setTransformAxis} onOrigin={setTransformOrigin} onPreview={(next, title) => void propose(next, title)} />}
           {editorPanel === 'random' && activeTrack !== 'function' && <section className="ps-editor-section" aria-label="随机条件">

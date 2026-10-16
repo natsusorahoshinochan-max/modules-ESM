@@ -20,12 +20,12 @@ function EvidenceOverlay({ alignment, candidates, results }: { alignment: Alignm
       viewer = viewerRef.current ?? $3Dmol.createViewer(container.current!, { backgroundColor: '#111512', antialias: true })
       viewerRef.current = viewer
       viewer.clear()
-      const subjectModel = viewer.addModel(subjectDetail, 'pdb')
+      const subjectModel = viewer.addModel(subjectDetail.text, subjectDetail.format === 'mmcif' ? 'cif' : 'pdb')
       for (const atom of subjectModel.selectedAtoms({})) {
         const [x, y, z] = alignedCoordinate([atom.x!, atom.y!, atom.z!], alignment.transform)
         atom.x = x; atom.y = y; atom.z = z
       }
-      viewer.addModel(referenceDetail, 'pdb')
+      viewer.addModel(referenceDetail.text, referenceDetail.format === 'mmcif' ? 'cif' : 'pdb')
       viewer.setStyle({ model: 0 }, { cartoon: { color: '#eab86c', opacity: 0.86 }, line: { color: '#eab86c' } })
       viewer.setStyle({ model: 1 }, { cartoon: { color: '#6dced1', opacity: 0.86 }, line: { color: '#6dced1' } })
       viewer.zoomTo(); viewer.render()

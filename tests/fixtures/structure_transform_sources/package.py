@@ -411,7 +411,7 @@ class _Source:
         fixture = node_parameters["fixture"]
         with self._resources.engine_invocation():
             structure = ProteinStructure(
-                pdb_string=_FIXTURES[fixture](),
+                text=_FIXTURES[fixture](),
             )
             return {
                 "structure": structure,

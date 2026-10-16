@@ -12,6 +12,7 @@ from core.project.manager import ProjectManager
 from modules.protein_io.errors import ProteinInputError
 from modules.protein_io.inspection import inspect_project_input
 from protein_workbench_public.http.emission import emit_rest_json_success
+from protein_workbench_public.http.project_inputs import prospective_project_inputs
 from protein_workbench_public.http.errors import (
     protocol_error_response,
     public_error_response,
@@ -52,7 +53,15 @@ def register_input_routes(
                 {"resource_kind": "project", "resource_id": project_id},
             )
         try:
-            descriptor, payload = projects.read_input(project_id, project_input_ref)
+            if "input" in admitted:
+                inputs = prospective_project_inputs((admitted["input"],))
+                if project_input_ref not in inputs:
+                    raise ProtocolValidationError("$.input.project_input_ref", "must match the requested Input")
+                descriptor, payload = inputs[project_input_ref]
+            else:
+                descriptor, payload = projects.read_input(project_id, project_input_ref)
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         except FileNotFoundError:
             return public_error_response(
                 "project_input_not_found", "Project Input was not found",

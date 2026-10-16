@@ -395,7 +395,7 @@ class ActivatedSimpleFoldFolding:
                     structure_save,
                     plddts=plddts[sample_index],
                 )
-                structures.append(ProteinStructure(pdb_string=pdb_string))
+                structures.append(ProteinStructure(text=pdb_string))
                 confidence_results.append(
                     {
                         "per_residue": plddts[sample_index]

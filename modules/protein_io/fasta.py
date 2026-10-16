@@ -85,5 +85,11 @@ def parse_fasta_records(payload: bytes) -> tuple[str, ...]:
 
 
 def parse_fasta_sequence(payload: bytes) -> str:
-    """Return the runtime ProteinSequence payload across ordered records."""
-    return "".join(parse_fasta_records(payload))
+    """Read one record; batch imports own multiple independent records."""
+    records = parse_fasta_records(payload)
+    if len(records) != 1:
+        raise ProteinInputError(
+            "Single-sequence import accepts one FASTA record; use batch import "
+            "for multiple records"
+        )
+    return records[0]

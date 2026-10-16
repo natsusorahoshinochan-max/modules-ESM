@@ -21,6 +21,7 @@ from core.local_torch_device import (
     local_torch_device_is_available,
 )
 from .adapter import (
+    ESM3ProviderError,
     ESM3Confidence,
     _BaseESM3Adapter,
     require_provider_protein,
@@ -291,7 +292,7 @@ def call_local_provider(
             torch.manual_seed(effective_seed)
             result = client.generate(protein, config)
     except ESMProteinError as error:
-        raise RuntimeError(
+        raise ESM3ProviderError(
             f"local ESM-3 provider operation {operation} failed"
         ) from error
     return require_provider_protein(result, operation)

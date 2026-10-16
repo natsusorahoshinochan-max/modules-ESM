@@ -1,4 +1,4 @@
-import { matrixCell } from '../tests/fixtures/matrix-cell'
+import { matrixCell } from '../tests/support/matrix-cell'
 import { expect, test, type APIRequestContext, type Page, type TestInfo } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { strFromU8, unzipSync } from 'fflate'
@@ -38,6 +38,7 @@ async function startOnce(page: Page, request: APIRequestContext, project: Projec
   const base = `/api/v2/projects/${project.id}`
   let starts = 0
   page.on('request', item => { if (item.method() === 'POST' && item.url().endsWith(`${base}/runs`)) starts += 1 })
+  await expect(page.getByLabel('流程保存状态', { exact: true })).toHaveText('已保存')
   await page.getByRole('button', { name: '运行流程', exact: true }).click()
   await page.getByRole('radio', { name: '完整流程', exact: true }).check()
   const preparing = page.waitForResponse(response => response.url().endsWith(`${base}/runs/preview`))
@@ -102,29 +103,7 @@ async function assertScore(page: Page, index: ResultIndex, candidate: CandidateV
   expect.soft(facts.definition).toEqual(definition)
 }
 
-async function confirmSelectionWorkspace(page: Page, request: APIRequestContext, projectId: string) {
-  const url = `/api/v2/projects/${projectId}/workspace`
-  const before = await (await request.get(url)).json() as ProjectWorkspace
-  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(url))
-  await page.getByRole('dialog', { name: '保存流程操作预览' }).getByRole('button', { name: '确认保存到流程', exact: true }).click()
-  const response = await saving
-  expect(response.status()).toBe(200)
-  const workspace = await response.json() as ProjectWorkspace
-  const submitted = response.request().postDataJSON()
-  expect(workspace.workspace_revision).toBe(before.workspace_revision + 1)
-  expect(workspace.ui_state_revision).toBeGreaterThan(before.ui_state_revision)
-  expect(submitted.workflow).toEqual(workspace.draft!.workflow)
-  expect(submitted.ui_state).toEqual(workspace.ui_state)
-  const positions = (workspace.ui_state.canvas as { positions: Record<string, { x: number; y: number }> }).positions
-  const previousNodes = new Set(before.draft!.workflow.nodes.map(node => node.node_id))
-  for (const node of workspace.draft!.workflow.nodes.filter(node => !previousNodes.has(node.node_id))) {
-    expect(positions[node.node_id]).toEqual({ x: expect.any(Number), y: expect.any(Number) })
-  }
-  expect(await (await request.get(url)).json()).toEqual(workspace)
-  return workspace.draft!
-}
-
-async function saveDisplayedFilter(page: Page, request: APIRequestContext, journey: Journey, stage: ResultCollection, score: ScoreView, threshold: number, info: TestInfo) {
+async function checkDisplayedFilter(page: Page, journey: Journey, stage: ResultCollection, score: ScoreView, threshold: number) {
   await showCollection(page, stage)
   const details = page.locator('details').filter({ has: page.getByText('临时条件筛选 · 支持 AND/OR 分组', { exact: true }) })
   await details.locator('summary').click()
@@ -135,22 +114,8 @@ async function saveDisplayedFilter(page: Page, request: APIRequestContext, journ
   await details.getByRole('button', { name: '应用筛选', exact: true }).click()
   const expected = stage.items.filter(candidate => journey.index.scores.some(item => observationKey(item) === observationKey(score) && referenceKey(item.subject) === referenceKey(candidate.reference) && typeof item.value === 'number' && item.value >= threshold))
   await expect(page.locator('.result-table input[type=checkbox]')).toHaveCount(expected.length)
-  await details.getByRole('button', { name: '条件保存为流程', exact: true }).click()
-  const preview = page.getByRole('dialog', { name: '保存流程操作预览' })
-  await expect(preview.getByLabel('范围外观察值', { exact: true })).toHaveValue('ignore')
-  await expect(preview.getByLabel('阈值（Metric 原单位）', { exact: true })).toHaveValue(String(threshold))
-  const saved = await confirmSelectionWorkspace(page, request, journey.project.id)
-  const added = saved.workflow.nodes.filter(node => node.node_id.startsWith('selection-'))
-  expect(added.at(-1)?.node_type_id).toBe('selection.filter')
-  expect(added.at(-1)?.node_parameters.expression).toEqual([{ selector_index: 0, operator: '>=', threshold }])
-  const selectorId = (added.at(-1)!.node_parameters.selector_ids as string[])[0]
-  const selector = saved.workflow.observation_selectors.find(item => item.selector_id === selectorId)!
-  expect(selector).toMatchObject({ metric: score.metric, method: score.method, source_partition: score.source_partition, context_selector: score.context })
-  const stored = await (await request.get(`/api/v2/projects/${journey.project.id}/workflow/draft`)).json() as WorkflowDraft
-  expect(stored.workflow).toEqual(saved.workflow)
-  await info.attach('saved-display-filter', { body: Buffer.from(JSON.stringify(saved.workflow, null, 2)), contentType: 'application/json' })
+  await expect(page.getByRole('button', { name: /保存为流程/ })).toHaveCount(0)
   await details.getByRole('button', { name: '清除条件', exact: true }).click()
-  return { [added.at(-1)!.node_id]: expected.map(item => item.reference) }
 }
 
 async function downloadSelection(page: Page, journey: Journey, expected: CandidateView[], info: TestInfo) {
@@ -165,67 +130,21 @@ async function downloadSelection(page: Page, journey: Journey, expected: Candida
   expect.soft(manifest.run_id).toBe(journey.run.run_id)
   expect.soft(manifest.workflow_commit_id).toBe(journey.run.workflow_commit_id)
   expect(manifest.candidates.map((item: { reference: CandidateReference }) => referenceKey(item.reference)).sort()).toEqual(expected.map(item => referenceKey(item.reference)).sort())
-  expect.soft(Object.keys(files).filter(name => name.endsWith('.pdb'))).toHaveLength(expected.filter(item => item.has_structure).length)
+  expect.soft(Object.keys(files).filter(name => name.startsWith('structures/'))).toHaveLength(expected.filter(item => item.has_structure).length)
   expect(manifest.without_structure.map(referenceKey).sort()).toEqual(expected.filter(item => !item.has_structure).map(item => referenceKey(item.reference)).sort())
   for (const candidate of expected) {
     const saved = manifest.candidates.find((item: { reference: CandidateReference }) => referenceKey(item.reference) === referenceKey(candidate.reference))
     expect.soft(saved.parent_ids).toEqual(candidate.parent_ids)
     expect.soft(saved.output).toEqual(candidate.output)
     if (candidate.sequence) expect(strFromU8(files['candidates.fasta'])).toContain(`>${candidate.reference.candidate_id}\n${candidate.sequence}`)
-    if (saved.structure_file) expect(strFromU8(files[saved.structure_file])).toMatch(/^ATOM\s/m)
+    if (candidate.has_structure) {
+      const structure = await new PublicV2Client(baseURL).resultStructure(journey.run.project_id, journey.run.run_id, candidate.source, candidate.item_index)
+      expect(saved.structure_file).toMatch(structure.format === 'pdb' ? /\.pdb$/ : /\.cif$/)
+      expect(strFromU8(files[saved.structure_file])).toBe(structure.text)
+    }
   }
   expect(strFromU8(files['scores.csv'])).toContain('content_digest')
   await info.attach('actual-candidate-export.zip', { body: bytes, contentType: 'application/zip' })
-}
-
-async function saveTopOne(page: Page, request: APIRequestContext, journey: Journey, stage: ResultCollection, score: ScoreView) {
-  await showCollection(page, stage)
-  await page.getByRole('combobox', { name: '临时排序', exact: true }).selectOption(observationKey(score))
-  const choices = page.waitForResponse(response => response.url().endsWith('/workflow:observation-options'))
-  await page.getByRole('button', { name: '配置排序并取前 N 个', exact: true }).click()
-  expect((await choices).status()).toBe(200)
-  const preview = page.getByRole('dialog', { name: '保存流程操作预览' })
-  await expect(preview.getByLabel('范围外观察值', { exact: true })).toHaveValue('ignore')
-  const transformId = 'structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit'
-  await preview.getByLabel('Utility Transform（输出 0–1）', { exact: true }).selectOption(transformId)
-  await preview.getByLabel('候选数量 N', { exact: true }).fill('1')
-  const saved = await confirmSelectionWorkspace(page, request, journey.project.id)
-  const added = saved.workflow.nodes.findLast(node => node.node_id.startsWith('selection-') && node.node_type_id === 'selection.top_k')!
-  expect(added.node_parameters.k).toBe(1)
-  const objective = saved.workflow.selection_objectives.find(item => item.objective_id === added.node_parameters.objective_id)!
-  expect(objective).toMatchObject({ candidate_input: { node_id: stage.source.node_id, output_port: stage.source.output_port }, metric: score.metric, method: score.method, source_partition: score.source_partition, context_selector: score.context, utility_transform: { contract_id: transformId } })
-  expect(objective.score_collection_input).toEqual({ node_id: score.source.node_id, output_port: score.source.output_port })
-  expect(saved.workflow.edges).toEqual(expect.arrayContaining([
-    { source_node_id: stage.source.node_id, source_port: stage.source.output_port, target_node_id: added.node_id, target_port: 'candidates' },
-    { source_node_id: score.source.node_id, source_port: score.source.output_port, target_node_id: added.node_id, target_port: 'scores' },
-  ]))
-  await expect(preview).toHaveCount(0)
-  return { [added.node_id]: stage.items.slice(0, 1).map(item => item.reference) }
-}
-
-async function executeSavedSelections(page: Page, request: APIRequestContext, journey: Journey, expected: Record<string, CandidateReference[]>) {
-  const nodeIds = Object.keys(expected)
-  await page.getByRole('button', { name: '返回 Workflow', exact: true }).click()
-  await page.getByRole('button', { name: '适合视图', exact: true }).click()
-  for (const [index, nodeId] of nodeIds.entries()) await page.getByTestId(`rf__node-${nodeId}`).click({ modifiers: index ? ['ControlOrMeta'] : [] })
-  await page.getByRole('button', { name: '运行流程', exact: true }).click()
-  await page.getByRole('radio', { name: '从所选节点继续', exact: true }).check()
-  const previewing = page.waitForResponse(response => response.url().endsWith('/runs/preview'))
-  await page.getByRole('button', { name: '准备并查看范围', exact: true }).click()
-  const preview = await (await previewing).json()
-  expect(preview.blockers).toEqual([])
-  expect(preview.scope.execution_node_ids.sort()).toEqual([...nodeIds].sort())
-  expect(preview.scope.source_run_id).toBe(journey.run.run_id)
-  const base = `/api/v2/projects/${journey.project.id}`
-  const starting = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(`${base}/runs`))
-  await page.getByRole('button', { name: '开始运行已确认范围', exact: true }).click()
-  const response = await starting
-  expect(response.status()).toBe(202)
-  const receipt = await response.json()
-  await expect.poll(async () => (await (await request.get(`${base}/runs/${receipt.run_id}`)).json()).status, { timeout: 60_000 }).toBe('succeeded')
-  const snapshot = await publishedResults({ project_id: journey.project.id, run_id: receipt.run_id })
-  expect(snapshot.run!.node_dispositions.filter(item => item.outcome === 'succeeded' && item.resolution === 'executed').map(item => item.node_id).sort()).toEqual([...nodeIds].sort())
-  for (const nodeId of nodeIds) expect.soft(collection(snapshot.index, nodeId, 'candidates').items.map(item => item.reference)).toEqual(expected[nodeId])
 }
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
@@ -252,7 +171,7 @@ test('real batch FASTA → solubility filter → fold → confidence ranking thr
   const solubility = journey.index.scores.find(item => item.source.node_id === 'score-solubility' && item.metric.contract_id === 'solubility.protein_sol_scaled' && item.method.contract_id === 'solubility.protein_sol.sequence_prediction_2017' && item.source_partition === 'protein_sol_scaled')!
   expect(solubility).toBeDefined()
   expect(solubility.context).toEqual({ kind: 'calibration', calibration_metric: 'population_scaled_solubility', calibration_value: 0.446, calibration_unit: 'dimensionless', population_id: 'niwa_non_membrane_2396' })
-  const savedFilter = await saveDisplayedFilter(page, request, journey, imported, solubility, 0.446, info)
+  await checkDisplayedFilter(page, journey, imported, solubility, 0.446)
   await showCollection(page, folded)
   const confidence = journey.index.scores.find(item => item.source.node_id === 'materialize-confidence' && referenceKey(item.subject) === referenceKey(folded.items[0].reference) && item.metric.contract_id === 'structure.plddt.mean_residue' && item.method.contract_id === 'folding.fold.esmfold2_fast_biohub_2026_05' && item.source_partition === 'prediction_confidence')!
   expect(confidence).toBeDefined()
@@ -262,12 +181,10 @@ test('real batch FASTA → solubility filter → fold → confidence ranking thr
   expect(postfiltered.items.map(item => referenceKey(item.reference))).toEqual(expectedPostfilter)
   expect(final.items.map(item => referenceKey(item.reference))).toEqual(ranked.items.map(item => referenceKey(item.reference)).filter(key => expectedPostfilter.includes(key)))
   await assertScore(page, journey.index, folded.items[0], confidence)
-  const savedTopOne = await saveTopOne(page, request, journey, ranked, confidence)
   await checkCandidate(page, journey.index, imported.items[0])
   await checkCandidate(page, journey.index, folded.items[0])
   await screenshot(page, info, 'fasta-provider-results')
   await downloadSelection(page, journey, [imported.items[0], folded.items[0]], info)
-  await executeSavedSelections(page, request, journey, { ...savedFilter, ...savedTopOne })
 })
 
 async function preparePromptJourney(page: Page, request: APIRequestContext, info: TestInfo): Promise<ProjectMetadata> {
@@ -303,15 +220,18 @@ async function preparePromptJourney(page: Page, request: APIRequestContext, info
   await expect(page.getByRole('region', { name: 'ESM3 有效条件' })).toContainText('SDK 可以表示当前条件')
   await screenshot(page, info, 'own-prompt-effective-conditioning')
   await page.getByRole('button', { name: '返回矩阵', exact: true }).click()
-  const beforePrompt = await (await request.get(`${base}/workspace`)).json() as ProjectWorkspace
-  const applying = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`${base}/workspace`))
+  const beforeApply = await (await request.get(`${base}/workspace`)).json() as ProjectWorkspace
   await page.getByRole('button', { name: '保存 ProteinPrompt', exact: true }).click()
-  const response = await applying
-  expect(response.status()).toBe(200)
-  const savedPrompt = await response.json() as ProjectWorkspace
-  expect(savedPrompt.workspace_revision).toBe(beforePrompt.workspace_revision + 1)
-  expect(savedPrompt.draft!.workflow.nodes.find(node => node.node_id === author.node_id)!.node_parameters.document).toEqual(edited.normalized_document)
-  expect(savedPrompt.ui_state).toEqual(beforePrompt.ui_state)
+  await expect(page.getByRole('heading', { name: 'ProteinPrompt 编辑', exact: true })).not.toBeVisible()
+  expect(await (await request.get(`${base}/workspace`)).json()).toEqual(beforeApply)
+  const saving = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`${base}/workspace`))
+  await page.getByRole('button', { name: '保存项目', exact: true }).click()
+  const savedResponse = await saving
+  expect(savedResponse.status()).toBe(200)
+  const saved = await savedResponse.json() as ProjectWorkspace
+  expect(saved.draft!.workflow.nodes.find(node => node.node_id === author.node_id)!.node_parameters.document).toEqual(edited.normalized_document)
+  expect(saved.ui_state).toEqual(savedResponse.request().postDataJSON().ui_state)
+  await expect(page.getByLabel('流程保存状态', { exact: true })).toHaveText('已保存')
   return project
 }
 
@@ -319,7 +239,7 @@ async function ownPromptJourney(page: Page, request: APIRequestContext, info: Te
   return startOnce(page, request, await preparePromptJourney(page, request, info), info)
 }
 
-test('own Prompt → real ESM3 → refold preserves exact stage scores and saves a chosen filter', async ({ page, request }, info) => {
+test('manually saved edited Prompt → real ESM3 → refold preserves exact stage scores and applies a display filter', async ({ page, request }, info) => {
   const redesign = await ownPromptJourney(page, request, info)
   const generated = collection(redesign.index, 'generate-paired', 'structure_candidates')
   const refolded = collection(redesign.index, 'fold-stage-one', 'structure_candidates')
@@ -338,8 +258,7 @@ test('own Prompt → real ESM3 → refold preserves exact stage scores and saves
   expect(score).toBeDefined()
   expect.soft(score.context).toEqual({ kind: 'intrinsic' })
   await assertScore(page, redesign.index, refolded.items[0], score)
-  const savedFilter = await saveDisplayedFilter(page, request, redesign, refolded, score, score.value as number, info)
-  await executeSavedSelections(page, request, redesign, savedFilter)
+  await checkDisplayedFilter(page, redesign, refolded, score, score.value as number)
 })
 
 test('real MPNN descendants expose parents, use exact alignment evidence and export mixed data', async ({ page, request }, info) => {
@@ -377,17 +296,7 @@ test('real MPNN descendants expose parents, use exact alignment evidence and exp
   await expect(overlay.getByRole('alert')).toHaveCount(0)
   await screenshot(page, info, 'mpnn-lineage-published-alignment')
   await downloadSelection(page, redesign, [child, folded, parent], info)
-  await page.getByRole('button', { name: '勾选保存为流程', exact: true }).click()
-  const selection = page.getByRole('dialog', { name: '保存流程操作预览' })
-  await expect(selection.getByRole('region', { name: '流程筛选编辑器' })).toHaveCount(3)
-  const saved = await confirmSelectionWorkspace(page, request, redesign.project.id)
-  const manual = saved.workflow.nodes.filter(node => node.node_type_id === 'selection.manual')
-  expect(manual).toHaveLength(3)
-  expect(manual.flatMap(node => node.node_parameters.selected_candidates as CandidateReference[]).map(referenceKey).sort()).toEqual([child, folded, parent].map(item => referenceKey(item.reference)).sort())
-  const committed = await request.post(`/api/v2/projects/${redesign.project.id}/workflow:commit`, { data: { workflow: saved.workflow } })
-  expect(committed.status()).toBe(200)
-  await info.attach('saved-manual-candidate-references', { body: Buffer.from(JSON.stringify(manual, null, 2)), contentType: 'application/json' })
-  await executeSavedSelections(page, request, redesign, Object.fromEntries(manual.map(node => [node.node_id, node.node_parameters.selected_candidates as CandidateReference[]])))
+  await expect(page.getByRole('button', { name: /保存为流程/ })).toHaveCount(0)
 })
 
 

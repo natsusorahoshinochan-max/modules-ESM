@@ -6,17 +6,11 @@
 
 ## 核验边界
 
-代码仅只读核对。本清单使用当前源码中的静态证据，不表示已通过运行验收；没有执行测试、构建、浏览器或 Provider。Biohub 资料以固定官方快照和本地 SDK 为核查材料，未复验当前线上接口；专利法律状态与第三方分发授权未重新核验。
+本清单结合当前源码静态证据与 2026-10-16 的冻结源码本地验证结果；条目明确标注已运行的覆盖，未标注者不表示已通过运行核验。用户已授权本次测试治理在本机验证，但不运行本地 ESM-3、SimpleFold、ESMFold2 实际模型；纯契约测试不等于实际模型调用。完整非 Provider 门禁、获准的 10 个完整 Provider tier 及 5 项源码回归子集已通过；六项真实浏览器旅程与 FASTA 报告检查也已通过。本次授权范围内测试组件治理完成；未执行的模型路线不记为通过，不能据此宣称完整 Campaign 验收或本清单缺失功能已实现。验证范围与当前覆盖见[测试组件](testing.md)。Biohub 接口说明以固定官方快照和本地 SDK 为核查材料；本次线上调用通过不代表全部接口与参数边界均已复验；专利法律状态与第三方分发授权未重新核验。
 
 下列实现差异在代码修正并完成适用验证之前仍保留。代码文件链接用于定位，具体类、函数和字段比随编辑变化的行号更可靠。
 
 ## 实现待对齐
-
-### DOC-007｜结果页仍提供已决定删除的“保存为流程”
-
-- **要求**：删除现有结果页将条件、Top-N、勾选保存为 Workflow 节点的功能。普通筛选、查看、导出及历史结果采用仍保留。
-- **当前证据**：[ResultsWorkbench](../webui/src/ResultsWorkbench.tsx)第 195–233、265、282 行仍包含节点生成与保存入口。
-- **状态**：现行[结果说明](results.md)已采用当前范围，代码仍待删除对应功能；不新增跨来源合并方案。
 
 ### DOC-011｜远程 ESM3 步数范围与固定官方资料不一致
 
@@ -34,6 +28,7 @@
 - **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
 - **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 24–90 行固定导入和注册功能包；[provider_environment](../protein_workbench_public/provider_environment.py)仍按具体 Binding 与工具装配环境配置。
 - **缺失模块打开**：Q14 还要求保留缺失节点、连线和配置并允许打开项目；[前端 authoring](../webui/src/workflow-authoring.ts)第 155、165 行遇到未知 Node Type/Binding 仍直接抛错，缺失占位路径须一并对齐。
+- **局部运行核验**：[项目组合测试](../tests/journeys/test_project_journeys.py)的 `test_missing_module_project_is_preserved_until_catalog_restoration` 本地通过，证明注入缺失 Catalog 时项目内容保留、恢复 Catalog 后可继续使用；不证明前端缺失占位或用户安装、启用、卸载链已实现。
 - **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前固定装配。用户安装管理及通用设置未证实完整，不能以仓库目录结构限制外部模块。
 
 ### DOC-028｜Prompt 合并要求项目用户维护内部身份
@@ -47,29 +42,11 @@
 - **当前证据**：[authoring_codec](../protein_workbench_public/authoring_codec.py)第 12–13、87–102 行直接导入 ESM3 Adapter、Operation 并生成 esm3_conditioning；[PromptStudio](../webui/src/PromptStudio.tsx)第 693–704 行固定展示该工具条件。
 - **状态**：工具特有投影应按[架构职责](architecture.md)由模块及 Adapter 提供。可保留有用的工具兼容性展示；现有耦合不证明不能保存其他 Prompt 内容。
 
-### DOC-030｜ProteinMPNN 功能须从头重做
-
-- **要求**：评价关系独立于生成来源；有效的独立序列和结构可参与评价，正确满足工具输入要求。不兼容旧接口不构成保留理由。
-- **当前证据**：[评分声明](../modules/proteinmpnn/definitions/score.yaml)第 3、10–15 行及[实现](../modules/proteinmpnn/implementation.py)第 264–267 行要求输入结构为序列唯一原始父结构；旧评分调用还固定部分配置。
-- **状态**：当前接入不作为新规范。按[模块能力](module-capabilities.md)所列范围从头重做，不逐项修补旧接口、不伪造来源，也不自动新增未确认输出或科学证据体系。
-
 ### DOC-033｜ESMC 尚未提供所要求的实际 logits 输出
 
 - **要求**：可选输出整序列 embedding 和实际逐位置 logits，供查看与下游使用。logits 不作为概率表述。
 - **当前证据**：[esmc_adapter](../modules/esm3/esmc_adapter.py)第 44–46、64–77 行请求实际 logits 后只保留形状；[表征声明](../modules/esm3/definitions/represent_sequence.yaml)只描述 embedding 与 shape。
 - **状态**：现行说明已明确差异，输出、类型、读取及界面仍需对齐。具体模块归属不由当前包名裁定，不新增分析算法。
-
-### DOC-034｜编辑与导航路径仍自动持久化
-
-- **要求**：仅手动保存，流程与布局一起成功；未保存退出提供保存、放弃、取消；运行前明确保存并运行。
-- **当前证据**：[workspace-editor](../webui/src/workspace-editor.ts)第 218–226、269 行在接纳编辑后写入；[App](../webui/src/App.tsx)第 369–371、398–399、770 行在导航或运行路径主动保存。
-- **状态**：按[工作区约定](workspace.md)修正整个保存流程，不能只改提示文案。已有共同工作区发布基础可以复用，不等于全部失败情形已验证。
-
-### DOC-035｜运行期间未统一限制项目修改
-
-- **要求**：同项目运行期间禁止修改，允许查看；结束或取消后才能编辑。
-- **当前证据**：[App](../webui/src/App.tsx)第 741、770 行主要限制再次运行，第 474–480、659–675 行编辑回调未统一受运行锁约束。
-- **状态**：按[工作区约定](workspace.md)统一落实，不将查看器切换误当作计算参数修改。本次未验证全部交互路径。
 
 ### DOC-036｜模块专用界面与结果读取仍固定分派
 
@@ -98,35 +75,17 @@
 - **当前证据**：[运行时](../modules/folding/simplefold_runtime.py)第 260–268 行固定 tau=.1；[Binding](../modules/folding/package.py)第 424–435 行将步数限制在 1–50，固定上游 CLI 公开步数及 tau，示例采用 500 步。
 - **状态**：开放适用参数并移除无依据限制。tau=.1 有默认依据；不将折叠采样参数套用于不重新采样的已有结构 confidence 操作。见[参数审查](tool-parameter-exposure-audit.md)。
 
-### DOC-042｜单条 FASTA 入口仍拼接多条记录
-
-- **要求**：单条入口只接收一条记录，多条时提示改用批量入口。
-- **当前证据**：[fasta.py](../modules/protein_io/fasta.py)第 87–89 行仍拼接记录。
-- **状态**：文档已按[序列输入约定](results.md#序列输入)明确要求；单条入口及相应用例待修正，不删除正常批量功能。
-
-### DOC-043｜随机插入残基仍受编辑限制
-
-- **要求**：随机插入残基可像其他残基一样继续编辑、删除和作为插入锚点。
-- **当前证据**：[PromptStudio](../webui/src/PromptStudio.tsx)第 236–239、422–434、681 行仍对随机残基施加交互限制。
-- **状态**：按[Prompt 编辑约定](prompt-editing.md)对齐，模块维护内部对应；随机来源不是限制后续编辑的理由。
-
-### DOC-044｜教学实例首次编辑即持久复制并保留结果引用
-
-- **要求**：首次手动保存才创建个人项目；此前在内存中编辑，教学原件保持不变，副本不自动复制运行记录和结果。
-- **当前证据**：[workspace-editor](../webui/src/workspace-editor.ts)第 229–244 行的复制路径和[后端 authoring](../core/workflow/authoring.py)第 508–519 行仍采用编辑复制及结果引用路径。
-- **状态**：按[教学与项目约定](workspace.md)同时修改持久化时机和复制范围；默认教学实例仍保留。一般自动保存另见 DOC-034。
-
-### DOC-045｜结构导入导出仍只覆盖 PDB
+### DOC-045｜结构导出仍缺用户选择格式转换
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前证据**：[输入检查](../modules/protein_io/inspection.py)仅提供现有格式；[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)仅列 PDB，[结果导出](../webui/src/result-explorer.ts)第 86–98 行只生成 .pdb。
-- **状态**：[结果说明](results.md)已区分目标与当前接口。补齐输入、转换与两条导出路径，不据此要求内部 canonical 表示必须改为 mmCIF。
+- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)按原格式输出，尚未提供 Q34 要求的用户选择格式转换。
+- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；导入或原格式导出通过不等于两条导出路径的选择转换已完成。
 
-### DOC-046｜现有节点级重跑不能实现批内保留与续算
+### DOC-046｜跳过批内成功请求的主动续算仍缺
 
 - **要求**：批内保留已成功请求；一个请求用完适用重试后失败，停止剩余请求；用户可在相同输入和参数下继续失败及未开始请求，失败节点下游仍阻塞。
-- **当前证据**：[折叠实现](../modules/folding/implementation.py)第 77–112 行全部请求完成后返回，[节点执行](../core/execution/node_attempt.py)第 417–468 行整体操作正常返回后发布；[失败发布](../core/execution/_node_attempt_publication.py)第 67–86 行只记录失败。[重跑派生](../core/execution/_run_runtime_derived.py)第 102–144 行按节点重跑。
-- **状态**：按[执行约定](execution.md)补齐批内行为。已有原子持久化与节点级继续本身不是错误，不增加自动重试或接纳残缺响应。
+- **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。[重跑派生](../core/execution/_run_runtime_derived.py)仍按节点重跑。
+- **状态**：批内保留、停止、持久重开和依赖阻断的受控失败回归通过；获准真实 Provider 的成功调用通过不替代线上故障注入验证。Q41 跳过成功请求的主动续算接口仍未完成，不增加自动重试或接纳残缺响应。
 
 ### DOC-047｜科学教学实例仍成为启动必要条件
 

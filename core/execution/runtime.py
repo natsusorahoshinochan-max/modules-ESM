@@ -266,13 +266,14 @@ class V2RunService:
         if _before_execute is not None:
             _before_execute()
         committed_values: dict[tuple[str, str], AdmittedPort] = {}
+        unsuccessful_nodes: set[str] = set()
         for node in plan.nodes:
             if node.node_id not in active_ids:
                 continue
-            blocked_by = self._required_input_blockers(
-                node,
-                committed_values,
-            )
+            blocked_by = tuple(sorted(
+                set(self._required_input_blockers(node, committed_values))
+                | (set(node._runtime.dependencies) & unsuccessful_nodes)
+            ))
             concluded_before_scheduling = False
             cancellation_outcome: Literal["cancelled", "interrupted"] = (
                 "interrupted"
@@ -306,6 +307,7 @@ class V2RunService:
                 )
                 concluded_before_scheduling = True
             if concluded_before_scheduling:
+                unsuccessful_nodes.add(node.node_id)
                 continue
             committed = attempts.execute(
                 AttemptSpec(
@@ -323,6 +325,8 @@ class V2RunService:
             )
             if committed.disposition == "succeeded":
                 committed_values.update(committed.admitted_outputs)
+            else:
+                unsuccessful_nodes.add(node.node_id)
         selection_conclusions: tuple[SelectionTerminal, ...] = ()
         if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
             selection_consumers = {
@@ -434,19 +438,19 @@ class V2RunService:
 
     def trash_project(self, project_id: str) -> ProjectMeta:
         """Trash an idle Project without removing its retained content."""
-        with self._project_idle(project_id):
+        with self.project_mutation(project_id):
             return self._projects.trash(project_id)
 
     def permanently_delete_project(self, project_id: str) -> None:
         """Delete idle Project storage before forgetting its cached evidence."""
-        with self._project_idle(project_id):
+        with self.project_mutation(project_id):
             self._projects.permanently_delete(project_id)
             self._registry.forget_project(project_id)
             self._authoring.forget_project(project_id)
 
     @contextmanager
-    def _project_idle(self, project_id: str) -> Iterator[None]:
-        """Hold Project admission throughout an idle-only lifecycle operation."""
+    def project_mutation(self, project_id: str) -> Iterator[None]:
+        """Hold Run admission throughout a user mutation of an idle Project."""
         with self._worker_condition:
             active_run_ids = self.active_run_ids(project_id)
             if project_id in self._reserved_projects or active_run_ids:

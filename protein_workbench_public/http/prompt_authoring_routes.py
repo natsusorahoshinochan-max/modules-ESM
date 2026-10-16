@@ -15,6 +15,7 @@ from protein_workbench_public.authoring_codec import (
     encode_prompt_snapshot,
 )
 from protein_workbench_public.http.emission import emit_rest_json_success
+from protein_workbench_public.http.project_inputs import prospective_project_inputs
 from protein_workbench_public.http.errors import (
     authoring_error_response,
     protocol_error_response,
@@ -50,7 +51,10 @@ def register_prompt_authoring_routes(
                 query_parameters=query,
                 json_body=body,
             )
-            snapshot = prompt_authoring.open(admitted["project_id"], admitted)
+            service = prompt_authoring.with_project_inputs(
+                project_id, prospective_project_inputs(admitted.get("prospective_inputs", ())),
+            )
+            snapshot = service.open(admitted["project_id"], admitted)
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)
         except WorkflowDocumentError as error:
@@ -79,7 +83,10 @@ def register_prompt_authoring_routes(
                 query_parameters=query,
                 json_body=body,
             )
-            preview = prompt_authoring.preview(
+            service = prompt_authoring.with_project_inputs(
+                project_id, prospective_project_inputs(admitted.get("prospective_inputs", ())),
+            )
+            preview = service.preview(
                 admitted["project_id"],
                 admitted,
             )

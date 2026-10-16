@@ -73,6 +73,19 @@ class OperationDiagnosticError(ValueError):
         )
 
 
+class OperationFailedWithOutputs(Exception):
+    """A defined operation failure retaining completed independent outputs.
+
+    The outputs follow the normal Node output contract. They remain readable
+    on the failed Node, but are not eligible for Cache replay or downstream use.
+    """
+
+    def __init__(self, error: Exception, outputs: Mapping[str, Any]) -> None:
+        super().__init__("Operation failed after completing some outputs")
+        self.error = error
+        self.outputs = outputs
+
+
 class ExecutionTermination(RuntimeError):
     """A bounded terminal conclusion reported by a started engine seam."""
 

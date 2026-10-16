@@ -17,9 +17,17 @@ export function InteractionDialog({ title, children, className, onClose, busy = 
       <Dialog.Overlay className="interaction-overlay" />
       <Dialog.Content className={`interaction-dialog ${className ?? ''}`} aria-describedby={undefined}
         onPointerDownOutside={event => event.preventDefault()}
-        onEscapeKeyDown={event => { if (busy || event.isComposing) event.preventDefault() }}
+        onEscapeKeyDown={event => event.preventDefault()}
         onCloseAutoFocus={event => { event.preventDefault(); if (onRestoreFocus) onRestoreFocus(); else if (returnFocus?.isConnected) returnFocus.focus() }}
-        onKeyDown={event => event.stopPropagation()}>
+        onKeyDown={event => {
+          event.stopPropagation()
+          // Handle Escape at the focused dialog, not document capture: nested
+          // dialogs must not dismiss their parent during layer registration.
+          if (event.key === 'Escape' && !busy && !event.nativeEvent.isComposing) {
+            event.preventDefault()
+            onClose()
+          }
+        }}>
         <Dialog.Title asChild><span className="interaction-visually-hidden">{title}</span></Dialog.Title>
         {children}
       </Dialog.Content>

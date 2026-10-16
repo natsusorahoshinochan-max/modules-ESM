@@ -345,7 +345,7 @@ _STRUCTURED_ERROR_DETAILS_FIELDS = {
     "malformed_request": (("field_path",), ()),
     "node_execution_failed": (
         ("exception_type",),
-        ("cleanup_exception_types", "operation_diagnostic"),
+        ("cleanup_exception_types", "operation_diagnostic", "retained_output_failure"),
     ),
     "node_publication_failed": (("node_id", "publication_stage"), ()),
     "project_not_found": (("resource_kind", "resource_id"), ()),

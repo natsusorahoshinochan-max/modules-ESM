@@ -719,18 +719,26 @@ def build_frozen_catalog(
                         if reference_declaration is not None
                         else None
                     )
+                    reference_entry = (
+                        entry_by_key.get(reference_type.key)
+                        if isinstance(reference_type, ExactContractReference)
+                        else None
+                    )
+                    reference_definition = (
+                        reference_entry[1] if reference_entry is not None else None
+                    )
                     if (
                         not isinstance(reference_type, ExactContractReference)
-                        or reference_type.key
-                        != (
-                            "port_type",
-                            "candidate.collection",
-                        )
+                        or reference_type.contract_kind != "port_type"
+                        or not isinstance(reference_definition, PortTypeDefinition)
+                        or reference_definition.candidate_data_projection is None
+                        or reference_definition.runtime_candidate_data_projection
+                        is None
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
                             "Observation reference source must use "
-                            "candidate.collection"
+                            "one exact Candidate-projecting Port"
                         )
                 if observation.pairing_source is not None:
                     pairing_ports = (

@@ -444,12 +444,24 @@ def generation_config(
     )
 
 
+class ESM3ProviderError(RuntimeError):
+    """The SDK reported an operational generation failure."""
+
+
+class ESM3PairFailure(ESM3ProviderError):
+    """A completed sequence whose subsequent structure request failed."""
+
+    def __init__(self, error: ESM3ProviderError, sequence: ESM3SequenceResult) -> None:
+        super().__init__(str(error))
+        self.sequence = sequence
+
+
 def require_provider_protein(result: Any, operation: str) -> Any:
     """Reject provider error values before post-processing."""
     from esm.sdk.api import ESMProteinError
 
     if isinstance(result, ESMProteinError):
-        raise RuntimeError(
+        raise ESM3ProviderError(
             f"ESM-3 provider operation {operation} failed with a provider error"
         ) from result
     return result
@@ -467,7 +479,7 @@ def call_remote_provider(
     try:
         result = client.generate(protein, config)
     except ESMProteinError as error:
-        raise RuntimeError(
+        raise ESM3ProviderError(
             f"ESM-3 provider operation {operation} failed"
         ) from error
     return require_provider_protein(result, operation)
@@ -489,7 +501,7 @@ def complete_structure(
     result: Any,
 ) -> ProteinStructure:
     """Translate the SDK PDB body to the canonical terminal record."""
-    return ProteinStructure(pdb_string=f"{result.to_pdb_string()}END\n")
+    return ProteinStructure(text=f"{result.to_pdb_string()}END\n")
 
 
 def biohub_confidence(
@@ -723,21 +735,24 @@ class _BaseESM3Adapter:
         structure_conditioning = replace(
             conditioning, sequence=sequence.sequence.sequence,
         )
-        (
-            structure_response,
-            _,
-            structure_effective_num_steps,
-            structure_effective_call_seed,
-        ) = self._invoke(
-            structure_conditioning.provider_input(),
-            generation_config("structure", parameters),
-            role="structure_child",
-            provider_operation="generate(track=structure)",
-            derived_call_seed=structure_conditioning.call_seed(
-                base_seed, sample_index, "structure",
-            ),
-            parent_invocation_id=sequence_invocation_id,
-        )
+        try:
+            (
+                structure_response,
+                _,
+                structure_effective_num_steps,
+                structure_effective_call_seed,
+            ) = self._invoke(
+                structure_conditioning.provider_input(),
+                generation_config("structure", parameters),
+                role="structure_child",
+                provider_operation="generate(track=structure)",
+                derived_call_seed=structure_conditioning.call_seed(
+                    base_seed, sample_index, "structure",
+                ),
+                parent_invocation_id=sequence_invocation_id,
+            )
+        except ESM3ProviderError as error:
+            raise ESM3PairFailure(error, sequence) from error
         return ESM3PairResult(
             sequence=sequence,
             structure=self._admit_structure_result(

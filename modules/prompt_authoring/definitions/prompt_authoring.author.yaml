@@ -55,7 +55,7 @@ node_parameters:
                 field_scope: scientific
                 scientific_meaning: Chain identity.
                 type: string
-                pattern: ^[A-Za-z0-9]$
+                pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
               length:
                 field_scope: scientific
                 scientific_meaning: Chain residue count.
@@ -304,11 +304,30 @@ node_parameters:
                     type: integer
                     minimum: 0
                     maximum: 2000000
+                  target_residues:
+                    field_scope: scientific
+                    scientific_meaning: Ordered target residue identities after this random insertion and before subsequent operations.
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [residue_id, origin]
+                      properties:
+                        residue_id:
+                          field_scope: scientific
+                          scientific_meaning: Exact residue identity.
+                          type: string
+                          minLength: 1
+                        origin:
+                          field_scope: scientific
+                          scientific_meaning: Whether the residue is sourced or inserted.
+                          type: string
+                          enum: [source, inserted]
                   eligible_chain_ids:
                     field_scope: scientific
                     scientific_meaning: Optional eligible chain subset; empty means every populated chain.
                     type: array
-                    items: {type: string, pattern: "^[A-Za-z0-9]$"}
+                    items: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]*$"}
                     uniqueItems: true
         source_merges: {
           "field_scope": "scientific",

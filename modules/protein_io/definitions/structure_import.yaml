@@ -1,6 +1,6 @@
 node_type_id: protein_io.import_structure
 title: Import protein structure
-summary: Parses one trusted Project-scoped structure input.
+summary: Parses one trusted Project-scoped PDB or mmCIF input.
 category: protein_io
 inputs: []
 outputs:

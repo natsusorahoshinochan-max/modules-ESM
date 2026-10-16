@@ -14,9 +14,21 @@ observation_context_schema:
   type: object
   properties:
     kind:
-      const: intrinsic
+      const: pairwise
+    subject_role:
+      const: subject
+    reference_role:
+      const: reference
+    pairing_mode:
+      const: fixed_reference
+    normalization:
+      const: none
   required:
     - kind
+    - subject_role
+    - reference_role
+    - pairing_mode
+    - normalization
   additionalProperties: false
 validation_contract:
   finite: true

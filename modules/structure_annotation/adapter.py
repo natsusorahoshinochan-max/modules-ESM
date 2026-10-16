@@ -283,10 +283,12 @@ class MkdsspAdapter:
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"
         ) as workspace:
-            input_path = Path(workspace) / "input.pdb"
+            input_path = Path(workspace) / (
+                "input.cif" if residue_axis.structure.format == "mmcif" else "input.pdb"
+            )
             input_path.write_text(
-                residue_axis.structure.pdb_string,
-                encoding="ascii",
+                residue_axis.structure.text,
+                encoding="utf-8",
             )
             with self._resources.engine_invocation():
                 try:

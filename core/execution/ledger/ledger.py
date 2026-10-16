@@ -445,6 +445,13 @@ class Ledger:
                     error=error if operation_status == "failed" else None,
                 )
             )
+        if publication.retained_outputs is not None:
+            if (
+                publication.failure_origin != "operation"
+                or publication.retained_outputs.node_id != publication.node_id
+            ):
+                raise ValueError("Only failed operations may retain their completed outputs")
+            facts.append(publication.retained_outputs)
         facts.extend(
             (
                 NodeAttemptTerminal(

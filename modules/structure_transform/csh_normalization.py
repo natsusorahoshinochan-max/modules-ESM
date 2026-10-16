@@ -14,6 +14,7 @@ from datatypes.residue import (
     ModifiedResidueNormalizationCollection,
 )
 from datatypes.structure import ProteinStructure
+from datatypes.structure_format import mmcif_dictionary, write_mmcif_dictionary
 
 from .residue_axis import (
     _AtomRecord,
@@ -129,7 +130,7 @@ def _normalized_csh_polymer_declarations(
 
     declarations: list[str] = []
     emitted_seqres_chains: set[str] = set()
-    for line in structure.pdb_string.splitlines():
+    for line in structure.text.splitlines():
         if line.startswith("MODRES"):
             identity = (line[16], line[18:22].strip(), line[22].strip())
             if identity in normalized_identities:
@@ -276,6 +277,8 @@ def normalize_csh_parent_span(
             ),
         )
 
+    if structure.format == "mmcif":
+        return _normalize_mmcif_csh(structure, coordinate_records, replacements)
     output_lines = _normalized_csh_polymer_declarations(
         structure,
         set(replacements),
@@ -338,10 +341,102 @@ def normalize_csh_parent_span(
     output_lines.append("END")
     return (
         ProteinStructure(
-            pdb_string="\n".join(output_lines) + "\n",
+            text="\n".join(output_lines) + "\n",
         ),
         ModifiedResidueNormalizationCollection(entries=normalizations),
     )
+
+def _normalize_mmcif_csh(
+    structure: ProteinStructure,
+    records: list[_AtomRecord],
+    replacements: dict[tuple[str, str, str], tuple[
+        list[tuple[_AtomRecord, str, int, str]], ModifiedResidueNormalization,
+    ]],
+) -> tuple[ProteinStructure, ModifiedResidueNormalizationCollection]:
+    data = mmcif_dictionary(structure.text)
+    count = len(records)
+    # Publish the exact identities already admitted by the shared format reader.
+    data["_atom_site.auth_asym_id"] = [r.chain_id for r in records]
+    data["_atom_site.auth_seq_id"] = [r.residue_number for r in records]
+    data["_atom_site.pdbx_PDB_ins_code"] = [r.insertion_code or "?" for r in records]
+    data.setdefault("_atom_site.label_seq_id", [r.residue_number for r in records])
+    entities = data.get("_atom_site.label_entity_id", ["?"] * count)
+    labels = data["_atom_site.label_seq_id"]
+    scopes = [entity if entity not in {".", "?"} else data["_atom_site.label_asym_id"][i]
+              for i, entity in enumerate(entities)]
+    expanded_positions: dict[str, set[int]] = defaultdict(set)
+    for index, record in enumerate(records):
+        if record.residue_identity in replacements:
+            expanded_positions[scopes[index]].add(int(labels[index]))
+
+    atom_keys = [key for key in data if key.startswith("_atom_site.")]
+    output = {key: [] for key in atom_keys}
+    source_index = {id(record): index for index, record in enumerate(records)}
+    emitted = set()
+    normalizations = []
+    for record in records:
+        replacement = replacements.get(record.residue_identity)
+        if replacement is None:
+            rows = [(record, record.residue_name, int(record.residue_number), record.atom_name)]
+        else:
+            if record.residue_identity in emitted:
+                continue
+            emitted.add(record.residue_identity)
+            rows, normalization = replacement
+            normalizations.append(normalization)
+        for source, component, number, atom in rows:
+            index = source_index[id(source)]
+            row = {key: data[key][index] for key in atom_keys}
+            if labels[index] not in {".", "?"}:
+                old_position = int(labels[index])
+                shift = 2 * sum(p < old_position for p in expanded_positions[scopes[index]])
+                parent_offset = number - int(record.residue_number) + 1 if replacement is not None else 0
+                row["_atom_site.label_seq_id"] = str(old_position + shift + parent_offset)
+            if replacement is not None:
+                for key, value in {
+                    "group_PDB": "ATOM", "label_comp_id": component,
+                    "auth_comp_id": component, "label_atom_id": atom,
+                    "auth_atom_id": atom, "auth_seq_id": str(number),
+                    "pdbx_PDB_ins_code": "?", "label_alt_id": ".",
+                }.items():
+                    if "_atom_site." + key in row:
+                        row["_atom_site." + key] = value
+            row["_atom_site.id"] = str(len(output["_atom_site.id"]) + 1)
+            for key in atom_keys:
+                output[key].append(row[key])
+    data.update(output)
+    prefix = "_pdbx_struct_mod_residue."
+    if prefix + "auth_asym_id" in data:
+        indices = [i for i, chain in enumerate(data[prefix + "auth_asym_id"])
+                   if (chain, data[prefix + "auth_seq_id"][i], "") not in replacements]
+        for key in tuple(data):
+            if key.startswith(prefix):
+                if indices:
+                    data[key] = [data[key][i] for i in indices]
+                else:
+                    del data[key]
+    prefix = "_entity_poly_seq."
+    if prefix + "mon_id" in data:
+        keys = [key for key in data if key.startswith(prefix)]
+        rewritten = {key: [] for key in keys}
+        for index, component in enumerate(data[prefix + "mon_id"]):
+            entity = data[prefix + "entity_id"][index]
+            position = int(data[prefix + "num"][index])
+            positions = expanded_positions.get(entity, set())
+            shift = 2 * sum(p < position for p in positions)
+            if position in positions and component != "CSH":
+                raise ValueError("CSH coordinates contradict the mmCIF polymer declaration")
+            parents = ("SER", "HIS", "GLY") if position in positions else (component,)
+            for offset, parent in enumerate(parents):
+                for key in keys:
+                    value = parent if key == prefix + "mon_id" else str(position + shift + offset) if key == prefix + "num" else data[key][index]
+                    rewritten[key].append(value)
+        data.update(rewritten)
+    return (
+        ProteinStructure(write_mmcif_dictionary(data), "mmcif"),
+        ModifiedResidueNormalizationCollection(entries=normalizations),
+    )
+
 
 class NormalizeCshParentSpanImplementation:
     """Normalize admitted CSH structure components and emit typed provenance."""

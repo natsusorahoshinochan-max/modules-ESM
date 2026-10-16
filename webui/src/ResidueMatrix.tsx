@@ -115,7 +115,19 @@ export function ResidueMatrix({ projection, locators, selection, focus, hiddenTr
     if (key.key === 'Delete' || key.key === 'Backspace') { key.preventDefault(); if (!disabled) onClear(chosenRef.current.cells.length ? chosenRef.current.cells : [cell]); return }
     if ((key.key === 'Enter' || key.key === 'F2') && ['coordinates', 'function'].includes(cell.track)) { key.preventDefault(); onOpen(cell) }
   }
-  return <div className="residue-matrix" aria-label="共享残基矩阵" onPointerDownCapture={event => { pointerSelecting.current = true; pointerModifiers.current = { shift: event.shiftKey, toggle: event.ctrlKey || event.metaKey } }} onPointerUpCapture={() => { setTimeout(() => { pointerSelecting.current = false }, 0) }} onKeyDownCapture={event => { if (event.nativeEvent.isComposing) return; pointerSelecting.current = false; extending.current = event.shiftKey && event.key.startsWith('Arrow') }} onCopy={event => {
+  return <div className="residue-matrix" aria-label="共享残基矩阵" onClickCapture={event => {
+    if (disabled || !(event.target instanceof Element)) return
+    // Embedded controls own their click; refreshing the cell here would unmount them before their handler.
+    if (event.target.closest('button,input,textarea,select,a[href],[contenteditable="true"]')) return
+    const element = event.target.closest('[role="gridcell"][col-id]')
+    if (!element || !event.currentTarget.contains(element)) return
+    const handle = element.getAttribute('col-id')
+    const rowId = element.closest('[role="row"][row-id]')?.getAttribute('row-id')
+    const track = tracks.find(value => value === rowId)
+    if (!handle || !handles.includes(handle) || !track) return
+    // Grid option click callbacks are asynchronous; selection must precede toolbar input.
+    changeSelection(selectMatrixCell(chosenRef.current, { handle, track }, handles, tracks, { shift: event.shiftKey, toggle: event.ctrlKey || event.metaKey }))
+  }} onPointerDownCapture={event => { pointerSelecting.current = true; pointerModifiers.current = { shift: event.shiftKey, toggle: event.ctrlKey || event.metaKey } }} onPointerUpCapture={() => { setTimeout(() => { pointerSelecting.current = false }, 0) }} onKeyDownCapture={event => { if (event.nativeEvent.isComposing) return; pointerSelecting.current = false; extending.current = event.shiftKey && event.key.startsWith('Arrow') }} onCopy={event => {
     if ((event.target as HTMLElement).closest('input,textarea,[contenteditable="true"]')) return
     event.preventDefault(); event.clipboardData.setData('text/plain', copyMatrix(chosenRef.current, handles, read, tracks))
   }} onPaste={event => {
@@ -142,12 +154,6 @@ export function ResidueMatrix({ projection, locators, selection, focus, hiddenTr
         const cell = { handle: column.getColId(), track: focus.track }
         changeSelection(selectMatrixCell(chosenRef.current, cell, handles, tracks, pointerModifiers.current))
         revealCell(cell, true)
-      }}
-      onCellClicked={event => {
-        if (disabled || !event.data || !event.column || event.column.getColId() === 'track' || !handles.includes(event.column.getColId())) return
-        const mouse = event.event as MouseEvent
-        const cell = { handle: event.column.getColId(), track: event.data.track }
-        changeSelection(selectMatrixCell(chosenRef.current, cell, handles, tracks, { shift: mouse.shiftKey, toggle: mouse.ctrlKey || mouse.metaKey }))
       }}
       onCellKeyDown={event => {
         if (!('column' in event)) return

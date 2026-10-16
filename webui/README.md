@@ -108,20 +108,28 @@ have separate requirements; see [Prompt editing](../docs/prompt-editing.md).
 
 Results browse published intermediate outputs, exact Scores, parents and available
 alignment results. Focus, export selection and same-Run comparison are independent.
-The current ZIP exporter writes FASTA, Scores, metadata and PDB files for Candidates
-that have structures. [Results](../docs/results.md) defines the required history,
+The current ZIP exporter writes FASTA, Scores, metadata and structure files in the Candidates’ original PDB or mmCIF format. [Results](../docs/results.md) defines the required history,
 reuse, structure formats, viewers and parameter export behavior.
 
-The current application still differs from confirmed requirements: it saves on
-edits/navigation, copies the teaching example on first edit, mainly opens the
-latest Run, retains result-to-workflow actions, and lacks mmCIF export and complete
-module settings/viewer integration. These are implementation gaps, not endorsed
-usage rules. Full historical/cross-project input adoption and source-independent
-availability remain to be verified. Project-wide editing protection
-during execution and batch result retention/continuation also require changes.
-Node-level continuation currently forces selected Nodes and descendants to run;
-it is distinct from the required continuation of unfinished requests within a
-batch. See [execution](../docs/execution.md) and the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
+Edits now remain in memory until an explicit save. Navigation offers save,
+discard or cancel for unsaved work; Run offers save-and-run. A teaching example
+becomes a personal Project only on first explicit save. Running Projects reject
+modification while remaining readable. Result-to-workflow actions have been
+removed. These changes passed the frozen snapshot’s non-Provider regressions;
+see the current [verification scope](../docs/testing.md).
+
+The app still mainly opens the latest Run and lacks user-selected structure
+format conversion and complete module settings/viewer integration. Full
+historical/cross-project input adoption and source-independent availability
+remain to be verified. Failed batches can publish completed results for reading
+without making the Node successful or sending those outputs downstream; this
+passed controlled failure regressions. The permitted real Provider success
+checks passed; they do not constitute live failure-injection coverage. All six real browser journeys and the FASTA report check also passed.
+This completes the authorized test-governance scope, not the full 19-tier
+Campaign or the missing product interfaces listed below.
+Node-level continuation remains distinct from the
+required continuation of unfinished requests within a batch. See
+[execution](../docs/execution.md) and the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
 
 ## Verification
 
@@ -133,24 +141,55 @@ that the current working tree has passed them.
 
 Run all verification on the remote verification host, reusing its existing
 Python 3.12 `.venv` and installed frontend dependencies. Do not run tests or builds
-on the local workstation. From the remote snapshot's `webui/` directory:
+on the local workstation unless explicitly authorized. For this governance task,
+the user authorized local verification while excluding actual local ESM-3,
+SimpleFold and ESMFold2 execution. This exception does not change the standing
+remote policy. From the verification snapshot's `webui/` directory:
 
 ```bash
 npm run typecheck
-npx tsc --noEmit --strict --skipLibCheck --target ES2023 \
-  --module ESNext --moduleResolution Bundler --allowImportingTsExtensions \
-  --jsx react-jsx --esModuleInterop --types node \
-  playwright.real.config.ts real-tests/*.ts
+npm run typecheck:tests
 npm run lint
+npm run test:logic
+npm run test:components
 npm run test:e2e
 npm run build
 ```
 
-The standalone `tsc` command checks the real Provider journey configuration and
-tests; `npm run typecheck` does not include `real-tests/`.
+Collect each command's exit status independently; one failure must not suppress
+other independent checks. `typecheck:tests` includes every test, controlled host,
+and Playwright configuration, including `real-tests/`.
 
-The regular Playwright configuration uses an isolated backend on port 8180 and
-Vite on port 5179. Real Provider journeys have a separate
+| Entry | Responsibility | Resources |
+| --- | --- | --- |
+| `test:logic` | State owners and data transformations in `tests/logic` | Node only; no browser, Vite or backend |
+| `test:components` | Component interactions in `tests/components` | Controlled hosts in `tests/support`, Vite on 5181; no backend |
+| `test:e2e` | Application and protocol journeys in `tests/journeys` | Production application, isolated backend on 8180 and Vite on 5179 |
+| Real configuration | Actual Provider browser journeys in `real-tests` | Supervised built service and configured Providers |
+
+Support files provide mounting, navigation and interaction helpers; no collected
+spec is a shared library. Controlled hosts prove component behavior, not project
+persistence or complete application journeys. Existing published teaching results
+prove offline reading only, not a fresh Provider invocation.
+
+The edit contracts assert that edits remain in memory and teaching edits do not
+create personal projects. Explicit manual-save, exit choices and save-before-run
+passed frozen-snapshot application regressions, including save failures
+and teaching first-save/reopen. Browser close uses the native unsaved-change
+prompt; the three-way choice applies to in-application navigation. Tests must exercise the real interface, not
+synthesize it in a host or substitute an API write for a user save. Random
+inserted residues must remain editable and deletable; built-in result
+save-as-workflow actions must be absent. Correct expectations must not be
+skipped or weakened.
+
+User module installation/enable/disable/uninstall, empty-carrier boot, missing
+module recovery, historical/cross-project adoption surviving source deletion,
+batch continuation, external UI/multiple viewers and application settings still
+need complete application interfaces and journeys. Existing component/protocol
+coverage does not certify these user chains. Current product differences remain
+in the [governance issue list](../docs/2026-10-15-documentation-governance-issues.md).
+
+Real Provider journeys have a separate
 `playwright.real.config.ts`; they require an explicitly supervised built WebUI
 service and the prepared FASTA Project. See the
 [real FASTA journey procedure](../docs/backend-verification.md#real-fasta-webui-journey)

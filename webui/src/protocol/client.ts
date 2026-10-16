@@ -16,12 +16,13 @@ export type ResultLocation = { node_id: string; output_port: string; value_index
 export type PublishedObservation = { subject: CandidateReference; metric: ContractReference; method: ContractReference; context: JsonObject; context_profile: JsonObject; value: unknown; residue_axis: unknown; source_partition: string }
 export type PublishedAlignment = { subject: CandidateReference; reference: CandidateReference; transform: { maps_from_role: string; maps_to_role: string; row_vector_rotation: number[][]; translation: number[] }; rmsd: number; coverage: number; method: ContractReference; [field: string]: unknown }
 export type PublishedPrompt = { residue_ids: string[]; sequence: Array<string | null>; coordinates: Array<{ atoms: Array<[string, [number, number, number]]> } | null>; secondary_structure: Array<string | null> | null; sasa: Array<number | null> | null; function_annotations: Array<{ label: string; start_residue_id: string; end_residue_id: string }> }
+export type PublishedStructure = { text: string; format: 'pdb' | 'mmcif' }
 export type PublishedResultValue =
   | { kind: 'scores'; value: { collection_id: string; entries: PublishedObservation[] } }
   | { kind: 'candidate_sequences'; value: { entries: Array<{ subject: CandidateReference; sequence: string }> } }
   | { kind: 'alignment'; value: PublishedAlignment }
   | { kind: 'sequence'; value: { sequence: string; residue_ids: string[] | null } }
-  | { kind: 'structure'; value: { pdb: string } }
+  | { kind: 'structure'; value: PublishedStructure }
   | { kind: 'prompt'; value: PublishedPrompt }
   | { kind: 'axis_layout'; value: { residue_ids: string[]; chain_ids: string[] } }
 export type CanonicalTypedValue = { port_type_id: string; value: unknown }
@@ -51,7 +52,7 @@ export type PromptRigidTransform = { rotation_matrix: [[number, number, number],
 export type PromptDocumentFunctionAnnotation = { label: string; start_residue_id: string; end_residue_id: string }
 export type PromptRandomOperation =
   | { kind: 'mask'; seed: number; count: number; track: PromptTrackKey; eligible_residue_ids?: string[] }
-  | { kind: 'insert'; seed: number; count: number; eligible_chain_ids?: string[] }
+  | { kind: 'insert'; seed: number; count: number; eligible_chain_ids?: string[]; target_residues?: PromptTargetResidue[] }
 export type PromptMergeCorrespondence =
   | { disposition: 'match' | 'insert'; source_residue_id: string; target_residue_id: string }
   | { disposition: 'source_gap'; source_residue_id: string }
@@ -117,6 +118,7 @@ export type RunEvent =
   | { type: 'engine_invocation_started' | 'engine_invocation_terminal' | 'operation_attempt_started' | 'operation_attempt_terminal' | 'readiness_attested' | 'replay_complete' | 'replay_started' | 'selection_terminal' }
 export type RunEventEnvelope = { schema_namespace: 'protein-workbench-public/v2'; project_id: string; run_id: string; sequence: number; cursor: string; emitted_at: string; event: RunEvent }
 
+export type ProspectiveInput = { project_input_ref: string; filename: string; content_base64: string }
 export class PublicV2Client {
   constructor(private readonly baseUrl = '') {}
   private async json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -130,8 +132,8 @@ export class PublicV2Client {
   createProject(name: string) { return this.json<ProjectMetadata>('/api/v2/projects', { method: 'POST', body: JSON.stringify({ name }) }) }
   listProjectInputs(projectId: string) { return this.json<{ project_id: string; inputs: ProjectInputPublication[] }>(`/api/v2/projects/${projectId}/inputs`) }
   publishProjectInput(projectId: string, input: { filename: string; content_base64: string }) { return this.json<ProjectInputPublication>(`/api/v2/projects/${projectId}/inputs`, { method: 'POST', body: JSON.stringify(input) }) }
-  inspectProjectInput(projectId: string, inputRef: string, format: 'fasta' | 'pdb') { return this.json<ProjectInputInspection>(`/api/v2/projects/${projectId}/inputs/${inputRef}:inspect`, { method: 'POST', body: JSON.stringify({ format }) }) }
-  copyExample(projectId: string, name: string) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}:copy`, { method: 'POST', body: JSON.stringify({ name }) }) }
+  inspectProjectInput(projectId: string, inputRef: string, format: 'fasta' | 'pdb' | 'mmcif' | 'structure', input?: ProspectiveInput) { return this.json<ProjectInputInspection>(`/api/v2/projects/${projectId}/inputs/${inputRef}:inspect`, { method: 'POST', body: JSON.stringify({ format, ...(input ? { input } : {}) }) }) }
+  copyExample(projectId: string, name: string, workspace?: { workflow: Workflow; ui_state: JsonObject; inputs: ProspectiveInput[] }) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}:copy`, { method: 'POST', body: JSON.stringify({ name, ...workspace }) }) }
   deletedProjects() { return this.json<{ projects: ProjectMetadata[] }>('/api/v2/projects/deleted') }
   renameProject(projectId: string, name: string) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify({ name }) }) }
   duplicateProject(projectId: string, name: string) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}:duplicate`, { method: 'POST', body: JSON.stringify({ name }) }) }
@@ -139,7 +141,7 @@ export class PublicV2Client {
   restoreProject(projectId: string) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}:restore`, { method: 'POST' }) }
   deleteProject(projectId: string) { return this.json<{ project_id: string; deleted: true }>(`/api/v2/projects/${projectId}`, { method: 'DELETE' }) }
   projectWorkspace(projectId: string) { return this.json<ProjectWorkspace>(`/api/v2/projects/${projectId}/workspace`) }
-  saveWorkspace(projectId: string, change: { workflow?: Workflow; ui_state?: JsonObject; expected_draft_revision?: number }) { return this.json<ProjectWorkspace>(`/api/v2/projects/${projectId}/workspace`, { method: 'PUT', body: JSON.stringify(change) }) }
+  saveWorkspace(projectId: string, change: { workflow?: Workflow; ui_state?: JsonObject; expected_draft_revision?: number; expected_workspace_revision?: number }) { return this.json<ProjectWorkspace>(`/api/v2/projects/${projectId}/workspace`, { method: 'PUT', body: JSON.stringify(change) }) }
   workflowVersions(projectId: string) { return this.json<{ project_id: string; versions: WorkflowVersion[] }>(`/api/v2/projects/${projectId}/versions`) }
   nameWorkflowVersion(projectId: string, name: string) { return this.json<WorkflowVersion>(`/api/v2/projects/${projectId}/versions`, { method: 'POST', body: JSON.stringify({ name }) }) }
   workflowVersion(projectId: string, versionId: string) { return this.json<WorkflowVersionView>(`/api/v2/projects/${projectId}/versions/${versionId}`) }
@@ -148,8 +150,8 @@ export class PublicV2Client {
   workflowCommit(projectId: string, commitId: string) { return this.json<WorkflowCommitSnapshot>(`/api/v2/projects/${projectId}/workflow/commits/${commitId}`) }
   compareWorkflowScience(projectId: string, commitId: string, workflowProjectId: string, workflow: Workflow) { return this.json<WorkflowScienceComparison>(`/api/v2/projects/${projectId}/workflow/commits/${commitId}:compare`, { method: 'POST', body: JSON.stringify({ workflow_project_id: workflowProjectId, workflow }) }) }
   workflowDraft(projectId: string) { return this.json<WorkflowDraft>(`/api/v2/projects/${projectId}/workflow/draft`) }
-  openPrompt(projectId: string, nodeId: string, workflow?: Workflow) { return this.json<PromptSnapshot>(`/api/v2/projects/${projectId}/prompt-authoring:open`, { method: 'POST', body: JSON.stringify({ node_id: nodeId, ...(workflow ? { workflow } : {}) }) }) }
-  previewPrompt(projectId: string, nodeId: string, document: PromptAuthoringDocument, workflow?: Workflow, versionContext?: PromptVersionContext) { return this.json<PromptPreview>(`/api/v2/projects/${projectId}/prompt-authoring:preview`, { method: 'POST', body: JSON.stringify({ node_id: nodeId, document, ...(workflow ? { workflow } : {}), ...(versionContext ? { version_context: versionContext } : {}) }) }) }
+  openPrompt(projectId: string, nodeId: string, workflow?: Workflow, prospectiveInputs?: ProspectiveInput[]) { return this.json<PromptSnapshot>(`/api/v2/projects/${projectId}/prompt-authoring:open`, { method: 'POST', body: JSON.stringify({ node_id: nodeId, ...(workflow ? { workflow } : {}), ...(prospectiveInputs?.length ? { prospective_inputs: prospectiveInputs } : {}) }) }) }
+  previewPrompt(projectId: string, nodeId: string, document: PromptAuthoringDocument, workflow?: Workflow, versionContext?: PromptVersionContext, prospectiveInputs?: ProspectiveInput[]) { return this.json<PromptPreview>(`/api/v2/projects/${projectId}/prompt-authoring:preview`, { method: 'POST', body: JSON.stringify({ node_id: nodeId, document, ...(workflow ? { workflow } : {}), ...(prospectiveInputs?.length ? { prospective_inputs: prospectiveInputs } : {}), ...(versionContext ? { version_context: versionContext } : {}) }) }) }
   observationOptions(workflow: Workflow, ranking: boolean) { return this.json<{ options: Array<{ source: { node_id: string; output_port: string }; partition: string; metric_id: string; method_id: string; context: JsonObject }> }>(`/api/v2/projects/${workflow.workflow_id}/workflow:observation-options`, { method: 'POST', body: JSON.stringify({ workflow: { nodes: workflow.nodes, edges: workflow.edges }, ranking }) }) }
   commitWorkflow(projectId: string, workflow: Workflow) { return this.json<{ workflow_commit_id: string }>(`/api/v2/projects/${projectId}/workflow:commit`, { method: 'POST', body: JSON.stringify({ workflow }) }) }
   previewRunScope(projectId: string, workflowCommitId: string, scope: RunScopeRequest) { return this.json<RunScopePreview>(`/api/v2/projects/${projectId}/runs/preview`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, scope }) }) }
@@ -157,7 +159,7 @@ export class PublicV2Client {
   runProjection(projectId: string, runId: string) { return this.json<RunProjection>(`/api/v2/projects/${projectId}/runs/${runId}`) }
   cancelRun(projectId: string, runId: string) { return this.json<JsonObject>(`/api/v2/projects/${projectId}/runs/${runId}:cancel`, { method: 'POST' }) }
   resultCollection(projectId: string, runId: string, source: ResultLocation, offset = 0, limit = 100) { return this.json<ResultCollectionPage>(`/api/v2/projects/${projectId}/runs/${runId}/results:collection`, { method: 'POST', body: JSON.stringify({ ...source, offset, limit }) }) }
-  resultStructure(projectId: string, runId: string, source: ResultLocation, itemIndex: number) { return this.json<{ pdb: string }>(`/api/v2/projects/${projectId}/runs/${runId}/results:structure`, { method: 'POST', body: JSON.stringify({ ...source, item_index: itemIndex }) }) }
+  resultStructure(projectId: string, runId: string, source: ResultLocation, itemIndex: number) { return this.json<PublishedStructure>(`/api/v2/projects/${projectId}/runs/${runId}/results:structure`, { method: 'POST', body: JSON.stringify({ ...source, item_index: itemIndex }) }) }
   resultValue(projectId: string, runId: string, source: ResultLocation) { return this.json<PublishedResultValue>(`/api/v2/projects/${projectId}/runs/${runId}/results:value`, { method: 'POST', body: JSON.stringify(source) }) }
   typedValue(projectId: string, runId: string, nodeId: string, outputPort: string, index = 0) { return this.json<CanonicalTypedValue>(`/api/v2/projects/${projectId}/runs/${runId}/outputs/${nodeId}/${outputPort}/values/${index}`) }
   artifactUrl(projectId: string, runId: string, artifactReference: string) { return `${this.baseUrl}/api/v2/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactReference)}` }

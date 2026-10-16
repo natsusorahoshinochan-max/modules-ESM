@@ -106,7 +106,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-biohub-esmc",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_biohub_esmc_gate"
         ),
         required_run_labels=("biohub-esmc",),
@@ -115,7 +115,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-biohub-esm3",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_biohub_esm3_gate"
         ),
         timeout_seconds=40 * 60,
@@ -132,7 +132,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-biohub-esmfold2",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_biohub_esmfold2_gate"
         ),
         timeout_seconds=35 * 60,
@@ -142,7 +142,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-local-esm3",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_local_esm3_gate"
         ),
         required_run_labels=(
@@ -155,7 +155,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-local-esmfold2",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_local_esmfold2_gate"
         ),
         timeout_seconds=105 * 60,
@@ -165,7 +165,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-mkdssp",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_mkdssp_gate"
         ),
         required_run_labels=("mkdssp",),
@@ -174,7 +174,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-proteinmpnn",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_proteinmpnn_gate"
         ),
         timeout_seconds=75 * 60,
@@ -189,7 +189,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-simplefold-folding",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_simplefold_folding_gate"
         ),
         required_run_labels=("simplefold-folding",),
@@ -198,7 +198,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-simplefold-confidence",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_simplefold_confidence_gate"
         ),
         required_run_labels=("simplefold-confidence",),
@@ -207,7 +207,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-soluprot",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_soluprot_gate"
         ),
         required_run_labels=("soluprot-full", "soluprot-no-tm"),
@@ -216,7 +216,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "installed-protein-sol",
         (
-            "tests/test_installed_backend_v2.py::"
+            "tests/installed/test_installed_backend_v2.py::"
             "test_installed_protein_sol_gate"
         ),
         required_run_labels=("protein-sol",),
@@ -225,7 +225,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-1pga",
         (
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "tests/journeys/test_fresh_source_bound_acceptance_v2.py::"
             "test_fresh_1pga_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=120 * 60,
@@ -242,7 +242,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-local-1pga",
         (
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "tests/journeys/test_fresh_source_bound_acceptance_v2.py::"
             "test_fresh_local_1pga_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=120 * 60,
@@ -259,7 +259,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-2emo",
         (
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "tests/journeys/test_fresh_source_bound_acceptance_v2.py::"
             "test_fresh_2emo_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=180 * 60,
@@ -277,7 +277,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-local-2emo",
         (
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "tests/journeys/test_fresh_source_bound_acceptance_v2.py::"
             "test_fresh_local_2emo_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=180 * 60,
@@ -299,7 +299,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-canonical-3gb1",
         (
-            "tests/test_fresh_remote_3gb1_v2.py::"
+            "tests/journeys/test_fresh_remote_3gb1_v2.py::"
             "test_fresh_remote_3gb1_installed_public_run_"
             "retains_auditable_bundle"
         ),
@@ -317,7 +317,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-local-canonical-3gb1",
         (
-            "tests/test_fresh_remote_3gb1_v2.py::"
+            "tests/journeys/test_fresh_remote_3gb1_v2.py::"
             "test_fresh_local_3gb1_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=180 * 60,
@@ -338,7 +338,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-5g53",
         (
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "tests/journeys/test_fresh_source_bound_acceptance_v2.py::"
             "test_fresh_5g53_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=180 * 60,
@@ -355,7 +355,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
     _tier(
         "fresh-local-5g53",
         (
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "tests/journeys/test_fresh_source_bound_acceptance_v2.py::"
             "test_fresh_local_5g53_installed_public_run_retains_auditable_bundle"
         ),
         timeout_seconds=240 * 60,

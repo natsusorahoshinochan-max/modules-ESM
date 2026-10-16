@@ -74,10 +74,10 @@ class SimpleFoldAdapter(Protocol):
 def _translate_provider_structure(structure: ProteinStructure) -> ProteinStructure:
     """Translate the pinned writer's padded sentinel into canonical PDB text."""
     provider_sentinel = "\n" + " " * 80
-    if not structure.pdb_string.endswith(provider_sentinel):
+    if not structure.text.endswith(provider_sentinel):
         raise ValueError("SimpleFold PDB lacks its exact padded sentinel")
     return ProteinStructure(
-        structure.pdb_string.removesuffix(provider_sentinel) + "\n"
+        structure.text.removesuffix(provider_sentinel) + "\n"
     )
 
 

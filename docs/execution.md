@@ -1,6 +1,6 @@
 # Workflow 执行与结果发布
 
-本文件区分已确认运行要求与当前实现。产品要求以[当前有效决策](documentation-governance-decisions.md)为准，术语见 [CONTEXT](../CONTEXT.md)。实现说明来自静态源码核对，不表示运行验收通过。
+本文件区分已确认运行要求与当前实现。产品要求以[当前有效决策](documentation-governance-decisions.md)为准，术语见 [GLOSSARY](../GLOSSARY.md)。实现说明来自静态源码核对，不表示运行验收通过。
 
 ## Draft、Commit 与执行计划
 
@@ -20,11 +20,11 @@ Commit 保存 Workflow、来源 Draft 修订和解释原结果需要的最小定
 
 ## 运行、失败与前后端边界
 
-后端执行 Run。关闭前端不会取消仍运行的后端任务，取消需明确调用取消操作。同一项目计算期间禁止修改该项目，仍允许查看；具体编辑入口限制尚需对齐。未保存修改退出按保存、放弃、取消规则处理，与后端生命周期分开。
+后端执行 Run。关闭前端不会取消仍运行的后端任务，取消需明确调用取消操作。同一项目计算期间禁止修改该项目，仍允许查看；当前公共修改入口通过 runtime 的项目修改锁与 Run 准入互斥；前端同时限制运行项目的编辑。对应载体及应用旅程回归已通过，范围见[测试组件](testing.md)。未保存修改退出按保存、放弃、取消规则处理，与后端生命周期分开。
 
 节点明确失败后，依赖该节点的后续计算阻塞，不受影响的独立分支继续。显示实际失败和阻塞，整次 Run 不冒充全部成功。模块内部按已定义工具运行结果处理失败，本地不变量错误直接失败；不通过宽泛 catch、猜测默认值或静默继续掩盖问题。
 
-当前 [Run runtime](../core/execution/runtime.py)按 Execution Plan 的拓扑顺序调度，管理输入依赖、已发布值传播、取消及运行终结。[node_attempt](../core/execution/node_attempt.py)拥有一个节点从输入准备到最终发布的生命周期：
+当前 [Run runtime](../core/execution/runtime.py)按 Execution Plan 的拓扑顺序调度，已连接上游失败时阻塞依赖节点，包括可选输入的连接；未连接的可选输入仍可缺省。它管理已发布值传播、取消及运行终结。[node_attempt](../core/execution/node_attempt.py)拥有一个节点从输入准备到最终发布的生命周期：
 
 1. 准备已准入输入、Project Input 内容身份及有效随机性。
 2. 计算 Result Identity，按本 Binding 的策略查缓存或绕过缓存。
@@ -79,7 +79,7 @@ Run Projection 和 WebSocket 只携带有界输出描述与运行信息，不嵌
 
 主动继续不增加自动重试次数。已核对 ESM3、ESMFold2 SDK 默认对指定错误最多总计五次尝试；这不是所有模块和错误的统一次数规则，也不能把一次 Engine Invocation 等同于一次 SDK 网络尝试。
 
-**当前差距：**[折叠实现](../modules/folding/implementation.py)仍累积完整批次后一次返回；[节点失败发布](../core/execution/_node_attempt_publication.py)不携带本操作此前完成的部分样本。现有节点重跑绕过节点级缓存，没有按批内请求跳过成功项。上述行为尚未满足批内保留和续算要求，具体表示与接口仍需设计。
+**当前实现与差距：**[折叠实现](../modules/folding/implementation.py)与 [ESM3 生成](../modules/esm3/implementation.py)在已定义运行失败时交回此前完成的结果；联合生成中序列已完成而结构失败时保留该序列。[节点失败发布](../core/execution/_node_attempt_publication.py)将准入后的保留输出与失败结论一起持久发布，供查看和导出；不写成功缓存，也不将部分输出传给依赖下游。失败请求的残缺响应不被修复或伪装为结果。上述对应受控失败回归已通过；获准真实 Provider 的成功调用不替代失败路径验证。现有节点重跑仍没有按批内请求跳过成功项，Q41 的主动续算接口尚未完成。
 
 原子持久写入用于确保一次发布完整可靠，与保留已经成功请求并不冲突。这里没有决定废除原子发布、把残缺结果当成功，或增加新的证据和恢复系统。
 

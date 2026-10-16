@@ -175,15 +175,12 @@ def project_run(
         elif isinstance(payload, RunTerminal):
             status = payload.status
             terminal_sequence = fact.sequence
-    successful_nodes = {
-        disposition.node_id
-        for disposition in dispositions
-        if disposition.outcome == "succeeded"
-    }
+    # Publication is the visibility authority, including completed outputs
+    # retained by a failed operation. Dispositions independently govern reuse.
     publications = tuple(
         published_by_node[node_id]
         for node_id in plan_node_order
-        if node_id in successful_nodes and node_id in published_by_node
+        if node_id in published_by_node
     )
     return RunProjection(
         project_id=project_id,

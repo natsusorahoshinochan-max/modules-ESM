@@ -7,7 +7,7 @@ only resolves visible Workflow values and projects the evaluated result.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 import hashlib
 from typing import Any, NoReturn, cast
@@ -40,6 +40,7 @@ from datatypes.structure import (
     ResolvedStructureResidueAxis,
 )
 from modules.protein_io.fasta import parse_fasta_sequence
+from modules.protein_io.inspection import read_structure_input
 from modules.residue_data.implementation import materialize_sequence
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from modules.structure_transform.projections import extract_sequence, select_chains
@@ -197,10 +198,28 @@ class PromptAuthoringService:
         projects: ProjectManager,
         workflow_authoring: WorkflowAuthoringService,
         catalog: FrozenCatalog,
+        *,
+        input_reader: Callable[[str, str], tuple[ProjectInputDescriptor, bytes]] | None = None,
     ) -> None:
         self._catalog = catalog
         self._projects = projects
         self._workflow_authoring = workflow_authoring
+        self._input_reader = input_reader or projects.read_input
+
+    def with_project_inputs(
+        self, project_id: str,
+        inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]],
+    ) -> PromptAuthoringService:
+        """Resolve one request's unpublished inputs without shared mutable state."""
+        def read_input(scope: str, reference: str) -> tuple[ProjectInputDescriptor, bytes]:
+            if scope == project_id and reference in inputs:
+                return inputs[reference]
+            return self._input_reader(scope, reference)
+
+        return PromptAuthoringService(
+            self._projects, self._workflow_authoring, self._catalog,
+            input_reader=read_input,
+        )
 
     def _require_author_node(
         self,
@@ -271,7 +290,7 @@ class PromptAuthoringService:
         project_input_ref: str,
     ) -> tuple[ProjectInputDescriptor, bytes]:
         try:
-            return self._projects.read_input(project_id, project_input_ref)
+            return self._input_reader(project_id, project_input_ref)
         except FileNotFoundError as error:
             raise WorkflowAuthoringError(
                 "project_input_not_found",
@@ -352,12 +371,7 @@ class PromptAuthoringService:
             project_id,
             node.node_parameters["project_input_ref"],
         )
-        text = payload.decode("utf-8")
-        canonical = text.replace("\r\n", "\n").replace("\r", "\n")
-        return _StructureValue(
-            ProteinStructure(canonical.rstrip("\n") + "\n"),
-            descriptor,
-        )
+        return _StructureValue(read_structure_input(payload), descriptor)
 
     def _structure_value_from_edge(
         self,

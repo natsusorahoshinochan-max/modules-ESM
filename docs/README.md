@@ -7,7 +7,7 @@
 | 阅读目的 | 文档 |
 |---|---|
 | 安装、启动与部署当前应用 | [WebUI 使用说明](../webui/README.md)、[Provider 配置](provider-configuration.md) |
-| 理解术语和载体、模块、工具的职责 | [领域词汇](../CONTEXT.md)、[架构](architecture.md) |
+| 理解术语和载体、模块、工具的职责 | [领域词汇](../GLOSSARY.md)、[架构](architecture.md) |
 | 了解运行、缓存、发布和失败处理 | [执行](execution.md) |
 | 项目、画布、手动保存和教学实例 | [工作区](workspace.md) |
 | 导入、历史结果复用、查看、筛选与导出 | [结果与数据](results.md) |
@@ -15,6 +15,7 @@
 | 功能模块职责与当前工具调用能力 | [模块能力](module-capabilities.md) |
 | 官方 Biohub 请求与项目适配范围 | [Biohub 资料入口](biohub-api-reference/README.md) |
 | 核对当前参数开放差异 | [参数审查](tool-parameter-exposure-audit.md) |
+| 测试职责、共享支持与当前覆盖边界 | [测试组件](testing.md) |
 | 贡献者执行验证 | [后端验证](backend-verification.md)、[WebUI 验证](../webui/README.md#verification) |
 | 查看随包示例的当前用途 | [示例说明](../examples/v2/README.md) |
 | 查阅第三方技术与专利研究 | [研究资料](research/README.md) |
