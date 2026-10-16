@@ -1,5 +1,7 @@
 # 架构与共用数据
 
+更新日期：2026-10-16
+
 本文件说明载体、模块及共用数据的职责，并记录当前后端实现约定。目标行为以[当前有效决策](documentation-governance-decisions.md)为准；“当前实现”只表示源码可核对的结构，不表示运行验收通过。未解决差异见[治理问题清单](2026-10-15-documentation-governance-issues.md)，术语见 [GLOSSARY](../GLOSSARY.md)。
 
 ## 载体、模块与工具
@@ -27,7 +29,7 @@ flowchart TB
 | `webui/` | React 应用、画布、编辑与展示。模块专用界面应按公共接入规范加载。 |
 | `repositories/` | 固定上游源码；项目维护的 SoluProt-next Provider 是明确例外。 |
 
-当前后端通过 [ModulePackageRegistration](../core/catalog/declarations.py) 和 [Catalog builder](../core/catalog/builder.py)构建唯一目录，每个稳定契约 ID 对应一项当前注册。[bootstrap](../protein_workbench_public/bootstrap.py)从安装清单装配启用的包，默认清单附带官方包；空清单不安装科学教学项目。已有教学资源只在所需节点与 Binding 存在时安装。清单由[模块注册入口](../protein_workbench_public/module_registry.py)读取，[模块管理器](../protein_workbench_public/module_management.py)提供公共安装、启停、卸载及随附包恢复操作。变更在无活动 Run 时构建替代服务，持久保存清单后切换服务；项目与结果目录独立保留。外部 wheel 安装至数据目录，遵守同一注册与 UI 资源声明，无需修改仓库源码。公共 Prompt 编码和部分结果读取仍绑定内置模块，属于待对齐差异。
+当前后端通过 [ModulePackageRegistration](../core/catalog/declarations.py) 和 [Catalog builder](../core/catalog/builder.py)构建唯一目录，每个稳定契约 ID 对应一项当前注册。[bootstrap](../protein_workbench_public/bootstrap.py)从安装清单装配启用的包，默认清单附带官方包；空清单不安装科学教学项目。已有教学资源只在所需节点与 Binding 存在时安装。清单由[模块注册入口](../protein_workbench_public/module_registry.py)读取，[模块管理器](../protein_workbench_public/module_management.py)提供公共安装、启停、卸载及随附包恢复操作。变更在无活动 Run 时构建替代服务，持久保存清单后切换服务；项目与结果目录独立保留。外部 wheel 安装至数据目录，遵守同一注册与 UI 资源声明，无需修改仓库源码。Prompt 编辑器、单值查看器与 Run 面板通过模块 UI 声明加载。模块注册结果读取、只读 action 和工具条件投影；公共协议传递这些声明与数据，不按蛋白类型选择专用实现。节点结果入口依据已发布的 Port 和值导航，专用展示由模块负责，详见[模块 UI 契约](module-ui.md)。
 
 `FrozenCatalog` 保持一个已构建目录不可变；运行使用已编译计划，不重新扫描目录。它不决定用户安装界面的实现方式，也不要求把可变插件管理状态写进一个正在执行的计划。
 
@@ -69,7 +71,7 @@ Node Definition 说明操作及跨 Binding 参数；Binding 关联 Method 和实
 
 跨 Port 的精确关联使用完整 `CandidateDataReference`：Candidate ID、数据类型、内容摘要。集合位置不建立对象对应；相同结构内容也不自动合并不同主体。
 
-生成来源记录数据实际由哪些输入与计算产生。评价关系记录这次使用的主体和参考对象，按用户连线与明确关系决定，两者分别维护。当前 ProteinMPNN 评分使用独立的评分请求，接收一个序列与一个选定骨架，以 pairwise 评价记录双方引用，不改写生成父项；这不表示所有参数开放与功能重做要求已验收。
+生成来源记录数据实际由哪些输入与计算产生。评价关系记录这次使用的主体和参考对象，按用户连线与明确关系决定，两者分别维护。当前 ProteinMPNN 评分使用独立的评分请求，接收一个序列与一个选定骨架，以 pairwise 评价记录双方引用及显式位置对应，不改写生成父项。参数与工具约束见[模块能力](module-capabilities.md#proteinmpnn-设计与评价)。
 
 完整引用足以确定主体和新子项的父身份，但不包含原值、完整 lineage 或 metadata。原样透传旧 Candidate 必须有完整原值并保持其内容和元信息；仅有引用时，不为新构造值冒用旧身份。新输出由身份 owner 赋予实际产生身份；父身份要求来自实际输入或同次合法新输出。歧义、未知父项与循环按实际边界失败，不任取最后一个匹配。
 
@@ -79,7 +81,7 @@ Score Observation 保留 Metric、Method、Context、主体、区域及来源。
 
 ## 结构解释、区域与预测置信度
 
-当前 [ProteinStructure](../datatypes/structure.py)以 `text` 和 `format` 表示 PDB 或 mmCIF 原文。[存储 codec](../core/catalog/_port_value_codec.py)采用互斥的 `pdb_string` / `mmcif_string` 格式分支；PDB 分支编码字节保持不变，不另设旧格式回退。工具所需转换由 Adapter 处理。按原格式导出已接入，不等于用户选择 PDB/mmCIF 并转换的要求已完成。多构象及非蛋白组分的用户操作要求见[模块能力](module-capabilities.md)，不能从蛋白残基轴的范围推导界面应丢弃配体、水或核酸。
+当前 [ProteinStructure](../datatypes/structure.py)以 `text` 和 `format` 表示 PDB 或 mmCIF 原文。[存储 codec](../core/catalog/_port_value_codec.py)采用互斥的 `pdb_string` / `mmcif_string` 格式分支；PDB 分支编码字节保持不变，不另设旧格式回退。工具所需转换由 Adapter 处理。结构导出节点与模块结果 action 提供 PDB/mmCIF 格式选择，转换由蛋白导入导出模块负责；导出路径的核对范围见[结果说明](results.md#导出)。多构象及非蛋白组分的用户操作见[模块能力](module-capabilities.md)，不能从蛋白残基轴的范围推导界面应丢弃配体、水或核酸。
 
 当前[结构残基轴](../modules/structure_transform/residue_axis.py)解释明确的结构、残基身份、片段拓扑、命名原子、mask、组分处理及修饰残基转换。实际处理有明确的 owner 和来源，不按 HETATM 标签或列表序号猜对应。
 
@@ -111,11 +113,9 @@ Canonical source 输出的身份编排先准入源值，再编码构造身份；
 
 恢复已发布值及缓存重放保留内容完整性，不重新检查 Prompt、残基轴或 Candidate 的全部业务规则。存储损坏、缺失对象及真实写失败仍失败；信任已准入值不等于忽略数据丢失。
 
-## 已知差距与阅读入口
+## 领域说明与已知边界
 
-- 用户插件安装、统一 React 专用界面、多查看器和应用内模块配置分别按公共接入契约实现；现有专用读取不代表多查看器接入已完整。
-- 空载体启动、公共层与工具模块的解耦仍需对齐。
-- ProteinMPNN 从头重做；参数开放、结构格式、构象及 ESMC 输出等具体差距在[模块能力](module-capabilities.md)维护。
-- 手动保存、教学实例、缺失模块与历史结果复用见[工作区](workspace.md)，结果读取及导出见[结果](results.md)。
-
-上述差距不是新的已实现声明。源码只用于解释实现；修改按任务授权与已确认要求执行。
+- 模块安装、缺失节点保全、教学实例与手动保存见[工作区](workspace.md)；凭据和运行路径见[Provider 配置](provider-configuration.md)。
+- React 编辑器、多个值查看器及 Run 面板使用[模块 UI 契约](module-ui.md)，结果读取、采用和导出见[结果](results.md)。
+- ProteinMPNN 设计与独立评价、ESMC 数值输出、区域操作和工具适用范围见[模块能力](module-capabilities.md)。
+- 未核实的输入限制、残基身份歧义及未确认的附加输出范围保留在[问题清单](2026-10-15-documentation-governance-issues.md)，不从现有实现推定新需求。
