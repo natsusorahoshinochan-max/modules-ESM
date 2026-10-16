@@ -975,4 +975,5 @@ def build_frozen_catalog(
         ui_extensions=ui_extensions,
         result_actions=result_actions,
         result_readers=result_readers,
+        result_sources=tuple(source for package in registration_tuple for source in package.result_sources),
     )

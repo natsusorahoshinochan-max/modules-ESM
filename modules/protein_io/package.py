@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from core.catalog.result_adoption import ResultSourceDefinition
+from core.project.adopted_input import AdoptedInputOperation
+
 from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
 
 from core.catalog.result_reading import ResultReaderDefinition
@@ -36,6 +39,8 @@ from .structure_export import EXPORT_STRUCTURE_ACTION
 
 def _build(operation: str):
     def factory(context: OperationContext) -> ScientificOperation:
+        if operation == "adopt_candidates":
+            return AdoptedInputOperation(context.resources)
         if operation == "import_sequence":
             return SequenceImportImplementation(context.resources)
         if operation == "import_sequences":
@@ -83,6 +88,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 _OPERATIONS = (
+    "adopt_candidates",
     "import_sequence",
     "import_sequences",
     "import_structure",
@@ -92,6 +98,7 @@ _OPERATIONS = (
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_sources=(ResultSourceDefinition("candidate.collection", "protein_io.adopt_candidates", "protein_io.adopt_candidates.direct"),),
     result_readers=(
         ResultReaderDefinition("protein.sequence", "sequence", read_sequence),
         ResultReaderDefinition("protein.structure", "structure", read_structure),
@@ -107,6 +114,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="protein_io",
     package_module=__package__,
     node_definitions=(
+        DefinitionResource("definitions/adopt_candidates.yaml"),
         DefinitionResource("definitions/sequence_import.yaml"),
         DefinitionResource("definitions/sequences_import.yaml"),
         DefinitionResource("definitions/structure_import.yaml"),

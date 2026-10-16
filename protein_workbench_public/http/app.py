@@ -28,6 +28,7 @@ from protein_workbench_public.http.project_routes import (
     register_project_routes,
 )
 from protein_workbench_public.http.input_routes import register_input_routes
+from protein_workbench_public.http.adoption_routes import register_adoption_routes
 from protein_workbench_public.http.run_routes import register_run_routes
 from protein_workbench_public.http.result_routes import register_result_routes
 from protein_workbench_public.http.prompt_authoring_routes import (
@@ -116,6 +117,7 @@ def create_http_app(
     )
     register_project_routes(app, projects, authoring, rest_operations, runtime)
     register_input_routes(app, projects, rest_operations)
+    register_adoption_routes(app, catalog, projects, runtime, rest_operations)
     register_workflow_routes(app, authoring, rest_operations, runtime)
     register_prompt_authoring_routes(
         app,

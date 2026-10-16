@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.result_adoption import ResultSourceDefinition
+
 from .ui import ModuleUiDefinition, NodeEditorDefinition, ResultViewerDefinition
 
 from collections.abc import Callable, Mapping
@@ -627,6 +629,7 @@ class ModulePackageRegistration:
     authoring_capabilities: tuple[AuthoringCapabilityDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     result_readers: tuple[ResultReaderDefinition, ...] = ()
+    result_sources: tuple[ResultSourceDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -640,6 +643,7 @@ class ModulePackageRegistration:
             "ui_extensions",
             "result_actions",
             "result_readers",
+            "result_sources",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
 

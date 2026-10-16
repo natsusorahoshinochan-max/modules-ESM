@@ -57,3 +57,12 @@
     kind: canonical-protein-io
   scale_contract:
     kind: identity
+- method_id: protein_io.adopt_candidates.method
+  algorithm_identity:
+    name: restore-published-candidates
+  model_identity:
+    kind: none
+  featurization_identity:
+    kind: unchanged
+  scale_contract:
+    kind: identity
