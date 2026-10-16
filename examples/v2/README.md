@@ -119,3 +119,5 @@ For regional statistics of existing per-residue scores, connect a Score Collecti
 to `structure_comparison.region_statistics`, choose its original `metric_id`,
 the same position objects, and `missing_values` (`exclude_null` or `require_all`).
 See [regional behavior and downstream type boundaries](../../docs/module-capabilities.md#不连续区域比较提取与已有指标统计).
+
+结构导入示例使用单构象输入时可省略 `model_index`。更换为多构象文件时，先在“添加来源”检查构象列表，再为 `protein_io.import_structure` 设置从 1 开始的 `model_index`；需要多个候选时使用 `protein_io.import_structures` 和明确的 `model_indices`（例如 `[1, 2]`），将 `structure_candidates` 接至候选处理节点。一个输入引用始终指向一份未改写的原文件。

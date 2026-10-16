@@ -8,7 +8,7 @@
 
 | 已确认的功能职责 | 当前相关代码 | 已存在的能力及边界 |
 |---|---|---|
-| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出。用户选择格式转换、多构象选择及拆分仍需实现。 |
+| 蛋白数据导入与导出 | [`protein_io`](../modules/protein_io/definitions/) | 单条或多条序列、PDB/mmCIF 结构导入及序列/结构导出。单条 FASTA 入口拒绝多记录并提示批量导入；结构保留原格式输出。支持格式转换，单文件多构象可明确选择一个或按选择顺序拆分为单构象候选；原始输入保留。 |
 | 序列与设计条件编辑 | [`prompt_authoring`](../modules/prompt_authoring/definitions/)、[`residue_data`](../modules/residue_data/definitions/) | Prompt 组合、拆解与编辑，带残基身份的轨道及序列物化。随机插入和局部采用按[Prompt 编辑要求](prompt-editing.md)落实，内部位置映射由模块处理。 |
 | 序列生成与设计 | [`esm3`](../modules/esm3/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/) | ESM-3 的序列、结构轨道和配对生成；ProteinMPNN 按骨架与约束生成序列，并保留真实生成父结构和逐次调用 seed。 |
 | 结构预测 | [`folding`](../modules/folding/definitions/) | ESMFold2 本地/远程与 SimpleFold 折叠，保留对应结构与预测置信度。 |
