@@ -436,6 +436,7 @@ class AdmittedPort:
     multiplicity: PortMultiplicity
     values: tuple[AdmittedValue, ...]
     content_digest: str
+    slots: Mapping[str, tuple[AdmittedValue, ...]] = field(default_factory=dict)
 
     @property
     def value(self) -> Any:

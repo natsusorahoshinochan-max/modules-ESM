@@ -68,7 +68,7 @@ function protectPromptMergeSources(before: Workflow, after: Workflow): Workflow 
 
 function connectionEdge(output: WorkflowPort, input: WorkflowPort): WorkflowEdge {
   if (output.direction !== 'output' || input.direction !== 'input') throw new Error('Connections require an output and an input Port')
-  return { source_node_id: output.nodeId, source_port: output.portName, target_node_id: input.nodeId, target_port: input.portName }
+  return { source_node_id: output.nodeId, source_port: output.portName, target_node_id: input.nodeId, target_port: input.portName, target_slot: `input-${crypto.randomUUID()}` }
 }
 
 function editConnection(workflow: Workflow, catalog: CatalogSnapshot, output: WorkflowPort, input: WorkflowPort, previous?: WorkflowEdge): Workflow {
@@ -95,7 +95,7 @@ export function connectWorkflowPorts(workflow: Workflow, catalog: CatalogSnapsho
   return editConnection(workflow, catalog, output, input)
 }
 
-/** Replacing a source within the same many-valued input preserves its positional meaning. */
+/** A changed source has a new slot; node settings may explicitly adopt that source. */
 export function reconnectWorkflowPorts(workflow: Workflow, catalog: CatalogSnapshot, previous: WorkflowEdge, output: WorkflowPort, input: WorkflowPort): Workflow {
   return editConnection(workflow, catalog, output, input, previous)
 }

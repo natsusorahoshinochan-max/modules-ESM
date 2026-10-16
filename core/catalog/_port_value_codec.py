@@ -242,6 +242,10 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is PairwiseObservationContext:
+        for name in ('subject_region', 'reference_region'):
+            region = getattr(value, name)
+            if region is not None and (any(type(item) is not str or not item for item in region) or len(set(region)) != len(region)):
+                raise _errors.PortValueError(f"{path}.{name} requires ordered unique residue identities")
         if value.sequence_correspondence is not None:
             positions: set[int] = set()
             residues: set[str] = set()

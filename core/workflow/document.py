@@ -162,6 +162,7 @@ class WorkflowEdge:
     source_port: str
     target_node_id: str
     target_port: str
+    target_slot: str | None = None
 
     @classmethod
     def from_canonical(cls, payload: Mapping[str, Any]) -> WorkflowEdge:
@@ -171,6 +172,7 @@ class WorkflowEdge:
             source_port=payload["source_port"],
             target_node_id=payload["target_node_id"],
             target_port=payload["target_port"],
+            target_slot=payload.get("target_slot"),
         )
 
     def canonical_projection(self) -> dict[str, Any]:
@@ -180,6 +182,7 @@ class WorkflowEdge:
             "source_port": self.source_port,
             "target_node_id": self.target_node_id,
             "target_port": self.target_port,
+            **({"target_slot": self.target_slot} if self.target_slot is not None else {}),
         }
 
 @dataclass(frozen=True, slots=True)

@@ -93,7 +93,14 @@ class PairwiseObservationContext:
         default=None, metadata={"wire_optional": True},
     )
 
+    subject_region: tuple[str, ...] | None = field(default=None, metadata={"wire_optional": True})
+    reference_region: tuple[str, ...] | None = field(default=None, metadata={"wire_optional": True})
+
     def __post_init__(self) -> None:
+        for name in ('subject_region', 'reference_region'):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, FrozenList(value))
         if self.sequence_correspondence is not None:
             object.__setattr__(self, "sequence_correspondence", FrozenList(
                 FrozenList(pair) for pair in self.sequence_correspondence

@@ -3,7 +3,11 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
+from core.parameters.model import AdmittedParameterValues
+
+from core.parameters.contract import matching_value_contract_alternatives
 from core.catalog.declarations import (
     ExecutionBindingDefinition,
     NodePortDefinition,
@@ -115,6 +119,13 @@ def _admit_workflow_graph(
             )
         source_fact = (index, SelectionInput(source.node_id, edge.source_port))
         existing_sources = input_sources[target.node_id].get(edge.target_port, ())
+        if edge.target_slot is not None and any(
+            workflow.edges[existing_index].target_slot == edge.target_slot
+            for existing_index, _ in existing_sources
+        ):
+            raise WorkflowCompileError('duplicate_input_slot',
+                f'Input slot {edge.target_slot!r} has multiple connections',
+                node_id=target.node_id, field_path=('edges', index, 'target_slot'))
         target_sources = (*existing_sources, source_fact)
         input_sources[target.node_id][edge.target_port] = target_sources
         if len(target_sources) > 1 and target_port.multiplicity != "many":
@@ -181,3 +192,33 @@ def _admit_workflow_graph(
         output_ports_by_node=output_ports_by_node,
         node_order=tuple(order),
     )
+
+
+def _validate_input_slot_references(
+    workflow: WorkflowDocument,
+    plan_nodes: _PlanNodes,
+    admitted_parameters: Mapping[str, AdmittedParameterValues],
+) -> None:
+    """Validate declared parameter references to node-local connected slots."""
+    for node_index, node in enumerate(workflow.nodes):
+        connected = {(edge.target_port, edge.target_slot) for edge in workflow.edges
+                     if edge.target_node_id == node.node_id and edge.target_slot is not None}
+        def visit(schema: Mapping[str, Any], value: Any, path: tuple[str | int, ...]) -> None:
+            input_port = schema.get('input_port')
+            if input_port is not None and (input_port, value) not in connected:
+                raise WorkflowCompileError(
+                    'required_input_missing', f'Input slot {value!r} on {input_port!r} is disconnected',
+                    node_id=node.node_id, field_path=path)
+            if isinstance(value, Mapping):
+                for name, child in schema.get('properties', {}).items():
+                    if name in value:
+                        visit(child, value[name], (*path, name))
+            if isinstance(value, (list, tuple)) and 'items' in schema:
+                for index, item in enumerate(value):
+                    visit(schema['items'], item, (*path, index))
+            for alternative in matching_value_contract_alternatives(value, schema):
+                visit(alternative, value, path)
+        for declaration in plan_nodes[node.node_id][0].parameter_contract.entries:
+            if declaration.name in admitted_parameters[node.node_id]:
+                visit(declaration.value_contract, admitted_parameters[node.node_id][declaration.name],
+                      ('nodes', node_index, 'node_parameters', declaration.name))

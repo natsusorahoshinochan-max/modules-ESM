@@ -31,7 +31,7 @@ function Editor({ onApply, results, client, ...props }: ModuleEditorProps) {
   const readError = published.phase === 'error' ? workspaceErrorMessage(published.error) : load.run === run && load.phase === 'error' ? load.error : undefined
   if (readError) return <div role="alert">候选读取失败：{readError}<button onClick={() => { if (published.phase === 'error') void results.refresh(); setRetry(value => value + 1) }}>重新读取</button><button onClick={props.onCancel}>取消</button></div>
   if (published.phase !== 'idle' && (!run || load.run !== run || load.phase !== 'ready')) return <div role="status">正在读取候选…<button onClick={props.onCancel}>取消</button></div>
-  return <>{error && <p role="alert">{error}</p>}<SelectionEditor {...props} candidateCollections={snapshot.index.collections} onChange={next => { setError(''); void onApply(next).catch(reason => setError(workspaceErrorMessage(reason))) }} /></>
+  return <>{error && <p role="alert">{error}</p>}<SelectionEditor {...props} candidateCollections={snapshot.index.collections} scoreObservations={snapshot.index.scores} onChange={next => { setError(''); void onApply(next).catch(reason => setError(workspaceErrorMessage(reason))) }} /></>
 }
 
 export function register() {

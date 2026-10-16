@@ -5600,6 +5600,9 @@
         },
         "target_port": {
           "$ref": "#/$defs/Identifier"
+        },
+        "target_slot": {
+          "$ref": "#/$defs/Identifier"
         }
       },
       "required": [

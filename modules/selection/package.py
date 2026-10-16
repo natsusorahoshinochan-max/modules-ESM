@@ -31,6 +31,7 @@ from core.catalog.port_contract import (
 from core.operation import OperationContext
 
 from .implementation import SelectionImplementation
+from .operation import RawSelectionOperation
 
 
 OPERATIONS = (
@@ -52,7 +53,9 @@ def _available() -> AvailabilityResult:
 
 
 def _factory(operation: str):
-    def build(context: OperationContext) -> SelectionImplementation:
+    def build(context: OperationContext):
+        if operation in {"sort", "top_k"}:
+            return RawSelectionOperation(operation)
         return SelectionImplementation(
             operation=operation,
             objectives=context.selection_objectives,
@@ -94,7 +97,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         cacheable=True,
         selection_objective_consumption=(
             None
-            if operation in {"filter", "manual"}
+            if operation in {"filter", "manual", "sort", "top_k"}
             else SelectionObjectiveConsumptionDefinition(
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",

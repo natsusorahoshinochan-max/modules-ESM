@@ -49,6 +49,7 @@ class _ExecutionPlanValueSource:
 
     node_id: str
     output_port: str
+    target_slot: str | None = None
 
 @dataclass(frozen=True, slots=True)
 class ResultIdentityPlanFacts:
@@ -74,6 +75,7 @@ class ResultIdentityPlanFacts:
         self,
         *,
         input_value_content_digests: Mapping[str, tuple[str, ...]],
+        input_slot_content_digests: Mapping[str, Mapping[str, tuple[str, ...]]],
         node_parameters: Mapping[str, Any],
         binding_parameters: Mapping[str, Any],
         deterministic: bool,
@@ -110,6 +112,8 @@ class ResultIdentityPlanFacts:
                 "effective_randomness": thaw_i_json(effective_randomness),
             },
         }
+        if input_slot_content_digests:
+            descriptor["input_slots"] = thaw_i_json(input_slot_content_digests)
         if resolved_resource_inputs:
             descriptor["resolved_resource_inputs"] = thaw_i_json(
                 resolved_resource_inputs

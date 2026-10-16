@@ -6,7 +6,7 @@
 
 设独立导入的序列分为 A1、A2 和 B1、B2，评价参考分别是骨架 A、B。两组各用 `collection_ops.relate_to_single_reference` 指定评价关系，再用 `concat_candidates` 合并序列与骨架、`concat_relations` 合并关系。导入候选的 `parent_ids` 保持原值；评价关系不是生成谱系。
 
-把序列、参考骨架与明确关系传入兼容的评分操作。评分操作仍保留其实际产生的 Score Collection；Top-k 只消费已有结果。所选 Metric、Method、Context、partition 和 Utility Transform 必须来自该评分操作的公开声明，不以显示名称或当前默认值代替。
+把序列、参考骨架与明确关系传入兼容的评分操作。评分操作仍保留其实际产生的 Score Collection；Top-k 只消费已有结果。所选 Metric、Method、Context、partition 必须来自该评分操作的公开声明，不以显示名称或当前默认值代替。
 
 ## 画布连线
 
@@ -20,10 +20,24 @@
 | `per_a`：`selection.top_k` | `candidates=scope_a.candidates`、同一 `scores`、`k=1` | 骨架 A 前一名 |
 | `per_b`：`selection.top_k` | `candidates=scope_b.candidates`、同一 `scores`、`k=1` | 骨架 B 前一名 |
 
-每个 Top-k 使用独立 Selection Objective，`candidate_input` 指向本分支候选输出，`score_collection_input` 指向评分输出。其余评价身份与转换相同。候选范围可以不同于评分操作最初的主体输入端点，匹配仍使用完整 Candidate Data Reference。
+每个 Top-k 在自己的 `node_parameters` 中保存评价和排序方向，普通连线给分数来源分配节点本地稳定槽：
 
-各分支设置 `out_of_scope_policy: ignore`，明确忽略同一 Score Collection 中其他范围的观察；这不忽略本范围内缺失或多义的必需观察。`match_cardinality: exactly_one` 和 `missing_policy: error` 保持严格含义。现有实现限制 `k` 不能超过本分支候选数，这与已确认的“最多取 k 个”要求冲突，须在重构中修正。
+```json
+{
+  "selection": {
+    "score_input": "evaluations",
+    "metric_id": "所选指标的稳定身份",
+    "method_id": "实际评价方法的稳定身份",
+    "source_partition": "实际评分分区",
+    "context": {"kind": "intrinsic"}
+  },
+  "direction": "descending",
+  "k": 2
+}
+```
 
-## 重构边界
+对应分数连线使用 `target_port: "scores"`、`target_slot: "evaluations"`。示例中的身份占位值须由节点编辑器按实际观察选择，不能直接作为可运行配置。成对评价采用该来源的 pairwise Context Profile；存在多个参考时连接普通 `relations` 输入，并在 `selection.relation_input` 中选择相应稳定槽，或从已有结果选择精确实际 Context。主体各自可有不同参考对象，不用生成父子关系代替评价关系。
 
-以上为现有实现的组合方式，不是重构后的接口契约。目标要求为节点本地规则、按原值排序、最多取 k 个；候选不足时返回全部。重构测试须依据[当前有效决策](../../docs/documentation-governance-decisions.md#筛选规则与排序)从零编写。
+各节点分别设置自己的 `k`。它们只匹配本分支候选的评价，共用评分中的其他观察不影响选择；本范围缺分或仍有歧义时停止。方向直接解释指标原值，不需要评分转换。同分保持本分支输入顺序。Top-k 表示最多 k 个，不足取全部，空集合返回空集合；并列不扩充数量。
+
+该组合使用普通节点及连线决定范围，不新增固定的按骨架模式。输出保留原候选内容、身份、metadata 和生成来源。
