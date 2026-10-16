@@ -27,7 +27,7 @@
 
 - **要求**：选择模块包安装并启用，支持开关和卸载；官方与外部模块同等接入，无科学模块时载体独立可用；运行配置可在应用界面完成。
 - **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 24–90 行固定导入和注册功能包；[provider_environment](../protein_workbench_public/provider_environment.py)仍按具体 Binding 与工具装配环境配置。
-- **缺失模块打开**：Q14 还要求保留缺失节点、连线和配置并允许打开项目；[前端 authoring](../webui/src/workflow-authoring.ts)第 155、165 行遇到未知 Node Type/Binding 仍直接抛错，缺失占位路径须一并对齐。
+- **缺失模块打开**：[前端 authoring](../webui/src/workflow-authoring.ts)以缺失占位呈现未知 Node Type/Binding；配置保持未解释状态，已保存端口仅用于展示连线，不猜测端口契约。个人项目打开与手动保存路径已实现，当前变更的运行验收另行收集。缺失模块的教学副本首次保存仍依赖 Catalog 发现输入，须完善输入依赖持久化；不能猜测引用或丢失所需输入。
 - **局部运行核验**：[项目组合测试](../tests/journeys/test_project_journeys.py)的 `test_missing_module_project_is_preserved_until_catalog_restoration` 本地通过，证明注入缺失 Catalog 时项目内容保留、恢复 Catalog 后可继续使用；不证明前端缺失占位或用户安装、启用、卸载链已实现。
 - **状态**：现行[架构](architecture.md)与[配置说明](provider-configuration.md)区分目标与当前固定装配。用户安装管理及通用设置未证实完整，不能以仓库目录结构限制外部模块。
 

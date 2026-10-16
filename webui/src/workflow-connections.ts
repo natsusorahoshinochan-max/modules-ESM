@@ -20,12 +20,14 @@ export function workflowPortPresentation(workflow: Workflow, catalog: CatalogSna
 }
 
 export function portTypeId(workflow: Workflow, catalog: CatalogSnapshot, port: WorkflowPort): string {
-  return workflowPortPresentation(workflow, catalog, port).portTypeId
+  const descriptor = workflowPortPresentation(workflow, catalog, port)
+  if (descriptor.missing) throw new Error(`Port ${port.nodeId}/${port.portName} requires its missing module`)
+  return descriptor.portTypeId
 }
 
 /** Local Port matching only: full Workflow validity belongs to the compiler. */
 export function workflowPortsMatch(output: Pick<PortPresentation, 'portTypeId' | 'multiplicity'>, input: Pick<PortPresentation, 'portTypeId' | 'multiplicity'>): boolean {
-  return output.portTypeId === input.portTypeId && !(output.multiplicity === 'many' && input.multiplicity === 'one')
+  return output.portTypeId !== undefined && input.portTypeId !== undefined && output.portTypeId === input.portTypeId && !(output.multiplicity === 'many' && input.multiplicity === 'one')
 }
 
 export function compatibleWorkflowPorts(workflow: Workflow, catalog: CatalogSnapshot, anchor: WorkflowPort): WorkflowPort[] {

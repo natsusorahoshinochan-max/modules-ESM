@@ -79,9 +79,9 @@ Draft/UI 内容先追加，最终 workspace record 发布后成为当前工作�
 |---|---|---|
 | 手动保存、未保存退出提醒、保存并运行 | 已实现内存编辑、显式保存与应用内退出选择；浏览器关闭使用原生提醒；相关保存与应用内退出旅程回归通过 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[App](../webui/src/App.tsx) |
 | 同一项目运行期间禁改 | 前端编辑 owner 与后端修改边界限制修改，结果阅读仍可用；对应载体与应用旅程回归通过 | [App](../webui/src/App.tsx) |
-| 缺少模块仍能打开并保留项目 | 当前 Workflow 解码要求 Node Type/Binding 存在；需要对齐 | [workflow-authoring](../webui/src/workflow-authoring.ts) |
+| 缺少模块仍能打开并保留项目 | 画布以缺失占位展示未知 Node Type/Binding，保留原始配置、连线与布局；手动保存个人项目不依赖运行编译。模块恢复后的完整用户管理链仍需验收；缺失模块教学副本首次保存的输入依赖发现尚待对齐 | [workflow-authoring](../webui/src/workflow-authoring.ts) |
 | 首次手动保存教学副本 | 首次显式保存一次发布完整个人项目，不带教学运行；命名版本修改亦显式保存；首次保存、重新打开及原件保护回归通过 | [WorkspaceEditor](../webui/src/workspace-editor.ts)、[authoring](../core/workflow/authoring.py) |
 | 运行历史及历史/跨项目输入采用 | 现有前端主要打开最近运行；普通项目复制和节点级继续不等于完成这些要求，完整采用路径及来源删除后的可用性仍需核对 | [App](../webui/src/App.tsx)、[结果规范](results.md) |
 | 官方/外部模块、React 专用界面、多个查看器及应用设置 | 固定装配和专用分派尚未形成完整模块接入路径 | [架构](architecture.md)、[Provider 配置](provider-configuration.md) |
 
-内容与链接核对不代表运行验收通过。涉及行为修改时，按[WebUI 验证入口](../webui/README.md#verification)与[后端验证](backend-verification.md#execution-policy)在远端执行对应检查。
+内容与链接核对不代表运行验收通过。涉及行为修改时，按[WebUI 验证入口](../webui/README.md#verification)与[后端验证](backend-verification.md#execution-policy)在本机执行对应检查。
