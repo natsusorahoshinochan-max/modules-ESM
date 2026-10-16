@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import math
-from typing import Protocol, TYPE_CHECKING
+from typing import Any, Protocol, TYPE_CHECKING
 
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
@@ -39,6 +39,7 @@ class ESMFold2Adapter(Protocol):
         self,
         *,
         sequence: ProteinSequence,
+        parameters: Mapping[str, Any],
         derived_call_seed: int,
         engine_role: str,
     ) -> ESMFold2AdapterResult: ...

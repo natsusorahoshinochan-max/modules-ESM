@@ -104,7 +104,8 @@ ATOM 1 C CA . GLY B 1 1 ? 1 2 3 1 20 A42 B 1
             **location, "action_id": "protein_io.export_structure",
             "parameters": {"item_index": 0, "format": "pdb"},
         })
-        assert rejected.status_code == 422, rejected.text
+        assert rejected.status_code == 400, rejected.text
+        assert rejected.json()["error"]["code"] == "malformed_request"
         assert "choose mmCIF" in rejected.text
         preserved = http.post(f"{results}/results:action", json={
             **location, "action_id": "protein_io.export_structure",

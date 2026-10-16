@@ -5650,7 +5650,7 @@
           "$ref": "#/$defs/Identifier"
         },
         "parameters": {
-          "type": "object"
+          "$ref": "#/$defs/JsonObject"
         },
         "project_id": {
           "$ref": "#/$defs/ProjectId"
@@ -5676,7 +5676,7 @@
       "type": "object"
     },
     "ResultActionValue": {
-      "type": "object"
+      "$ref": "#/$defs/JsonObject"
     },
     "ResultCandidateReference": {
       "additionalProperties": false,

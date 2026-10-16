@@ -134,14 +134,16 @@ test('an accepted parameter edit can be undone with the keyboard', async ({ page
   await enterExampleStage(page, 2)
   const generationNode = page.getByTestId('rf__node-generate-paired')
   await generationNode.getByLabel('编辑参数').click()
-  const seed = generationNode.getByLabel('有效种子')
-  await expect(seed).toHaveValue('1603')
-  await seed.fill('1604')
-  await seed.press('Tab')
+  const temperature = generationNode.getByLabel('模型参数 · sequence_temperature', { exact: true })
+  await expect(temperature).toHaveValue('')
+  await temperature.fill('1')
+  await temperature.press('Tab')
+  await temperature.fill('0.7')
+  await temperature.press('Tab')
 
   await page.locator('.react-flow__pane').click({ force: true, position: { x: 1100, y: 800 } })
   await page.keyboard.press('ControlOrMeta+z')
-  await expect(seed).toHaveValue('1603')
+  await expect(temperature).toHaveValue('1')
 })
 
 test('Prompt Studio edits the backend projection and shows every prompt track', async ({ page }) => {
@@ -253,8 +255,8 @@ test('opening run preparation with unsaved edits does not commit or start automa
   })
   const node = page.getByTestId('rf__node-generate-paired')
   await node.getByLabel('编辑参数').click()
-  await node.getByLabel('有效种子').fill('1604')
-  await node.getByLabel('有效种子').blur()
+  await node.getByLabel('模型参数 · sequence_temperature', { exact: true }).fill('0.7')
+  await node.getByLabel('模型参数 · sequence_temperature', { exact: true }).blur()
   await page.getByRole('button', { name: '运行流程', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   expect(writes).toEqual([])
@@ -886,4 +888,30 @@ test('node groups preserve editing context, parameter Escape and independent cop
   await expect(page.getByRole('heading', { name: 'Take an ordered Candidate prefix', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '返回上层 · Tab' }).click()
   await expect(page.getByRole('button', { name: '进入组 节点组', exact: true })).toHaveCount(1)
+})
+
+
+test('ESMFold2 nullable numeric settings survive explicit save without model execution', async ({ page }) => {
+  await page.goto('/')
+  await enterExampleStage(page, 3)
+  const foldNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Fold protein sequences' }) }).first()
+  await foldNode.locator('summary[aria-label="编辑参数"]').click()
+  const depth = foldNode.getByLabel('模型参数 · msa_max_depth')
+  await depth.fill('null')
+  await depth.blur()
+  await foldNode.getByLabel('模型参数 · num_sampling_steps').fill('37')
+  await foldNode.getByLabel('模型参数 · num_sampling_steps').blur()
+  const copying = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(':copy'))
+  await page.getByRole('button', { name: '保存项目', exact: true }).click()
+  const project = await (await copying).json() as { id: string; latest_run_id: string | null }
+  expect(project.latest_run_id).toBeNull()
+  const readParameters = async () => {
+    const workspace = await (await page.request.get(`/api/v2/projects/${project.id}/workspace`)).json() as { draft: { workflow: Workflow } }
+    return workspace.draft.workflow.nodes.find(node => node.node_id === 'fold-stage-one')!.binding_parameters
+  }
+  await expect.poll(readParameters).toMatchObject({ msa_max_depth: null, num_sampling_steps: 37 })
+  await depth.fill('2048')
+  await depth.blur()
+  await page.getByRole('button', { name: '保存项目', exact: true }).click()
+  await expect.poll(readParameters).toMatchObject({ msa_max_depth: 2048, num_sampling_steps: 37 })
 })

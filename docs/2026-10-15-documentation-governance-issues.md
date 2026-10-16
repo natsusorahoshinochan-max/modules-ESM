@@ -17,11 +17,11 @@
 - **当前实现**：[Binding 声明](../modules/esm3/package.py)按官方远程快照限制 Biohub 1–100 步，本地正整数不套用远程上限，保留 SDK 有效步数处理。
 - **待核验**：完整非 Provider 门禁与 Biohub 真实验收；本地重模型执行排除，保留不加载模型的契约检查。
 
-### DOC-019｜历史运行列表与历史结果采用尚未证实完整
+### DOC-019｜历史结果采用与来源删除独立性尚未证实完整
 
 - **要求**：运行列表可打开以前的运行；支持本项目及跨项目结果直接采用，采用后不因来源项目删除而失效。不提供跨运行候选并排查看。
-- **当前证据**：[App](../webui/src/App.tsx)第 398–419 行主要读取 latest Run；项目复制或节点级重跑不能证明任意历史采用和输入独立性已提供。
-- **状态**：[工作区](workspace.md)和[结果说明](results.md)已明确要求；完整入口、采用与独立持久化路径仍需核查和对齐，不仅凭 Project-local 引用认定不可跨项目使用。
+- **当前证据**：[运行历史](../webui/src/RunHistoryDialog.tsx)与[公共 Run 路由](../protein_workbench_public/http/run_routes.py)支持项目运行列表及单 Run 查看，查看选择独立于流程保存和活动运行锁。项目复制或节点级重跑不能证明任意历史采用和输入独立性已提供。
+- **状态**：[工作区](workspace.md)和[结果说明](results.md)已区分历史查看与输入采用；完整采用入口及独立持久化路径仍需核查和对齐，不仅凭 Project-local 引用认定不可跨项目使用。
 
 ### DOC-020｜用户插件管理与空载体能力尚未完整接入
 
@@ -65,10 +65,10 @@
 - **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
 - **待核验**：当前调用方、示例与参数记录的完整集成门禁和 Biohub 真实验收；见[参数审查](tool-parameter-exposure-audit.md)。不将不加载模型的契约检查记为本地重模型通过。
 
-### DOC-040｜ESMFold2 适用推理参数仍固定
+### DOC-040｜ESMFold2 参数接入的完整验收待完成
 
-- **当前证据**：[远程调用](../modules/folding/esmfold2_remote.py)第 77–85 行及[本地调用](../modules/folding/esmfold2_local.py)第 125–136 行固定步数、循环、dropout、mask 和 MSA 配置；[节点声明](../modules/folding/definitions/fold.yaml)第 22–44 行仅开放部分参数。
-- **状态**：按各官方入口的适用条件整改，不因参数开放新增模型路线或全部输出模式；本地其他参数的适用性和默认步数依据仍需核对。见[参数审查](tool-parameter-exposure-audit.md)。
+- **当前实现**：[Binding](../modules/folding/package.py)已声明六项适用推理参数，由远程和本地 Adapter 分别传入官方接口；范围、默认值和 null 语义按各路线区分。未展示标准本地模型实际忽略的 sampler overrides。
+- **待核验**：完整集成门禁及 Biohub 非默认参数真实验收；本地重模型执行排除，保留不加载模型的契约检查。具体范围见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与待验收范围)。
 
 ### DOC-041｜SimpleFold 的 tau 与步数范围仍受封装限制
 
@@ -93,11 +93,11 @@
 - **当前实现**：[bootstrap](../protein_workbench_public/bootstrap.py)读取安装清单，空 Catalog 不安装教学项目；有教学文件且所需节点与 Binding 存在时才安装，编译错误不被吞掉。前端无教学项目时可进入个人项目或创建入口。
 - **状态**：生产空清单的协议与浏览器旅程已添加，尚待冻结源码验证；应用内模块管理入口仍待接入。默认教学入口、原件保护及首次手动保存副本仍须保持通过。
 
-### DOC-050｜结果 ZIP 缺少已记录的计算参数
+### DOC-050｜结果 ZIP 的计算参数关联
 
 - **要求**：导出附带已经记录的计算参数，供离开软件后查看。
-- **当前证据**：[导出 manifest](../webui/src/result-explorer.ts)第 19、110 行未包含节点或 Binding 参数；[published-results](../webui/src/published-results.ts)第 259–261 行读取 Commit 后只保留 scientific_definitions，prepareExport 未传原 Workflow 参数。
-- **状态**：按[导出约定](results.md)补齐已有参数，不把定义或 Run/Commit ID 当作实际参数，不补造未记录信息或新增日志体系。
+- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../webui/src/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
+- **状态**：已添加修改工作区后混合导出、缓存原来源及原记录缺失的浏览器下载旅程；当前冻结源码验证待完成。格式及导出边界见[导出约定](results.md#导出)。
 
 ### DOC-051｜多构象选择及拆分尚未提供
 

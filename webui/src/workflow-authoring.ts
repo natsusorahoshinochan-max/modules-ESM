@@ -46,7 +46,7 @@ export type NodeTypePresentation = {
 }
 
 export type ParameterValueContract = {
-  type?: string
+  type?: string | string[]
   title?: string
   scientific_meaning?: string
   enum?: unknown[]
@@ -145,7 +145,7 @@ function parameterPresentationsForScope(parameters: JsonObject | undefined, valu
       label: scope === 'binding' ? `模型参数 · ${key}` : nodeLabels[key] ?? key,
       value: displayParameterValue(values[key]),
       scope,
-      valueType: valueContract.type ?? 'string',
+      valueType: Array.isArray(valueContract.type) ? 'json' : valueContract.type ?? 'string',
       required: descriptor.required === true,
       groupId: `${scope}:${group?.id ?? 'parameters'}`,
       groupTitle: group?.title ?? (scope === 'binding' ? '模型专属参数' : '科学参数'),

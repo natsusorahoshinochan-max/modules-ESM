@@ -340,7 +340,12 @@ def test_public_read_routes_share_published_location_and_keep_errors() -> None:
     port = catalog.require_port_type("protein.sequence")
     reader = _value_reader(port.type_id, port.encode(ProteinSequence("AC")))
     app = FastAPI()
-    register_result_routes(app, reader, load_bundle()["rest_operations"])
+    from protein_workbench_public.result_actions import ResultActionReader
+    actions = ResultActionReader(catalog, lambda *location: (
+        {"typed_value": {"port_type": port.reference()}},
+        port.encode(ProteinSequence("AC")), (),
+    ))
+    register_result_routes(app, reader, load_bundle()["rest_operations"], actions)
     payload = {"project_id": "project", "run_id": "run", "node_id": "source",
                "output_port": "output", "value_index": 0}
     with TestClient(app) as client:

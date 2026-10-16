@@ -364,6 +364,8 @@ test('historical runs retain exact selection across refresh and project reopen',
   }
   await page.goto('/')
   await openProject(page, project.name)
+  const workspaceWrites: string[] = []
+  page.on('request', outgoing => { if (outgoing.method() === 'PUT' && outgoing.url().endsWith(`${prefix}/workspace`)) workspaceWrites.push(outgoing.url()) })
   await page.getByRole('button', { name: '运行历史', exact: true }).click()
   const history = page.getByRole('dialog', { name: '项目运行历史', exact: true })
   for (const run of completed) {
@@ -385,6 +387,7 @@ test('historical runs retain exact selection across refresh and project reopen',
   await page.getByRole('button', { name: '查看结果', exact: true }).click()
   await expect(page.locator('.result-stages')).toContainText(completed[0].run_id)
   await expect(page.locator('.result-stages')).not.toContainText(completed[1].run_id)
+  expect(workspaceWrites).toEqual([])
 })
 
 test('an active project run keeps editing locked while viewing a completed historical run', async ({ page, request }) => {
@@ -410,4 +413,29 @@ test('an active project run keeps editing locked while viewing a completed histo
   await expect(page.getByRole('button', { name: '保存项目', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '运行中', exact: true })).toBeDisabled()
   await expect(page.getByTestId('rf__node-import').locator('article')).toBeVisible()
+})
+
+test('switching between projects with active runs keeps the new editor session locked', async ({ page, request }) => {
+  const projects: Array<{ id: string; name: string; runId: string }> = []
+  for (let index = 0; index < 2; index++) {
+    const { project, workflow } = await createWorkspace(request)
+    const prefix = `/api/v2/projects/${project.id}`
+    const commit = await (await request.post(`${prefix}/workflow:commit`, { data: { workflow } })).json()
+    const receipt = await (await request.post(`${prefix}/runs`, { data: { workflow_commit_id: commit.workflow_commit_id, client_request_id: crypto.randomUUID(), scope: { mode: 'full', node_ids: [] } } })).json()
+    await expect.poll(async () => (await (await request.get(`${prefix}/runs/${receipt.run_id}`)).json()).status).toBe('succeeded')
+    projects.push({ id: project.id, name: project.name, runId: receipt.run_id })
+    await page.route(`**${prefix}/runs`, async route => {
+      const response = await route.fetch()
+      const body = await response.json()
+      body.runs[0].status = 'running'
+      await route.fulfill({ response, json: body })
+    })
+    await page.routeWebSocket(`**${prefix}/runs/${receipt.run_id}/events*`, () => {})
+  }
+  await page.goto(`/?project=${projects[0].id}&run=${projects[0].runId}`)
+  await expect(page.locator('.palette-item').first()).toBeDisabled()
+  await openProject(page, projects[1].name)
+  await expect(page.locator('.run-progress-id')).toHaveText(projects[1].runId)
+  await expect(page.locator('.palette-item').first()).toBeDisabled()
+  await expect(page.getByRole('button', { name: '运行中', exact: true })).toBeDisabled()
 })

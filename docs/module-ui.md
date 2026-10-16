@@ -19,3 +19,9 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 Python wheel 构建需要 Node.js 22.12+ 和已安装的前端构建工具。`setup.py` 的 `build_py` 将同样的 JS/CSS 编译到 wheel 暂存目录；安装后的服务器读取这些资源，不需要 Node.js。sdist 包含源码、工具与 npm 锁文件；从独立 sdist 构建时先在其 `webui/` 执行 `npm ci`，或者显式设置 `PROTEIN_WORKBENCH_UI_TOOLCHAIN` 指向已有相同锁版本的 `webui/` 工具目录。构建不自动安装依赖。验证构建显式使用冻结源码对应的工具目录。
 
 本次新增公共发现/资源测试及外部编辑器浏览器旅程；运行结果按[验证政策](backend-verification.md#execution-policy)单独收集。Selection 的现有取消、筛选、保存和教学旅程继续保留，公共接口声明不等于完整验收已通过。
+
+Module UI source directories declare `"type": "module"` in their own
+`package.json`. This keeps source imports in the ESM loading path when Node
+checks consume them from outside the WebUI package scope. Playwright's shared
+runtime tsconfig resolves React to the WebUI toolchain installation; it does
+not change a source directory's Node module format.

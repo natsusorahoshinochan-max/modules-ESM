@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 const testDataRoot = mkdtempSync(join(tmpdir(), 'protein-workbench-module-ui-'))
 export default defineConfig({
+  tsconfig: './tsconfig.test.json',
   testDir: './tests/module-ui',
   globalSetup: './tests/support/journey-environment.ts',
   metadata: { backendDataRoot: testDataRoot }, retries: 0,

@@ -26,6 +26,7 @@ async function open(page: Page, name: string) {
   await dialog.getByRole('button').filter({ has: page.getByText(name, { exact: true }) }).click()
   await dialog.getByRole('button', { name: '打开项目', exact: true }).click()
   await expect(page.locator('.project-identity strong')).toHaveText(name)
+  await expect(page.getByRole('button', { name: '运行流程', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: '适合视图', exact: true }).click()
 }
 const node = (page: Page, id: string) => page.getByTestId(`rf__node-${id}`)
@@ -34,6 +35,7 @@ const handle = (page: Page, id: string, port: string) => node(page, id).locator(
 async function drag(page: Page, from: Locator, to: Locator | { x: number; y: number }) {
   await from.hover()
   const box = (await from.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width / 2 + 25, box.y + box.height / 2, { steps: 5 })
   await expect(page.locator('.react-flow__connection')).toHaveCount(1)

@@ -167,8 +167,8 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert remote.descriptor["node_type"] == local.descriptor["node_type"]
     assert remote.descriptor["produced_observations"] == ()
     assert local.descriptor["produced_observations"] == ()
-    assert remote.descriptor["binding_parameters"] == {}
-    assert local.descriptor["binding_parameters"] == {}
+    assert remote.descriptor["binding_parameters"]["num_sampling_steps"]["default"] == 100
+    assert local.descriptor["binding_parameters"]["num_sampling_steps"]["default"] == 200
     assert remote.descriptor["execution_route"] == "adapter"
     assert local.descriptor["execution_route"] == "adapter"
     assert remote.descriptor["deterministic"] is False
@@ -1065,6 +1065,7 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
             self,
             *,
             sequence: ProteinSequence,
+            parameters: dict[str, Any],
             derived_call_seed: int | None,
             engine_role: str,
         ) -> ESMFold2AdapterResult:
@@ -1287,15 +1288,16 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
 
     class LocalClient:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, int]] = []
+            self.calls: list[tuple[str, int, dict[str, Any]]] = []
 
         def fold(
             self,
             *,
             sequence: str,
+            parameters: dict[str, Any],
             effective_seed: int,
         ) -> LocalResult:
-            self.calls.append((sequence, effective_seed))
+            self.calls.append((sequence, effective_seed, dict(parameters)))
             return LocalResult()
 
     environment: dict[str, Any] = {}
@@ -1310,6 +1312,13 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         route=route,
         client=client,
         environment_overrides=environment,
+        binding_parameters={
+            "num_sampling_steps": 250 if route == "local" else 37,
+            "num_loops": 25 if route == "local" else 8,
+            "lm_dropout": None if route == "local" else 0.2,
+            "lm_mask_pct": None if route == "local" else 0.04,
+            "msa_max_depth": None, "msa_column_mask_rate": 0.25,
+        },
     )
 
     assert projection["status"] == "succeeded", json.dumps(
@@ -1455,10 +1464,21 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         assert model_name == "esmfold2-fast-2026-05"
         assert config.include_pae is True
         assert config.include_embeddings is False
+        assert config.num_sampling_steps == 37
+        assert config.num_loops == 8
+        assert config.lm_dropout == 0.2
+        assert config.lm_mask_pct == 0.04
+        assert config.msa_max_depth is None
+        assert config.msa_column_mask_rate == 0.25
     else:
         assert len(client.calls) == 1
         assert client.calls[0][0] == "AG"
         assert isinstance(client.calls[0][1], int)
+        assert client.calls[0][2] == {
+            "num_sampling_steps": 250, "num_loops": 25,
+            "lm_dropout": None, "lm_mask_pct": None,
+            "msa_max_depth": None, "msa_column_mask_rate": 0.25,
+        }
 
 
 @pytest.mark.parametrize(

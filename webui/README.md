@@ -210,3 +210,5 @@ for the prepared service and Project, then run
 `npx playwright test --config playwright.real.config.ts` on the verification host.
 
 模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；外部编辑器旅程通过 `npm run test:module-ui` 在独立公共应用上验证。后端源码资产读取检查前执行 `npm run build:module-ui`，wheel 构建自动生成包内资源。
+
+所有 Playwright 入口使用 `tsconfig.test.json` 将 React 运行时解析到 WebUI 工具链依赖，使位于 `modules/*/ui` 的源码也使用同一安装包；应用类型检查仍使用 `tsconfig.app.json`。模块资产在浏览器中按声明的绝对 URL 导入，不接受开发服务器额外添加的协议查询参数。

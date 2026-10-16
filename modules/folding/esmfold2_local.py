@@ -117,6 +117,7 @@ class _LocalEngine:
         self,
         *,
         sequence: str,
+        parameters: Mapping[str, Any],
         effective_seed: int,
     ) -> object:
         provider_input = self.structure_prediction_input_type(
@@ -125,14 +126,9 @@ class _LocalEngine:
         return self.builder.fold(
             self.model,
             provider_input,
-            num_loops=20,
-            num_sampling_steps=100,
             num_diffusion_samples=1,
             seed=effective_seed,
-            lm_dropout=0.3,
-            lm_mask_pct=0.1,
-            msa_max_depth=1024,
-            msa_column_mask_rate=0.1,
+            **parameters,
             complex_id="protein-workbench-fold",
         )
 
@@ -341,6 +337,7 @@ class LocalESMFold2Adapter:
         self,
         *,
         sequence: ProteinSequence,
+        parameters: Mapping[str, Any],
         derived_call_seed: int,
         engine_role: str,
     ) -> ESMFold2AdapterResult:
@@ -358,6 +355,7 @@ class LocalESMFold2Adapter:
             ):
                 raw_result = engine.fold(
                     sequence=sequence.sequence,
+                    parameters=parameters,
                     effective_seed=derived_call_seed,
                 )
         return decode_local_fold_result(
