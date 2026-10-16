@@ -436,6 +436,15 @@ class V2RunService:
     def active_run_ids(self, project_id: str) -> tuple[str, ...]:
         return self._registry.active_run_ids(project_id)
 
+    def project_execution_state(self, project_id: str) -> tuple[tuple[str, ...], bool]:
+        """Expose the same execution ownership used by project mutation admission."""
+        self._projects.require_meta(project_id)
+        with self._worker_condition:
+            return self.active_run_ids(project_id), project_id in self._reserved_projects
+
+    def unavailable_run_ids(self, project_id: str) -> tuple[str, ...]:
+        return self._registry.unavailable_run_ids(project_id)
+
     def trash_project(self, project_id: str) -> ProjectMeta:
         """Trash an idle Project without removing its retained content."""
         with self.project_mutation(project_id):
@@ -519,7 +528,7 @@ class V2RunService:
         self._node_attempt_factory.shutdown()
 
     def project_runs(self, project_id: str) -> tuple[RunProjection, ...]:
-        """Read every admitted Run of an existing Project."""
+        """Read the registered, readable Runs of an existing Project."""
         self._projects.require_meta(project_id)
         return tuple(
             self.projection(project_id, run_id)

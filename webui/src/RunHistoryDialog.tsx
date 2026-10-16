@@ -14,8 +14,8 @@ export function RunHistoryDialog({ runs, loading, error, selected, onOpen, onRef
     {error && <p role="alert">{error}</p>}
     {!loading && !error && runs.length === 0 && <p>此项目尚无运行。</p>}
     <ul className="run-history-list">{runs.map(run => <li key={run.run_id}>
-      <code>{run.run_id}</code><p>{run.status} · {run.has_results ? '有保留结果' : '无保留结果'}</p>
-      <small>流程提交：{run.workflow_commit_id}</small>
+      <code>{run.run_id}</code>{run.availability === 'unavailable' ? <p role="status">运行记录不可读取；无法确定其状态及保留结果。</p> : <><p>{run.status} · {run.has_results ? '有保留结果' : '无保留结果'}</p>
+      <small>流程提交：{run.workflow_commit_id}</small></>}
       <button aria-current={selected?.run_id === run.run_id ? 'true' : undefined} onClick={() => onOpen(run.run_id)}>打开运行</button>
     </li>)}</ul>
     {selected && <section aria-label="选中运行状态"><h3>{selected.run_id}</h3><p>{selected.status}</p>
