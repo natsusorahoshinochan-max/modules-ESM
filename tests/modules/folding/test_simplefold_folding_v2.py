@@ -106,11 +106,12 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     class StopAfterInferenceConstruction(Exception):
         pass
 
-    captured: dict[str, int] = {}
+    captured: dict[str, float] = {}
 
     class InferenceWrapper:
         def __init__(self, **kwargs: Any) -> None:
             captured["num_steps"] = kwargs["num_steps"]
+            captured["tau"] = kwargs["tau"]
             raise StopAfterInferenceConstruction
 
     modules = {
@@ -170,6 +171,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
         simplefold_runtime.activate_fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
             num_steps=75,
+            tau=0.01,
             num_samples=1,
             staging_directory=tmp_path / "project",
             effective_seed=1603,
@@ -179,7 +181,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
             device="cpu",
         )
 
-    assert captured == {"num_steps": 75}
+    assert captured == {"num_steps": 75, "tau": 0.01}
     assert os.getcwd() == original_cwd
     assert tuple(sys.path) == original_path
     restored_bare_modules = {
@@ -264,6 +266,7 @@ def test_cached_simplefold_folding_activation_restores_its_loader_binding(
         simplefold_runtime.activate_fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
             num_steps=50,
+            tau=0.01,
             num_samples=1,
             staging_directory=tmp_path / f"project-{call_index}",
             effective_seed=1603,
@@ -339,6 +342,7 @@ assert not any(is_bare(name) for name in sys.modules)
 activate_fold_sequence(
     ProteinSequence("AG", ("A:1", "A:2")),
     num_steps=50,
+    tau=0.01,
     num_samples=1,
     staging_directory=Path(sys.argv[3]),
     effective_seed=1603,
@@ -644,6 +648,7 @@ def test_simplefold_releases_esm2_before_loading_folding_models(
     activated = simplefold_runtime.activate_fold_sequence(
         ProteinSequence("AG", ("A:1", "A:2")),
         num_steps=50,
+        tau=0.01,
         num_samples=1,
         staging_directory=tmp_path / "project",
         effective_seed=1603,
@@ -767,9 +772,14 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
             "value_contract": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 50,
             },
-            "default": 50,
+            "default": 500,
+        },
+        "tau": {
+            "parameter_scope": "scientific",
+            "scientific_meaning": "SimpleFold diffusion coefficient scaling factor.",
+            "value_contract": {"type": "number", "minimum": 0},
+            "default": 0.1,
         },
     }
     assert simplefold.descriptor["deterministic"] is False
@@ -935,6 +945,7 @@ def _simplefold_environment(
             return client.fold(
                 sequence=self._kwargs["sequence"],
                 num_steps=self._kwargs["num_steps"],
+                tau=self._kwargs["tau"],
                 num_samples=self._kwargs["num_samples"],
                 effective_seed=self._kwargs["effective_seed"],
                 staging_directory=self._kwargs["staging_directory"],
@@ -1020,7 +1031,7 @@ def _run_simplefold(
             "effective_seed": 1603,
             "num_samples": num_samples,
         },
-        binding_parameters={"num_steps": 10},
+        binding_parameters={"num_steps": 10, "tau": 0.01},
     )
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
@@ -1339,6 +1350,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     )
     assert len(client.calls) == 1
     assert client.calls[0]["num_steps"] == 10
+    assert client.calls[0]["tau"] == 0.01
     assert client.calls[0]["num_samples"] == 2
     assert not client.calls[0]["staging_directory"].exists()
     readiness_index = next(
@@ -1507,6 +1519,7 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     ).fold(
         sequence=ProteinSequence("AG", ("Q:-2A", "Q:10")),
         num_steps=10,
+        tau=0.01,
         num_samples=1,
         derived_call_seed=1603,
         engine_role="fold_parent_0",
@@ -1598,7 +1611,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
                 )
             },
             node_parameters={"num_samples": 1},
-            binding_parameters={"num_steps": 10},
+            binding_parameters={"num_steps": 10, "tau": 0.01},
             effective_randomness={"effective_seed": 1603},
         )
     )
@@ -1631,6 +1644,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         {
             "sequence": parent.data,
             "num_steps": 10,
+            "tau": 0.01,
             "num_samples": 1,
             "derived_call_seed": structures.items[0].metadata[
                 "effective_call_seed"
@@ -1704,7 +1718,7 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
                     )
                 },
                 node_parameters={"num_samples": 1},
-                binding_parameters={"num_steps": 10},
+                binding_parameters={"num_steps": 10, "tau": 0.01},
                 effective_randomness={"effective_seed": 1603},
             )
         )

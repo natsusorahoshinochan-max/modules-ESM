@@ -10,15 +10,6 @@
 
 下文的“固定”描述当前实现，不将其升级为目标要求。[Biohub 接入说明](biohub-api-reference/product-contract-supplement.md)采用当前 Q26，不以 Method identity 为由禁止开放适用参数。文档已经按决定对齐，不表示所列实现差异已修正。
 
-## 明确不符合参数开放原则的实现
-
-| 接入 | 当前情况 | 对用户的影响 | 依据 |
-|---|---|---|---|
-| SimpleFold 折叠 | `tau=.1` 固定，官方 CLI 提供配置。 | 用户无法选择官方示例中使用的 `.01` 等值；`.1` 有官方默认依据，问题是不可修改。 | [项目调用](../modules/folding/simplefold_runtime.py#L260)、[官方 CLI](../repositories/ml-simplefold/src/simplefold/cli.py#L23)、[官方示例](../repositories/ml-simplefold/README.md#L51) |
-| SimpleFold 折叠 | 步数已开放，但限定1–50。 | 官方 CLI 默认及 README 示例使用的500步在项目中不可设置；未找到50上限的依据。 | [Binding 限制](../modules/folding/package.py#L424)、[官方 CLI](../repositories/ml-simplefold/src/simplefold/cli.py#L22) |
-
-以上是已提供操作的参数问题，不要求接入新的计算模式。参数之间的适用条件仍须按对应接口处理，不将“开放”理解为允许任意无效组合。
-
 ## 参数范围与默认值需要对齐的事项
 
 | 接入 | 差异 | 判断 |
@@ -27,7 +18,11 @@
 
 证据：[本地 ESMFold2 入口](../repositories/esm/esm/models/esmfold2/processor.py#L327)。
 
-## 有固定行为，但需进一步核实适用范围
+## 当前参数接入与适用范围
+
+### SimpleFold 折叠
+
+折叠 Binding 公开正整数 `num_steps`（默认 500，无额外上限）与非负数 `tau`（默认 0.1，无额外上限），经 Operation、Adapter 原样传到官方 `InferenceWrapper`。默认值依据[固定上游 CLI](../repositories/ml-simplefold/src/simplefold/cli.py)，[官方示例](../repositories/ml-simplefold/README.md)使用 500 步和 tau 0.01；所调用 Torch sampler 对 tau 开平方，因此不接受负数。独立 confidence 操作不采样，不新增这两个参数。界面根据 Binding 声明编辑和保存计算参数，保留已保存的显式值。契约验证不加载模型；本地 SimpleFold 真实执行明确排除，不能记为通过。
 
 ### ESMFold2 当前参数接入与待验收范围
 
@@ -75,7 +70,7 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 ## 不应误判为本原则冲突的事项
 
 - **SoluProt full/no-TM**：已通过 Method/Binding 选择，不能因为节点参数为空就认定用户无法配置。
-- **SimpleFold 的步数控件**：界面已可编辑，问题是后端给出的范围，不是前端写死50。
+- **SimpleFold 的步数控件**：界面按 Binding 声明编辑，当前无 50 步上限。
 - **SimpleFold 现有结构 confidence**：直接执行 confidence head，不重新采样，不应给它凭空添加折叠 steps/tau。
 - **DSSP accessibility 恒开启**：当前操作承诺输出 SASA，开启该计算是履行既定输出，不直接作为应新增关闭选项的证据。
 - **ESMC 表征其他输出模式**：hidden states、层选择、SAE 等不自动纳入。embedding 和实际 logits 已确认应作为可选输出供查看及后续模块使用；当前仅保留 logits shape 属于已决定待对齐的结果问题。
@@ -92,4 +87,4 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 
 ## 结论
 
-ESM3 生成条件及采样参数已调整接入，等待完整集成验收；ESMFold2 推理参数已接入并等待完整验收；SimpleFold 的 tau 和步数范围仍需对齐。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。
+ESM3 生成条件及采样参数已调整接入，等待完整集成验收；ESMFold2 推理参数已接入并等待完整验收；SimpleFold 的 tau 和步数范围已接入，真实模型执行排除。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。

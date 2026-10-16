@@ -471,9 +471,14 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "value_contract": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 50,
                 },
-                "default": 50,
+                "default": 500,
+            },
+            "tau": {
+                "parameter_scope": "scientific",
+                "scientific_meaning": "SimpleFold diffusion coefficient scaling factor.",
+                "value_contract": {"type": "number", "minimum": 0},
+                "default": 0.1,
             },
         },
         environment_fields=_SIMPLEFOLD_ENVIRONMENT_FIELDS,

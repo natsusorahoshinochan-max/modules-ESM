@@ -213,6 +213,7 @@ def activate_fold_sequence(
     sequence: ProteinSequence,
     *,
     num_steps: int,
+    tau: float,
     num_samples: int,
     staging_directory: Path,
     effective_seed: int,
@@ -262,7 +263,7 @@ def activate_fold_sequence(
                 prediction_dir="predictions",
                 num_steps=num_steps,
                 nsample_per_protein=num_samples,
-                tau=0.1,
+                tau=tau,
                 device=torch_device,
                 backend="torch",
             )

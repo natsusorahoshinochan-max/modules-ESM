@@ -165,6 +165,7 @@ class SimpleFoldFoldingImplementation:
             adapter_result = self._adapter.fold(
                 sequence=parent.sequence,
                 num_steps=num_steps,
+                tau=call.binding_parameters["tau"],
                 num_samples=sample_count,
                 derived_call_seed=call_seed,
                 engine_role=f"fold_parent_{parent.slot}",
