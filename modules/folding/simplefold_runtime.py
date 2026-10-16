@@ -23,6 +23,8 @@ from typing import Any, Callable
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
+from .simplefold_adapter import SimpleFoldProviderError
+
 _SIMPLEFOLD_PROCESS_LOCK = threading.RLock()
 _SIMPLEFOLD_BARE_MODULE_PREFIXES = (
     "utils",
@@ -373,12 +375,15 @@ class ActivatedSimpleFoldFolding:
             )
             with self.torch_module.random.fork_rng(devices=fork_devices):
                 self.torch_module.manual_seed(self.effective_seed)
-                results = self.inference_wrapper.run_inference(
-                    batch,
-                    self.folding_model,
-                    self.plddt_models,
-                    self.torch_device,
-                )
+                try:
+                    results = self.inference_wrapper.run_inference(
+                        batch,
+                        self.folding_model,
+                        self.plddt_models,
+                        self.torch_device,
+                    )
+                except self.torch_module.cuda.OutOfMemoryError as error:
+                    raise SimpleFoldProviderError(str(error)) from error
 
             sampled_coord = results["sampled_coord"]
             pad_mask = results["pad_mask"]

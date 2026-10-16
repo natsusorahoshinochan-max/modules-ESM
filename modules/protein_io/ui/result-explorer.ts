@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from 'fflate'
-import type { ComputationParameters } from './result-parameters'
-import type { CandidateReference, CatalogSnapshot, PublishedStructure, PublishedAlignment, PublishedObservation, PublishedOutput, ResultCandidate, ResultLocation, RunProjection } from './protocol/client'
+import type { ComputationParameters } from '../../../webui/src/result-parameters'
+import type { CandidateReference, CatalogSnapshot, PublishedStructure, PublishedAlignment, PublishedObservation, PublishedOutput, ResultCandidate, ResultLocation, RunProjection } from '../../../webui/src/protocol/client'
 
 export type CandidateView = ResultCandidate & { source: ResultLocation; output: PublishedOutput; sequenceSource?: ResultLocation }
 export type ScoreView = PublishedObservation & { source: ResultLocation }

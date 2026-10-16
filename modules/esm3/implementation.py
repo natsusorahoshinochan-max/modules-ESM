@@ -35,6 +35,9 @@ from .adapter import (
     ESM3PairFailure,
     ESM3Confidence,
     ESM3GenerationAdapter,
+    ESM3SequenceResult,
+    ESM3StructureResult,
+    ESM3PairResult,
 )
 
 
@@ -141,12 +144,14 @@ class ESM3GenerationOperation:
                     num_samples=num_samples,
                     sequence_parameters=self._parameters(call.binding_parameters, "sequence_"),
                     structure_parameters=self._parameters(call.binding_parameters, "structure_"),
+                    call=call,
                 )
             generate = (self._generate_sequence if self._operation == "generate_sequence"
                         else self._generate_structure)
             return generate(
                 prompt, effective_seed=effective_seed, admitted_prompt=admitted_prompt,
                 num_samples=num_samples, parameters=self._parameters(call.binding_parameters),
+                call=call,
             )
 
     @staticmethod
@@ -201,6 +206,53 @@ class ESM3GenerationOperation:
                 "ESM-3 sequence generation requires at least one masked residue"
             )
 
+    @staticmethod
+    def _completed_sequences(call: OperationCall) -> dict[int, ESM3SequenceResult]:
+        if "sequence_candidates" not in call.completed_outputs:
+            return {}
+        reconstructions = {}
+        facts = {}
+        if "sequence_reconstruction_candidates" in call.completed_outputs:
+            reconstructions = {
+                item.metadata["sample_index"]: item
+                for item in call.completed_outputs["sequence_reconstruction_candidates"].value.items
+            }
+            fact_port = ("sequence_reconstruction_confidence_facts"
+                         if "sequence_reconstruction_confidence_facts" in call.completed_outputs
+                         else "confidence_facts")
+            facts = {fact.prediction_key: fact for fact in call.completed_outputs[fact_port].value.entries}
+        results: dict[int, ESM3SequenceResult] = {}
+        for item in call.completed_outputs["sequence_candidates"].value.items:
+            index = item.metadata["sample_index"]
+            reconstruction = reconstructions.get(index)
+            fact = None if reconstruction is None else facts[reconstruction.metadata["prediction_key"]]
+            results[index] = ESM3SequenceResult(
+                sequence=item.data,
+                reconstruction=None if reconstruction is None else reconstruction.data,
+                confidence=None if fact is None else ESM3Confidence(
+                    ptm=fact.ptm, plddt_per_residue=fact.plddt_per_residue, pae=fact.pae),
+                effective_num_steps=item.metadata["effective_generation_parameters"]["sequence"]["num_steps"],
+                effective_call_seed=item.metadata.get("effective_call_seed"),
+            )
+        return results
+
+    @staticmethod
+    def _completed_structures(call: OperationCall) -> dict[int, ESM3StructureResult]:
+        if "structure_candidates" not in call.completed_outputs:
+            return {}
+        facts = {fact.prediction_key: fact for fact in call.completed_outputs["confidence_facts"].value.entries}
+        results: dict[int, ESM3StructureResult] = {}
+        for item in call.completed_outputs["structure_candidates"].value.items:
+            fact = facts[item.metadata["prediction_key"]]
+            results[item.metadata["sample_index"]] = ESM3StructureResult(
+                sequence=fact.prediction_axis.sequence,
+                structure=item.data,
+                confidence=ESM3Confidence(ptm=fact.ptm, plddt_per_residue=fact.plddt_per_residue, pae=fact.pae),
+                effective_num_steps=item.metadata["effective_generation_parameters"]["structure"]["num_steps"],
+                effective_call_seed=item.metadata.get("effective_call_seed"),
+            )
+        return results
+
     def _generate_sequence(
         self,
         prompt: ProteinPrompt,
@@ -209,6 +261,7 @@ class ESM3GenerationOperation:
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
+        call: OperationCall,
     ) -> dict[str, Any]:
         self._require_sequence_mask(prompt)
         candidates: list[Candidate] = []
@@ -216,9 +269,10 @@ class ESM3GenerationOperation:
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         failure: ESM3ProviderError | None = None
+        completed = self._completed_sequences(call)
         for sample_index in range(num_samples):
             try:
-                result = self._adapter.generate_sequence(
+                result = completed[sample_index] if sample_index in completed else self._adapter.generate_sequence(
                     prompt,
                     parameters=parameters,
                     base_seed=effective_seed,
@@ -272,8 +326,6 @@ class ESM3GenerationOperation:
                 )
                 reconstructions.append(reconstruction)
                 reconstruction_facts.append(fact)
-        if failure is not None and not candidates:
-            raise failure
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
                 "esm3-sequence-candidates",
@@ -294,7 +346,10 @@ class ESM3GenerationOperation:
                 pending_facts=tuple(reconstruction_facts),
             )
         if failure is not None:
-            raise OperationFailedWithOutputs(failure, outputs) from failure
+            raise OperationFailedWithOutputs(
+                failure, outputs if candidates else {},
+                continuation_state={"next_sample": len(candidates)},
+            ) from failure
         return outputs
 
     def _generate_structure(
@@ -305,15 +360,17 @@ class ESM3GenerationOperation:
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
+        call: OperationCall,
     ) -> dict[str, Any]:
         self._require_assigned_prompt_sequence(prompt)
         candidates: list[Candidate] = []
         confidence_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         failure: ESM3ProviderError | None = None
+        completed = self._completed_structures(call)
         for sample_index in range(num_samples):
             try:
-                result = self._adapter.generate_structure(
+                result = completed[sample_index] if sample_index in completed else self._adapter.generate_structure(
                     prompt,
                     parameters=parameters,
                     base_seed=effective_seed,
@@ -350,8 +407,6 @@ class ESM3GenerationOperation:
             )
             candidates.append(candidate)
             confidence_facts.append(fact)
-        if failure is not None and not candidates:
-            raise failure
         outputs: dict[str, Any] = {
             "structure_candidates": CandidateCollection(
                 "esm3-structure-candidates",
@@ -364,7 +419,10 @@ class ESM3GenerationOperation:
             ),
         }
         if failure is not None:
-            raise OperationFailedWithOutputs(failure, outputs) from failure
+            raise OperationFailedWithOutputs(
+                failure, outputs if candidates else {},
+                continuation_state={"next_sample": len(candidates)},
+            ) from failure
         return outputs
 
     def _generate_paired(
@@ -376,6 +434,7 @@ class ESM3GenerationOperation:
         num_samples: int,
         sequence_parameters: ESM3CallParameters,
         structure_parameters: ESM3CallParameters,
+        call: OperationCall,
     ) -> dict[str, Any]:
         self._require_sequence_mask(prompt)
         sequence_candidates: list[Candidate] = []
@@ -385,15 +444,23 @@ class ESM3GenerationOperation:
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         failure: ESM3ProviderError | None = None
+        completed_sequences = self._completed_sequences(call)
+        completed_structures = self._completed_structures(call)
         for sample_index in range(num_samples):
             try:
-                result = self._adapter.generate_pair(
-                    prompt,
-                    sequence_parameters=sequence_parameters,
-                    structure_parameters=structure_parameters,
-                    base_seed=effective_seed,
-                    sample_index=sample_index,
-                )
+                if sample_index in completed_structures:
+                    result = ESM3PairResult(
+                        completed_sequences[sample_index], completed_structures[sample_index],
+                    )
+                else:
+                    result = self._adapter.generate_pair(
+                        prompt,
+                        sequence_parameters=sequence_parameters,
+                        structure_parameters=structure_parameters,
+                        base_seed=effective_seed,
+                        sample_index=sample_index,
+                        completed_sequence=completed_sequences.get(sample_index),
+                    )
             except ESM3PairFailure as error:
                 failure = error
                 sequence_result = error.sequence
@@ -499,8 +566,6 @@ class ESM3GenerationOperation:
             )
             structure_candidates.append(structure_candidate)
             confidence_facts.append(structure_fact)
-        if failure is not None and not sequence_candidates:
-            raise failure
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
                 "esm3-paired-sequences", "protein.sequence", sequence_candidates,
@@ -529,7 +594,10 @@ class ESM3GenerationOperation:
                 pending_facts=tuple(reconstruction_facts),
             )
         if failure is not None:
-            raise OperationFailedWithOutputs(failure, outputs) from failure
+            raise OperationFailedWithOutputs(
+                failure, outputs if sequence_candidates else {},
+                continuation_state={"next_sample": len(structure_candidates)},
+            ) from failure
         return outputs
 
 

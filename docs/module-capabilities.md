@@ -18,7 +18,7 @@
 | 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度与结构比较结果的物化、统计和派生指标。已有节点不是全部通用区域统计需求已经完成的证明。 |
 | 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、多样性、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
 
-ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean embedding 与 `(L+2, 64)` logits 形状。Q27 要求整条序列 embedding 和实际逐位置 logits 均以可选输出提供，供查看及后续模块使用；其最终功能模块归属未由此预定。logits 不等于概率。
+ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embedding、logits 或 both（默认）。保存 Provider 的 1152 维整序列 mean embedding，以及去除 CLS/EOS 行后与输入残基顺序对应的 `L×64` 实际 logits；未请求值为 null。保留全部模型类别列，列索引为固定 SDK 的模型类别索引，不将其称为概率。模块查看器逐位置显示数值，同名 Port 可交给下游模块；不增加 hidden states、SAE 或新分析算法。
 
 ### ProteinMPNN 设计与评价
 
@@ -65,6 +65,8 @@ ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由�
 
 单轨道生成的采样设置属于所选 Binding；配对生成使用独立 `sequence_*` 与 `structure_*` 设置。两次调用分别保留实际请求参数及 SDK 有效步数，包含禁止采样 token ID 与坐标条件开关。仅本地 Binding 提供有效 seed，Biohub 随机性由 Provider 控制。当前配置及路线范围见[参数审查](tool-parameter-exposure-audit.md#esm3-当前参数接入与适用范围)。
 
+生成失败后可在运行结果中主动继续原批次。已完成的序列、结构、重建结构及置信度保留；联合生成在序列完成而结构失败时只继续结构请求。续算沿用原 Commit 与结果身份，改变输入或参数应启动新计算。
+
 ## ESM-3 条件翻译
 
 以下规则由 [`modules/esm3/adapter.py`](../modules/esm3/adapter.py)实现，属于 ESM-3 Adapter 的工具输入处理，不是载体或所有模块的数据限制。
@@ -103,3 +105,11 @@ protein-workbench-esm3-call-seed/v2:{base_seed}:{functional_digest}:{sample_inde
 ### SimpleFold 折叠采样参数
 
 折叠 Binding 提供 `num_steps`（正整数，默认 500）与 `tau`（非负数，默认 0.1），无额外上限。默认值来自固定官方 CLI；界面与保存使用同一 Binding 声明，调用将用户值传至官方 wrapper。已有结构的独立 confidence 不重新采样，不提供这两个参数。本地模型执行排除，仅进行不加载模型的契约验证。
+
+### SimpleFold 运行失败与主动续算
+
+SimpleFold 每个输入序列对应一次官方推理请求，该请求一次产生所选数量的样本。[固定上游调用](../repositories/ml-simplefold/src/simplefold/wrapper.py)没有专用失败返回；当前只将已加载模型的 `run_inference` 抛出的 [PyTorch `torch.cuda.OutOfMemoryError`](https://docs.pytorch.org/docs/2.14/generated/torch.cuda.OutOfMemoryError.html) 作为明确资源失败。资产准入、输入准备、模型加载和输出转换保持各自失败边界；普通 `RuntimeError`、`ValueError` 不转换，也不通过错误文本猜测其他设备的内存失败。
+
+这类推理失败停止尚未开始的序列请求。此前完整请求的结构及置信度随失败节点持久保存，供重开查看和导出；下游仍被阻断。用户通过公共“继续批次”入口继续原输入与参数，跳过完成的序列请求，保留原候选身份与有效 seed，仅重新尝试失败及未开始请求。首请求失败也能继续；不添加自动重试，不读取失败请求的残缺样本。
+
+当前覆盖为不加载模型的受控官方调用边界，以及测试专用模块装配生产 Operation 的公共 Run 行为；未启动 SimpleFold 本地模型，未诱发真实设备内存耗尽，不据此宣称真实模型或其他设备失败处理已经验证。

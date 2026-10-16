@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.parameters.model import ParameterContract
+from datatypes.candidate import CandidateDataReference
 
 
 class ResultActionError(ValueError):
@@ -17,4 +18,4 @@ class ResultActionDefinition:
     action_id: str
     port_type_id: str
     parameters: ParameterContract
-    apply: Callable[[bytes, Mapping[str, Any]], dict[str, Any]]
+    apply: Callable[[bytes, Mapping[str, Any], tuple[CandidateDataReference, ...]], dict[str, Any]]

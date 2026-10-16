@@ -1,3 +1,12 @@
+.run-results-shell {height:100vh;display:flex;flex-direction:column;min-height:0;background:#101611;color:#dfe7df}
+.run-results-shell>header {display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px}
+.run-results-shell>header>.result-run-controls {flex:1;min-width:300px}
+.run-results-shell>header p {font-size:12px;overflow-wrap:anywhere}
+.run-results-shell>label,.run-results-outputs>summary {padding:8px 16px}
+.run-results-shell button,.run-results-shell select {font:inherit;color:inherit;background:#202a23;border:1px solid #3c4d41;border-radius:5px;padding:7px;cursor:pointer}
+.run-results-outputs {flex-shrink:0;max-height:50vh;overflow:auto}
+.run-results-panel {flex:1;min-height:0;overflow:auto}
+.run-results-panel>.results-explorer {height:100%}
 .results-explorer {display:flex;height:100vh;overflow:hidden;background:#101611;color:#dfe7df}
 .results-explorer button,.results-explorer input,.results-explorer select {font:inherit;color:inherit;background:#202a23;border:1px solid #3c4d41;border-radius:5px;padding:7px;cursor:pointer}
 .results-explorer button:disabled {opacity:.45;cursor:default}

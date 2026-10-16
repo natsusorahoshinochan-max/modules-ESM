@@ -55,7 +55,7 @@ PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8188 npm run dev -- --port 5188 -
 WORKBENCH_TEST_URL=http://127.0.0.1:5188 npx playwright test tests/result-viewers.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-reader-test-results
 ```
 
-测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算、候选分页迁移或其他业务切片。
+测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算；候选分页和组合展示见下方官方查看器切片。
 
 ## 模块设置
 
@@ -113,3 +113,51 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5193 npx playwright test tests/result-adopti
 ```
 
 通过公共 API 准备一个真实序列导入结果，再操作应用选择来源项目、历史运行与结果值。覆盖采用后只添加未保存来源节点、不自动连线，以及手动保存后重新打开；不调用模型。另一个界面切片永久删除来源项目后运行已采用输入，实际下载 ZIP 并核对原始计算参数，防止把采用节点的输入引用误写成原计算；同一结果页加载后再禁用来源模块也覆盖该导出行为。更完整的数据独立性与依赖保留由采用 API 测试覆盖。
+
+## 未保存编辑提醒
+
+启用官方模块的正常应用使用独立临时数据目录，启动后在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5194 npx playwright test tests/unsaved-exit.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-exit-test-results
+```
+
+覆盖未保存布局切换项目时仅放弃或取消；取消保留编辑，放弃后原保存内容不被改写。使用公共 API 准备未完成流程，不调用模型。浏览器原生提醒的触发条件由浏览器控制。
+
+## 官方序列与 Prompt 查看器
+
+使用启用默认官方模块的独立临时应用目录（不用 reader_demo 清单），正常启动后端和前端；在 `webui/` 运行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-readers.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-official-readers
+```
+
+通过公共接口导入序列或创建空白 Prompt 后执行，完整应用中打开模块查看器并重新打开项目。检查序列原值不变及 Prompt 残基分页、Mask 和整轨缺失区别；候选面板跨页勾选、比较与 Workflow 往返；确定性结构对齐和 RMSD 结果的角色、单位、变换、来源及重开。只运行确定性模块，不调用 Provider。
+
+候选读取公共 action 的应用重开、分页顺序/引用及结构原文切片：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_candidate_reading.py
+```
+
+## ESMC 可选数值
+
+`.venv/bin/python -m unittest discover -s tests -p test_esmc_values.py` 通过公共 Run 和受控官方 SDK 边界覆盖 embedding-only、logits-only、both 的请求选择、CLS/EOS 去除、持久值重开读取及传入外部下游模块。受控数值不证明模型质量。
+
+应用界面切片使用 `PYTHONPATH=. PROTEIN_WORKBENCH_DATA_ROOT="$(mktemp -d)" .venv/bin/python tests/serve_esmc.py` 启动独立受控 SDK 场景（8196）。前端以 `PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8196 npm run dev -- --port 5196 --host 127.0.0.1` 启动；在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5196 npx playwright test tests/esmc-values.spec.ts --workers=1 --reporter=line --output=/tmp/esmc-viewer-results`。覆盖查看实际数值、切换残基位置和刷新重开；不会调用真实 Provider。
+
+## ESM3 批内继续
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_esm3_continuation.py
+```
+
+通过公共 Run API 与受控官方 SDK 响应覆盖序列、结构、联合生成的主动继续、重开、首请求失败、再次失败、重建结构与置信度保留、下游阻断和参数变化后的新计算。不加载本地模型，不向线上服务注入故障。
+
+## SimpleFold 定义失败与批内续算
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p 'test_simplefold_*.py'
+```
+
+不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。

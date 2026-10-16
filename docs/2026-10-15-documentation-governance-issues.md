@@ -41,17 +41,11 @@
 - **当前证据**：[authoring_codec](../protein_workbench_public/authoring_codec.py)第 12–13、87–102 行直接导入 ESM3 Adapter、Operation 并生成 esm3_conditioning；[PromptStudio](../webui/src/PromptStudio.tsx)第 693–704 行固定展示该工具条件。
 - **状态**：工具特有投影应按[架构职责](architecture.md)由模块及 Adapter 提供。可保留有用的工具兼容性展示；现有耦合不证明不能保存其他 Prompt 内容。
 
-### DOC-033｜ESMC 尚未提供所要求的实际 logits 输出
+### DOC-036｜Prompt 编辑器仍有固定分派
 
-- **要求**：可选输出整序列 embedding 和实际逐位置 logits，供查看与下游使用。logits 不作为概率表述。
-- **当前证据**：[esmc_adapter](../modules/esm3/esmc_adapter.py)第 44–46、64–77 行请求实际 logits 后只保留形状；[表征声明](../modules/esm3/definitions/represent_sequence.yaml)只描述 embedding 与 shape。
-- **状态**：现行说明已明确差异，输出、类型、读取及界面仍需对齐。具体模块归属不由当前包名裁定，不新增分析算法。
-
-### DOC-036｜模块专用界面与结果读取仍固定分派
-
-- **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据可有多个查看器，允许切换。
-- **当前证据**：[App](../webui/src/App.tsx)的 Selection 已改为模块声明的 React 编辑器入口，外部包使用同一发现和资源接口（见[模块 UI 契约](module-ui.md)）；Prompt 编辑器尚有固定分派；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
-- **状态**：后端专用读取与前端加载须一起修正，不能要求自定义数据伪装成蛋白类型。已有 Port Type 注册及编解码不等于专用界面接入完整，见[架构](architecture.md)和[结果说明](results.md)。
+- **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据允许多个查看器。
+- **当前实现**：Selection 编辑器、序列/结构/Prompt 单值展示及候选、分数、对齐 Run 面板均通过模块声明加载；后端值读取与候选 actions 使用公共注册契约。外部模块用相同接口读取自定义值及同 Run 的多个输出，见[模块 UI 契约](module-ui.md)。
+- **剩余差异**：[App](../webui/src/App.tsx) 的 Prompt 编辑器仍固定分派，不能由结果展示迁移推断编辑器已完成。
 
 ### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
 
@@ -77,14 +71,14 @@
 ### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
+- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../modules/protein_io/ui/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
 - **待核对**：结果 action 与浏览器格式选择入口的完整业务路径。
 
-### DOC-046｜ESM3 与 SimpleFold 的批内主动续算仍缺
+### DOC-046｜批内主动续算已接入，真实失败核验范围有限
 
 - **要求**：批内保留已成功请求；一个请求用完适用重试后失败，停止剩余请求；用户可在相同输入和参数下继续失败及未开始请求，失败节点下游仍阻塞。
 - **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。普通[重跑派生](../core/execution/_run_runtime_derived.py)的 `retry_failed` / `force_selected` 按节点重跑，批内继续使用独立的 `continue_batch` 策略。
-- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 测试覆盖中途失败、首请求失败、再次失败与主动继续；一次真实 Biohub 折叠及结构、置信度原值读回已完成，未进行线上故障注入。ESM3 与 SimpleFold 的同批续算仍未完成。不增加自动重试或接纳残缺响应。
+- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 测试覆盖中途失败、首请求失败、再次失败与主动继续；一次真实 Biohub 折叠及结构、置信度原值读回已完成，未进行线上故障注入。ESM3 已通过相同入口恢复序列、结构与联合生成；联合生成只重试未完成的结构步骤，保留此前序列、重建结构及置信度。公共 API 受控 SDK 测试覆盖续算、首失败、再次失败与来源保留；一次真实 Biohub ESM3 序列生成及原值读取完成，未向线上服务注入故障。SimpleFold 已接入相同续算入口，保留完成请求的结构、置信度、候选身份及有效 seed；仅将已加载模型推理抛出的 `torch.cuda.OutOfMemoryError` 归为定义资源失败。受控 Adapter 公共 Run 覆盖首失败、再次失败、重开与续算，不证明真实本地模型或设备内存耗尽行为；未运行本地模型。不增加自动重试或接纳残缺响应。
 
 ### DOC-047｜空载体生产启动与项目使用路径待核对
 
@@ -95,7 +89,7 @@
 ### DOC-050｜结果 ZIP 的计算参数关联
 
 - **要求**：导出附带已经记录的计算参数，供离开软件后查看。
-- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../webui/src/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
+- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../modules/protein_io/ui/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
 - **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
 
 ### DOC-051｜多构象选择及拆分尚未提供
@@ -105,13 +99,6 @@
 - **状态**：按[结构输入约定](results.md#结构输入与组分)补齐选择与拆分；[结构值](../datatypes/structure.py)第 104–137 行可保留多 MODEL 原文，不能写成完全不接受此类文件。
 
 ## 范围与事实待核实
-
-### DOC-053｜浏览器退出三项选择仍需产品裁定
-
-- **要求**：Q13 禁止自动保存，未保存退出时提供保存后退出、放弃和取消；Q17 的后端 Run 生命周期独立。
-- **当前证据**：[App](../webui/src/App.tsx) 的应用内 `askUnsaved('leave')` 提供三项，浏览器 `beforeunload` 处理器仅请求原生确认。[官方限制、数据影响与可行选择](workspace.md#浏览器退出边界与未决要求)已核实，原生确认不能添加保存动作，也不保证所有关闭路径都会触发。
-- **未决边界**：是否批准网页关闭/刷新仅提供尽力原生提醒、需取消离开后手动保存的例外，或另行扩展可控窗口的宿主形态。两者均未获批准；不得将技术限制写成新需求。
-- **交付与验收**：[#123](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/123)只交付核实结论；[#124](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留 Q13 浏览器部分未完成的结论，待产品裁定。应用内退出选择不等同于浏览器关闭行为。
 
 ### DOC-010｜部分输入字符与长度限制的官方依据仍需核对
 

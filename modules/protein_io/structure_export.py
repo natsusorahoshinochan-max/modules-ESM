@@ -12,6 +12,7 @@ from core.parameters.contract import admit_declarations
 import gemmi
 
 from datatypes.structure import ProteinStructure
+from datatypes.candidate import CandidateDataReference
 from datatypes.structure_format import read_mmcif_atoms
 
 
@@ -60,7 +61,7 @@ def convert_structure(
     return ProteinStructure(text=structure.make_mmcif_document().as_string(), format="mmcif")
 
 
-def export_published_structure(body: bytes, parameters: Mapping[str, Any]) -> dict[str, Any]:
+def export_published_structure(body: bytes, parameters: Mapping[str, Any], references: tuple[CandidateDataReference, ...]) -> dict[str, Any]:
     index = parameters["item_index"]
     collection = restore_candidate_collection_slice(body, offset=index, limit=1)
     if index >= collection.total:

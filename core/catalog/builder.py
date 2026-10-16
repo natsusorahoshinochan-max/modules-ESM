@@ -965,6 +965,12 @@ def build_frozen_catalog(
                 raise CatalogBuildError(f"duplicate viewer or missing result reader: {viewer.viewer_id}")
             viewer_ids.add(viewer.viewer_id)
             viewer_defaults[viewer.port_type_id] = viewer_defaults.get(viewer.port_type_id, 0) + int(viewer.is_default)
+    for extension in ui_extensions:
+        for viewer in extension.run_viewers:
+            _require_identifier(viewer.viewer_id, "viewer_id")
+            if viewer.viewer_id in viewer_ids or not viewer.port_type_ids or any(type_id not in port_ids for type_id in viewer.port_type_ids):
+                raise CatalogBuildError(f"duplicate Run viewer or unknown Port Type: {viewer.viewer_id}")
+            viewer_ids.add(viewer.viewer_id)
     if any(count != 1 for count in viewer_defaults.values()):
         raise CatalogBuildError("Each viewed Port Type must declare exactly one default result viewer")
     return FrozenCatalog(

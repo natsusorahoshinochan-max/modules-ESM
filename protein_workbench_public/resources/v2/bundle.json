@@ -1880,6 +1880,12 @@
                   "$ref": "#/$defs/ModuleUiViewer"
                 },
                 "type": "array"
+              },
+              "run_viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ModuleUiRunViewer"
+                }
               }
             },
             "required": [
@@ -1888,7 +1894,8 @@
               "entry_url",
               "style_urls",
               "editors",
-              "viewers"
+              "viewers",
+              "run_viewers"
             ],
             "type": "object"
           },
@@ -5778,80 +5785,6 @@
       ],
       "type": "object"
     },
-    "ResultCollectionPage": {
-      "additionalProperties": false,
-      "properties": {
-        "collection_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "item_type": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "items": {
-          "items": {
-            "$ref": "#/$defs/ResultCandidateSummary"
-          },
-          "type": "array"
-        },
-        "offset": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "total": {
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "collection_id",
-        "item_type",
-        "total",
-        "offset",
-        "items"
-      ],
-      "type": "object"
-    },
-    "ResultCollectionRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "maximum": 1000,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "offset": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "output_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "project_id": {
-          "$ref": "#/$defs/ProjectId"
-        },
-        "run_id": {
-          "$ref": "#/$defs/RunId"
-        },
-        "value_index": {
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "node_id",
-        "output_port",
-        "project_id",
-        "run_id",
-        "value_index",
-        "offset",
-        "limit"
-      ],
-      "type": "object"
-    },
     "ResultMaterialization": {
       "additionalProperties": false,
       "properties": {
@@ -5888,61 +5821,6 @@
         "producer_run_id",
         "producer_result_identity",
         "output_port"
-      ],
-      "type": "object"
-    },
-    "ResultStructure": {
-      "additionalProperties": false,
-      "properties": {
-        "format": {
-          "enum": [
-            "pdb",
-            "mmcif"
-          ],
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "text",
-        "format"
-      ],
-      "type": "object"
-    },
-    "ResultStructureRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "item_index": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "node_id": {
-          "$ref": "#/$defs/NodeInstanceId"
-        },
-        "output_port": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "project_id": {
-          "$ref": "#/$defs/ProjectId"
-        },
-        "run_id": {
-          "$ref": "#/$defs/RunId"
-        },
-        "value_index": {
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "node_id",
-        "output_port",
-        "project_id",
-        "run_id",
-        "value_index",
-        "item_index"
       ],
       "type": "object"
     },
@@ -7841,6 +7719,33 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {}
+    },
+    "ModuleUiRunViewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "viewer_id",
+        "title",
+        "port_type_ids",
+        "component"
+      ],
+      "properties": {
+        "viewer_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "port_type_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "component": {
+          "type": "string"
+        }
+      }
     }
   },
   "bundle_discovery": {
@@ -8458,38 +8363,6 @@
         "success_status": 200
       },
       "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:action",
-      "status_mapping": {
-        "200": "response",
-        "404": "structured_error",
-        "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "result_collection": {
-      "method": "POST",
-      "request_schema": "#/$defs/ResultCollectionRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ResultCollectionPage",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:collection",
-      "status_mapping": {
-        "200": "response",
-        "404": "structured_error",
-        "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "result_structure": {
-      "method": "POST",
-      "request_schema": "#/$defs/ResultStructureRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ResultStructure",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/runs/{run_id}/results:structure",
       "status_mapping": {
         "200": "response",
         "404": "structured_error",

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import * as $3Dmol from '3dmol'
-import type { PublishedResults } from './published-results'
+import type { CandidateResults } from './candidate-results'
 import { alignedCoordinate, candidateViewKey, locationKey, referenceKey, type AlignmentView, type CandidateView } from './result-explorer'
 
-function EvidenceOverlay({ alignment, candidates, results }: { alignment: AlignmentView; candidates: CandidateView[]; results: PublishedResults }) {
+function EvidenceOverlay({ alignment, candidates, results }: { alignment: AlignmentView; candidates: CandidateView[]; results: CandidateResults }) {
   const container = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<$3Dmol.GLViewer | undefined>(undefined)
   const [error, setError] = useState('')
@@ -35,7 +35,7 @@ function EvidenceOverlay({ alignment, candidates, results }: { alignment: Alignm
   return <><div className="alignment-viewer" ref={container} />{loading && <p>加载对齐结构…</p>}{error && <p role="alert">{error}</p>}</>
 }
 
-export function AlignmentComparison({ alignments, candidates, results }: { alignments: AlignmentView[]; candidates: CandidateView[]; results: PublishedResults }) {
+export function AlignmentComparison({ alignments, candidates, results }: { alignments: AlignmentView[]; candidates: CandidateView[]; results: CandidateResults }) {
   const selected = new Set(candidates.map((candidate) => referenceKey(candidate.reference)))
   const available = alignments.filter((alignment) => selected.has(referenceKey(alignment.subject)) && selected.has(referenceKey(alignment.reference)))
   const [choice, setChoice] = useState('')
