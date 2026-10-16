@@ -26,6 +26,8 @@ def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) ->
                    if structure_residue_id(atom.chain_id, atom.residue_number, atom.insertion_code) in selected]
         # The derived polymer contains only retained residues. Separate entities
         # keep different selections of source chains from sharing a full sequence.
+        # Keep label positions: MODRES references them, and author positions may
+        # use label_seq_id when auth_seq_id is absent.
         data = {'data_': original['data_']}
         data.update({key: [values[index] for index in indices]
                      for key, values in original.items() if key.startswith('_atom_site.')})
@@ -38,14 +40,14 @@ def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) ->
                 entity = chains.setdefault(atom.chain_id, str(len(chains) + 1))
                 identity = (atom.chain_id, atom.residue_number, atom.insertion_code)
                 if identity not in positions:
-                    number = str(sum(key[0] == atom.chain_id for key in positions) + 1)
+                    number = (original['_atom_site.label_seq_id'][index]
+                              if '_atom_site.label_seq_id' in original
+                              else str(sum(key[0] == atom.chain_id for key in positions) + 1))
                     positions[identity] = number
                     entity_ids.append(entity)
                     numbers.append(number)
                     components.append(atom.residue_name)
             data['_atom_site.label_entity_id'] = [chains[atoms[index].chain_id] for index in indices]
-            data['_atom_site.label_seq_id'] = [positions[(atoms[index].chain_id, atoms[index].residue_number,
-                                                        atoms[index].insertion_code)] for index in indices]
             data['_entity_poly_seq.entity_id'] = entity_ids
             data['_entity_poly_seq.num'] = numbers
             data['_entity_poly_seq.mon_id'] = components

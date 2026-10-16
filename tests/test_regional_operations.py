@@ -241,6 +241,57 @@ class RegionalOperations(unittest.TestCase):
                     source_field = 'mmcif_string' if filename.endswith('.cif') else 'pdb_string'
                     self.assertEqual(parent['data']['fields'][source_field], original)
 
+    def test_extraction_preserves_label_positions_and_modified_residue_references(self):
+        from io import StringIO
+        from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+        from Bio.PDB.mmcifio import MMCIFIO
+        for has_author_number in [True, False]:
+            with self.subTest(has_author_number=has_author_number), tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+                data = dict(MMCIF2Dict(StringIO(mmcif([('A', '12', '', 0, 0, 0)]))))
+                data['_atom_site.label_seq_id'] = ['42']
+                data['_atom_site.label_comp_id'] = ['MSE']
+                data['_atom_site.auth_comp_id'] = ['MSE']
+                data['_atom_site.group_PDB'] = ['HETATM']
+                if not has_author_number:
+                    del data['_atom_site.auth_seq_id']
+                number = '12' if has_author_number else '42'
+                data.update({'_entity_poly_seq.entity_id': ['1'], '_entity_poly_seq.num': ['42'],
+                             '_entity_poly_seq.mon_id': ['MSE'],
+                             '_pdbx_struct_mod_residue.auth_asym_id': ['A'],
+                             '_pdbx_struct_mod_residue.auth_seq_id': [number],
+                             '_pdbx_struct_mod_residue.auth_comp_id': ['MSE'],
+                             '_pdbx_struct_mod_residue.label_asym_id': ['A'],
+                             '_pdbx_struct_mod_residue.label_seq_id': ['42'],
+                             '_pdbx_struct_mod_residue.label_comp_id': ['MSE'],
+                             '_pdbx_struct_mod_residue.parent_comp_id': ['MET']})
+                writer, buffer = MMCIFIO(), StringIO()
+                writer.set_dict(data)
+                writer.save(buffer)
+                original = buffer.getvalue()
+                with TestClient(create_application(load_example_results=False)) as client:
+                    project_id, base = self.project(client)
+                    source = self.upload(client, base, original)
+                    workflow = dict(schema_version='2.1.0', workflow_id=project_id, nodes=[
+                        node('input', 'protein_io.import_structure', {'project_input_ref': source}),
+                        node('extract', 'structure_transform.extract_region', {'region': [
+                            {'chain_id': 'A', 'residue_number': number, 'insertion_code': ''}]}),
+                        node('axis', 'structure_transform.resolve_candidate_residue_axes'),
+                    ], edges=[edge('input', 'structure_candidates', 'extract', 'structure_candidates'),
+                              edge('extract', 'structure_candidates', 'axis', 'structure_candidates')])
+                    run = self.execute_workflow(client, base, workflow)
+                    child = self.request(client, 'GET', run + '/outputs/extract/structure_candidates/values/0')['value']['fields']['items'][0]['fields']
+                    extracted = dict(MMCIF2Dict(StringIO(child['data']['fields']['mmcif_string'])))
+                    for field in ['_atom_site.label_seq_id', '_entity_poly_seq.num', '_pdbx_struct_mod_residue.label_seq_id']:
+                        self.assertEqual(extracted[field], ['42'])
+                    for prefix in ['_atom_site.', '_pdbx_struct_mod_residue.']:
+                        for field in ['auth_asym_id', 'auth_seq_id', 'auth_comp_id', 'label_asym_id', 'label_comp_id']:
+                            if prefix + field in data:
+                                self.assertEqual(extracted[prefix + field], data[prefix + field])
+                    axis = self.request(client, 'GET', run + '/outputs/axis/residue_axes/values/0')['value']['entries'][0]['residue_axis']
+                    self.assertEqual(axis['layout']['fields']['residue_ids'], ['A:' + number])
+                    parent = self.request(client, 'GET', run + '/outputs/input/structure_candidates/values/0')['value']['fields']['items'][0]['fields']
+                    self.assertEqual(parent['data']['fields']['mmcif_string'], original)
+
     def test_existing_residue_metrics_are_summarized_without_provider_recalculation(self):
         from protein_workbench_public.module_registry import DEFAULT_MODULES
         original = mmcif([('A', str(number), '', number, 0, 0) for number in [10, 11, 12, 15]])
