@@ -100,13 +100,6 @@
 
 ## 范围与事实待核实
 
-### DOC-053｜浏览器退出三项选择仍需产品裁定
-
-- **要求**：Q13 禁止自动保存，未保存退出时提供保存后退出、放弃和取消；Q17 的后端 Run 生命周期独立。
-- **当前证据**：[App](../webui/src/App.tsx) 的应用内 `askUnsaved('leave')` 提供三项，浏览器 `beforeunload` 处理器仅请求原生确认。[官方限制、数据影响与可行选择](workspace.md#浏览器退出边界与未决要求)已核实，原生确认不能添加保存动作，也不保证所有关闭路径都会触发。
-- **未决边界**：是否批准网页关闭/刷新仅提供尽力原生提醒、需取消离开后手动保存的例外，或另行扩展可控窗口的宿主形态。两者均未获批准；不得将技术限制写成新需求。
-- **交付与验收**：[#123](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/123)只交付核实结论；[#124](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/124)须保留 Q13 浏览器部分未完成的结论，待产品裁定。应用内退出选择不等同于浏览器关闭行为。
-
 ### DOC-010｜部分输入字符与长度限制的官方依据仍需核对
 
 - **当前证据**：[共用元素规则](../modules/residue_data/elements.py)第 16 行允许 `ACDEFGHIKLMNPQRSTVWYBXZJUO`，具体工具的可表示范围不同。
