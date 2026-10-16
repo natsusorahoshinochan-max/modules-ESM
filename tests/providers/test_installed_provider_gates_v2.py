@@ -33,6 +33,8 @@ BIOHUB_ESM3_GATE_BINDINGS = (
 BIOHUB_ESM3_GATE_INVOCATIONS = 8
 
 _ESM3_GENERATION_PARAMETERS = {
+    "invalid_ids": (),
+    "condition_on_coordinates_only": True,
     "num_steps": 2,
     "temperature": 0.25,
     "top_p": 0.9,
@@ -219,12 +221,13 @@ def _run_rich_esm3_generation(
                     node_id="generate",
                     node_type_id=f"esm3.{operation}",
                     binding_id=binding_id,
-                    node_parameters={
-                        "effective_seed": 1603,
-                        "num_samples": 1,
-                        **_ESM3_GENERATION_PARAMETERS,
+                    node_parameters={"num_samples": 1},
+                    binding_parameters={
+                        **{prefix + name: value
+                           for prefix in (("sequence_", "structure_") if operation == "generate_paired" else ("",))
+                           for name, value in _ESM3_GENERATION_PARAMETERS.items()},
+                        **({"effective_seed": 1603} if binding_id.endswith("local_open") else {}),
                     },
-                    binding_parameters={},
                 ),
             ),
             edges=(

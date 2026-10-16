@@ -57,6 +57,10 @@ ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean e
 
 结构预测置信度与结构内容、预测残基轴及产生它的计算保持对应。PAE 单位为 Å，pTM 为无量纲；pLDDT 原生标度由相应 Adapter 转换，不能把百分数与单位区间混用。缺失 PAE 不补零。现有均值的缺值及范围规则应按具体指标说明，不能用一个简写抹平所有操作。
 
+## ESM-3 生成参数
+
+单轨道生成的采样设置属于所选 Binding；配对生成使用独立 `sequence_*` 与 `structure_*` 设置。两次调用分别保留实际请求参数及 SDK 有效步数，包含禁止采样 token ID 与坐标条件开关。仅本地 Binding 提供有效 seed，Biohub 随机性由 Provider 控制。当前配置及路线范围见[参数审查](tool-parameter-exposure-audit.md#esm3-当前参数接入与待验收范围)；完整集成与 Biohub 真实验收状态尚待核验，本地重模型不运行。
+
 ## ESM-3 条件翻译
 
 以下规则由 [`modules/esm3/adapter.py`](../modules/esm3/adapter.py)实现，属于 ESM-3 Adapter 的工具输入处理，不是载体或所有模块的数据限制。

@@ -66,10 +66,9 @@ def test_local_esm3_all_generation_modes(
             sequence=sequence,
             binding_route="local_open",
             environment_overrides=environment,
-            generation_parameters={
-                "num_steps": 1,
-                "temperature": 0.0,
-            },
+            binding_parameters={prefix + key: value
+                for prefix in (("sequence_", "structure_") if operation == "generate_paired" else ("",))
+                for key, value in {"num_steps": 1, "temperature": 0.0}.items()},
             catalog=shared_catalog,
         )
         assert projection["status"] == "succeeded"

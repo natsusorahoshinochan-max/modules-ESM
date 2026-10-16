@@ -108,7 +108,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         assert local.descriptor["node_type"] == remote.descriptor["node_type"]
         assert local.descriptor["produced_observations"] == ()
         assert remote.descriptor["produced_observations"] == ()
-        assert local.descriptor["binding_parameters"] == {}
+        assert "effective_seed" in local.descriptor["binding_parameters"]
         assert local.descriptor["execution_route"] == "adapter"
         assert local.descriptor["method"]["contract_id"] == (
             f"esm3.{operation}.esm3_sm_open_v1_local"
@@ -754,19 +754,16 @@ def test_local_adapter_derives_seed_from_conditioning_and_returns_canonical_valu
     if operation == "structure":
         prompt = replace(prompt, sequence=tuple("ACD"))
 
+    parameters = ESM3CallParameters(
+        num_steps=4, temperature=1.0, top_p=1.0, schedule="cosine",
+        strategy="random", temperature_annealing=True,
+    )
     with adapter:
         result = getattr(adapter, f"generate_{operation}")(
             prompt,
-            parameters=ESM3CallParameters(
-                num_steps=4,
-                temperature=1.0,
-                top_p=1.0,
-                schedule="cosine",
-                strategy="random",
-                temperature_annealing=True,
-            ),
-            base_seed=1603,
-            sample_index=sample_index,
+            **({"sequence_parameters": parameters, "structure_parameters": parameters}
+               if operation == "pair" else {"parameters": parameters}),
+            base_seed=1603, sample_index=sample_index,
         )
 
     returned = (

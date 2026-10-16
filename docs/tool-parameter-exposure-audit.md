@@ -4,7 +4,7 @@
 
 依据[当前决策 Q26](documentation-governance-decisions.md)：已提供功能中，官方支持、适用且影响结果的输入与参数允许用户配置，默认值和限制有明确依据。科学性以正确传参为尺度，不新增指标或证据体系。
 
-本报告排除 ProteinMPNN。只读核对 ESM3/ESMC、ESMFold2、SimpleFold、SoluProt、Protein-Sol、DSSP、结构比较及通用参数界面。依据本地固定上游、仓库保存的官方 API 快照及实现；不声称复验了当前线上接口，未执行测试、模型或构建。
+本报告排除 ProteinMPNN。核对 ESM3/ESMC、ESMFold2、SimpleFold、SoluProt、Protein-Sol、DSSP、结构比较及通用参数界面。依据本地固定上游、仓库保存的官方 API 快照及实现；不声称全部当前线上接口已复验；各实现调整的验证状态分别说明。
 
 新增工具模式、部署路径/设备、满足当前固定输出所必需的开关，不因存在常量就自动成为缺陷。能通过 Binding 选择的功能不算隐藏。部署入口与 Q47 尚未实现的应用内设置见[Provider 配置](provider-configuration.md)。
 
@@ -14,8 +14,6 @@
 
 | 接入 | 当前情况 | 对用户的影响 | 依据 |
 |---|---|---|---|
-| ESM3 三种生成 | 未开放 `invalid_ids`，沿用空列表。 | 无法配置工具已有的禁止采样项；用户界面可使用合适的表达，不必直接输入 token ID。 | [项目请求](../modules/esm3/adapter.py#L435)、[SDK 参数](../repositories/esm/esm/sdk/api.py#L326)、[远程发送](../repositories/esm/esm/sdk/forge.py#L536) |
-| ESM3 三种生成 | `condition_on_coordinates_only` 固定为 true。 | 用户不能调整当前生成操作对结构条件的处理方式；本地 true 路径会清除结构 token 条件。 | [项目固定值](../modules/esm3/adapter.py#L443)、[官方快照](../docs/biohub-api-reference/v1/endpoints/generate.md#L34)、[固定本地实现](../repositories/esm/esm/utils/generation.py#L366) |
 | ESMFold2 远程 | 固定采样步数100、循环次数20、`lm_dropout=.3`、`lm_mask_pct=.1`、`msa_max_depth=1024`、`msa_column_mask_rate=.1`。 | 用户只能配置 seed/样本数等公开字段，无法调整这些已提供折叠功能的推理参数。 | [固定参数](../modules/folding/esmfold2_remote.py#L77)、[公开节点](../modules/folding/definitions/fold.yaml#L22)、[SDK 参数](../repositories/esm/esm/sdk/api.py#L397) |
 | ESMFold2 本地 | 同类推理参数固定。 | 本地折叠同样缺少用户配置入口。 | [本地调用](../modules/folding/esmfold2_local.py#L125) |
 | SimpleFold 折叠 | `tau=.1` 固定，官方 CLI 提供配置。 | 用户无法选择官方示例中使用的 `.01` 等值；`.1` 有官方默认依据，问题是不可修改。 | [项目调用](../modules/folding/simplefold_runtime.py#L260)、[官方 CLI](../repositories/ml-simplefold/src/simplefold/cli.py#L23)、[官方示例](../repositories/ml-simplefold/README.md#L51) |
@@ -27,14 +25,10 @@
 
 | 接入 | 差异 | 判断 |
 |---|---|---|
-| ESM3 远程 `num_steps` | 节点允许1–2048；仓库官方快照限定1–100。 | 明确存在声明与快照不一致。核对对应远程合同，不能将远程范围一并套到本地。 |
-| ESM3 远程 `top_p` | 节点允许0；官方快照为 `(0,1]`。 | 声明允许了快照不接受的值，需要对齐。 |
-| ESM3 `temperature` | 节点上限10；所核官方快照及固定SDK没有给出该上限。 | 项目额外限制，尚无明确依据，不能当作官方限制继承。 |
-| ESM3 温度默认值 | 项目为1，与固定SDK一致；远程API快照为0.5。 | 不是凭空设值，但应明确各路线采用的依据，不能仅因不同就判错。 |
 | ESMFold2 本地步数默认 | 项目100；本地builder默认200；远程SDK默认100。 | 默认值依据待核，不能仅凭差异认定错误；用户应能配置的结论不变。 |
 | ESM3及fold样本数 | 项目上限100。 | 这是批量编排限制，不是单次官方请求参数。依据未明确，不声称工具无限支持。 |
 
-证据：[ESM3 节点参数](../modules/esm3/definitions/generate_sequence.yaml#L51)、[远程生成快照](../docs/biohub-api-reference/v1/endpoints/generate.md#L30)、[SDK 默认](../repositories/esm/esm/sdk/api.py#L356)、[本地 ESMFold2 入口](../repositories/esm/esm/models/esmfold2/processor.py#L327)。structure、paired 两种 ESM3 生成也有相同的范围定义问题。
+证据：[本地 ESMFold2 入口](../repositories/esm/esm/models/esmfold2/processor.py#L327)。
 
 ## 有固定行为，但需进一步核实适用范围
 
@@ -42,11 +36,15 @@
 
 所调用的官方 builder 还接受 `noise_scale`、`step_scale`、`max_inference_sigma`、`early_exit`，当前未开放，沿用默认。需要按该调用路线核对参数的实际作用和适用条件，再给出配置；不能无条件照搬全部参数。[官方入口](../repositories/esm/esm/models/esmfold2/processor.py#L327)。
 
-### ESM3 配对生成
+### ESM3 当前参数接入与待验收范围
 
-序列生成和结构生成两次调用共用同一套采样配置，而非各自配置。这个限制来自项目封装，不是上游单个配对 API 的要求。按已确认的参数开放要求，两次调用中官方适用且影响结果的参数须允许分别配置；开发者负责核对各步参数的适用条件与约束，不将是否分别开放重新列为产品待决事项。[两次调用](../modules/esm3/adapter.py#L710)。
+[Binding 声明](../modules/esm3/package.py)拥有路线采样参数：`num_steps`、`temperature`、`top_p`、`schedule`、`strategy`、`temperature_annealing`、`invalid_ids` 与 `condition_on_coordinates_only`。配对生成分别使用 `sequence_*`、`structure_*`，传给两次调用，不再共用一套设置；单轨道使用不带前缀的字段。`num_samples` 仍为节点批次参数。
 
-远程 seed 虽出现在节点配置中，却未传给不支持控制它的 Provider。这是配置表达与路线适用性问题，不能通过虚构官方 seed 字段解决。[当前处理](../modules/esm3/adapter.py#L568)。
+Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数且保留 SDK 对实际采样位置的步数处理，`top_p` 为 `[0,1]`。两条路线温度均不设无依据上限，显式默认 1 来自固定 SDK `GenerationConfig`，并非省略 HTTP 字段后采用 API 默认 0.5。`invalid_ids` 默认空列表；坐标条件默认 true；均实际传给 SDK。本地 seed 只在本地 Binding 声明，Biohub 不再显示无效 seed，也不虚构服务端控制。
+
+依据：[固定 SDK 参数](../repositories/esm/esm/sdk/api.py)、[本地 nucleus sampling](../repositories/esm/esm/utils/sampling.py)、[官方远程快照](biohub-api-reference/v1/endpoints/generate.md)。`only_compute_backbone_rmsd` 仅影响当前不保留的 cRMSD，不新增对应输出或模式。
+
+当前已调整声明、Adapter 与调用方；完整适用门禁与 Biohub 真实验收仍待本次集成验证，本地重模型执行明确排除。参数契约检查不代替真实 Provider 验收。
 
 ### SoluProt 非标准字符处理
 
@@ -82,4 +80,4 @@
 
 ## 结论
 
-最明确的对齐对象为 ESMFold2 推理参数、ESM3 生成条件及采样参数、SimpleFold 的 tau 和步数范围。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。
+ESM3 生成条件及采样参数已调整接入，等待完整集成验收；ESMFold2 推理参数、SimpleFold 的 tau 和步数范围仍需对齐。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。
