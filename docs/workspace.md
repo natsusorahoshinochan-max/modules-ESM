@@ -107,3 +107,5 @@ Draft/UI 内容先追加，最终 workspace record 发布后成为当前工作�
 | 官方/外部模块、React 专用界面、多个查看器及应用设置 | 固定装配和专用分派尚未形成完整模块接入路径 | [架构](architecture.md)、[Provider 配置](provider-configuration.md) |
 
 内容与链接核对不代表运行验收通过。涉及行为修改时，按[WebUI 验证入口](../webui/README.md#verification)与[后端验证](backend-verification.md#execution-policy)在本机执行对应检查。
+
+复制项目按当前节点声明识别需要独立保存的 Project Inputs；模块缺失时使用该项目已保存 Commit 中的节点声明。目标项目保存所引用输入的独立字节，源项目删除不会使其失效。若不完整 Draft 的缺失节点从未留下可用声明，仍可打开和保存原项目，但复制会明确报告依赖声明不可用，须恢复模块后再复制；不会猜测参数或复制全部输入。

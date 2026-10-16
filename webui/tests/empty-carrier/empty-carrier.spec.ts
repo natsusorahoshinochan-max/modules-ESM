@@ -17,11 +17,18 @@ test('empty production carrier creates, manually saves and reopens a project', a
 
 test('users install an external wheel, preserve a project across removal and restore execution', async ({ page, request }, testInfo) => {
   await page.goto('/')
+  const create = page.getByRole('button', { name: '创建项目', exact: true })
+  const projects = page.getByRole('button', { name: '项目', exact: true })
+  await expect(create.or(projects)).toBeVisible()
+  if (await create.isVisible()) await create.click()
+  else {
+    await projects.click()
+    await page.getByRole('button', { name: '新建项目', exact: true }).click()
+  }
+  await expect(page.locator('.flow-canvas')).toBeVisible()
   await page.getByRole('button', { name: '模块管理', exact: true }).click()
   await page.getByLabel('选择模块包').setInputFiles(testInfo.config.metadata.externalWheel as string)
   await expect(page.locator('.flow-canvas')).toBeVisible()
-  await page.getByRole('button', { name: '项目', exact: true }).click()
-  await page.getByRole('button', { name: '新建项目', exact: true }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(0)
   await page.locator('.palette-item').filter({ hasText: 'External Echo' }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(1)
