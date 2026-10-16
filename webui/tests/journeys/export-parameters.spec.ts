@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { strFromU8, unzipSync } from 'fflate'
 import type { ProjectMetadata, RunProjection, Workflow } from '../../src/protocol/client'
 
-for (const sourceRecord of ['original', 'cached', 'missing'] as const) test(`downloaded ${sourceRecord} results retain recorded parameters after the workspace changes`, async ({ page, request }) => {
+for (const sourceRecord of ['original', 'cached', 'historical', 'missing'] as const) test(`downloaded ${sourceRecord} results retain recorded parameters after the workspace changes`, async ({ page, request }) => {
   const project = await (await request.post('/api/v2/projects', { data: { name: `Export parameters ${crypto.randomUUID()}` } })).json() as ProjectMetadata
   const base = `/api/v2/projects/${project.id}`
   const input = await (await request.post(`${base}/inputs`, { data: { filename: 'original.fasta', content_base64: Buffer.from('>one\nACD\n>two\nEFG\n').toString('base64') } })).json()
@@ -35,6 +35,14 @@ for (const sourceRecord of ['original', 'cached', 'missing'] as const) test(`dow
   await projects.getByRole('button').filter({ has: page.getByText(project.name, { exact: true }) }).click()
   await projects.getByRole('button', { name: '打开项目', exact: true }).click()
   await page.getByRole('button', { name: /^Results/ }).click()
+  if (sourceRecord === 'historical') {
+    await page.getByRole('button', { name: '运行历史', exact: true }).click()
+    const history = page.getByRole('dialog', { name: '项目运行历史', exact: true })
+    await history.locator('li').filter({ has: page.getByText(started.run_id, { exact: true }) }).getByRole('button', { name: '打开运行', exact: true }).click()
+    await history.getByRole('button', { name: '关闭', exact: true }).click()
+    displayedRunId = started.run_id
+    await expect(page.locator('.result-stages')).toContainText(started.run_id)
+  }
   await page.getByTestId('result-source-["source","sequence_candidates",0]').click()
   await page.locator('.result-table input[type=checkbox]').last().check()
   await page.getByTestId('result-source-["take","candidates",0]').click()
