@@ -150,6 +150,16 @@ class ResultActionApplicationTests(unittest.TestCase):
                     self.assertIn(response.json()['format'], ['pdb', 'mmcif'])
                     self.assertIn('ALA', response.json()['text'])
 
+    def test_external_module_uses_the_same_public_named_multi_input_action(self):
+        run_id, projection = self.execute_workflow(self.workflow())
+        self.assertEqual(projection['status'], 'succeeded', projection)
+        response = self.client.post(f'/api/v2/projects/{self.project}/runs/{run_id}/results:action', json={
+            'action_id': 'result_action_fixture.read_counts', 'parameters': {}, 'inputs': {
+                'subjects': [{'node_id': 'population', 'output_port': 'candidates', 'value_index': 0, 'slot': 'study'}],
+                'measurements': [{'node_id': 'measurements', 'output_port': 'scores', 'value_index': 0, 'slot': 'observed'}]}})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {'subject_count': 3, 'measurement_count': 3})
+
     def test_ambiguous_observations_stop_both_public_adapters(self):
         workflow = self.workflow()
         self.add_comparisons(workflow)
