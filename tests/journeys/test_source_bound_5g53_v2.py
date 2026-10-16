@@ -289,15 +289,13 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     for branch, loop_length, seed in BRANCHES:
         generation = nodes[f"generate-{branch}"]
         assert generation.binding_id == "esm3.generate_paired.biohub_medium"
-        assert generation.node_parameters == {
-            "effective_seed": seed,
-            "num_samples": 2,
-            "num_steps": 20,
-            "temperature": 0.7,
-            "top_p": 1.0,
-            "schedule": "cosine",
-            "strategy": "random",
-            "temperature_annealing": True,
+        assert generation.node_parameters == {"num_samples": 2}
+        assert generation.binding_parameters == {
+            **{prefix + name: value
+               for prefix in ("sequence_", "structure_")
+               for name, value in {"num_steps": 20, "temperature": 0.7,
+                                   "top_p": 1.0, "schedule": "cosine",
+                                   "strategy": "random", "temperature_annealing": True}.items()},
         }
         author = next(
             node

@@ -121,7 +121,7 @@ def _author_document() -> dict[str, Any]:
 
 def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     nodes = [
-        _node("generate-paired", "esm3.generate_paired", "esm3.generate_paired.biohub_medium", {"effective_seed": 1603, "num_samples": 7}),
+        _node("generate-paired", "esm3.generate_paired", "esm3.generate_paired.biohub_medium", {"num_samples": 7}),
         _node("confidence-generated", "structure_prediction.materialize_confidence", "structure_prediction.materialize_confidence.direct"),
         _node("rank-generated", "selection.weighted_rank", "selection.weighted_rank.direct", {"objective_ids": ["generated-plddt"], "tie_policy": "candidate_id_ascending"}),
         _node("take-top-four", "collection_ops.take_candidates", "collection_ops.take_candidates.direct", {"k": 4}),

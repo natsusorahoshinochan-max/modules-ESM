@@ -41,16 +41,22 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
       "node_parameters": {
-        "effective_seed": 5353008,
-        "num_samples": 2,
-        "num_steps": 20,
-        "temperature": 0.7,
-        "top_p": 1.0,
-        "schedule": "cosine",
-        "strategy": "random",
-        "temperature_annealing": true
+        "num_samples": 2
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "sequence_num_steps": 20,
+        "structure_num_steps": 20,
+        "sequence_temperature": 0.7,
+        "structure_temperature": 0.7,
+        "sequence_top_p": 1.0,
+        "structure_top_p": 1.0,
+        "sequence_schedule": "cosine",
+        "structure_schedule": "cosine",
+        "sequence_strategy": "random",
+        "structure_strategy": "random",
+        "sequence_temperature_annealing": true,
+        "structure_temperature_annealing": true
+      }
     },
     {
       "node_id": "relate-generated-structures-shorter-8",
@@ -471,16 +477,22 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
       "node_parameters": {
-        "effective_seed": 5353012,
-        "num_samples": 2,
-        "num_steps": 20,
-        "temperature": 0.7,
-        "top_p": 1.0,
-        "schedule": "cosine",
-        "strategy": "random",
-        "temperature_annealing": true
+        "num_samples": 2
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "sequence_num_steps": 20,
+        "structure_num_steps": 20,
+        "sequence_temperature": 0.7,
+        "structure_temperature": 0.7,
+        "sequence_top_p": 1.0,
+        "structure_top_p": 1.0,
+        "sequence_schedule": "cosine",
+        "structure_schedule": "cosine",
+        "sequence_strategy": "random",
+        "structure_strategy": "random",
+        "sequence_temperature_annealing": true,
+        "structure_temperature_annealing": true
+      }
     },
     {
       "node_id": "relate-generated-structures-numbering-implied-12",
@@ -905,16 +917,22 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
       "node_parameters": {
-        "effective_seed": 5353016,
-        "num_samples": 2,
-        "num_steps": 20,
-        "temperature": 0.7,
-        "top_p": 1.0,
-        "schedule": "cosine",
-        "strategy": "random",
-        "temperature_annealing": true
+        "num_samples": 2
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "sequence_num_steps": 20,
+        "structure_num_steps": 20,
+        "sequence_temperature": 0.7,
+        "structure_temperature": 0.7,
+        "sequence_top_p": 1.0,
+        "structure_top_p": 1.0,
+        "sequence_schedule": "cosine",
+        "structure_schedule": "cosine",
+        "sequence_strategy": "random",
+        "structure_strategy": "random",
+        "sequence_temperature_annealing": true,
+        "structure_temperature_annealing": true
+      }
     },
     {
       "node_id": "relate-generated-structures-longer-16",

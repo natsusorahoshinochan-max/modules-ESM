@@ -293,8 +293,8 @@ def _resolve_local_effective_randomness(
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    del inputs, binding_parameters
-    return {"effective_seed": node_parameters["effective_seed"]}
+    del inputs, node_parameters
+    return {"effective_seed": binding_parameters["effective_seed"]}
 
 
 def _build(
@@ -354,7 +354,7 @@ def _method(
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
             "operation": provider_operation,
-            "condition_on_coordinates_only": True,
+            "coordinate_conditioning": "explicit call parameter",
             "pairing": (
                 "one terminal sequence to one structure counterpart"
                 if operation == "generate_paired"
@@ -421,7 +421,7 @@ def _local_method(
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
             "operation": provider_operation,
-            "condition_on_coordinates_only": True,
+            "coordinate_conditioning": "explicit call parameter",
             "pairing": (
                 "one terminal sequence to one structure counterpart"
                 if operation == "generate_paired"
@@ -478,6 +478,46 @@ def _local_method(
     )
 
 
+def _generation_parameters(operation: str, *, local: bool) -> dict[str, Any]:
+    """Declare the selected route's SDK sampling inputs, once per call track."""
+    specifications = {
+        "num_steps": ({"type": "integer", "minimum": 1,
+                       **({} if local else {"maximum": 100})}, 20,
+                      "Requested upper bound on iterative unmasking steps; the SDK resolves the effective count."),
+        "temperature": ({"type": "number", "minimum": 0}, 1.0,
+                        "Sampling temperature; default from the pinned GenerationConfig SDK."),
+        "top_p": ({"type": "number", "maximum": 1,
+                   "minimum" if local else "exclusiveMinimum": 0}, 1.0,
+                  "Nucleus sampling threshold under the selected route contract."),
+        "schedule": ({"type": "string", "enum": ["cosine", "linear"]}, "cosine",
+                     "Iterative unmasking schedule."),
+        "strategy": ({"type": "string", "enum": ["random", "entropy"]}, "random",
+                     "Token unmasking strategy."),
+        "temperature_annealing": ({"type": "boolean"}, True,
+                                  "Anneal temperature during iterative unmasking."),
+        "invalid_ids": ({"type": "array", "items": {"type": "integer"}}, [],
+                        "Provider token IDs excluded from sampling for this track."),
+        "condition_on_coordinates_only": ({"type": "boolean"}, True,
+                                          "Use coordinates rather than structure tokens for conditioning."),
+    }
+    prefixes = ("sequence_", "structure_") if operation == "generate_paired" else ("",)
+    declarations = {
+        prefix + name: {"parameter_scope": "scientific", "scientific_meaning": meaning,
+                        "value_contract": contract, "default": default}
+        for prefix in prefixes
+        for name, (contract, default, meaning) in specifications.items()
+    }
+    if local:
+        declarations["effective_seed"] = {
+            "parameter_scope": "scientific",
+            "scientific_meaning": "Base seed for exact local Torch call seeds.",
+            "required": True,
+            "value_contract": {"type": "integer", "minimum": 0,
+                               "maximum": 9007199254740991},
+        }
+    return declarations
+
+
 def _binding(
     operation: str,
     model: Mapping[str, str],
@@ -493,7 +533,7 @@ def _binding(
             "method",
             method_id,
         ),
-        binding_parameters={},
+        binding_parameters=_generation_parameters(operation, local=False),
         environment_fields=_BIOHUB_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
@@ -559,7 +599,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             "method",
             method_id,
         ),
-        binding_parameters={},
+        binding_parameters=_generation_parameters(operation, local=True),
         environment_fields=_LOCAL_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(

@@ -126,10 +126,8 @@ def test_canonical_seed_is_compilable_v2() -> None:
     assert sequence_mask["seed"] == 1603
     assert structure_mask["seed"] == 1603
     assert insertion["seed"] == 1603
-    assert nodes["generate-paired"].node_parameters == {
-        "effective_seed": 1603,
-        "num_samples": 10,
-    }
+    assert nodes["generate-paired"].node_parameters == {"num_samples": 10}
+    assert nodes["generate-paired"].binding_parameters == {}
     assert nodes["fold-sequences"].node_parameters == {
         "effective_seed": 1603,
         "num_samples": 1,
