@@ -91,6 +91,21 @@ def select_candidates(candidates: CandidateCollection,
                       parameters: Mapping[str, Any], *, operation: str,
                       relation_inputs: Mapping[str, tuple[CandidateRelation, ...]] | None = None) -> CandidateCollection:
     """Sort or select original candidates using raw values and stable input ties."""
+    if operation == 'pareto':
+        objectives = parameters['objectives']
+        columns = tuple({reference.candidate_id: score.value for reference, score in zip(
+            candidate_references, resolve_observations(objective['selection'], candidate_references,
+                score_inputs, relation_inputs), strict=True)} for objective in objectives)
+        def dominates(other: str, candidate: str) -> bool:
+            comparisons = tuple(
+                (column[other] <= column[candidate], column[other] < column[candidate])
+                if objective['direction'] == 'ascending' else
+                (column[other] >= column[candidate], column[other] > column[candidate])
+                for objective, column in zip(objectives, columns, strict=True))
+            return all(no_worse for no_worse, _ in comparisons) and any(better for _, better in comparisons)
+        return replace(candidates, items=tuple(candidate for candidate in candidates
+            if not any(dominates(other.candidate_id, candidate.candidate_id)
+                for other in candidates if other.candidate_id != candidate.candidate_id)))
     if operation == 'filter':
         return _filter_candidates(candidates, candidate_references, score_inputs, parameters['condition'], relation_inputs)
     scores = resolve_observations(parameters['selection'], candidate_references, score_inputs, relation_inputs)
@@ -122,5 +137,5 @@ def _filter_candidates(
         children = tuple(resolve(child) for child in tree['children'])
         combine = all if tree['operator'] == 'and' else any
         return tuple(combine(values) for values in zip(*children, strict=True))
-    accepted = resolve(condition)
-    return replace(candidates, items=tuple(candidate for candidate, keep in zip(candidates, accepted, strict=True) if keep))
+    accepted = {reference.candidate_id: keep for reference, keep in zip(candidate_references, resolve(condition), strict=True)}
+    return replace(candidates, items=tuple(candidate for candidate in candidates if accepted[candidate.candidate_id]))

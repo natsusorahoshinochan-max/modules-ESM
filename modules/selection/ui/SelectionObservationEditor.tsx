@@ -62,4 +62,3 @@ export function ObservationEditor({ value, index, catalog, workflow, nodeId, sco
     {onRemove && <button type="button" onClick={onRemove}>移除此观察条件</button>}
   </fieldset>
 }
-

@@ -17,6 +17,7 @@ export type ObservationDraft = {
   transformId: string
   transformParameters: JsonObject
   weight?: number
+  direction?: 'ascending' | 'descending'
   reference?: CandidateReference
   exactContexts?: Array<{ subject: CandidateReference; context: JsonObject; residue_axis?: unknown }>
   relationInput?: string
@@ -53,28 +54,34 @@ export function readSelectionDraft(workflow: Workflow, nodeId: string): Selectio
   const node = workflow.nodes.find((item) => item.node_id === nodeId)!
   const operation = node.node_type_id.slice('selection.'.length) as SelectionOperation
   if (operation === 'filter') return readFilterDraft(workflow, nodeId, createSelectionDraft(operation))
-  if (operation === 'sort' || operation === 'top_k') {
-    const selection = node.node_parameters.selection as JsonObject | undefined
-    const unfinished = newObservation()
+  if (operation === 'sort' || operation === 'top_k' || operation === 'pareto') {
     const source = (port: string, slot?: string): SelectionSource | undefined => {
       if (port !== 'candidates' && slot === undefined) return undefined
       const edge = workflow.edges.find((value) => value.target_node_id === nodeId && value.target_port === port && (slot === undefined || value.target_slot === slot))
       return edge ? { node_id: edge.source_node_id, output_port: edge.source_port } : undefined
     }
+    const objectives = operation === 'pareto'
+      ? (node.node_parameters.objectives ?? []) as Array<{ selection?: JsonObject; direction?: ObservationDraft['direction'] }>
+      : node.node_parameters.selection ? [{ selection: node.node_parameters.selection as JsonObject }] : []
     return {
       ...createSelectionDraft(operation, source('candidates')),
       direction: node.node_parameters.direction as SelectionDraft['direction'],
       k: node.node_parameters.k as number | undefined,
-      observations: selection ? [{
-        ...unfinished, id: (selection.score_input as string | undefined) ?? unfinished.id, scoreInput: selection.score_input as string | undefined,
-        scoreSource: source('scores', selection.score_input as string),
-        metricId: (selection.metric_id as string | undefined) ?? '', methodId: (selection.method_id as string | undefined) ?? '',
-        partition: (selection.source_partition as string | undefined) ?? '', context: (selection.context as JsonObject | undefined) ?? { kind: 'intrinsic' },
-        reference: selection.reference as CandidateReference | undefined,
-        exactContexts: selection.exact_contexts as ObservationDraft['exactContexts'],
-        relationInput: selection.relation_input as string | undefined,
-        relationSource: selection.relation_input ? source('relations', selection.relation_input as string) : undefined,
-      }] : [],
+      observations: objectives.map((objective) => {
+        const selection = objective.selection ?? {}
+        const unfinished = newObservation()
+        return {
+          ...unfinished, id: operation === 'pareto' ? unfinished.id : (selection.score_input as string | undefined) ?? unfinished.id, scoreInput: selection.score_input as string | undefined,
+          scoreSource: source('scores', selection.score_input as string),
+          metricId: (selection.metric_id as string | undefined) ?? '', methodId: (selection.method_id as string | undefined) ?? '',
+          partition: (selection.source_partition as string | undefined) ?? '', context: (selection.context as JsonObject | undefined) ?? { kind: 'intrinsic' },
+          direction: objective.direction,
+          reference: selection.reference as CandidateReference | undefined,
+          exactContexts: selection.exact_contexts as ObservationDraft['exactContexts'],
+          relationInput: selection.relation_input as string | undefined,
+          relationSource: selection.relation_input ? source('relations', selection.relation_input as string) : undefined,
+        }
+      }),
     }
   }
   const orderedIds = nodeObjectiveIds(node)
@@ -97,7 +104,7 @@ export function readSelectionDraft(workflow: Workflow, nodeId: string): Selectio
 /** Publish one complete editing transaction. */
 export function saveSelectionDraft(workflow: Workflow, nodeId: string, draft: SelectionDraft): Workflow {
   if (draft.operation === 'filter') return saveFilterDraft(workflow, nodeId, draft)
-  if (draft.operation === 'sort' || draft.operation === 'top_k') return saveRawSelectionDraft(workflow, nodeId, draft)
+  if (draft.operation === 'sort' || draft.operation === 'top_k' || draft.operation === 'pareto') return saveRawSelectionDraft(workflow, nodeId, draft)
   const existing = workflow.nodes.find((node) => node.node_id === nodeId)
   const oldIds = existing ? nodeObjectiveIds(existing) : []
   const source = draft.candidateSource
@@ -126,33 +133,50 @@ export function saveSelectionDraft(workflow: Workflow, nodeId: string, draft: Se
 
 function saveRawSelectionDraft(workflow: Workflow, nodeId: string, draft: SelectionDraft): Workflow {
   const existing = workflow.nodes.find((node) => node.node_id === nodeId)
-  const previous = existing?.node_parameters.selection as JsonObject | undefined
-  const observation = draft.observations[0]
-  const scoreInput = observation?.scoreInput ?? observation?.id
-  const selection = observation ? {
-    score_input: scoreInput, metric_id: observation.metricId, method_id: observation.methodId,
+  const previous = [
+    ...(existing?.node_parameters.selection ? [existing.node_parameters.selection as JsonObject] : []),
+    ...((existing?.node_parameters.objectives ?? []) as Array<{ selection?: JsonObject }>).flatMap((entry) => entry.selection ? [entry.selection] : []),
+  ]
+  const slots = new Map<string, string>()
+  const associate = (port: string, source: SelectionSource | undefined, slot: string | undefined) => {
+    if (!source) return slot
+    const key = JSON.stringify([port, sourceKey(source)])
+    const edge = workflow.edges.find((entry) => entry.target_node_id === nodeId && entry.target_port === port && entry.source_node_id === source.node_id && entry.source_port === source.output_port)
+    if (!slots.has(key)) slots.set(key, edge?.target_slot ?? slot ?? `input-${crypto.randomUUID()}`)
+    return slots.get(key)
+  }
+  const observations = (draft.operation === 'pareto' ? draft.observations : draft.observations.slice(0, 1)).map((entry) => ({
+    ...entry, scoreInput: associate('scores', entry.scoreSource, entry.scoreInput ?? entry.id),
+    relationInput: associate('relations', entry.relationSource, entry.relationInput),
+  }))
+  const selections = observations.map((observation) => ({
+    score_input: observation.scoreInput, metric_id: observation.metricId, method_id: observation.methodId,
     source_partition: observation.partition, context: structuredClone(observation.context),
     ...(observation.reference ? { reference: structuredClone(observation.reference) } : {}),
     ...(observation.exactContexts ? { exact_contexts: structuredClone(observation.exactContexts) } : {}),
     ...(observation.relationInput ? { relation_input: observation.relationInput } : {}),
-  } : undefined
+  }))
   const node: WorkflowNode = {
     node_id: nodeId, node_type_id: `selection.${draft.operation}`, binding_id: `selection.${draft.operation}.direct`,
-    node_parameters: { ...(selection ? { selection } : {}), ...(draft.direction ? { direction: draft.direction } : {}), ...(draft.operation === 'top_k' && draft.k !== undefined ? { k: draft.k } : {}) },
+    node_parameters: draft.operation === 'pareto' ? { objectives: selections.map((selection, index) => ({ selection, ...(observations[index].direction ? { direction: observations[index].direction } : {}) })) }
+      : { ...(selections[0] ? { selection: selections[0] } : {}), ...(draft.direction ? { direction: draft.direction } : {}), ...(draft.operation === 'top_k' && draft.k !== undefined ? { k: draft.k } : {}) },
     binding_parameters: {},
   }
-  const ownedSlots = new Set([previous?.score_input, previous?.relation_input, scoreInput, observation?.relationInput].filter(Boolean))
-  const selectedSource = (edge: Workflow['edges'][number]) => {
-    const source = edge.target_port === 'scores' ? observation?.scoreSource : edge.target_port === 'relations' ? observation?.relationSource : undefined
+  const ownedSlots = new Set([...previous.flatMap((entry) => [entry.score_input, entry.relation_input]), ...observations.flatMap((entry) => [entry.scoreInput, entry.relationInput])].filter(Boolean))
+  const selectedSource = (edge: Workflow['edges'][number]) => observations.some((entry) => {
+    const source = edge.target_port === 'scores' ? entry.scoreSource : edge.target_port === 'relations' ? entry.relationSource : undefined
     return source && edge.source_node_id === source.node_id && edge.source_port === source.output_port
-  }
-  const edges = workflow.edges.filter((edge) => edge.target_node_id !== nodeId || edge.target_port !== 'candidates' && !ownedSlots.has(edge.target_slot) && !selectedSource(edge))
+  })
+  const operationChanged = existing !== undefined && existing.node_type_id !== node.node_type_id
+  const edges = workflow.edges.filter((edge) => edge.target_node_id !== nodeId || edge.target_port !== 'candidates' && !(operationChanged && ['scores', 'relations'].includes(edge.target_port)) && !ownedSlots.has(edge.target_slot) && !selectedSource(edge))
   const connect = (port: string, source?: SelectionSource, slot?: string) => {
-    if (source) edges.push({ source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: port, ...(slot ? { target_slot: slot } : {}) })
+    if (source && !edges.some((edge) => edge.target_node_id === nodeId && edge.target_port === port && edge.target_slot === slot)) edges.push({ source_node_id: source.node_id, source_port: source.output_port, target_node_id: nodeId, target_port: port, ...(slot ? { target_slot: slot } : {}) })
   }
   connect('candidates', draft.candidateSource)
-  connect('scores', observation?.scoreSource, scoreInput)
-  connect('relations', observation?.relationSource, observation?.relationInput)
+  for (const observation of observations) {
+    connect('scores', observation.scoreSource, observation.scoreInput)
+    connect('relations', observation.relationSource, observation.relationInput)
+  }
   return { ...workflow, nodes: existing ? workflow.nodes.map((value) => value.node_id === nodeId ? node : value) : [...workflow.nodes, node], edges }
 }
 
