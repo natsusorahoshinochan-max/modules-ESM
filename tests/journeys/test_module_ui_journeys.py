@@ -49,6 +49,12 @@ def test_official_and_external_editors_share_public_discovery_and_asset_delivery
             assert asset.status_code == 200, asset.text
             assert "javascript" in asset.headers["content-type"]
             assert "register" in asset.text
+        missing = http.get("/api/v2/module-ui/external.editor/assets/undeclared.js")
+        assert missing.status_code == 404, missing.text
+        assert missing.json()["error"]["code"] == "module_ui_asset_not_found"
+        assert missing.json()["error"]["details"] == {
+            "extension_id": "external.editor", "resource_path": "undeclared.js",
+        }
         assert extensions["external.editor"]["editors"] == [{
             "editor_id": "external.selection.editor", "title": "External selection",
             "node_type_ids": ["contract_test.synthetic_candidate_source"], "component": "ExternalEditor",
