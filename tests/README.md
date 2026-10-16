@@ -177,3 +177,28 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 `.venv/bin/python -m unittest discover -s tests -p test_structure_components.py` 通过公共 Run 和模块结果 action 覆盖蛋白、配体、金属、水、核酸的明确身份与全原子投影，以及两种来源格式逐类选择、两种目标导出、连接/链终止记录和原始结果不变。另通过注册结果 action 的公开调用边界输入独立多模型候选，核对重复 atom serial 的 ANISOU/SIGATM/SIGUIJ 只随所属模型原子保留；该用例不经强制单构象的导入节点。不调用模型。
 
 启用默认模块的正常应用使用独立临时数据目录启动后，在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5297 npx playwright test tests/structure-components.spec.ts --workers=1 --reporter=line --output=/tmp/components-results`。覆盖完整候选详情的真实全原子视口、逐类勾选、PDB/mmCIF 文件下载及刷新后恢复选择。
+
+## ProteinMPNN design and independent scoring
+
+`test_proteinmpnn.py` exercises public project/Run APIs. Set `PROTEINMPNN_ROOT`
+to the local pinned ProteinMPNN checkout containing `vanilla_model_weights`:
+
+```sh
+PROTEINMPNN_ROOT=/absolute/path/to/ProteinMPNN .venv/bin/python -m unittest discover -s tests -p test_proteinmpnn.py
+```
+
+These tests execute only ProteinMPNN on the 56-residue bundled 3GB1 backbone,
+with one design per call and independent scalar scoring. They cover omissions,
+PSSM probability mixing, tied conditions, global bias, explicit sequence/backbone
+correspondence and score identity. Real-call project directories are retained and
+printed so their inputs, parameters and outputs can be inspected.
+
+With the backend and Vite frontend serving this checkout, run only the related
+browser file from `webui/`:
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5197 npx playwright test tests/proteinmpnn-parameters.spec.ts --workers=1
+```
+
+The browser checks natural residue choices, PSSM controls and manual saving; it
+does not launch a Provider. Build module UI assets before starting the application.
