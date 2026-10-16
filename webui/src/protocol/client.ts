@@ -6,7 +6,8 @@ export type JsonObject = Record<string, unknown>
 export type ContractReference = { contract_kind: string; contract_id: string }
 export type AuthoringCapabilities = { node_roles: Array<{ node_type: ContractReference; role: 'ordinary_node' }>; protocol_digest: string; schema_namespace: string }
 export type ProjectMetadata = { id: string; name: string; seed: boolean; project_kind: 'default_example' | 'canonical_verification' | 'personal'; copied_from_project_id: string | null; reference_results_project_id: string | null; created_at: string; modified_at: string; deleted_at: string | null; latest_run_id: string | null }
-export type WorkflowNode = { node_id: string; node_type_id: string; binding_id: string; node_parameters: Record<string, unknown>; binding_parameters: Record<string, unknown> }
+export type PreservedConfiguration = { reason: string; settings: JsonObject; project_input_parameters: string[] }
+export type WorkflowNode = { node_id: string; node_type_id: string; binding_id: string; node_parameters: Record<string, unknown>; binding_parameters: Record<string, unknown>; preserved_configuration?: PreservedConfiguration }
 export type Workflow = { schema_version: string; workflow_id: string; nodes: WorkflowNode[]; edges: Array<{ source_node_id: string; source_port: string; target_node_id: string; target_port: string; target_slot?: string }>; observation_selectors: JsonObject[]; selection_objectives: JsonObject[] }
 export type WorkflowDraft = { project_id: string; draft_revision: number; workflow: Workflow }
 export type CatalogSnapshot = { contracts: Array<{ reference: ContractReference; descriptor: JsonObject }>; availability: JsonObject[] }
@@ -103,7 +104,7 @@ export type NodeDisposition =
   | NodeDispositionBase & { outcome: 'blocked'; blocked_by: string[] }
   | NodeDispositionBase & { outcome: 'failed' | 'cancelled' | 'interrupted'; blocked_by: [] }
 type SelectionInput = { node_id: string; output_port: string; content_digest: string; result_identity: string }
-export type RunProjection = { continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
+export type RunProjection = { diagnostic?: RunDiagnostic; continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
 export type RunDiagnostic = { code: string; message: string; retryable: boolean; correlation_id: string; details: JsonObject }
 export type RunEvent =
   | { type: 'run_admitted'; workflow_commit_id: string }

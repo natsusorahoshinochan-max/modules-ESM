@@ -1980,6 +1980,30 @@
         },
         "node_type_id": {
           "$ref": "#/$defs/Identifier"
+        },
+        "preserved_configuration": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "settings": {
+              "$ref": "#/$defs/JsonObject"
+            },
+            "project_input_parameters": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "reason",
+            "settings",
+            "project_input_parameters"
+          ],
+          "type": "object"
         }
       },
       "required": [
@@ -4360,6 +4384,9 @@
         },
         "workflow_commit_id": {
           "$ref": "#/$defs/WorkflowCommitId"
+        },
+        "diagnostic": {
+          "$ref": "#/$defs/StructuredError"
         }
       },
       "required": [

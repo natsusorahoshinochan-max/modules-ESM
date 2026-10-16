@@ -294,6 +294,14 @@ def encode_run_projection(projection: RunProjection) -> dict[str, Any]:
         ]
     if projection.selection_error is not None:
         result["selection_error"] = _error(projection.selection_error)
+    if projection.diagnostic is not None:
+        result["diagnostic"] = {
+            "code": projection.diagnostic.code,
+            "message": projection.diagnostic.message,
+            "retryable": projection.diagnostic.retryable,
+            "correlation_id": projection.diagnostic.correlation_id,
+            "details": thaw_i_json(projection.diagnostic.details),
+        }
     if projection.terminal_sequence is not None:
         result["terminal_sequence"] = projection.terminal_sequence
     if projection.derived_from_run_id is not None:

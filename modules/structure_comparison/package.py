@@ -225,7 +225,9 @@ def _binding(
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{binding_id}/factory",
-                {"execution_route": "direct"},
+                {"execution_route": "direct", **({
+                    "observation_regions": "exact-subject-and-reference-regions-from-evidence",
+                } if operation in {"rmsd", "tm_score"} else {})},
             ),
             build=_build(operation),
         ),

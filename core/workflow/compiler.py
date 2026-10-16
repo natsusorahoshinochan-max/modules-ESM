@@ -94,6 +94,14 @@ def compile(
 ) -> ExecutionPlan:
     """Compile one stable-ID Workflow before consulting runtime state."""
     workflow = request.workflow
+    for index, node in enumerate(workflow.nodes):
+        if node.preserved_configuration is not None:
+            raise _errors.WorkflowCompileError(
+                "preserved_configuration_unavailable",
+                node.preserved_configuration["reason"],
+                node_id=node.node_id,
+                field_path=("nodes", index, "preserved_configuration"),
+            )
     try:
         catalog = with_adopted_definitions(catalog, request.adopted_definitions)
     except ValueError as error:

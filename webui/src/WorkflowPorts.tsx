@@ -57,8 +57,8 @@ export function WorkflowPorts({ nodeId, inputs, outputs, collapsed, prompt, sour
       <summary className="port workflow-port-row" data-port-name={port.name} data-direction={direction} aria-label={`${port.name} 端口详情`}>
         {handle}
         <span className="port-name">{port.label ?? port.name}</span>
-        <span className="port-type">{port.missing ? '模块缺失' : port.portTypeId.slice(port.portTypeId.lastIndexOf('.') + 1).replace(/_/g, ' ')}</span>
-        <span className="port-rules">{port.missing ? '契约待恢复' : `${port.required ? '必选' : '可选'} · ${port.multiplicity === 'many' ? '多值' : '单值'}`}<span aria-hidden="true"> ⓘ</span></span>
+        <span className="port-type">{port.missing ? '不可用' : port.portTypeId.slice(port.portTypeId.lastIndexOf('.') + 1).replace(/_/g, ' ')}</span>
+        <span className="port-rules">{port.missing ? '保留的连线' : `${port.required ? '必选' : '可选'} · ${port.multiplicity === 'many' ? '多值' : '单值'}`}<span aria-hidden="true"> ⓘ</span></span>
         <span className="port-match-hint" aria-hidden={!match}>{match ? '端口匹配' : '\u00a0'}</span>
       </summary>
       <div className="port-details">

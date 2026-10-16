@@ -64,7 +64,7 @@ test('a copied nested condition keeps its inputs and can be edited independently
     { kind: 'group', operator: 'and', children: [{ kind: 'comparison', selection: { ...newObservation(), scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'confidence', methodId: 'prediction', partition: 'predicted' }, operator: '>=', threshold: 80 }] },
   ] }
   const saved = saveSelectionDraft(workflow(), 'filter', draft)
-  const fragment = copyWorkflowFragment(saved, new Set(['input', 'filter']), catalog)
+  const fragment = copyWorkflowFragment(saved, new Set(['input', 'filter']))
   let nextId = 0
   const copied = pasteWorkflowFragment(saved, fragment, { x: 0, y: 0 }, () => `copy-${nextId++}`).workflow
   const copyDraft = readSelectionDraft(copied, 'copy-1')
@@ -88,7 +88,7 @@ test('removing or reconnecting a required score source never redirects a saved c
   saved.nodes.push({ ...saved.nodes[0], node_id: 'other' })
   const original = saved.edges[0]
   const reconnected = reconnectWorkflowPorts(saved, catalog, original, { nodeId: 'other', portName: 'scores', direction: 'output' }, { nodeId: 'filter', portName: 'scores', direction: 'input' })
-  const removed = deleteWorkflowElements(saved, catalog, { nodeIds: new Set(), edges: [original] }).workflow
+  const removed = deleteWorkflowElements(saved, { nodeIds: new Set(), edges: [original] }).workflow
   const connected = connectWorkflowPorts(removed, catalog, { nodeId: 'other', portName: 'scores', direction: 'output' }, { nodeId: 'filter', portName: 'scores', direction: 'input' })
   for (const changed of [removed, reconnected, connected]) {
     const reopened = readSelectionDraft(changed, 'filter')

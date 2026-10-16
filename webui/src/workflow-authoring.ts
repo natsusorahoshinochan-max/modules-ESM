@@ -172,6 +172,7 @@ function parameterPresentationsForScope(parameters: JsonObject | undefined, valu
 }
 
 export function parameterPresentations(catalog: CatalogSnapshot, node: WorkflowNode): ParameterPresentation[] {
+  if (node.preserved_configuration) return []
   const nodeType = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === node.node_type_id)
   const binding = catalog.contracts.find((contract) => contract.reference.contract_kind === 'binding' && contract.reference.contract_id === node.binding_id)
   if (!nodeType || !binding) return []
@@ -189,7 +190,7 @@ export function missingNodeContracts(catalog: CatalogSnapshot, node: WorkflowNod
 
 /** A saved endpoint locates a wire; its scientific contract is unavailable. */
 export function missingPortPresentation(name: string): PortPresentation {
-  return { name, missing: true, meaning: '模块缺失，保留已保存的端口和连线；启用兼容模块后恢复。' }
+  return { name, missing: true, meaning: '保留已保存的端口和连线；当前节点不可通过此端口运行。' }
 }
 
 export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: string): NodeTypePresentation {
@@ -230,9 +231,10 @@ export function insertOrdinaryNode(workflow: Workflow, nodeId: string, nodeTypeI
 }
 
 export function selectNodeBinding(workflow: Workflow, nodeId: string, bindingId: string, catalog: CatalogSnapshot, rememberedParameters?: Record<string, unknown>): Workflow {
+  const node = workflow.nodes.find((item) => item.node_id === nodeId)
+  if (node?.preserved_configuration) throw new Error(node.preserved_configuration.reason)
   const binding = catalog.contracts.find((contract) => contract.reference.contract_kind === 'binding' && contract.reference.contract_id === bindingId)
   if (!binding) throw new Error(`Binding ${bindingId} is absent from the active Catalog`)
-  const node = workflow.nodes.find((item) => item.node_id === nodeId)
   if (!node || descriptorReference(binding.descriptor, 'node_type') !== node.node_type_id) throw new Error(`Binding ${bindingId} does not execute Node ${nodeId}`)
   return {
     ...workflow,

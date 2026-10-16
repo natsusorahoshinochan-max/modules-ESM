@@ -60,7 +60,7 @@ class RecordedRunReadingTests(unittest.TestCase):
 
             shutil.copytree(original_root, copy_root)
             if prepare_history:
-                from protein_workbench_public.history_preservation import prepare_historical_reading
+                from core.execution.history_preservation import prepare_historical_reading
                 (copy_root / "runs" / project_id / run_id / "reading.json").unlink()
                 prepare_historical_reading(copy_root)
             shutil.rmtree(copy_root / "runs" / project_id / run_id / "ledger")

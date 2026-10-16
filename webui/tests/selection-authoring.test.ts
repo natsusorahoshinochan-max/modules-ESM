@@ -32,7 +32,7 @@ test('node-owned raw top-k settings reopen and copied nodes can be edited indepe
   assert.equal(reopened.observations[0].metricId, 'energy')
   assert.deepEqual(saved.selection_objectives, [])
   assert.deepEqual(saved.observation_selectors, [])
-  const fragment = copyWorkflowFragment(saved, new Set(['input', 'rank']), catalog)
+  const fragment = copyWorkflowFragment(saved, new Set(['input', 'rank']))
   let nextId = 0
   const copied = pasteWorkflowFragment(saved, fragment, { x: 0, y: 0 }, () => `copy-${nextId++}`).workflow
   const copyDraft = readSelectionDraft(copied, 'copy-1')
@@ -55,7 +55,7 @@ test('deleting or reconnecting a score input leaves the saved evaluation unresol
   assert.ok(reconnected.edges[0].target_slot)
   assert.notEqual(reconnected.edges[0].target_slot, original.target_slot)
   assert.equal(readSelectionDraft(reconnected, 'rank').observations[0].scoreSource, undefined)
-  const removed = deleteWorkflowElements(saved, catalog, { nodeIds: new Set(), edges: [original] }).workflow
+  const removed = deleteWorkflowElements(saved, { nodeIds: new Set(), edges: [original] }).workflow
   const connected = connectWorkflowPorts(removed, catalog, { nodeId: 'other', portName: 'scores', direction: 'output' }, { nodeId: 'rank', portName: 'scores', direction: 'input' })
   assert.ok(connected.edges[0].target_slot)
   assert.notEqual(connected.edges[0].target_slot, original.target_slot)

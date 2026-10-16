@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:preserved-workflow": "esbuild tests/preserved-workflow.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/preserved-workflow.test.mjs && node node_modules/.tmp/preserved-workflow.test.mjs",
     "test:result-interactions": "esbuild tests/result-context-interaction.test.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.tmp/result-context-interaction.test.mjs && node node_modules/.tmp/result-context-interaction.test.mjs",
     "test:results": "esbuild tests/result-view.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/result-view.test.mjs && node node_modules/.tmp/result-view.test.mjs",
     "test:conditions": "esbuild tests/selection-conditions.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/selection-conditions.test.mjs && node node_modules/.tmp/selection-conditions.test.mjs",
@@ -13,7 +14,8 @@
     "build": "tsc -b && vite build",
     "build:module-ui": "node tools/build-module-ui.mjs",
     "predev": "npm run build:module-ui",
-    "prebuild": "npm run build:module-ui"
+    "prebuild": "npm run build:module-ui",
+    "test:historical-diagnostic": "esbuild tests/historical-diagnostic.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --outfile=node_modules/.tmp/historical-diagnostic.test.mjs && node node_modules/.tmp/historical-diagnostic.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "2.3.7",

@@ -11,6 +11,7 @@
 | 了解运行、缓存、发布和失败处理 | [执行](execution.md) |
 | 项目、画布、手动保存和教学实例 | [工作区](workspace.md) |
 | 导入、历史结果复用、查看、筛选与导出 | [结果与数据](results.md) |
+| 离线转换已保存筛选配置并保全历史资料 | [数据转换](selection-data-conversion.md) |
 | 序列、轨道、区域、随机插入和结构编辑 | [Prompt 编辑](prompt-editing.md) |
 | 模块 React 编辑器接入与打包 | [模块 UI 契约](module-ui.md) |
 | 功能模块职责与当前工具调用能力 | [模块能力](module-capabilities.md) |
