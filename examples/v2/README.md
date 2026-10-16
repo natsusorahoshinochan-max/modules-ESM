@@ -108,6 +108,17 @@ remains protected. Editing/personal-save and copied Run scope must follow
 [workspace requirements](../../docs/workspace.md#教学实例与默认入口).
 
 
+`discontinuous-regions.workflow.json` demonstrates explicit A:1/A:3/A:5 selections
+on `structures/3GB1.pdb`. Upload that file into the target project and replace
+`project_input_ref` and `workflow_id` with the returned input and project IDs.
+The comparison branch aligns selected positions of the original against itself
+without changing its structure; the separate extraction branch intentionally
+creates a new fragment Candidate. Replace either comparison source with another
+axis to compare distinct objects. No prediction Provider is involved.
+For regional statistics of existing per-residue scores, connect a Score Collection
+to `structure_comparison.region_statistics`, choose its original `metric_id`,
+the same position objects, and `missing_values` (`exclude_null` or `require_all`).
+See [regional behavior and downstream type boundaries](../../docs/module-capabilities.md#不连续区域比较提取与已有指标统计).
 ## ProteinMPNN design and independent evaluation
 
 `proteinmpnn-design-score.workflow.json` uses `structures/3GB1.pdb` as Project Input

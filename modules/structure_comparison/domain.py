@@ -64,6 +64,8 @@ class StructureAlignmentEvidence:
     rmsd: float
     coverage: float
     method: ExactContractReference
+    subject_region: tuple[str, ...] = ()
+    reference_region: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

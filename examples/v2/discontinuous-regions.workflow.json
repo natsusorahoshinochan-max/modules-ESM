@@ -1,0 +1,140 @@
+{
+  "schema_version": "2.1.0",
+  "workflow_id": "discontinuous-region-example",
+  "nodes": [
+    {
+      "node_id": "structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "replace-with-uploaded-3gb1-input"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pairs",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "compare",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
+      "node_parameters": {
+        "subject_region": [
+          {
+            "chain_id": "A",
+            "residue_number": "1",
+            "insertion_code": ""
+          },
+          {
+            "chain_id": "A",
+            "residue_number": "3",
+            "insertion_code": ""
+          },
+          {
+            "chain_id": "A",
+            "residue_number": "5",
+            "insertion_code": ""
+          }
+        ],
+        "reference_region": [
+          {
+            "chain_id": "A",
+            "residue_number": "1",
+            "insertion_code": ""
+          },
+          {
+            "chain_id": "A",
+            "residue_number": "3",
+            "insertion_code": ""
+          },
+          {
+            "chain_id": "A",
+            "residue_number": "5",
+            "insertion_code": ""
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "extract",
+      "node_type_id": "structure_transform.extract_region",
+      "binding_id": "structure_transform.extract_region.direct",
+      "node_parameters": {
+        "region": [
+          {
+            "chain_id": "A",
+            "residue_number": "1",
+            "insertion_code": ""
+          },
+          {
+            "chain_id": "A",
+            "residue_number": "3",
+            "insertion_code": ""
+          },
+          {
+            "chain_id": "A",
+            "residue_number": "5",
+            "insertion_code": ""
+          }
+        ]
+      },
+      "binding_parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "structure",
+      "source_port": "structure_candidates",
+      "target_node_id": "axes",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "structure",
+      "source_port": "structure_candidates",
+      "target_node_id": "pairs",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "structure",
+      "source_port": "structure_candidates",
+      "target_node_id": "pairs",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "axes",
+      "source_port": "residue_axes",
+      "target_node_id": "compare",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "axes",
+      "source_port": "residue_axes",
+      "target_node_id": "compare",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "pairs",
+      "source_port": "relation",
+      "target_node_id": "compare",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "structure",
+      "source_port": "structure_candidates",
+      "target_node_id": "extract",
+      "target_port": "structure_candidates"
+    }
+  ]
+}

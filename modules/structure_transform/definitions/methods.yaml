@@ -209,3 +209,13 @@
     coordinates: provider-native-decimal-text
   scale_contract:
     kind: identity
+- method_id: structure_transform.extract_region.method
+  algorithm_identity:
+    name: exact-author-residue-coordinate-extraction
+    ordering: original-axis-order
+    numbering: unchanged
+    lineage: one-child-per-input-candidate
+    missing_locations: error
+  model_identity: {kind: none}
+  featurization_identity: {format: original-coordinate-format}
+  scale_contract: {kind: identity}

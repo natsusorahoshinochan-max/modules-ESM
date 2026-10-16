@@ -17,6 +17,7 @@ from datatypes.residue import (
     ModifiedResidueNormalizationCollection,
     ResidueLayout,
 )
+from datatypes.region import structure_residue_id
 from datatypes.structure_format import read_mmcif_atoms, mmcif_dictionary
 from datatypes.structure import (
     ProteinStructure,
@@ -72,8 +73,8 @@ class _AtomRecord:
 
     @property
     def public_residue_id(self) -> str:
-        label = self.residue_number + self.insertion_code
-        return f"{self.chain_id}:{label}"
+        return structure_residue_id(self.chain_id, self.residue_number, self.insertion_code)
+
 
 
 def _atom_record(line: str) -> _AtomRecord:

@@ -119,3 +119,14 @@
     plddt: zero-to-100
     junction_distance: angstrom
     nonbonded_distance: angstrom
+- method_id: structure_comparison.region_statistics.method
+  algorithm_identity:
+    name: existing-residue-observation-regional-arithmetic-mean
+    missing_values: explicit-exclude-null-or-require-all
+    all_missing: reject
+    valid_count: nonnull-selected-observations
+    selection: exact-original-chain-author-number-insertion
+    provider_calls: none
+  model_identity: {kind: none}
+  featurization_identity: {axis: original-observation-residue-axis}
+  scale_contract: {unit: original-metric-unit}

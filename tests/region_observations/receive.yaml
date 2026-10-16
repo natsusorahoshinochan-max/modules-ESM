@@ -1,0 +1,10 @@
+node_type_id: region_observations.receive
+title: Consume regional statistics
+summary: An external downstream node receives the unchanged regional report.
+category: test
+inputs:
+  - {name: statistics, port_type_id: structure_comparison.region_statistics, required: true, multiplicity: one, scientific_meaning: The published regional report.}
+outputs:
+  - {name: statistics, port_type_id: structure_comparison.region_statistics, required: true, multiplicity: one, scientific_meaning: Received unchanged report.}
+parameter_groups: []
+node_parameters: {}

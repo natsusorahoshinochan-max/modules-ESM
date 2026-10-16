@@ -12,10 +12,10 @@
 | 序列与设计条件编辑 | [`prompt_authoring`](../modules/prompt_authoring/definitions/)、[`residue_data`](../modules/residue_data/definitions/) | Prompt 组合、拆解与编辑，带残基身份的轨道及序列物化。随机插入和局部采用按[Prompt 编辑要求](prompt-editing.md)落实，内部位置映射由模块处理。 |
 | 序列生成与设计 | [`esm3`](../modules/esm3/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/) | ESM-3 的序列、结构轨道和配对生成；ProteinMPNN 按骨架与约束生成序列，并保留真实生成父结构和逐次调用 seed。 |
 | 结构预测 | [`folding`](../modules/folding/definitions/) | ESMFold2 本地/远程与 SimpleFold 折叠，保留对应结构与预测置信度。 |
-| 结构编辑与处理 | [`structure_transform`](../modules/structure_transform/definitions/) | 链选择、残基轴解析、骨架和序列提取，以及已明确的 CSH 归一化等。选择评价区域不等同于裁剪或改写输入结构。 |
-| 结构比较 | [`structure_comparison`](../modules/structure_comparison/definitions/) | 配对对齐、RMSD/TM-score 投影、三方一致性分类与插入环分析。特定实例分析不替代链上不连续区域的通用比较要求。 |
+| 结构编辑与处理 | [`structure_transform`](../modules/structure_transform/definitions/) | 链选择、残基轴解析、骨架和序列提取、明确的区域片段提取，以及 CSH 归一化。比较的区域选择不调用提取操作。 |
+| 结构比较 | [`structure_comparison`](../modules/structure_comparison/definitions/) | 两侧独立选择链上不连续残基，自动对应与对齐，RMSD/TM-score 投影；另有三方一致性分类与插入环分析。 |
 | 候选评价 | [`solubility`](../modules/solubility/definitions/)、[`folding`](../modules/folding/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/)、[`structure_annotation`](../modules/structure_annotation/definitions/) | SoluProt/Protein-Sol、已有结构 SimpleFold confidence、ProteinMPNN 评分、DSSP 注释及二级结构一致性。ProteinMPNN 评价接受独立序列与所选骨架，以 pairwise 结果记录评价关系，不改写生成来源。 |
-| 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度与结构比较结果的物化、统计和派生指标。已有节点不是全部通用区域统计需求已经完成的证明。 |
+| 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度物化及已有逐残基数值的区域均值，保留原指标、主体、方法、上下文和有效数量；不重新预测。 |
 | 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、多样性、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
 
 ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embedding、logits 或 both（默认）。保存 Provider 的 1152 维整序列 mean embedding，以及去除 CLS/EOS 行后与输入残基顺序对应的 `L×64` 实际 logits；未请求值为 null。保留全部模型类别列，列索引为固定 SDK 的模型类别索引，不将其称为概率。模块查看器逐位置显示数值，同名 Port 可交给下游模块；不增加 hidden states、SAE 或新分析算法。
@@ -66,6 +66,18 @@ PSSM 每行按 `ACDEFGHIKLMNPQRSTVWY` 顺序提供 20 个归一化概率和 20 �
 ## ESMFold2 推理参数
 
 ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由所选 Binding 声明并传给对应官方接口；远程范围不用于限制本地路线。nullable 数值保留为数值或 null，不转为字符串。MSA 参数只影响带 MSA 的输入，不新增输入模式；本地标准模型不消费的 sampler overrides 不作为可用控制。路线默认值及适用范围见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与适用范围)。
+
+## 不连续区域：比较、提取与已有指标统计
+
+模块使用同一位置表达：`{chain_id, residue_number, insertion_code}`，对应原始链、作者残基编号和独立插入码。编辑器可逐项选择不连续位置，不要求填写内部身份或对应表。空列表表示完整轴；未知位置和重复位置失败，实际顺序沿用输入残基轴。两侧区域独立，比较的自动对应仍由已选算法负责。
+
+- `structure_comparison.align_pairs` 的 `subject_region` / `reference_region` 只限制进入对齐工具的位置；原结构、原轴及 Candidate 保持不变。序列优先 affine/SVD 与现有单片段 TM-align 路线均使用所选位置；TM-align 原有单片段适用边界保留。RMSD 采用对应 CA，TM-score 的归一化长度为选定参考区域长度，coverage 为对应 CA 数除以两侧所选区域长度的最大值。对齐结果保留两侧完整引用、原轴摘要、所选身份、自动对应和实际 Method；已有结果未记录区域时只显示“未记录”，不补造。
+- `structure_transform.extract_region` 是明确改变输出内容的操作，为每个输入建立一个新片段 Candidate，父来源指向原 Candidate。保留所选原子坐标、链、作者编号和插入码及适用修饰声明；SEQRES/entity_poly_seq 只声明所选片段的实际组分，以便后续解释 MSE 等修饰残基；mmCIF 为派生片段建立独立 entity，聚合物 num 引用保留的 label_seq_id；作者与 label 链、编号、插入码及修饰位置引用不变。PDB 中删去位置形成的断点写为 TER；mmCIF 保留选中原子及片段聚合物声明，不保留组装或指向已排除位置的连接。原候选和保存原文不改写。该节点只提取已解释的蛋白残基，不替代其他组分选择操作。
+- `structure_comparison.region_statistics` 接收现有 Score Collection，按 `metric_id` 选择数值型逐残基观察，每个主体/方法/上下文分别统计。输出均值沿用原指标单位。`exclude_null` 排除所选缺值，`require_all` 在任一所选位置缺值时失败；全缺值均失败。报告含 `selected_count` 和非空的 `valid_count`，完整保留来源 Metric、Method、Context、partition、集合摘要、主体和残基轴。没有 Provider 重算，也不改变全轴 pLDDT 均值或专用环方法原规则。
+
+统计输出是 `structure_comparison.region_statistics` 名义值，可交给接受该类型的下游模块；已用外部下游模块验证完整传递。它不是 `score.collection`，不能直接连接现有 Selection；不自动发明新 Metric 或区域筛选语义。模块查看器显示区域、均值、数量和来源，保存结果可重开。
+
+结构解析保持已有身份规则，不改写保存的来源标签，例如作者编号 `A42` 保持 `A:A42`。比较/提取在结构中核对独立的 `(chain, author number, insertion)` 后才选择轴位置。已有身份表示仍可能把作者编号 `12A`、无插入码与数字 `12`、插入码 `A` 都表示为 `A:12A`；两者同时存在的结构轴明确失败，不猜对应，也不根据是否碰撞更换身份。修订身份表示必须先解决既有 Prompt 来源重开的保全，当前没有引入新编码、旧解析器或别名。统计使用原观察已保存的残基轴，不重新推断作者编号。
 
 ## ESM-3 生成参数
 
