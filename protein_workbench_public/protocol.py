@@ -324,6 +324,8 @@ def rest_success_status(operation_id: str) -> int:
 
 
 _STRUCTURED_ERROR_DETAILS_FIELDS = {
+    "module_change_active_runs": ((), ()),
+    "module_configuration_rejected": ((), ()),
     "artifact_integrity_mismatch": (
         ("artifact_reference",),
         ("expected_digest", "limit", "observed_digest", "observed_size"),

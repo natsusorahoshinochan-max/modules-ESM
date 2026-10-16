@@ -14,7 +14,7 @@ flowchart TB
 
 模块按用户任务划分，同一工具可以供多个模块复用，一个模块也可以提供多个节点。项目用户决定连线和处理范围；模块开发者维护内部数据转换、对象及位置对应。载体处理通用运行与管理，不额外加入某个工具的限制。
 
-官方和外部模块使用同一接入规范，包括自定义数据、React 专用界面和同一数据的多个查看器。载体在没有启用功能模块时仍须启动并管理项目及模块。安装包、启停、卸载及应用内模块配置是已确认要求，接口细节没有全部实现。具体能力和差距见[模块能力](module-capabilities.md)，配置见 [Provider 配置](provider-configuration.md)。
+官方和外部模块使用同一接入规范，包括自定义数据、React 专用界面和同一数据的多个查看器。载体在没有启用功能模块时仍须启动并管理项目及模块。安装包、启停、卸载通过公共模块管理接口及应用内入口提供；应用内模块配置的剩余差异另行记录。具体能力和差距见[模块能力](module-capabilities.md)，配置见 [Provider 配置](provider-configuration.md)。
 
 ### 代码职责
 
@@ -27,7 +27,7 @@ flowchart TB
 | `webui/` | React 应用、画布、编辑与展示。模块专用界面应按公共接入规范加载。 |
 | `repositories/` | 固定上游源码；项目维护的 SoluProt-next Provider 是明确例外。 |
 
-当前后端通过 [ModulePackageRegistration](../core/catalog/declarations.py) 和 [Catalog builder](../core/catalog/builder.py)构建唯一目录，每个稳定契约 ID 对应一项当前注册。[bootstrap](../protein_workbench_public/bootstrap.py)从安装清单装配启用的包，默认清单附带官方包；空清单不安装科学教学项目。已有教学资源只在所需节点与 Binding 存在时安装。清单由[模块注册入口](../protein_workbench_public/module_registry.py)读取，尚不等于完整应用内用户安装管理机制。公共 Prompt 编码和部分结果读取仍绑定内置模块，属于待对齐差异。
+当前后端通过 [ModulePackageRegistration](../core/catalog/declarations.py) 和 [Catalog builder](../core/catalog/builder.py)构建唯一目录，每个稳定契约 ID 对应一项当前注册。[bootstrap](../protein_workbench_public/bootstrap.py)从安装清单装配启用的包，默认清单附带官方包；空清单不安装科学教学项目。已有教学资源只在所需节点与 Binding 存在时安装。清单由[模块注册入口](../protein_workbench_public/module_registry.py)读取，[模块管理器](../protein_workbench_public/module_management.py)提供公共安装、启停、卸载及随附包恢复操作。变更在无活动 Run 时构建替代服务，持久保存清单后切换服务；项目与结果目录独立保留。外部 wheel 安装至数据目录，遵守同一注册与 UI 资源声明，无需修改仓库源码。公共 Prompt 编码和部分结果读取仍绑定内置模块，属于待对齐差异。
 
 `FrozenCatalog` 保持一个已构建目录不可变；运行使用已编译计划，不重新扫描目录。它不决定用户安装界面的实现方式，也不要求把可变插件管理状态写进一个正在执行的计划。
 

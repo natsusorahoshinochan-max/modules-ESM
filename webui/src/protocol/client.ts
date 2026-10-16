@@ -120,6 +120,11 @@ export type RunEvent =
 export type RunEventEnvelope = { schema_namespace: 'protein-workbench-public/v2'; project_id: string; run_id: string; sequence: number; cursor: string; emitted_at: string; event: RunEvent }
 
 export type ProspectiveInput = { project_input_ref: string; filename: string; content_base64: string }
+export type ModuleInventory = {
+  schema_namespace: 'protein-workbench-public/v2'
+  modules: Array<{ package_id: string; package_module: string; enabled: boolean; origin: 'bundled' | 'external' }>
+  bundled_packages: Array<{ package_id: string; package_module: string }>
+}
 export class PublicV2Client {
   constructor(private readonly baseUrl = '') {}
   private async json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -127,6 +132,11 @@ export class PublicV2Client {
     if (!response.ok) throw await response.json()
     return response.json() as Promise<T>
   }
+  modules() { return this.json<ModuleInventory>('/api/v2/modules') }
+  setEnabledModules(packageIds: string[]) { return this.json<ModuleInventory>('/api/v2/modules', { method: 'PUT', body: JSON.stringify({ enabled_package_ids: packageIds }) }) }
+  installModule(filename: string, contentBase64: string) { return this.json<ModuleInventory>('/api/v2/modules/install', { method: 'POST', body: JSON.stringify({ filename, content_base64: contentBase64 }) }) }
+  installBundledModule(packageId: string) { return this.json<ModuleInventory>('/api/v2/modules/bundled', { method: 'POST', body: JSON.stringify({ package_id: packageId }) }) }
+  uninstallModule(packageId: string) { return this.json<ModuleInventory>(`/api/v2/modules/${encodeURIComponent(packageId)}`, { method: 'DELETE' }) }
   moduleUi() { return this.json<ModuleUiManifest>('/api/v2/module-ui') }
   catalog() { return this.json<CatalogSnapshot>('/api/v2/catalog') }
   authoringCapabilities() { return this.json<AuthoringCapabilities>('/api/v2/authoring-capabilities') }
