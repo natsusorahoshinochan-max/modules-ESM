@@ -183,6 +183,7 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5237 npx playwright test tests/regions.spec.
 ```
 
 验证模块区域选择、取消、手动保存重开、缺值设置，以及持久区域对齐/统计查看。服务器仅增加全新 `region_observations` 外部测试模块作为已有测量数据来源；它不模拟模型质量。
+
 ## Prompt 模块编辑与局部采用
 
 `.venv/bin/python -m unittest discover -s tests -p test_prompt_editor.py` 覆盖公共模块声明、工具投影按启用状态变化、编辑预览保存重开与受控 ESM3 SDK 输入。无需本地模型，不调用线上服务。
@@ -194,6 +195,44 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5207 npx playwright test tests/prompt-editor
 ```
 
 覆盖模块编辑确认与手动保存分离、重开、随机新增残基继续编辑和删除、放弃、结构临时移动取消，以及无需输入内部身份的局部轨道采用。
+
+## 独立模块安装与恢复
+
+`tests/lifecycle-wheel/` 是一个独立外部模块的源包，只提供确定性整数加法、自定义值和公共 React 编辑器。先复制到仓库外再构建 wheel；应用只能通过安装接口取得它，不将夹具源码加入 Python 路径：
+
+```sh
+export WORKBENCH_WHEEL_ROOT=$(mktemp -d)
+cp -R tests/lifecycle-wheel "$WORKBENCH_WHEEL_ROOT/source"
+.venv/bin/python -m pip wheel --no-deps --no-index --no-build-isolation --wheel-dir "$WORKBENCH_WHEEL_ROOT/dist" "$WORKBENCH_WHEEL_ROOT/source"
+export WORKBENCH_MODULE_WHEEL="$WORKBENCH_WHEEL_ROOT/dist/workbench_lifecycle_meter-1.0.0-py3-none-any.whl"
+.venv/bin/python -m unittest discover -s tests -p test_module_lifecycle.py
+```
+
+公共 HTTP 切片覆盖真实 wheel 安装、两个外部节点相连执行、禁用和卸载后的应用重开、配置/连线/布局/历史原值保留、缺失模块不能提交运行，以及重装恢复执行。不调用 Provider。
+
+界面切片每次使用新的空模块清单启动正常应用，不修改默认安装策略：
+
+```sh
+export WORKBENCH_TEST_DATA=$(mktemp -d)
+printf '%s\n' '{"packages":[]}' > "$WORKBENCH_TEST_DATA/modules.json"
+PROTEIN_WORKBENCH_DATA_ROOT="$WORKBENCH_TEST_DATA" .venv/bin/python -m uvicorn protein_workbench_public.bootstrap:create_application --factory --port 8393
+```
+
+另一个终端启动前端：
+
+```sh
+cd webui
+PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8393 npm run dev -- --port 5393 --host 127.0.0.1
+```
+
+在设置了同一 `WORKBENCH_MODULE_WHEEL` 路径的终端执行：
+
+```sh
+cd webui
+WORKBENCH_TEST_URL=http://127.0.0.1:5393 npx playwright test tests/module-lifecycle.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-lifecycle-results
+```
+
+完整界面旅程覆盖空载体创建和手动保存、上传 wheel、公共 React 编辑器取消/采用/保存/重开、真实运行、禁用与卸载后缺失节点展示和阻止运行，以及重装恢复。编辑器采用修改不会自动保存项目。该切片不证明正常默认安装、教学项目、Selection 专用编辑器或真实科学模型调用。
 
 ## 可组合 Top-k 范围
 
