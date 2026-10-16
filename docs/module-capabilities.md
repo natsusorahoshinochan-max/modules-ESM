@@ -18,7 +18,7 @@
 | 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度与结构比较结果的物化、统计和派生指标。已有节点不是全部通用区域统计需求已经完成的证明。 |
 | 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、多样性、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
 
-ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean embedding 与 `(L+2, 64)` logits 形状。Q27 要求整条序列 embedding 和实际逐位置 logits 均以可选输出提供，供查看及后续模块使用；其最终功能模块归属未由此预定。logits 不等于概率。
+ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embedding、logits 或 both（默认）。保存 Provider 的 1152 维整序列 mean embedding，以及去除 CLS/EOS 行后与输入残基顺序对应的 `L×64` 实际 logits；未请求值为 null。保留全部模型类别列，列索引为固定 SDK 的模型类别索引，不将其称为概率。模块查看器逐位置显示数值，同名 Port 可交给下游模块；不增加 hidden states、SAE 或新分析算法。
 
 ### ProteinMPNN 设计与评价
 
@@ -64,6 +64,8 @@ ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由�
 ## ESM-3 生成参数
 
 单轨道生成的采样设置属于所选 Binding；配对生成使用独立 `sequence_*` 与 `structure_*` 设置。两次调用分别保留实际请求参数及 SDK 有效步数，包含禁止采样 token ID 与坐标条件开关。仅本地 Binding 提供有效 seed，Biohub 随机性由 Provider 控制。当前配置及路线范围见[参数审查](tool-parameter-exposure-audit.md#esm3-当前参数接入与适用范围)。
+
+生成失败后可在运行结果中主动继续原批次。已完成的序列、结构、重建结构及置信度保留；联合生成在序列完成而结构失败时只继续结构请求。续算沿用原 Commit 与结果身份，改变输入或参数应启动新计算。
 
 ## ESM-3 条件翻译
 

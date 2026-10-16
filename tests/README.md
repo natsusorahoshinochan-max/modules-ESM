@@ -119,3 +119,17 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```sh
 .venv/bin/python -m unittest discover -s tests -p test_candidate_reading.py
 ```
+
+## ESMC 可选数值
+
+`.venv/bin/python -m unittest discover -s tests -p test_esmc_values.py` 通过公共 Run 和受控官方 SDK 边界覆盖 embedding-only、logits-only、both 的请求选择、CLS/EOS 去除、持久值重开读取及传入外部下游模块。受控数值不证明模型质量。
+
+应用界面切片使用 `PYTHONPATH=. PROTEIN_WORKBENCH_DATA_ROOT="$(mktemp -d)" .venv/bin/python tests/serve_esmc.py` 启动独立受控 SDK 场景（8196）。前端以 `PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8196 npm run dev -- --port 5196 --host 127.0.0.1` 启动；在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5196 npx playwright test tests/esmc-values.spec.ts --workers=1 --reporter=line --output=/tmp/esmc-viewer-results`。覆盖查看实际数值、切换残基位置和刷新重开；不会调用真实 Provider。
+
+## ESM3 批内继续
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_esm3_continuation.py
+```
+
+通过公共 Run API 与受控官方 SDK 响应覆盖序列、结构、联合生成的主动继续、重开、首请求失败、再次失败、重建结构与置信度保留、下游阻断和参数变化后的新计算。不加载本地模型，不向线上服务注入故障。
