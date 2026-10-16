@@ -151,3 +151,60 @@ test('the editor offers many-valued evaluations and relations only to compatible
   assert.doesNotMatch(one, />批量评价 · batch \/ scores<\/option>/)
   assert.doesNotMatch(one, />批量评价 · batch \/ relations<\/option>/)
 })
+
+test('Pareto stores independent raw directions per evaluation and reopens without global objectives', () => {
+  const draft = createSelectionDraft('pareto', { node_id: 'input', output_port: 'candidates' })
+  draft.observations = [
+    { ...newObservation(), scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'yield', methodId: 'measurement', partition: 'measured', direction: 'descending' },
+    { ...newObservation(), scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'cost', methodId: 'measurement', partition: 'measured', direction: 'ascending' },
+  ]
+  const saved = saveSelectionDraft(workflow(), 'frontier', draft)
+  const reopened = readSelectionDraft(JSON.parse(JSON.stringify(saved)), 'frontier')
+  assert.deepEqual(reopened.observations.map((entry) => [entry.metricId, entry.direction]), [['yield', 'descending'], ['cost', 'ascending']])
+  assert.deepEqual(saved.selection_objectives, [])
+  assert.deepEqual(saved.observation_selectors, [])
+  assert.equal(saved.edges.filter((edge) => edge.target_port === 'scores').length, 1)
+  const parameters = saved.nodes.at(-1)!.node_parameters
+  assert.equal(JSON.stringify(parameters).includes('weight'), false)
+  assert.equal(JSON.stringify(parameters).includes('transform'), false)
+})
+
+test('Pareto evaluations sharing one input remain independently editable after reopening', () => {
+  const draft = createSelectionDraft('pareto')
+  draft.observations = ['yield', 'cost'].map((metricId) => ({ ...newObservation(), scoreSource: { node_id: 'input', output_port: 'scores' }, metricId, methodId: 'measurement', partition: 'measured', direction: 'descending' }))
+  const saved = saveSelectionDraft(workflow(), 'frontier', draft)
+  const reopened = readSelectionDraft(saved, 'frontier')
+  const selectedId = reopened.observations[1].id
+  reopened.observations = reopened.observations.map((entry) => entry.id === selectedId ? { ...entry, direction: 'ascending' } : entry)
+  const edited = readSelectionDraft(saveSelectionDraft(saved, 'frontier', reopened), 'frontier')
+  assert.deepEqual(edited.observations.map((entry) => entry.direction), ['descending', 'ascending'])
+})
+
+test('the Pareto editor exposes one raw better-value direction and exact context per objective', () => {
+  const draft = createSelectionDraft('pareto')
+  draft.observations = ['yield', 'cost'].map((metricId) => ({ ...newObservation(), metricId, methodId: 'measurement', partition: 'measured', direction: 'ascending' }))
+  const view = renderToStaticMarkup(createElement(SelectionEditor, { catalog, workflow: saveSelectionDraft(workflow(), 'frontier', draft), nodeId: 'frontier', onChange: () => {} }))
+  assert.equal((view.match(/aria-label="指标优劣方向"/g) ?? []).length, 2)
+  assert.equal((view.match(/aria-label="评价上下文选择方式"/g) ?? []).length, 2)
+  assert.match(view, /较小值更优/)
+  assert.match(view, /较大值更优/)
+  assert.match(view, /保持输入顺序/)
+  assert.doesNotMatch(view, /Utility Transform（输出 0–1）/)
+  assert.doesNotMatch(view, /声明权重/)
+  assert.doesNotMatch(view, /aria-label="原值排序方向"/)
+})
+
+test('switching Pareto to a single raw metric drops discarded score dependencies', () => {
+  const input = workflow()
+  input.nodes.push({ ...input.nodes[0], node_id: 'cost-input' }, { ...input.nodes[0], node_id: 'unused' })
+  const draft = createSelectionDraft('pareto')
+  draft.observations = [
+    { ...newObservation(), scoreSource: { node_id: 'input', output_port: 'scores' }, metricId: 'yield', methodId: 'measurement', partition: 'measured', direction: 'descending' },
+    { ...newObservation(), scoreSource: { node_id: 'cost-input', output_port: 'scores' }, metricId: 'cost', methodId: 'measurement', partition: 'measured', direction: 'ascending' },
+  ]
+  const saved = saveSelectionDraft(input, 'frontier', draft)
+  saved.edges.push({ source_node_id: 'unused', source_port: 'scores', target_node_id: 'frontier', target_port: 'scores', target_slot: 'spare-score' })
+  const reopened = readSelectionDraft(saved, 'frontier')
+  const sorted = saveSelectionDraft(saved, 'frontier', { ...reopened, operation: 'sort', direction: 'descending' })
+  assert.deepEqual(sorted.edges.filter((edge) => edge.target_node_id === 'frontier' && edge.target_port === 'scores').map((edge) => edge.source_node_id), ['input'])
+})

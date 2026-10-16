@@ -62,16 +62,16 @@
     kind: dimensionless-utility-vector
 - method_id: selection.pareto.method
   algorithm_identity:
-    name: dimensionless-utility-pareto-frontier
+    name: raw-measurement-pareto-frontier
     candidate_score_join: exact-candidate-data-reference
-    dominance: greater-or-equal-all-and-greater-any
-    final_order: candidate_id_ascending
+    dominance: no-worse-in-each-selected-direction-and-better-in-at-least-one
+    final_order: input-relative
   model_identity:
     kind: none
   featurization_identity:
     kind: identity
   scale_contract:
-    kind: dimensionless-utility-vector
+    kind: raw-measurement-vector
 - method_id: selection.diversity.method
   algorithm_identity:
     name: weighted-max-min-euclidean-utility-diversity

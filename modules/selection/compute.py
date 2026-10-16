@@ -90,6 +90,21 @@ def select_candidates(candidates: CandidateCollection,
                       parameters: Mapping[str, Any], *, operation: str,
                       relation_inputs: Mapping[str, tuple[CandidateRelation, ...]] | None = None) -> CandidateCollection:
     """Sort or select original candidates using raw values and stable input ties."""
+    if operation == 'pareto':
+        objectives = parameters['objectives']
+        columns = tuple({reference.candidate_id: score.value for reference, score in zip(
+            candidate_references, resolve_observations(objective['selection'], candidate_references,
+                score_inputs, relation_inputs), strict=True)} for objective in objectives)
+        def dominates(other: str, candidate: str) -> bool:
+            comparisons = tuple(
+                (column[other] <= column[candidate], column[other] < column[candidate])
+                if objective['direction'] == 'ascending' else
+                (column[other] >= column[candidate], column[other] > column[candidate])
+                for objective, column in zip(objectives, columns, strict=True))
+            return all(no_worse for no_worse, _ in comparisons) and any(better for _, better in comparisons)
+        return replace(candidates, items=tuple(candidate for candidate in candidates
+            if not any(dominates(other.candidate_id, candidate.candidate_id)
+                for other in candidates if other.candidate_id != candidate.candidate_id)))
     scores = resolve_observations(parameters['selection'], candidate_references, score_inputs, relation_inputs)
     values = {ref.candidate_id: score.value for ref, score in zip(candidate_references, scores, strict=True)}
     ordered = sorted(candidates, key=lambda item: values[item.candidate_id],
