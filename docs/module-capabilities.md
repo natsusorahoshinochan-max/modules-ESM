@@ -1,5 +1,7 @@
 # 模块能力与工具翻译
 
+更新日期：2026-10-16
+
 功能职责以[当前决策](documentation-governance-decisions.md#功能模块设计)为准。本文提供已接入能力的源码入口，以及仍适用的工具翻译约定；源码现状不代表目标行为已经实现。载体、模块与公共接口边界见[架构](architecture.md)，运行行为见[执行规则](execution.md)。
 
 ## 功能职责与现有代码包
@@ -116,9 +118,9 @@ protein-workbench-esm3-call-seed/v2:{base_seed}:{functional_digest}:{sample_inde
 
 配对生成的结构子调用仅以已生成序列替换投影中的 sequence，其他条件保持原值，再据实际输入计算对应 digest 与 seed。远程 Biohub 不声称采用此 seed；其随机性记录为 Provider 控制。该说明保留现有正确传参和随机流知识，不建立额外证据系统。
 
-## 尚未对齐的实现
+## 参数与未决范围
 
-[参数开放审查](tool-parameter-exposure-audit.md)记录 ESM-3、ESMFold2、SimpleFold 等现有固定参数与范围差异。[治理问题清单](2026-10-15-documentation-governance-issues.md)记录输入、模块接入、区域表达和其他实现缺口。文档中的目标要求不构成已完成声明；未确认的工具模式、逐残基 ProteinMPNN 输出或所有内部张量不自动成为开发范围。
+[参数开放审查](tool-parameter-exposure-audit.md)记录 ESM-3、ESMFold2、SimpleFold 等已接入参数、路线默认值和仍待核实的限制。受控官方调用边界覆盖 ESM3 两阶段分别传参、ESMFold2 远程与本地路线参数及 SimpleFold wrapper 采样参数，不代表本地重模型已运行。[治理问题清单](2026-10-15-documentation-governance-issues.md)保留未决输入边界与残基身份歧义；未确认的工具模式、逐残基 ProteinMPNN 输出或所有内部张量不自动成为开发范围。
 
 ### SimpleFold 折叠采样参数
 
