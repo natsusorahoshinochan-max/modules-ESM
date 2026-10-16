@@ -14,6 +14,8 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 载体拥有对话框、异步加载会话、运行锁及保存。项目切换会废弃尚未完成的编辑器打开请求；运行期间不接受新编辑。Selection 自己通过通用结果会话及公共 client 读取候选，复用模块内共享阅读缓存；完整读取前不开放候选编辑，读取失败显示错误，用户可主动重新读取。重试先刷新读取状态再补全分页，避免把部分集合当作完整集合。宿主不向编辑器传递候选专用投影。Selection 和 Prompt Studio 使用相同接口，源码分别位于 `modules/selection/ui/` 与 `modules/prompt_authoring/ui/`。Prompt 模块持有预览、矩阵、结构操作及合并来源子会话；应用不再固定加载 PromptStudio。
 
+`WorkflowEdge.target_slot` 为目标节点内稳定的输入槽身份，模块可在节点参数中引用该槽；来源节点与输出端口只保存在普通连线中。画布建立或更换来源时生成新槽，删除连线保留节点参数；模块不能因此改用另一条输入。片段复制保留节点参数及内部连线的槽，副本的参数可独立编辑。来源未连接的配置仍可手动保存，是否满足运行要求由模块与通用编译边界判断。Selection 原值排序和 top-k 使用这一公共机制，将评价选择、方向和数量保存为节点参数，不读取 Workflow 全局筛选规则。
+
 模块通过 `value_previews` 声明 `ValuePreviewDefinition(projection_id, port_type_id, title, describe)`，解释所属工具如何使用一个已准入的临时值。Prompt 模块收集 `protein.prompt` 的已启用投影，公共协议仅编码 `tool_projections`。ESM3 自己调用其 Adapter/Operation 解释，不由公共 codec 导入；禁用 ESM3 不影响一般 Prompt 编辑。
 
 ## 未发布输入检查与编辑预览

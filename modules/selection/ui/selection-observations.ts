@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PublicV2Client } from '../../../webui/src/protocol/client'
-import type { CatalogSnapshot, JsonObject, Workflow } from '../../../webui/src/protocol/client'
+import type { CatalogSnapshot, JsonObject, PublishedObservation, ResultLocation, Workflow } from '../../../webui/src/protocol/client'
 import { sourceKey, type ObservationDraft, type SelectionSource } from './selection-authoring'
 
 export type ObservationOption = {
@@ -30,7 +30,7 @@ export function contextLabel(context: JsonObject): string {
   return `${String(context.subject_role)} → ${String(context.reference_role)} · ${context.pairing_mode === 'explicit_relation' ? '显式候选关系' : '固定参考候选'} · 归一化 ${String(context.normalization)}`
 }
 
-export function useObservationOptions(workflow: Workflow, catalog: CatalogSnapshot, ranking: boolean, scoreSource?: SelectionSource): { observations: ObservationOption[]; error: string } {
+export function useObservationOptions(workflow: Workflow, catalog: CatalogSnapshot, ranking: boolean, scoreSource?: SelectionSource, published: Array<PublishedObservation & { source: ResultLocation }> = []): { observations: ObservationOption[]; error: string } {
   const [state, setState] = useState<{ observations: ObservationOption[]; error: string }>({ observations: [], error: '' })
   useEffect(() => {
     let active = true
@@ -46,11 +46,15 @@ export function useObservationOptions(workflow: Workflow, catalog: CatalogSnapsh
     }, (reason: unknown) => { if (active) setState({ observations: [], error: reason instanceof Error ? reason.message : String(reason) }) })
     return () => { active = false }
   }, [workflow, catalog, ranking, scoreSource])
-  return state
+  const existing = published.filter((entry) => scoreSource && sourceKey(entry.source) === sourceKey(scoreSource)).map((entry) => {
+    const value = { partition: entry.source_partition, metricId: entry.metric.contract_id, methodId: entry.method.contract_id, context: entry.context_profile }
+    return { ...value, key: observationOptionKey(value), label: `${contractTitle(catalog, 'metric', value.metricId)} · ${contractTitle(catalog, 'method', value.methodId)} · ${contextLabel(value.context)} · ${value.partition}` }
+  })
+  return { error: state.error, observations: [...new Map([...state.observations, ...existing].map((entry) => [entry.key, entry])).values()] }
 }
 
 export function chooseObservation(value: ObservationDraft, option: ObservationOption): ObservationDraft {
-  return { ...value, metricId: option.metricId, methodId: option.methodId, partition: option.partition, context: { ...option.context }, transformId: '', transformParameters: {} }
+  return { ...value, metricId: option.metricId, methodId: option.methodId, partition: option.partition, context: { ...option.context }, transformId: '', transformParameters: {}, reference: undefined, exactContexts: undefined, relationInput: undefined, relationSource: undefined }
 }
 
 export function effectiveWeightPercentages(observations: ObservationDraft[]): Array<number | undefined> {
