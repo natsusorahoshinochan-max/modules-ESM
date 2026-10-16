@@ -1,7 +1,7 @@
 """Independent immutable snapshots of explicitly adopted published values."""
 from dataclasses import dataclass
 import json
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from core.operation import OperationCall, OperationResources
 
@@ -26,6 +26,7 @@ class AdoptedSnapshot(TypedDict):
     content_digest: str
     candidate_data: list[AdoptedCandidateReference]
     source: AdoptedSource
+    parameters: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +35,14 @@ class RestoredOutput:
     snapshot: AdoptedSnapshot
 
 
+def read_adopted_snapshot(payload: bytes) -> AdoptedSnapshot:
+    return cast(AdoptedSnapshot, json.loads(payload))
+
+
 class AdoptedInputOperation:
     def __init__(self, resources: OperationResources) -> None:
         self.resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, RestoredOutput]:
         _, payload = self.resources.read_project_input(call.node_parameters['project_input_ref'])
-        return {'value': RestoredOutput(cast(AdoptedSnapshot, json.loads(payload)))}
+        return {'value': RestoredOutput(read_adopted_snapshot(payload))}

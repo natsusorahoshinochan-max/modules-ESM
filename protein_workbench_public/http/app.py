@@ -115,9 +115,9 @@ def create_http_app(
         rest_operations,
         authoring_projection,
     )
+    register_adoption_routes(app, catalog, projects, runtime, authoring, rest_operations)
     register_project_routes(app, projects, authoring, rest_operations, runtime)
     register_input_routes(app, projects, rest_operations)
-    register_adoption_routes(app, catalog, projects, runtime, rest_operations)
     register_workflow_routes(app, authoring, rest_operations, runtime)
     register_prompt_authoring_routes(
         app,

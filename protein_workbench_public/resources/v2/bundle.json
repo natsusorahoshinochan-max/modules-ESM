@@ -8730,6 +8730,20 @@
         "201": "response",
         "default": "structured_error"
       }
+    },
+    "adopted_input_metadata": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectInputMetadataRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/JsonObject",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/inputs/{project_input_ref}:adoption",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
     }
   },
   "run_event_stream": {

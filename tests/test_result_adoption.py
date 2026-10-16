@@ -68,3 +68,29 @@ class ResultAdoption(unittest.TestCase):
                     'node_id': 'import', 'output_port': 'sequence_candidates', 'value_index': 0})
                 self.assertEqual(response.status_code, 404, response.text)
                 self.assertEqual(response.json()['error']['code'], 'project_not_found')
+
+    def test_original_parameters_remain_readable_after_source_deletion(self):
+        with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            with TestClient(create_application(load_example_results=False)) as client:
+                source = client.post('/api/v2/projects', json={'name': 'Source'}).json()['id']
+                target = client.post('/api/v2/projects', json={'name': 'Target'}).json()['id']
+                uploaded = client.post(f'/api/v2/projects/{source}/inputs', json={
+                    'filename': 'sequence.fasta', 'content_base64': base64.b64encode(b'>original\nACDE\n').decode()}).json()
+                source_run = self.run_workflow(client, source, [{
+                    'node_id': 'import', 'node_type_id': 'protein_io.import_sequences',
+                    'binding_id': 'protein_io.import_sequences.direct', 'binding_parameters': {},
+                    'node_parameters': {'project_input_ref': uploaded['project_input_ref']}}])
+                adopted = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
+                    'source_project_id': source, 'source_run_id': source_run.rsplit('/', 1)[1],
+                    'node_id': 'import', 'output_port': 'sequence_candidates', 'value_index': 0}).json()
+                client.post(f'/api/v2/projects/{source}:trash')
+                client.delete(f'/api/v2/projects/{source}')
+            with TestClient(create_application(load_example_results=False)) as client:
+                metadata = client.get(f"/api/v2/projects/{target}/inputs/{adopted['project_input_ref']}:adoption")
+                self.assertEqual(metadata.status_code, 200, metadata.text)
+                provenance = metadata.json()
+                self.assertEqual(provenance['source']['source_project_id'], source)
+                self.assertEqual(provenance['parameters']['status'], 'recorded')
+                record = provenance['parameters']['records'][0]
+                self.assertEqual(record['node_type_id'], 'protein_io.import_sequences')
+                self.assertEqual(record['node_parameters'], {'project_input_ref': uploaded['project_input_ref']})

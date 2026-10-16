@@ -6,7 +6,9 @@ from typing import Any
 
 from core.catalog.model import FrozenCatalog
 from core.project.manager import ProjectManager, ProtectedProjectError
-from core.project.adopted_input import AdoptedSnapshot
+from core.project.adopted_input import AdoptedSnapshot, read_adopted_snapshot
+from core.workflow.authoring import WorkflowAuthoringService
+from protein_workbench_public.adopted_results import original_parameters
 from core.execution.runtime import V2RunService
 
 from fastapi import FastAPI, Request
@@ -19,7 +21,7 @@ from protein_workbench_public.protocol import ProtocolValidationError, decode_re
 
 def register_adoption_routes(
     app: FastAPI, catalog: FrozenCatalog, projects: ProjectManager,
-    runtime: V2RunService, operations: Mapping[str, Any],
+    runtime: V2RunService, authoring: WorkflowAuthoringService, operations: Mapping[str, Any],
 ) -> None:
     @app.post(operations['adopt_result']['route'], include_in_schema=False)
     async def adopt(request: Request, project_id: str) -> Any:
@@ -44,9 +46,11 @@ def register_adoption_routes(
                 snapshot: AdoptedSnapshot = {
                     'port_type_id': type_id, 'canonical_value': canonical.decode('utf-8'),
                     'content_digest': typed['value_content_digest'],
+                    'parameters': {},
                     'candidate_data': [{'candidate_id': ref.candidate_id, 'data_type_id': ref.data_type_id, 'content_digest': ref.content_digest} for ref in references],
                     'source': {'source_project_id': value['source_project_id'], 'source_run_id': value['source_run_id'], 'node_id': value['node_id'], 'output_port': value['output_port'], 'value_index': value['value_index']},
                 }
+                snapshot['parameters'] = original_parameters(snapshot['source'], runtime=runtime, authoring=authoring, projects=projects, catalog=catalog)
                 saved = projects.publish_input(project_id, 'input-' + uuid.uuid4().hex,
                     json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')).encode('utf-8'),
                     filename='adopted-result.json')
@@ -61,4 +65,22 @@ def register_adoption_routes(
             'project_input_ref': saved.project_input_ref,
             'source_node': {'node_type_id': source.node_type_id, 'binding_id': source.binding_id,
                             'node_parameters': {'project_input_ref': saved.project_input_ref}, 'binding_parameters': {}},
+        })
+
+    @app.get(operations['adopted_input_metadata']['route'], include_in_schema=False)
+    async def metadata(request: Request, project_id: str, project_input_ref: str) -> Any:
+        try:
+            query, body = await public_rest_wire_sources(request)
+            decode_rest_request('adopted_input_metadata', path_parameters={
+                'project_id': project_id, 'project_input_ref': project_input_ref},
+                query_parameters=query, json_body=body)
+            _, payload = projects.read_input(project_id, project_input_ref)
+            snapshot = read_adopted_snapshot(payload)
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        except FileNotFoundError:
+            return public_error_response('project_input_not_found', 'Project Input was not found',
+                {'resource_kind': 'project_input', 'resource_id': project_input_ref})
+        return emit_rest_json_success('adopted_input_metadata', {
+            'source': snapshot['source'], 'parameters': snapshot['parameters'],
         })
