@@ -117,7 +117,6 @@ export class WorkspaceEditor {
     if (session.returning) return Promise.reject(new Error('正在返回已保存工作，请稍后再调整视图。'))
     for (const entry of [...session.history, ...session.future]) entry.previous = { ...entry.previous, ui_state: updateUi(entry.previous.ui_state) }
     session.desired = { ...session.desired, ui_state: updateUi(session.desired.ui_state) }
-    if (session.readOnly) session.saved = { ...session.saved, ui_state: updateUi(session.saved.ui_state) }
     this.publish(session)
     return Promise.resolve(session.acknowledged)
   }
