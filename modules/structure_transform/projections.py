@@ -189,18 +189,20 @@ def _mmcif_backbone(axis: ResolvedStructureResidueAxis) -> ProteinStructure:
         )
     }
     names = dict(zip(axis.layout.residue_ids, axis.residue_names, strict=True))
+    source_records = {
+        record.public_residue_id: record
+        for record in _single_model_records(axis.structure)
+        if record is not None
+    }
     for segment in axis.segments:
         for position, residue_id in enumerate(segment.residue_ids, 1):
-            chain, label = residue_id.split(":", 1)
-            match = re.fullmatch(r"([+-]?[0-9]+)([A-Za-z]?)", label)
-            if match is None:
-                raise ValueError("structure residue label cannot be written to mmCIF")
+            source = source_records[residue_id]
             for atom_name, coordinate in axis.backbone_coordinates_for(residue_id).items():
                 row = (
                     "ATOM", str(len(columns["id"]) + 1), atom_name[0], atom_name,
                     ".", names[residue_id], str(segment.segment_index + 1), "1", str(position),
-                    match[2] or "?", *(str(v) for v in coordinate), "1.0", "0.0",
-                    match[1], chain, "1",
+                    source.insertion_code or "?", *(str(v) for v in coordinate), "1.0", "0.0",
+                    source.residue_number, source.chain_id, "1",
                 )
                 for column, value in zip(columns.values(), row, strict=True):
                     column.append(value)
