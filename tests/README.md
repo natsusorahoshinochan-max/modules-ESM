@@ -103,3 +103,11 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 ```
 
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
+
+## ESM3 批内继续
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_esm3_continuation.py
+```
+
+通过公共 Run API 与受控官方 SDK 响应覆盖序列、结构、联合生成的主动继续、重开、首请求失败、再次失败、重建结构与置信度保留、下游阻断和参数变化后的新计算。不加载本地模型，不向线上服务注入故障。
