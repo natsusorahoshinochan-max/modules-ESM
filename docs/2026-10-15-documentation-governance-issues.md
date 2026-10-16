@@ -87,11 +87,11 @@
 - **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。[重跑派生](../core/execution/_run_runtime_derived.py)仍按节点重跑。
 - **状态**：批内保留、停止、持久重开和依赖阻断的受控失败回归通过；获准真实 Provider 的成功调用通过不替代线上故障注入验证。Q41 跳过成功请求的主动续算接口仍未完成，不增加自动重试或接纳残缺响应。
 
-### DOC-047｜科学教学实例仍成为启动必要条件
+### DOC-047｜空载体生产启动与项目旅程待验收
 
 - **要求**：空载体独立可用；默认模块与教学实例仍按产品要求提供。
-- **当前证据**：[bootstrap](../protein_workbench_public/bootstrap.py)第 104–130 行无条件安装科学教学 Workflow，第 142–147 行的另一分支也安装示例。
-- **状态**：按[架构](architecture.md)解除特定科学模块、Workflow 对基本启动的硬依赖，不能通过取消教学实例或吞掉本地程序错误规避要求。
+- **当前实现**：[bootstrap](../protein_workbench_public/bootstrap.py)读取安装清单，空 Catalog 不安装教学项目；有教学文件且所需节点与 Binding 存在时才安装，编译错误不被吞掉。前端无教学项目时可进入个人项目或创建入口。
+- **状态**：生产空清单的协议与浏览器旅程已添加，尚待冻结源码验证；应用内模块管理入口仍待接入。默认教学入口、原件保护及首次手动保存副本仍须保持通过。
 
 ### DOC-050｜结果 ZIP 缺少已记录的计算参数
 

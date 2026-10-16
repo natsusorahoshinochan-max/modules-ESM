@@ -91,7 +91,14 @@ verification, not to where users may install or run the application.
 Open `http://127.0.0.1:5173`. The current app discovers the protected 3GB1 teaching
 example, its Workflow Draft and bundled completed Run through the public protocol.
 No Provider is needed to inspect these results; new Runs use configured real
-Providers. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
+Providers.
+When no teaching Project is installed, the app opens an existing personal Project
+or offers creation and opening. An empty installed package inventory still exposes
+the canvas and manual Project persistence. The production inventory is
+`modules.json` under the application data root, with a `packages` array of
+`package_module` and boolean `enabled` entries. A missing inventory uses the
+bundled enabled packages; `{"packages": []}` selects an empty carrier. This
+composition contract is not yet an in-application package manager. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
 describes what ships in the backend package.
 
 The canvas exposes operations, Node/Binding parameters, connections, nested
@@ -155,6 +162,7 @@ npm run lint
 npm run test:logic
 npm run test:components
 npm run test:e2e
+npm run test:empty-carrier
 npm run build
 ```
 
@@ -167,6 +175,7 @@ and Playwright configuration, including `real-tests/`.
 | `test:logic` | State owners and data transformations in `tests/logic` | Node only; no browser, Vite or backend |
 | `test:components` | Component interactions in `tests/components` | Controlled hosts in `tests/support`, Vite on 5181; no backend |
 | `test:e2e` | Application and protocol journeys in `tests/journeys` | Production application, isolated backend on 8180 and Vite on 5179 |
+| `test:empty-carrier` | Empty production startup, project creation, manual save and reopen | Empty persisted module inventory; backend on 8182 and Vite on 5182 |
 | Real configuration | Actual Provider browser journeys in `real-tests` | Supervised built service and configured Providers |
 
 Support files provide mounting, navigation and interaction helpers; no collected
@@ -184,7 +193,7 @@ inserted residues must remain editable and deletable; built-in result
 save-as-workflow actions must be absent. Correct expectations must not be
 skipped or weakened.
 
-User module installation/enable/disable/uninstall, empty-carrier boot, missing
+User module installation/enable/disable/uninstall, missing
 module recovery, historical/cross-project adoption surviving source deletion,
 batch continuation, external UI/multiple viewers and application settings still
 need complete application interfaces and journeys. Existing component/protocol

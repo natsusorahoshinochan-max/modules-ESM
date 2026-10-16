@@ -11,7 +11,8 @@
     "typecheck": "tsc -b --pretty false",
     "test:logic": "playwright test --config playwright.logic.config.ts",
     "test:components": "playwright test --config playwright.components.config.ts",
-    "typecheck:tests": "tsc -p tsconfig.tests.json --pretty false"
+    "typecheck:tests": "tsc -p tsconfig.tests.json --pretty false",
+    "test:empty-carrier": "playwright test --config playwright.empty.config.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.6",

@@ -319,14 +319,13 @@ function App() {
     let current = true
     void (async () => {
       const [catalogValue, capabilityValue, projects] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects()])
-      const example = projects.projects.find((item) => item.project_kind === 'default_example')
-      if (!example) throw new Error('Default example Project is absent')
-      const initialWorkspace = await client.projectWorkspace(example.id)
+      const initialProject = projects.projects.find((item) => item.project_kind === 'default_example') ?? projects.projects.find(item => !item.seed)
+      const initialWorkspace = initialProject ? await client.projectWorkspace(initialProject.id) : undefined
       if (!current) return
       setCatalog(catalogValue)
       setCapabilities(capabilityValue)
-      editor.open(example, initialWorkspace)
-      if (example.latest_run_id) results.openRun({ project_id: example.id, run_id: example.latest_run_id })
+      if (initialProject && initialWorkspace) editor.open(initialProject, initialWorkspace)
+      if (initialProject?.latest_run_id) results.openRun({ project_id: initialProject.id, run_id: initialProject.latest_run_id })
     })().catch(reason => { if (current) setRunError(workspaceErrorMessage(reason)) })
     return () => { current = false }
   }, [results, editor])
@@ -792,7 +791,25 @@ function App() {
     return scope
   }} mergeTargetNodeId={inputSource.mergeTargetNodeId} onPreparePrompt={prepareSourcePrompt} onImportCandidates={importSourceCandidates} onClose={closeInputSource} />
 
-  if (!project || !draft) return <div className="loading-screen">{runError ? <p role="alert">{runError}</p> : '正在从 public v2 protocol 加载 WebUI 示例…'}</div>
+  const projectDialog = projectsOpen && <ProjectWorkspaceDialog api={client} currentProjectId={project?.id} beforeAction={beforeWorkspaceAction} onOpenProject={openProject} onViewVersion={(selected, version) => openProject(selected, version.workspace, version)} onBeforeRemove={async selected => selected.id !== editor.getSnapshot().project?.id || await askUnsaved('leave')} onSaveVersion={async selected => { if (selected.id === editor.getSnapshot().project?.id) await saveProject() }} onReturnWorkspace={async (selected) => { if (editor.getSnapshot().project?.id !== selected.id) { await openProject(selected); if (editor.getSnapshot().project?.id !== selected.id) return undefined } else if (!await askUnsaved('leave')) return undefined; return editor.returnToSavedWork() }} onProjectChanged={(updated, deletedId) => {
+      if (updated && updated.id === project?.id) editor.updateProject(updated)
+      if (deletedId && deletedId === project?.id) {
+        results.openRun(undefined)
+        editor.close()
+        void client.projects().then(async available => {
+          const next = available.projects.find(item => item.project_kind === 'default_example') ?? available.projects.find(item => !item.seed)
+          if (next) await openProject(next)
+        }).catch(reportSaveError)
+      }
+    }} onCreateProject={createProject} onClose={() => setProjectsOpen(false)} />
+  if (!project || !draft) return <div className="loading-screen">
+    {runError ? <p role="alert">{runError}</p> : !catalog ? '正在加载工作区…' : <>
+      <h1>Protein Workbench</h1><p>创建项目，或打开已保存的项目。</p>
+      <button className="secondary-button" onClick={() => void createProject().catch(reportSaveError)}>创建项目</button>
+      <button className="secondary-button" onClick={() => setProjectsOpen(true)}>打开项目</button>
+      {inputError && <p role="alert">{inputError}</p>}{projectDialog}
+    </>}
+  </div>
   const runControls = <>
     {runProgress && <RunProgressBar progress={runProgress} nodeTitle={progressNodeTitle} resultsLoading={resultsLoading} resultsAvailable={resultsAvailable} onResults={showResults} onCancel={() => { void client.cancelRun(runProgress.projectId!, runProgress.runId!).catch((reason) => setRunError(JSON.stringify(reason))) }} />}
     {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
@@ -861,10 +878,7 @@ function App() {
       setRunOpen(false); setScopePreview(undefined)
     }} />}
     {pendingNodeDrop && <InteractionDialog title={`为 ${pendingNodeTitle} 选择执行模型${pendingNodeDrop.connectionFrom ? '与连接端口' : ''}`} className="run-dialog binding-dialog" onClose={() => setPendingNodeDrop(undefined)}><header><span className="dialog-icon"><Atom size={18} /></span><div><span className="page-kicker">EXECUTION BINDING</span><h2 id="binding-dialog-title">为 {pendingNodeTitle} 选择执行模型</h2></div><button className="icon-button" onClick={() => setPendingNodeDrop(undefined)}><X size={18} /></button></header>{pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort && <p>有多个兼容输入，请先选择目标端口。</p>}{pendingNodeDrop.connectionFrom && <label>目标输入<select aria-label="新节点目标输入" value={pendingNodeDrop.connectionPort ?? ''} onChange={event => setPendingNodeDrop({ ...pendingNodeDrop, connectionPort: event.target.value || undefined })}><option value="">选择输入…</option>{nodeTypePresentation(catalog!, pendingNodeDrop.nodeTypeId).inputs.filter(port => { const source = draft.workflow.nodes.find(node => node.node_id === pendingNodeDrop.connectionFrom!.nodeId)!; return workflowPortsMatch(nodeTypePresentation(catalog!, source.node_type_id).outputs.find(port => port.name === pendingNodeDrop.connectionFrom!.portName)!, port) }).map(port => <option value={port.name} key={port.name}>{port.name}</option>)}</select></label>}<div className="binding-choice-list">{pendingNodeDrop.bindings.map((binding) => <button disabled={!!pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort} key={binding.id} title={binding.availabilityReason?.message} onClick={() => void addDroppedNode(pendingNodeDrop, binding.id).catch(reportSaveError)}><strong>{binding.label}{binding.available ? '' : '（不可用）'}</strong><small>{binding.id}</small>{binding.availabilityReason?.message && <p>{binding.availabilityReason.message}</p>}</button>)}</div><footer><button className="secondary-button" onClick={() => setPendingNodeDrop(undefined)}>取消</button></footer></InteractionDialog>}
-    {projectsOpen && <ProjectWorkspaceDialog api={client} currentProjectId={project.id} beforeAction={beforeWorkspaceAction} onOpenProject={openProject} onViewVersion={(selected, version) => openProject(selected, version.workspace, version)} onBeforeRemove={async selected => selected.id !== editor.getSnapshot().project?.id || await askUnsaved('leave')} onSaveVersion={async selected => { if (selected.id === editor.getSnapshot().project?.id) await saveProject() }} onReturnWorkspace={async (selected) => { if (editor.getSnapshot().project?.id !== selected.id) { await openProject(selected); if (editor.getSnapshot().project?.id !== selected.id) return undefined } else if (!await askUnsaved('leave')) return undefined; return editor.returnToSavedWork() }} onProjectChanged={(updated, deletedId) => {
-      if (updated?.id === project.id) editor.updateProject(updated)
-      if (deletedId === project.id) void client.projects().then((available) => openProject(available.projects.find((item) => item.project_kind === 'default_example')!)).catch(reportSaveError)
-    }} onCreateProject={createProject} onClose={() => setProjectsOpen(false)} />}
+    {projectDialog}
 
   </div></>
 }
