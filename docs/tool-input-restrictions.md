@@ -26,4 +26,6 @@ Protein-Sol 官方包读取核对日期为 2026-10-16，ZIP SHA-256 为 `4df32c6
 
 ## 导入与验证边界
 
-单条 FASTA 的拒绝多记录与 PDB/mmCIF 输入检查已由当前源码支持，见[输入说明](results.md)。这是解析现状的纠正，不改变已确认的导入要求。字符与长度的资料核对不证明全部 Provider 行为已实现。
+[单条 FASTA 解析](../modules/protein_io/fasta.py)只接纳一条记录，多记录提示使用批量导入；[批量导入](../modules/protein_io/implementation.py)将每条记录分别建立 Candidate，不拼接成一条序列。[输入检查](../modules/protein_io/inspection.py)读取 PDB 与 mmCIF，按格式解析链并保留原文；专用蛋白残基轴的范围不等于通用结构格式不受支持。
+
+这些是当前解析与检查能力，详见[输入说明](results.md)，不改变已确认要求。上述限制只在对应工具路线生效；共用序列值与导入不采用 Protein-Sol 的最短长度或标准20种限制。官方资料核对不等于全部 Provider 或特殊字符的真实执行验收。
