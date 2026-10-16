@@ -501,12 +501,20 @@ export function PromptStudio({ snapshot, onCancel, onAddMergeSource, onPreview, 
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation()
+      if (event.nativeEvent.isComposing) return
+      event.preventDefault()
+      if (saving || viewportActive || editorPanel || leaveOpen) return
+      if (localPreview || unpreviewed) cancelLocalPreview()
+      else leave()
+      return
+    }
     if (event.defaultPrevented || event.nativeEvent.isComposing || saving || editorPanel || leaveOpen) return
     const target = event.target as HTMLElement
     if (target.closest('input, textarea, select, [contenteditable="true"]')) return
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) redo(); else undo(); return }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); event.stopPropagation(); redo(); return }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (localPreview || unpreviewed) cancelLocalPreview(); else leave() }
   }
 
   const addMergeSource = async () => {

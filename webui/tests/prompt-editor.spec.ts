@@ -132,3 +132,28 @@ test('Selection opens through the same editor interface without a published Run'
   await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click()
   expect((await (await request.get(`${app}/api/v2/projects/${id}/workspace`)).json()).draft.workflow.nodes).toEqual(workflow.nodes)
 })
+
+test('Escape from a focused input preserves dirty Prompt edits until an explicit leave choice', async ({ page, request }) => {
+  const { id } = await (await request.post(`${app}/api/v2/projects`, { data: { name: 'Prompt escape' } })).json()
+  const base = `${app}/api/v2/projects/${id}`
+  const document = { chains: [{ chain_id: 'A', length: 2 }] }
+  const workflow = { schema_version: '2.1.0', workflow_id: id, edges: [], nodes: [{ node_id: 'prompt', node_type_id: 'prompt_authoring.author', binding_id: 'prompt_authoring.author.direct', binding_parameters: {}, node_parameters: { document } }] }
+  expect((await request.put(`${base}/workspace`, { data: { workflow, ui_state: {}, expected_draft_revision: 0, expected_workspace_revision: 0 } })).status()).toBe(200)
+  await page.goto(`${app}/?project=${id}`)
+  await page.getByRole('button', { name: 'Prompt Studio', exact: true }).click()
+  const editor = page.getByRole('dialog', { name: 'Prompt Studio', exact: true })
+  await editor.locator('[data-cell]').first().click()
+  await editor.getByLabel('指定氨基酸').fill('W')
+  await editor.getByRole('button', { name: 'Specify', exact: true }).click()
+  await expect(editor.locator('[data-cell]').first()).toContainText('W')
+  await expect(editor.locator('.ps-session-feedback')).toContainText('已应用：')
+  await editor.getByLabel('指定氨基酸').press('Escape')
+  const leave = page.getByRole('dialog', { name: '离开 Prompt 编辑', exact: true })
+  await expect(leave).toBeVisible()
+  await leave.getByRole('button', { name: '继续编辑', exact: true }).click()
+  await expect(editor.locator('[data-cell]').first()).toContainText('W')
+  expect((await (await request.get(`${base}/workspace`)).json()).draft.workflow.nodes[0].node_parameters.document).toEqual(document)
+  await editor.getByLabel('指定氨基酸').press('Escape')
+  await leave.getByRole('button', { name: '放弃修改', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+})
