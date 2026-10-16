@@ -1,6 +1,7 @@
 """Format conversion owned by protein I/O, leaving retained source text intact."""
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, cast
 from collections.abc import Mapping
 
@@ -32,6 +33,7 @@ def convert_structure(
                 len(atom.chain_id) != 1
                 or not atom.chain_id.isascii()
                 or not atom.chain_id.isalnum()
+                or re.fullmatch(r"-?[0-9]+", atom.residue_number) is None
                 or str(int(atom.residue_number)) != atom.residue_number
                 or not -999 <= int(atom.residue_number) <= 9999
                 or len(atom.insertion_code) > 1
