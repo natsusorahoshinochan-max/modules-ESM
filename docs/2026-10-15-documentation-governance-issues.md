@@ -74,11 +74,11 @@
 - **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../modules/protein_io/ui/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
 - **待核对**：结果 action 与浏览器格式选择入口的完整业务路径。
 
-### DOC-046｜SimpleFold 的批内主动续算仍缺
+### DOC-046｜批内主动续算已接入，真实失败核验范围有限
 
 - **要求**：批内保留已成功请求；一个请求用完适用重试后失败，停止剩余请求；用户可在相同输入和参数下继续失败及未开始请求，失败节点下游仍阻塞。
 - **当前实现**：[折叠](../modules/folding/implementation.py)与 [ESM3](../modules/esm3/implementation.py)在已定义失败时保留完成请求，联合生成也保留结构失败前已完成的序列；[失败发布](../core/execution/_node_attempt_publication.py)持久发布保留输出和失败结论，不写成功缓存或传给下游。普通[重跑派生](../core/execution/_run_runtime_derived.py)的 `retry_failed` / `force_selected` 按节点重跑，批内继续使用独立的 `continue_batch` 策略。
-- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 测试覆盖中途失败、首请求失败、再次失败与主动继续；一次真实 Biohub 折叠及结构、置信度原值读回已完成，未进行线上故障注入。ESM3 已通过相同入口恢复序列、结构与联合生成；联合生成只重试未完成的结构步骤，保留此前序列、重建结构及置信度。公共 API 受控 SDK 测试覆盖续算、首失败、再次失败与来源保留；一次真实 Biohub ESM3 序列生成及原值读取完成，未向线上服务注入故障。SimpleFold 的同批续算仍未完成。不增加自动重试或接纳残缺响应。
+- **状态**：ESMFold2 已有公共 `continue_batch` 及界面主动入口，固定原输入和参数，保留候选与置信度，跳过成功请求；受控 SDK 测试覆盖中途失败、首请求失败、再次失败与主动继续；一次真实 Biohub 折叠及结构、置信度原值读回已完成，未进行线上故障注入。ESM3 已通过相同入口恢复序列、结构与联合生成；联合生成只重试未完成的结构步骤，保留此前序列、重建结构及置信度。公共 API 受控 SDK 测试覆盖续算、首失败、再次失败与来源保留；一次真实 Biohub ESM3 序列生成及原值读取完成，未向线上服务注入故障。SimpleFold 已接入相同续算入口，保留完成请求的结构、置信度、候选身份及有效 seed；仅将已加载模型推理抛出的 `torch.cuda.OutOfMemoryError` 归为定义资源失败。受控 Adapter 公共 Run 覆盖首失败、再次失败、重开与续算，不证明真实本地模型或设备内存耗尽行为；未运行本地模型。不增加自动重试或接纳残缺响应。
 
 ### DOC-047｜空载体生产启动与项目使用路径待核对
 
