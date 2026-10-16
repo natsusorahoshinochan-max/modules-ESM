@@ -157,17 +157,24 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_ids": [
-          "tm-reference-normalized"
-        ],
-        "expression": [
-          {
-            "selector_index": 0,
-            "operator": ">=",
-            "threshold": 0.8
-          }
-        ],
-        "out_of_scope_policy": "ignore"
+        "condition": {
+          "kind": "comparison",
+          "selection": {
+            "score_input": "score-filter-tm",
+            "metric_id": "structure_comparison.tm_score",
+            "method_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+            "source_partition": "structure_comparison.tm_score.explicit_relation",
+            "context": {
+              "kind": "pairwise",
+              "subject_role": "subject",
+              "reference_role": "reference",
+              "pairing_mode": "explicit_relation",
+              "normalization": "reference-axis-residue-count"
+            }
+          },
+          "operator": ">=",
+          "threshold": 0.8
+        }
       },
       "binding_parameters": {}
     },
@@ -176,17 +183,24 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_ids": [
-          "ca-rmsd"
-        ],
-        "expression": [
-          {
-            "selector_index": 0,
-            "operator": "<=",
-            "threshold": 2.5
-          }
-        ],
-        "out_of_scope_policy": "ignore"
+        "condition": {
+          "kind": "comparison",
+          "selection": {
+            "score_input": "score-filter-rmsd",
+            "metric_id": "structure_comparison.rmsd",
+            "method_id": "structure_comparison.rmsd.from_alignment_evidence.method",
+            "source_partition": "structure_comparison.rmsd.explicit_relation",
+            "context": {
+              "kind": "pairwise",
+              "subject_role": "subject",
+              "reference_role": "reference",
+              "pairing_mode": "explicit_relation",
+              "normalization": "aligned-CA-mean-square-distance"
+            }
+          },
+          "operator": "<=",
+          "threshold": 2.5
+        }
       },
       "binding_parameters": {}
     },
@@ -195,17 +209,20 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_ids": [
-          "mean-plddt"
-        ],
-        "expression": [
-          {
-            "selector_index": 0,
-            "operator": ">=",
-            "threshold": 70
-          }
-        ],
-        "out_of_scope_policy": "ignore"
+        "condition": {
+          "kind": "comparison",
+          "selection": {
+            "score_input": "score-filter-plddt",
+            "metric_id": "structure.plddt.mean_residue",
+            "method_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+            "source_partition": "prediction_confidence",
+            "context": {
+              "kind": "intrinsic"
+            }
+          },
+          "operator": ">=",
+          "threshold": 70
+        }
       },
       "binding_parameters": {}
     },
@@ -214,17 +231,24 @@
       "node_type_id": "selection.filter",
       "binding_id": "selection.filter.direct",
       "node_parameters": {
-        "selector_ids": [
-          "protein-sol-scaled"
-        ],
-        "expression": [
-          {
-            "selector_index": 0,
-            "operator": ">=",
-            "threshold": 0.446
-          }
-        ],
-        "out_of_scope_policy": "ignore"
+        "condition": {
+          "kind": "comparison",
+          "selection": {
+            "score_input": "score-filter-protein-sol",
+            "metric_id": "solubility.protein_sol_scaled",
+            "method_id": "solubility.protein_sol.sequence_prediction_2017",
+            "source_partition": "protein_sol_scaled",
+            "context": {
+              "kind": "calibration",
+              "calibration_metric": "population_scaled_solubility",
+              "calibration_value": 0.446,
+              "calibration_unit": "dimensionless",
+              "population_id": "niwa_non_membrane_2396"
+            }
+          },
+          "operator": ">=",
+          "threshold": 0.446
+        }
       },
       "binding_parameters": {}
     },
@@ -469,7 +493,8 @@
       "source_node_id": "score-tm",
       "source_port": "scores",
       "target_node_id": "filter-tm",
-      "target_port": "scores"
+      "target_port": "scores",
+      "target_slot": "score-filter-tm"
     },
     {
       "source_node_id": "fold-esmfold2",
@@ -481,7 +506,8 @@
       "source_node_id": "score-rmsd",
       "source_port": "scores",
       "target_node_id": "filter-rmsd",
-      "target_port": "scores"
+      "target_port": "scores",
+      "target_slot": "score-filter-rmsd"
     },
     {
       "source_node_id": "fold-esmfold2",
@@ -493,7 +519,8 @@
       "source_node_id": "materialize-confidence",
       "source_port": "observations",
       "target_node_id": "filter-plddt",
-      "target_port": "scores"
+      "target_port": "scores",
+      "target_slot": "score-filter-plddt"
     },
     {
       "source_node_id": "design-sequences",
@@ -505,7 +532,8 @@
       "source_node_id": "score-protein-sol",
       "source_port": "scores",
       "target_node_id": "filter-protein-sol",
-      "target_port": "scores"
+      "target_port": "scores",
+      "target_slot": "score-filter-protein-sol"
     },
     {
       "source_node_id": "fold-esmfold2",
@@ -646,119 +674,6 @@
       "target_port": "structure_source"
     }
   ],
-  "observation_selectors": [
-    {
-      "selector_id": "tm-reference-normalized",
-      "candidate_input": {
-        "node_id": "fold-esmfold2",
-        "output_port": "structure_candidates"
-      },
-      "score_collection_input": {
-        "node_id": "score-tm",
-        "output_port": "scores"
-      },
-      "source_partition": "structure_comparison.tm_score.explicit_relation",
-      "metric": {
-        "contract_kind": "metric",
-        "contract_id": "structure_comparison.tm_score"
-      },
-      "method": {
-        "contract_kind": "method",
-        "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method"
-      },
-      "context_selector": {
-        "kind": "pairwise",
-        "subject_role": "subject",
-        "reference_role": "reference",
-        "pairing_mode": "explicit_relation",
-        "normalization": "reference-axis-residue-count"
-      },
-      "match_cardinality": "exactly_one",
-      "missing_policy": "error"
-    },
-    {
-      "selector_id": "ca-rmsd",
-      "candidate_input": {
-        "node_id": "fold-esmfold2",
-        "output_port": "structure_candidates"
-      },
-      "score_collection_input": {
-        "node_id": "score-rmsd",
-        "output_port": "scores"
-      },
-      "source_partition": "structure_comparison.rmsd.explicit_relation",
-      "metric": {
-        "contract_kind": "metric",
-        "contract_id": "structure_comparison.rmsd"
-      },
-      "method": {
-        "contract_kind": "method",
-        "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method"
-      },
-      "context_selector": {
-        "kind": "pairwise",
-        "subject_role": "subject",
-        "reference_role": "reference",
-        "pairing_mode": "explicit_relation",
-        "normalization": "aligned-CA-mean-square-distance"
-      },
-      "match_cardinality": "exactly_one",
-      "missing_policy": "error"
-    },
-    {
-      "selector_id": "mean-plddt",
-      "candidate_input": {
-        "node_id": "fold-esmfold2",
-        "output_port": "structure_candidates"
-      },
-      "score_collection_input": {
-        "node_id": "materialize-confidence",
-        "output_port": "observations"
-      },
-      "source_partition": "prediction_confidence",
-      "metric": {
-        "contract_kind": "metric",
-        "contract_id": "structure.plddt.mean_residue"
-      },
-      "method": {
-        "contract_kind": "method",
-        "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05"
-      },
-      "context_selector": {
-        "kind": "intrinsic"
-      },
-      "match_cardinality": "exactly_one",
-      "missing_policy": "error"
-    },
-    {
-      "selector_id": "protein-sol-scaled",
-      "candidate_input": {
-        "node_id": "design-sequences",
-        "output_port": "sequence_candidates"
-      },
-      "score_collection_input": {
-        "node_id": "score-protein-sol",
-        "output_port": "scores"
-      },
-      "source_partition": "protein_sol_scaled",
-      "metric": {
-        "contract_kind": "metric",
-        "contract_id": "solubility.protein_sol_scaled"
-      },
-      "method": {
-        "contract_kind": "method",
-        "contract_id": "solubility.protein_sol.sequence_prediction_2017"
-      },
-      "context_selector": {
-        "kind": "calibration",
-        "calibration_metric": "population_scaled_solubility",
-        "calibration_value": 0.446,
-        "calibration_unit": "dimensionless",
-        "population_id": "niwa_non_membrane_2396"
-      },
-      "match_cardinality": "exactly_one",
-      "missing_policy": "error"
-    }
-  ],
+  "observation_selectors": [],
   "selection_objectives": []
 }
