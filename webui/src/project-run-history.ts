@@ -25,7 +25,7 @@ export function rememberRun(projectId: string, run?: RunReference) {
 }
 
 /** Project execution ownership is independent of the selected historical result. */
-export function useProjectRunHistory(client: PublicV2Client, projectId?: string, latestRunId?: string) {
+export function useProjectRunHistory(client: PublicV2Client, projectId?: string, latestRunId?: string | null) {
   const [revision, setRevision] = useState(0)
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const [state, setState] = useState<{ projectId?: string; runs: ProjectRunSummary[]; loading: boolean; error?: string }>({ runs: [], loading: true })

@@ -135,7 +135,9 @@ test('an accepted parameter edit can be undone with the keyboard', async ({ page
   const generationNode = page.getByTestId('rf__node-generate-paired')
   await generationNode.getByLabel('编辑参数').click()
   const temperature = generationNode.getByLabel('模型参数 · sequence_temperature', { exact: true })
-  await expect(temperature).toHaveValue('1')
+  await expect(temperature).toHaveValue('')
+  await temperature.fill('1')
+  await temperature.press('Tab')
   await temperature.fill('0.7')
   await temperature.press('Tab')
 

@@ -559,16 +559,7 @@ class WorkflowAuthoringService:
                 "malformed_request", "New Inputs must use unused references",
                 details={"field_path": ["inputs"]},
             )
-        referenced_inputs = {
-            node.node_parameters[parameter.name]
-            for node in selected_workflow.nodes
-            for parameter in cast(
-                NodeTypeDefinition,
-                self._catalog.require_contract("node_type", node.node_type_id).definition,
-            ).parameter_contract.entries
-            if parameter.resource_kind == "project_input"
-            and parameter.name in node.node_parameters
-        }
+        referenced_inputs = self._copy_input_references(source_project_id, selected_workflow)
         with self._projects.copy_destination(
             name, copied_from_project_id=source_project_id,
         ) as target:
@@ -594,6 +585,35 @@ class WorkflowAuthoringService:
                 draft_revision=draft.draft_revision, ui_state_revision=ui_revision,
             ))
         return target
+
+    def _copy_input_references(
+        self, project_id: str, workflow: WorkflowDocument,
+    ) -> set[str]:
+        recorded: dict[str, Mapping[str, Any]] = {}
+        if self._latest_record_revision(project_id, "commits"):
+            recorded = {
+                definition["contract_id"]: definition["descriptor"]["node_parameters"]
+                for definition in self._load_active_commit_record(project_id).scientific_definitions
+                if definition["contract_kind"] == "node_type"
+            }
+        references: set[str] = set()
+        for index, node in enumerate(workflow.nodes):
+            contract = self._catalog.get_contract("node_type", node.node_type_id)
+            parameters = (
+                cast(NodeTypeDefinition, contract.definition).node_parameters
+                if contract is not None else recorded.get(node.node_type_id)
+            )
+            if parameters is None:
+                raise _commit_error(WorkflowCompileError(
+                    "unknown_contract",
+                    f"Cannot copy inputs for {node.node_type_id}: restore its module or provide a saved Node declaration",
+                    node_id=node.node_id, field_path=("nodes", index, "node_type_id"),
+                ))
+            references.update(
+                node.node_parameters[name] for name, declaration in parameters.items()
+                if declaration.get("resource_kind") == "project_input" and name in node.node_parameters
+            )
+        return references
 
     def _append_draft(
         self,
