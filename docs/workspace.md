@@ -28,7 +28,7 @@
 
 ## 持久化接口与保存失败
 
-当前后端由 `WorkflowAuthoringService` 发布不可变 Draft/UI revisions，并以一条 workspace record 绑定精确版本。`PUT /projects/{project_id}/workspace` 接受 `workflow`、`ui_state` 或两者；省略的部分沿用已有版本。`GET /workspace` 返回当前 Draft、精确 UI state 和 workspace revision。UI-only 保存不创建新的科学 Draft。
+当前后端由 `WorkflowAuthoringService` 发布不可变 Draft/UI revisions，并以一条 workspace record 绑定精确版本。当前 Draft 统一存于 `draft-readings`；离线转换保留原 `drafts` 记录并为各保存版本准备当前读取资料，命名版本与返回点仍通过同一公开入口访问，见[数据转换](selection-data-conversion.md)。`PUT /projects/{project_id}/workspace` 接受 `workflow`、`ui_state` 或两者；省略的部分沿用已有版本。`GET /workspace` 返回当前 Draft、精确 UI state 和 workspace revision。UI-only 保存不创建新的科学 Draft。
 
 Draft/UI 内容先追加，最终 workspace record 发布后成为当前工作。中断留下的未引用内容不成为当前工作；已有记录不覆盖，revision 分配也不重用已占用编号。UI state 是后端不解释内容的 JSON 对象，当前前端用 `canvas` 保存画布状态、用 `binding_parameter_memory` 保存暂未激活的 Binding 配置。
 

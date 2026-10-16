@@ -290,7 +290,7 @@ class WorkflowAuthoringService:
         return revision
 
     def _load_draft_revision(self, project_id: str, revision: int) -> WorkflowDraft:
-        payload = self._read_record(project_id, "drafts", revision)
+        payload = self._read_record(project_id, "draft-readings", revision)
         workflow = workflow_document_from_canonical(payload["workflow"])
         if workflow.workflow_id != project_id:
             raise ValueError("Workflow Draft belongs to another Project")
@@ -639,14 +639,22 @@ class WorkflowAuthoringService:
         self, project_id: str, workflow: WorkflowDocument,
     ) -> set[str]:
         recorded: dict[str, Mapping[str, Any]] = {}
-        if self._latest_record_revision(project_id, "commits"):
+        commit_revision = self._latest_record_revision(project_id, "commits")
+        if commit_revision:
             recorded = {
                 definition["contract_id"]: definition["descriptor"]["node_parameters"]
-                for definition in self._load_active_commit_record(project_id).scientific_definitions
+                for definition in self._read_record(project_id, "commits", commit_revision)["commit"]["scientific_definitions"]
                 if definition["contract_kind"] == "node_type"
             }
         references: set[str] = set()
         for index, node in enumerate(workflow.nodes):
+            if node.preserved_configuration is not None:
+                references.update(
+                    node.node_parameters[name]
+                    for name in node.preserved_configuration["project_input_parameters"]
+                    if name in node.node_parameters
+                )
+                continue
             contract = self._catalog.get_contract("node_type", node.node_type_id)
             parameters = (
                 cast(NodeTypeDefinition, contract.definition).node_parameters
@@ -669,11 +677,11 @@ class WorkflowAuthoringService:
         project_id: str,
         workflow: WorkflowDocument,
     ) -> WorkflowDraft:
-        draft_revision = self._latest_record_revision(project_id, "drafts") + 1
+        draft_revision = self._latest_record_revision(project_id, "draft-readings") + 1
         draft = self._draft_value(project_id, draft_revision, workflow)
         self._write_record(
             project_id,
-            "drafts",
+            "draft-readings",
             draft_revision,
             {"workflow": draft.workflow.canonical_projection()},
         )
@@ -1038,7 +1046,7 @@ class WorkflowAuthoringService:
         root = self._projects.workflow_storage_root(WEBUI_3GB1_PROJECT_ID)
         return tuple(
             ((collection, path.name), path.read_bytes())
-            for collection in ("drafts", "commits", "workspaces", "ui-states")
+            for collection in ("drafts", "draft-readings", "commits", "workspaces", "ui-states")
             for path in sorted((root / collection).glob("*.json"))
         )
 
@@ -1077,6 +1085,14 @@ class WorkflowAuthoringService:
     ) -> VerifiedWorkflowCommit:
         """Resolve the immutable Commit named by its sole execution ID."""
         self._require_project(project_id)
+        status_path = self._projects.workflow_storage_root(project_id) / "commit-status" / (workflow_commit_id + ".json")
+        if status_path.exists():
+            status = json.loads(status_path.read_bytes())
+            if not status["executable"]:
+                raise _commit_error(WorkflowCompileError(
+                    "preserved_configuration_unavailable", status["reason"],
+                    field_path=("workflow_commit_id",),
+                ))
         cached = self._verified_commits.get((project_id, workflow_commit_id))
         if cached is not None:
             return cached

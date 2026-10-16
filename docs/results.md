@@ -47,7 +47,7 @@ FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显�
 
 公共读取入口为 `GET /api/v2/projects/{project_id}/runs`。重启后从持久 Run 记录恢复列表；已知 Run 的必要证据不可用时返回既有 `evidence_unavailable` 错误，不静默遗漏该 Run。实现见 [RunHistoryDialog](../webui/src/RunHistoryDialog.tsx)、[项目运行状态与选择](../webui/src/project-run-history.ts)及[公共 Run 路由](../protein_workbench_public/http/run_routes.py)。
 
-已结束 Run 的统一读取资料保留原状态、成果描述、身份、来源、失败诊断和通用事件；重开时直接读取，不重放旧筛选终态或重新编译流程。原 Ledger、Commit、输入和结果对象保持原样。历史 Commit 快照使用原始保存内容，独立于当前可执行 Workflow 参数解析；导出和采用不会把旧设置重新批准为可执行配置。读取资料的准备入口见 [history_preservation.py](../protein_workbench_public/history_preservation.py)，仅由数据根副本转换调用；该入口不切换正在使用的数据根。
+已结束 Run 的统一读取资料保留原状态、成果描述、身份、来源、失败诊断和通用事件；重开时直接读取，不重放旧筛选终态或重新编译流程。原 Ledger、Commit、输入和结果对象保持原样。历史 Commit 快照使用原始保存内容，独立于当前可执行 Workflow 参数解析；导出和采用不会把旧设置重新批准为可执行配置。读取资料的准备入口见 [history_preservation.py](../core/execution/history_preservation.py)，仅由数据根副本转换调用；该入口不切换正在使用的数据根。
 
 画布的“采用历史结果”从项目、Run 与兼容输出选择模块声明可采用的值。候选、分数、Prompt、序列、结构、轨道、残基轴、评价关系、比对、统计和表征等现有科学结果使用同一个公共 `result_sources` 接口声明来源节点；载体先把所选值及依赖写为目标项目的不可变 Project Input，成功后才将来源节点加入当前编辑，用户手动保存流程。取消选择不改变流程，持久化失败不显示成功。下载附件载荷不作为新的计算输入模式，附件仍可直接导出。
 

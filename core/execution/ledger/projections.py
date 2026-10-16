@@ -87,6 +87,7 @@ class RunProjection:
     terminal_sequence: int | None = None
     derived_from_run_id: str | None = None
     execution_scope: RunExecutionScope | None = None
+    diagnostic: StructuredError | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +195,7 @@ def project_run(
             tuple(selection_results) if scope.selection_terminal_keys else None
         ),
         selection_error=selection_error,
+        diagnostic=selection_error,
         terminal_sequence=terminal_sequence,
         execution_scope=scope.execution_scope,
         derived_from_run_id=(

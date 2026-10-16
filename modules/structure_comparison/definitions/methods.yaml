@@ -4,7 +4,6 @@
     source: StructureAlignmentEvidence.rmsd
     validation_formula: sqrt(fsum(residual_distance^2)/aligned_atom_count)
     recomputes_alignment: false
-    observation_regions: exact-subject-and-reference-regions-from-evidence
   model_identity:
     kind: none
   featurization_identity:
@@ -20,7 +19,6 @@
     formula: sum(1/(1+(residual_distance/d0)^2))/reference_axis_residue_count
     d0: 0.5 when reference_axis_residue_count<=15; otherwise max(0.5,1.24*(reference_axis_residue_count-15)^(1/3)-1.8)
     recomputes_alignment: false
-    observation_regions: exact-subject-and-reference-regions-from-evidence
     optimization_engine: null
   model_identity:
     kind: none

@@ -117,6 +117,7 @@ class WorkflowNodeInstance:
     binding_id: str
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
+    preserved_configuration: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -129,6 +130,8 @@ class WorkflowNodeInstance:
             "binding_parameters",
             freeze_i_json(self.binding_parameters),
         )
+        if self.preserved_configuration is not None:
+            object.__setattr__(self, "preserved_configuration", freeze_i_json(self.preserved_configuration))
 
     @classmethod
     def from_canonical(
@@ -142,6 +145,7 @@ class WorkflowNodeInstance:
             binding_id=payload["binding_id"],
             node_parameters=payload["node_parameters"],
             binding_parameters=payload["binding_parameters"],
+            preserved_configuration=payload.get("preserved_configuration"),
         )
 
     def canonical_projection(self) -> dict[str, Any]:
@@ -152,6 +156,8 @@ class WorkflowNodeInstance:
             "binding_id": self.binding_id,
             "node_parameters": thaw_i_json(self.node_parameters),
             "binding_parameters": thaw_i_json(self.binding_parameters),
+            **({"preserved_configuration": thaw_i_json(self.preserved_configuration)}
+               if self.preserved_configuration is not None else {}),
         }
 
 @dataclass(frozen=True, slots=True)

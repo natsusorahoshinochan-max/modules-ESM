@@ -4384,6 +4384,9 @@
         },
         "workflow_commit_id": {
           "$ref": "#/$defs/WorkflowCommitId"
+        },
+        "diagnostic": {
+          "$ref": "#/$defs/StructuredError"
         }
       },
       "required": [
