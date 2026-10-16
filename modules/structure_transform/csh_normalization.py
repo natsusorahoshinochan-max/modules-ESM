@@ -356,9 +356,9 @@ def _normalize_mmcif_csh(
     data = mmcif_dictionary(structure.text)
     count = len(records)
     # Publish the exact identities already admitted by the shared format reader.
-    data["_atom_site.auth_asym_id"] = [r.chain_id for r in records]
-    data["_atom_site.auth_seq_id"] = [r.residue_number for r in records]
-    data["_atom_site.pdbx_PDB_ins_code"] = [r.insertion_code or "?" for r in records]
+    data.setdefault("_atom_site.auth_asym_id", [r.chain_id for r in records])
+    data.setdefault("_atom_site.auth_seq_id", [r.residue_number for r in records])
+    data.setdefault("_atom_site.pdbx_PDB_ins_code", [r.insertion_code or "?" for r in records])
     data.setdefault("_atom_site.label_seq_id", [r.residue_number for r in records])
     entities = data.get("_atom_site.label_entity_id", ["?"] * count)
     labels = data["_atom_site.label_seq_id"]
@@ -374,15 +374,21 @@ def _normalize_mmcif_csh(
     source_index = {id(record): index for index, record in enumerate(records)}
     emitted = set()
     normalizations = []
+    used_atom_ids = set(data["_atom_site.id"])
+    next_atom_id = 1
     for record in records:
         replacement = replacements.get(record.residue_identity)
         if replacement is None:
-            rows = [(record, record.residue_name, int(record.residue_number), record.atom_name)]
+            rows = [(record, record.residue_name, record.residue_number, record.atom_name)]
         else:
             if record.residue_identity in emitted:
                 continue
             emitted.add(record.residue_identity)
-            rows, normalization = replacement
+            output_atoms, normalization = replacement
+            rows = [
+                (source, component, str(number), atom)
+                for source, component, number, atom in output_atoms
+            ]
             normalizations.append(normalization)
         for source, component, number, atom in rows:
             index = source_index[id(source)]
@@ -390,7 +396,7 @@ def _normalize_mmcif_csh(
             if labels[index] not in {".", "?"}:
                 old_position = int(labels[index])
                 shift = 2 * sum(p < old_position for p in expanded_positions[scopes[index]])
-                parent_offset = number - int(record.residue_number) + 1 if replacement is not None else 0
+                parent_offset = int(number) - int(record.residue_number) + 1 if replacement is not None else 0
                 row["_atom_site.label_seq_id"] = str(old_position + shift + parent_offset)
             if replacement is not None:
                 for key, value in {
@@ -401,7 +407,11 @@ def _normalize_mmcif_csh(
                 }.items():
                     if "_atom_site." + key in row:
                         row["_atom_site." + key] = value
-            row["_atom_site.id"] = str(len(output["_atom_site.id"]) + 1)
+            if replacement is not None:
+                while str(next_atom_id) in used_atom_ids:
+                    next_atom_id += 1
+                row["_atom_site.id"] = str(next_atom_id)
+                next_atom_id += 1
             for key in atom_keys:
                 output[key].append(row[key])
     data.update(output)
