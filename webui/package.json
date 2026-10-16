@@ -15,7 +15,9 @@
     "build:module-ui": "node tools/build-module-ui.mjs",
     "predev": "npm run build:module-ui",
     "prebuild": "npm run build:module-ui",
-    "test:historical-diagnostic": "esbuild tests/historical-diagnostic.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --outfile=node_modules/.tmp/historical-diagnostic.test.mjs && node node_modules/.tmp/historical-diagnostic.test.mjs"
+    "test:historical-diagnostic": "esbuild tests/historical-diagnostic.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --outfile=node_modules/.tmp/historical-diagnostic.test.mjs && node node_modules/.tmp/historical-diagnostic.test.mjs",
+    "test:project-lifecycle": "esbuild tests/project-lifecycle.test.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.tmp/project-lifecycle.test.mjs && node node_modules/.tmp/project-lifecycle.test.mjs",
+    "test:historical-regions": "esbuild tests/selection-regions-interaction.test.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.tmp/selection-regions-interaction.test.mjs && node node_modules/.tmp/selection-regions-interaction.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "2.3.7",

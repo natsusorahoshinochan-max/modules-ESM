@@ -13,7 +13,7 @@ test('a saved unavailable node can be copied and another node deleted without lo
     { node_id: 'source', node_type_id: 'unavailable.source', binding_id: 'unavailable.source.direct', node_parameters: { project_input_ref: 'input-1' }, binding_parameters: {} },
     { node_id: 'retained', node_type_id: 'unavailable.operation', binding_id: 'unavailable.operation.direct', node_parameters: { obsolete: ['original', { threshold: 9 }] }, binding_parameters: { original: true } },
     { node_id: 'discard', node_type_id: 'unavailable.other', binding_id: 'unavailable.other.direct', node_parameters: {}, binding_parameters: {} },
-  ], edges: [{ source_node_id: 'source', source_port: 'original', target_node_id: 'retained', target_port: 'original', target_slot: 'saved-slot' }], observation_selectors: [], selection_objectives: [] }
+  ], edges: [{ source_node_id: 'source', source_port: 'original', target_node_id: 'retained', target_port: 'original', target_slot: 'saved-slot' }] }
   const fragment = copyWorkflowFragment(workflow, new Set(['source', 'retained']))
   let nextId = 0
   const pasted = pasteWorkflowFragment(workflow, fragment, { x: 20, y: 30 }, () => `copy-${nextId++}`).workflow
@@ -41,9 +41,19 @@ test('preserved configuration is not admitted to a currently registered paramete
   ] }
   const node: WorkflowNode = { node_id: 'retained', node_type_id: 'same.operation', binding_id: 'same.direct', node_parameters: { old_rule: 'unchanged' }, binding_parameters: {}, preserved_configuration: { reason: '旧操作含义无法等价转换', settings: { original_rule: { count: 8 } }, project_input_parameters: [] } }
   assert.deepEqual(parameterPresentations(currentCatalog, node), [])
-  const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'study', nodes: [node], edges: [], observation_selectors: [], selection_objectives: [] }
+  const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'study', nodes: [node], edges: [] }
   assert.throws(() => selectNodeBinding(workflow, 'retained', 'same.direct', currentCatalog), /旧操作含义无法等价转换/)
   const fragment = copyWorkflowFragment(workflow, new Set(['retained']))
   const copied = pasteWorkflowFragment(workflow, fragment, { x: 0, y: 0 }, () => 'copy').workflow.nodes[1]
   assert.deepEqual(copied.preserved_configuration, node.preserved_configuration)
+})
+
+test('copying an unavailable node preserves opaque local rules and disconnected slots without remapping parameter content', () => {
+  const rule = { score_input: 'disconnected-score', relation_input: 'disconnected-relation', metric_id: 'original-metric', reference: { node_id: 'original-node' }, exact_contexts: [{ subject: { candidate_id: 'original-node' }, context: { region: ['A:1'] } }] }
+  const workflow: Workflow = { schema_version: '2.1.0', workflow_id: 'study', nodes: [{ node_id: 'original-node', node_type_id: 'unavailable.operation', binding_id: 'unavailable.binding', node_parameters: { selection: rule, count: 3 }, binding_parameters: { mode: 'saved' } }], edges: [] }
+  const copied = pasteWorkflowFragment(workflow, copyWorkflowFragment(workflow, new Set(['original-node'])), { x: 0, y: 0 }, () => 'copy').workflow
+  assert.deepEqual(copied.nodes[1], { ...workflow.nodes[0], node_id: 'copy' })
+  assert.deepEqual(copied.edges, [])
+  ;(copied.nodes[1].node_parameters.selection as { metric_id: string }).metric_id = 'changed'
+  assert.equal((workflow.nodes[0].node_parameters.selection as { metric_id: string }).metric_id, 'original-metric')
 })

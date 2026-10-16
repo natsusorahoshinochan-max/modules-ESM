@@ -8,7 +8,7 @@ export type AuthoringCapabilities = { node_roles: Array<{ node_type: ContractRef
 export type ProjectMetadata = { id: string; name: string; seed: boolean; project_kind: 'default_example' | 'canonical_verification' | 'personal'; copied_from_project_id: string | null; reference_results_project_id: string | null; created_at: string; modified_at: string; deleted_at: string | null; latest_run_id: string | null }
 export type PreservedConfiguration = { reason: string; settings: JsonObject; project_input_parameters: string[] }
 export type WorkflowNode = { node_id: string; node_type_id: string; binding_id: string; node_parameters: Record<string, unknown>; binding_parameters: Record<string, unknown>; preserved_configuration?: PreservedConfiguration }
-export type Workflow = { schema_version: string; workflow_id: string; nodes: WorkflowNode[]; edges: Array<{ source_node_id: string; source_port: string; target_node_id: string; target_port: string; target_slot?: string }>; observation_selectors: JsonObject[]; selection_objectives: JsonObject[] }
+export type Workflow = { schema_version: string; workflow_id: string; nodes: WorkflowNode[]; edges: Array<{ source_node_id: string; source_port: string; target_node_id: string; target_port: string; target_slot?: string }> }
 export type WorkflowDraft = { project_id: string; draft_revision: number; workflow: Workflow }
 export type CatalogSnapshot = { contracts: Array<{ reference: ContractReference; descriptor: JsonObject }>; availability: JsonObject[] }
 export type CandidateReference = { candidate_id: string; data_type_id: string; content_digest: string }
@@ -24,8 +24,8 @@ export type PublishedObservation = { subject: CandidateReference; metric: Contra
 export type PublishedAlignment = { subject: CandidateReference; reference: CandidateReference; transform: { maps_from_role: string; maps_to_role: string; row_vector_rotation: number[][]; translation: number[] }; rmsd: number; coverage: number; method: ContractReference; [field: string]: unknown }
 export type PublishedPrompt = { residue_ids: string[]; sequence: Array<string | null>; coordinates: Array<{ atoms: Array<[string, [number, number, number]]> } | null>; secondary_structure: Array<string | null> | null; sasa: Array<number | null> | null; function_annotations: Array<{ label: string; start_residue_id: string; end_residue_id: string }> }
 export type PublishedStructure = { text: string; format: 'pdb' | 'mmcif' }
-export type PublishedResultValue = { kind: string; value: JsonObject }
-export type PublishedScientificValue =
+export type PublishedResultValue = { kind: string; value: JsonObject; value_content_digest: string }
+export type PublishedScientificValue = { value_content_digest: string } & (
   | { kind: 'scores'; value: { collection_id: string; entries: PublishedObservation[] } }
   | { kind: 'candidate_sequences'; value: { entries: Array<{ subject: CandidateReference; sequence: string }> } }
   | { kind: 'alignment'; value: PublishedAlignment }
@@ -33,6 +33,7 @@ export type PublishedScientificValue =
   | { kind: 'structure'; value: PublishedStructure }
   | { kind: 'prompt'; value: PublishedPrompt }
   | { kind: 'axis_layout'; value: { residue_ids: string[]; chain_ids: string[] } }
+)
 export type CanonicalTypedValue = { port_type_id: string; value: unknown }
 export type PublishedOutput = { node_id: string; output_port: string; port_type: ContractReference; content_digest: string; result_identity: string; value_count: number; producer_provenance: JsonObject; materialization: { run_id: string; resolution: 'executed' | 'cache_replayed' }; value_manifest_reference: string }
 export type PublishedArtifact = { producer_run_id?: string; result_identity: string; artifact_reference: string; artifact_kind: string; node_id: string; output_port: string; media_type: string; filename: string; size: number; content_digest: string; candidate_id?: string }
@@ -93,7 +94,7 @@ export type PromptSnapshot = { draft_revision: number; merge_targets: PromptMerg
 export type PromptPreview = Omit<PromptSnapshot, 'document' | 'source' | 'draft_revision'> & { normalized_document: PromptAuthoringDocument; changes: JsonObject[]; random_selections: PromptRandomSelection[]; source_merges: JsonObject[]; diagnostics: PromptDiagnostic[]; summary: JsonObject }
 export type RunStatus = 'admitted' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 export type RunScopeRequest = { mode: 'full' | 'to_node' | 'from_node'; node_ids: string[]; source_run_id?: string }
-export type RunScope = { mode: RunScopeRequest['mode']; selected_node_ids: string[]; execution_node_ids: string[]; forced_node_ids: string[]; reused_node_ids: string[]; out_of_scope_node_ids: string[]; out_of_scope_selection_ids: string[]; source_run_id?: string }
+export type RunScope = { mode: RunScopeRequest['mode']; selected_node_ids: string[]; execution_node_ids: string[]; forced_node_ids: string[]; reused_node_ids: string[]; out_of_scope_node_ids: string[]; source_run_id?: string }
 export type RunScopePreview = { workflow_commit_id: string; scope: RunScope; blockers: Array<{ code: string; message: string; node_id?: string; field_path: Array<string | number> }>; nodes: Array<{ node_id: string; binding: ContractReference; method: ContractReference; node_parameters: JsonObject; binding_parameters: JsonObject; action: 'reuse' | 'execute'; randomness_status: 'resolved' | 'awaiting_inputs'; effective_randomness?: JsonObject }> }
 export type ProjectRunSummary = (Pick<RunProjection, 'run_id' | 'workflow_commit_id' | 'status'> & { availability: 'readable'; has_results: boolean }) | { run_id: string; availability: 'unavailable' }
 export type ProjectExecutionState = { project_id: string; active_run_ids: string[]; reserved: boolean }
@@ -103,8 +104,7 @@ export type NodeDisposition =
   | NodeDispositionBase & { outcome: 'succeeded'; blocked_by: []; resolution: 'executed' | 'cache_replayed' }
   | NodeDispositionBase & { outcome: 'blocked'; blocked_by: string[] }
   | NodeDispositionBase & { outcome: 'failed' | 'cancelled' | 'interrupted'; blocked_by: [] }
-type SelectionInput = { node_id: string; output_port: string; content_digest: string; result_identity: string }
-export type RunProjection = { diagnostic?: RunDiagnostic; continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
+export type RunProjection = { diagnostic?: RunDiagnostic; continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[] }
 export type RunDiagnostic = { code: string; message: string; retryable: boolean; correlation_id: string; details: JsonObject }
 export type RunEvent =
   | { type: 'run_admitted'; workflow_commit_id: string }
@@ -113,7 +113,7 @@ export type RunEvent =
   | { type: 'node_attempt_terminal'; node_attempt_id: string; status: string; error?: RunDiagnostic }
   | { type: 'node_disposition'; disposition: NodeDisposition }
   | { type: 'run_terminal'; status: Extract<RunStatus, 'succeeded' | 'failed' | 'cancelled' | 'interrupted'> }
-  | { type: 'engine_invocation_started' | 'engine_invocation_terminal' | 'operation_attempt_started' | 'operation_attempt_terminal' | 'readiness_attested' | 'replay_complete' | 'replay_started' | 'selection_terminal' }
+  | { type: 'engine_invocation_started' | 'engine_invocation_terminal' | 'operation_attempt_started' | 'operation_attempt_terminal' | 'readiness_attested' | 'replay_complete' | 'replay_started' }
 export type RunEventEnvelope = { schema_namespace: 'protein-workbench-public/v2'; project_id: string; run_id: string; sequence: number; cursor: string; emitted_at: string; event: RunEvent }
 
 export type ProspectiveInput = { project_input_ref: string; filename: string; content_base64: string }
@@ -171,7 +171,6 @@ export class PublicV2Client {
   workflowDraft(projectId: string) { return this.json<WorkflowDraft>(`/api/v2/projects/${projectId}/workflow/draft`) }
   openPrompt(projectId: string, nodeId: string, workflow?: Workflow, prospectiveInputs?: ProspectiveInput[]) { return this.authoringAction<PromptSnapshot>(projectId, 'prompt_authoring.open', { node_id: nodeId, ...(workflow ? { workflow } : {}) }, prospectiveInputs) }
   previewPrompt(projectId: string, nodeId: string, document: PromptAuthoringDocument, workflow?: Workflow, versionContext?: PromptVersionContext, prospectiveInputs?: ProspectiveInput[]) { return this.authoringAction<PromptPreview>(projectId, 'prompt_authoring.preview', { node_id: nodeId, document, ...(workflow ? { workflow } : {}), ...(versionContext ? { version_context: versionContext } : {}) }, prospectiveInputs) }
-  observationOptions(workflow: Workflow, ranking: boolean) { return this.json<{ options: Array<{ source: { node_id: string; output_port: string }; partition: string; metric_id: string; method_id: string; context: JsonObject }> }>(`/api/v2/projects/${workflow.workflow_id}/workflow:observation-options`, { method: 'POST', body: JSON.stringify({ workflow: { nodes: workflow.nodes, edges: workflow.edges }, ranking }) }) }
   commitWorkflow(projectId: string, workflow: Workflow) { return this.json<{ workflow_commit_id: string }>(`/api/v2/projects/${projectId}/workflow:commit`, { method: 'POST', body: JSON.stringify({ workflow }) }) }
   previewRunScope(projectId: string, workflowCommitId: string, scope: RunScopeRequest) { return this.json<RunScopePreview>(`/api/v2/projects/${projectId}/runs/preview`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, scope }) }) }
   continueBatch(projectId: string, sourceRunId: string, nodeId: string) { return this.json<RunReceipt>(`/api/v2/projects/${projectId}/runs:derive`, { method: 'POST', body: JSON.stringify({ source_run_id: sourceRunId, policy: 'continue_batch', node_ids: [nodeId], client_request_id: crypto.randomUUID() }) }) }
