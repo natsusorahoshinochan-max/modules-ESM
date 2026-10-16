@@ -157,3 +157,9 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```
 
 不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。
+
+## 非蛋白组分查看与导出
+
+`.venv/bin/python -m unittest discover -s tests -p test_structure_components.py` 通过公共 Run 和模块结果 action 覆盖蛋白、配体、金属、水、核酸的明确身份与全原子投影，以及两种来源格式逐类选择、两种目标导出、连接/链终止记录和原始结果不变。不调用模型。
+
+启用默认模块的正常应用使用独立临时数据目录启动后，在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5297 npx playwright test tests/structure-components.spec.ts --workers=1 --reporter=line --output=/tmp/components-results`。覆盖完整候选详情的真实全原子视口、逐类勾选、PDB/mmCIF 文件下载及刷新后恢复选择。
