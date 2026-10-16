@@ -40,6 +40,7 @@ for (const sourceRecord of ['original', 'cached', 'historical', 'missing'] as co
     const history = page.getByRole('dialog', { name: '项目运行历史', exact: true })
     await history.locator('li').filter({ has: page.getByText(started.run_id, { exact: true }) }).getByRole('button', { name: '打开运行', exact: true }).click()
     await history.getByRole('button', { name: '关闭', exact: true }).click()
+    await page.getByRole('button', { name: /^Results/ }).click()
     displayedRunId = started.run_id
     await expect(page.locator('.result-stages')).toContainText(started.run_id)
   }
