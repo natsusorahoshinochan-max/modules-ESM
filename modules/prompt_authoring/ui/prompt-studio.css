@@ -219,3 +219,5 @@
 }
 
 .ps-batch-editor label { display: grid; grid-template-columns: 140px 160px 1fr; gap: 10px; margin-bottom: 10px; }
+
+.module-editor-dialog:has(.prompt-studio) { width: 100vw; max-width: none; height: 100vh; max-height: none; padding: 0; border-radius: 0; }

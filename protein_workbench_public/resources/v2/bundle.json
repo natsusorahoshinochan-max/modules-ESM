@@ -867,294 +867,6 @@
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
     },
-    "ESM3ConditioningProjection": {
-      "additionalProperties": false,
-      "properties": {
-        "effective_input": {
-          "anyOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
-                "coordinates": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "dtype": {
-                      "const": "float32"
-                    },
-                    "entries": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "atom_index": {
-                            "type": "integer"
-                          },
-                          "atom_name": {
-                            "type": "string"
-                          },
-                          "coordinates": {
-                            "items": {
-                              "type": "number"
-                            },
-                            "type": "array"
-                          },
-                          "float32_bits": {
-                            "items": {
-                              "type": "string"
-                            },
-                            "type": "array"
-                          },
-                          "position": {
-                            "type": "integer"
-                          },
-                          "residue_id": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "residue_id",
-                          "position",
-                          "atom_name",
-                          "atom_index",
-                          "coordinates",
-                          "float32_bits"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "missing_atom_representation": {
-                      "const": "NaN"
-                    },
-                    "omitted_named_atoms": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "atom_name": {
-                            "type": "string"
-                          },
-                          "residue_id": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "residue_id",
-                          "atom_name"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "present": {
-                      "type": "boolean"
-                    },
-                    "shape": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "type": "integer"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "unit": {
-                      "const": "angstrom"
-                    }
-                  },
-                  "required": [
-                    "present",
-                    "shape",
-                    "dtype",
-                    "unit",
-                    "missing_atom_representation",
-                    "entries",
-                    "omitted_named_atoms"
-                  ],
-                  "type": "object"
-                },
-                "function_annotations": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "end": {
-                        "type": "integer"
-                      },
-                      "label": {
-                        "type": "string"
-                      },
-                      "start": {
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "label",
-                      "start",
-                      "end"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
-                },
-                "functional_input_digest": {
-                  "$ref": "#/$defs/Digest"
-                },
-                "sasa": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "anyOf": [
-                          {
-                            "type": "number"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "secondary_structure": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "sequence": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "functional_input_digest",
-                "sequence",
-                "secondary_structure",
-                "sasa",
-                "function_annotations",
-                "coordinates"
-              ],
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "operations": {
-          "additionalProperties": false,
-          "properties": {
-            "generate_paired": {
-              "additionalProperties": false,
-              "properties": {
-                "compatible": {
-                  "type": "boolean"
-                },
-                "reason": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              },
-              "required": [
-                "compatible",
-                "reason"
-              ],
-              "type": "object"
-            },
-            "generate_sequence": {
-              "additionalProperties": false,
-              "properties": {
-                "compatible": {
-                  "type": "boolean"
-                },
-                "reason": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              },
-              "required": [
-                "compatible",
-                "reason"
-              ],
-              "type": "object"
-            },
-            "generate_structure": {
-              "additionalProperties": false,
-              "properties": {
-                "compatible": {
-                  "type": "boolean"
-                },
-                "reason": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              },
-              "required": [
-                "compatible",
-                "reason"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "generate_sequence",
-            "generate_structure",
-            "generate_paired"
-          ],
-          "type": "object"
-        },
-        "reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "status": {
-          "enum": [
-            "compatible",
-            "unsupported"
-          ]
-        }
-      },
-      "required": [
-        "status",
-        "reason",
-        "effective_input",
-        "operations"
-      ],
-      "type": "object"
-    },
     "EffectiveRandomnessInvocationProvenance": {
       "oneOf": [
         {
@@ -1776,6 +1488,88 @@
       ],
       "type": "object"
     },
+    "ModuleSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "configured_secrets": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "fields": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "value_category": {
+                      "enum": [
+                        "filesystem_path",
+                        "json_value",
+                        "credential_handle",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value_category",
+                    "required"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "package_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "values": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "package_id",
+              "binding_id",
+              "fields",
+              "values",
+              "configured_secrets"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "bindings"
+      ],
+      "type": "object"
+    },
+    "ModuleSettingsRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
     "ModuleUiAssetMetadata": {
       "additionalProperties": false,
       "properties": {
@@ -1868,6 +1662,12 @@
                 "const": 19,
                 "type": "integer"
               },
+              "run_viewers": {
+                "items": {
+                  "$ref": "#/$defs/ModuleUiRunViewer"
+                },
+                "type": "array"
+              },
               "style_urls": {
                 "items": {
                   "minLength": 1,
@@ -1880,12 +1680,6 @@
                   "$ref": "#/$defs/ModuleUiViewer"
                 },
                 "type": "array"
-              },
-              "run_viewers": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/ModuleUiRunViewer"
-                }
               }
             },
             "required": [
@@ -1911,6 +1705,33 @@
       "required": [
         "extensions",
         "readers"
+      ],
+      "type": "object"
+    },
+    "ModuleUiRunViewer": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "type": "string"
+        },
+        "port_type_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "viewer_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "viewer_id",
+        "title",
+        "port_type_ids",
+        "component"
       ],
       "type": "object"
     },
@@ -3742,16 +3563,6 @@
           },
           "type": "array"
         },
-        "esm3_conditioning": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ESM3ConditioningProjection"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "function_annotations": {
           "items": {
             "$ref": "#/$defs/PromptFunctionAnnotationProjection"
@@ -3788,6 +3599,29 @@
         "summary": {
           "$ref": "#/$defs/PromptSummary"
         },
+        "tool_projections": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "projection_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "value": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "projection_id",
+              "title",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "tracks": {
           "$ref": "#/$defs/PromptTrackProjectionSet"
         }
@@ -3803,7 +3637,7 @@
         "diagnostics",
         "summary",
         "baseline_diagnostics",
-        "esm3_conditioning",
+        "tool_projections",
         "merge_targets"
       ],
       "type": "object"
@@ -3856,16 +3690,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "esm3_conditioning": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ESM3ConditioningProjection"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "function_annotations": {
           "items": {
             "$ref": "#/$defs/PromptFunctionAnnotationProjection"
@@ -3893,6 +3717,29 @@
         "source": {
           "$ref": "#/$defs/PromptSourceFacts"
         },
+        "tool_projections": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "projection_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "value": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "projection_id",
+              "title",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "tracks": {
           "$ref": "#/$defs/PromptTrackProjectionSet"
         }
@@ -3905,7 +3752,7 @@
         "source",
         "baseline_diagnostics",
         "random_selections",
-        "esm3_conditioning",
+        "tool_projections",
         "merge_targets",
         "draft_revision"
       ],
@@ -6082,6 +5929,13 @@
           "maxItems": 2048,
           "type": "array"
         },
+        "continuable_node_ids": {
+          "items": {
+            "$ref": "#/$defs/NodeInstanceId"
+          },
+          "maxItems": 2048,
+          "type": "array"
+        },
         "derived_from_run_id": {
           "$ref": "#/$defs/RunId"
         },
@@ -6137,13 +5991,6 @@
         },
         "workflow_commit_id": {
           "$ref": "#/$defs/WorkflowCommitId"
-        },
-        "continuable_node_ids": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/NodeInstanceId"
-          },
-          "maxItems": 2048
         }
       },
       "required": [
@@ -7159,6 +7006,23 @@
       ],
       "type": "object"
     },
+    "UpdateModuleSettingsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "values": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "binding_id",
+        "values"
+      ],
+      "type": "object"
+    },
     "UtilityTransformContractDescriptor": {
       "additionalProperties": false,
       "properties": {
@@ -7561,132 +7425,6 @@
         "return_workspace_revision"
       ],
       "type": "object"
-    },
-    "ModuleSettingsRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {},
-      "required": []
-    },
-    "UpdateModuleSettingsRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "binding_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "values": {
-          "type": "object"
-        }
-      },
-      "required": [
-        "binding_id",
-        "values"
-      ]
-    },
-    "ModuleSettings": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "schema_namespace": {
-          "const": "protein-workbench-public/v2"
-        },
-        "bindings": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "package_id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "binding_id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "fields": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "value_category": {
-                      "enum": [
-                        "filesystem_path",
-                        "json_value",
-                        "credential_handle",
-                        "string"
-                      ]
-                    },
-                    "required": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "name",
-                    "value_category",
-                    "required"
-                  ]
-                }
-              },
-              "values": {
-                "type": "object"
-              },
-              "configured_secrets": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "required": [
-              "package_id",
-              "binding_id",
-              "fields",
-              "values",
-              "configured_secrets"
-            ]
-          }
-        }
-      },
-      "required": [
-        "schema_namespace",
-        "bindings"
-      ]
-    },
-    "ModuleUiRunViewer": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "viewer_id",
-        "title",
-        "port_type_ids",
-        "component"
-      ],
-      "properties": {
-        "viewer_id": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "port_type_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "component": {
-          "type": "string"
-        }
-      }
     }
   },
   "bundle_discovery": {
@@ -8044,6 +7782,20 @@
         "success_status": 200
       },
       "route": "/api/v2/modules",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "module_settings": {
+      "method": "GET",
+      "request_schema": "#/$defs/ModuleSettingsRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleSettings",
+        "success_status": 200
+      },
+      "route": "/api/v2/module-settings",
       "status_mapping": {
         "200": "response",
         "default": "structured_error"
@@ -8460,6 +8212,20 @@
         "default": "structured_error"
       }
     },
+    "update_module_settings": {
+      "method": "PATCH",
+      "request_schema": "#/$defs/UpdateModuleSettingsRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleSettings",
+        "success_status": 200
+      },
+      "route": "/api/v2/module-settings/{binding_id}",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
     "workflow_commit_snapshot": {
       "method": "GET",
       "request_schema": "#/$defs/WorkflowCommitSnapshotRequest",
@@ -8505,34 +8271,6 @@
         "404": "structured_error",
         "409": "structured_error",
         "422": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "module_settings": {
-      "method": "GET",
-      "route": "/api/v2/module-settings",
-      "request_schema": "#/$defs/ModuleSettingsRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ModuleSettings",
-        "success_status": 200
-      },
-      "status_mapping": {
-        "200": "response",
-        "default": "structured_error"
-      }
-    },
-    "update_module_settings": {
-      "method": "PATCH",
-      "route": "/api/v2/module-settings/{binding_id}",
-      "request_schema": "#/$defs/UpdateModuleSettingsRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ModuleSettings",
-        "success_status": 200
-      },
-      "status_mapping": {
-        "200": "response",
         "default": "structured_error"
       }
     }

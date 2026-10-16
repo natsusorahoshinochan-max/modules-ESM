@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type GridApi, type ICellRendererParams, type ICellEditorParams, type CellKeyDownEvent } from 'ag-grid-community'
-import type { PromptSnapshot, PromptPreview, PromptTrackValue } from './protocol/client'
+import type { PromptSnapshot, PromptPreview, PromptTrackValue } from '../../../webui/src/protocol/client'
 import { cellKey, copyMatrix, emptyMatrixSelection, parseMatrixValue, pasteMatrix, selectMatrixCell, type MatrixCell, type MatrixEdit, type MatrixSelection, type MatrixTrack } from './residue-matrix'
 
 ModuleRegistry.registerModules([AllCommunityModule])

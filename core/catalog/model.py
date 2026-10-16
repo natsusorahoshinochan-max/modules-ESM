@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.preview import ValuePreviewDefinition
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -156,6 +158,7 @@ class FrozenCatalog:
     contracts: tuple[CatalogContract, ...]
     availability: tuple[CatalogAvailabilityProjection, ...]
     availability_observed_at: datetime
+    value_previews: tuple[ValuePreviewDefinition, ...] = ()
     ui_extensions: tuple[ModuleUiDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     result_readers: tuple[ResultReaderDefinition, ...] = ()

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from core.catalog.preview import ValuePreviewDefinition
+from .authoring_preview import describe_prompt
+
 from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
 from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_representation
@@ -697,6 +700,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    value_previews=(ValuePreviewDefinition("esm3.conditioning", "protein.prompt", "ESM3 有效工具条件", describe_prompt),),
     result_readers=(ResultReaderDefinition("esm3.esmc_sequence_representation", "esmc_representation", read_representation),),
     ui_extensions=(ModuleUiDefinition(
         extension_id="esm3.esmc.viewers", resource_package=__package__,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.preview import ValuePreviewDefinition
+
 from .ui import ModuleUiDefinition, NodeEditorDefinition, ResultViewerDefinition
 
 from collections.abc import Callable, Mapping
@@ -617,6 +619,7 @@ class ModulePackageRegistration:
 
     package_id: str
     package_module: str
+    value_previews: tuple[ValuePreviewDefinition, ...] = ()
     ui_extensions: tuple[ModuleUiDefinition, ...] = ()
     node_definitions: tuple[DefinitionResource, ...] = ()
     metric_definitions: tuple[DefinitionResource, ...] = ()
@@ -638,6 +641,7 @@ class ModulePackageRegistration:
             "utility_transforms",
             "authoring_capabilities",
             "ui_extensions",
+            "value_previews",
             "result_actions",
             "result_readers",
         ):

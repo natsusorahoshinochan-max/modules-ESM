@@ -1,4 +1,4 @@
-import type { PromptTrackKey } from './protocol/client'
+import type { PromptTrackKey } from '../../../webui/src/protocol/client'
 
 export type MatrixTrack = PromptTrackKey | 'function'
 export type MatrixCell = { handle: string; track: MatrixTrack }
