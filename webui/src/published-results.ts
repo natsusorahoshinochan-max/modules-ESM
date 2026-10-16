@@ -8,6 +8,7 @@ export type ResultSnapshot = {
   readonly connection?: 'connecting' | 'connected' | 'disconnected'
   readonly currentNodeId?: string
   readonly diagnostics: Record<string, RunDiagnostic>
+  readonly runDiagnostic?: RunDiagnostic
   readonly run?: RunProjection
   readonly phase: 'idle' | 'loading' | 'ready' | 'error'
   readonly error?: unknown
@@ -191,6 +192,7 @@ export class PublishedResults {
     if (this.session !== session) return
     this.snapshot = {
       connection: session.connection, diagnostics: session.diagnostics,
+      runDiagnostic: session.run?.diagnostic,
       currentNodeId: session.run && ['admitted', 'running'].includes(session.run.status) && !session.run.node_dispositions.some((item) => item.node_id === session.currentNodeId) ? session.currentNodeId : undefined,
       run: session.run, phase, error: phase === 'error' ? error : undefined,
     }

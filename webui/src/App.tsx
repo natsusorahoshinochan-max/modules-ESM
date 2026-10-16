@@ -847,7 +847,7 @@ function App() {
     {runError && <pre role="alert">{runError}</pre>}
     {resultLoadError && <div role="alert"><pre>{resultLoadError}</pre><button onClick={() => void results.refresh()}>重试读取 Run 结果</button></div>}
 
-    {run && <RunDiagnostics errors={resultSnapshot.diagnostics} onFocus={focusCanvasNode} />}
+    {run && <RunDiagnostics errors={resultSnapshot.diagnostics} runDiagnostic={resultSnapshot.runDiagnostic} onFocus={focusCanvasNode} />}
   </>
   return <>{adoptionOpen && <AdoptResultDialog key={project.id} client={client} projectId={project.id} readOnly={editing.readOnly} onClose={() => setAdoptionOpen(false)} onAdopt={async adopted => {
     const nodeId = `adopted-${crypto.randomUUID().slice(0, 8)}`

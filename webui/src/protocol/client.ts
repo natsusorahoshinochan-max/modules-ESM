@@ -104,7 +104,7 @@ export type NodeDisposition =
   | NodeDispositionBase & { outcome: 'blocked'; blocked_by: string[] }
   | NodeDispositionBase & { outcome: 'failed' | 'cancelled' | 'interrupted'; blocked_by: [] }
 type SelectionInput = { node_id: string; output_port: string; content_digest: string; result_identity: string }
-export type RunProjection = { continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
+export type RunProjection = { diagnostic?: RunDiagnostic; continuable_node_ids: string[]; project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; scope: RunScope; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: PublishedOutput[]; artifact_index: PublishedArtifact[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
 export type RunDiagnostic = { code: string; message: string; retryable: boolean; correlation_id: string; details: JsonObject }
 export type RunEvent =
   | { type: 'run_admitted'; workflow_commit_id: string }
