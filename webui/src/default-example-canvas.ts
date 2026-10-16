@@ -16,7 +16,7 @@ const stages: CanvasGroup[] = [
   {
     id: 'stage-generate', label: '生成候选与初筛', parentId: null,
     nodeIds: ['generate-paired', 'confidence-generated', 'rank-generated', 'take-top-four', 'relation-generated-structure-parent', 'relation-generated-pairs', 'select-paired-sequences'], ports: [],
-    stage: { order: 2, description: '生成成对候选，评分后保留配对序列。', controls: [
+    stage: { order: 2, description: '生成成对候选，按 mean pLDDT 原值降序保留配对序列。', controls: [
       { kind: 'parameter', nodeId: 'generate-paired', key: 'num_samples', label: '生成数量' },
       { kind: 'parameter', nodeId: 'take-top-four', key: 'k', label: '初筛保留数量' },
     ] },
@@ -24,8 +24,8 @@ const stages: CanvasGroup[] = [
   {
     id: 'stage-refold', label: '首轮折叠与筛选', parentId: null,
     nodeIds: ['fold-stage-one', 'confidence-stage-one', 'relation-stage-one-fold-parent', 'relation-stage-one', 'axes-stage-one', 'axes-generated-top-four', 'align-stage-one', 'tm-stage-one', 'scores-stage-one', 'rank-stage-one', 'take-top-two'], ports: [],
-    stage: { order: 3, description: '回折序列，综合置信度与亲本结构相似度筛选。', controls: [
-      { kind: 'selection', nodeId: 'rank-stage-one', label: '回折筛选规则' },
+    stage: { order: 3, description: '回折序列，按与亲本的 TM-score 原值降序筛选。', controls: [
+      { kind: 'selection', nodeId: 'rank-stage-one', label: '回折 TM-score 排序' },
       { kind: 'parameter', nodeId: 'take-top-two', key: 'k', label: '骨架保留数量' },
     ] },
   },
@@ -39,8 +39,8 @@ const stages: CanvasGroup[] = [
   {
     id: 'stage-final', label: '末轮折叠与筛选', parentId: null,
     nodeIds: ['fold-final', 'confidence-final', 'relation-final-fold-parent', 'relation-design-parent', 'relation-final', 'axes-final', 'align-final', 'tm-final', 'scores-final', 'rank-final', 'take-top-three'], ports: [],
-    stage: { order: 5, description: '回折设计序列，比较亲本结构并选出最终候选。', controls: [
-      { kind: 'selection', nodeId: 'rank-final', label: '最终排序规则' },
+    stage: { order: 5, description: '回折设计序列，按与亲本的 TM-score 原值降序选出最终候选。', controls: [
+      { kind: 'selection', nodeId: 'rank-final', label: '最终 TM-score 排序' },
       { kind: 'parameter', nodeId: 'take-top-three', key: 'k', label: '最终保留数量' },
     ] },
   },

@@ -89,11 +89,29 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 分数及关系的普通连线用节点本地 `target_slot` 标识，规则只引用该槽。删除或重连来源产生新槽，旧选择保留但不能运行，用户须重新明确评价；未完成节点仍可手动保存。复制节点复制其规则，槽只在该节点内解释。结构比较的实际 Context 可携带已记录主体/参考残基区域；历史未记录区域保持缺席，不从摘要推断。
 
-`selection.weighted_rank` 当前仍使用全局 Objective 的 Utility 转换，替换由加权任务负责。
-
 结果页的临时条件及原值排序共用 Selection 模块的 `selection.view` 只读 action。用户完整读取所选候选集合后编辑条件和排序，明确应用才改变列表；搜索和分页在返回的候选顺序上进行。后端按真实发布位置读取完整候选、分数及其引用，先筛选再排序，与相同画布节点组合使用同一匹配和计算实现。每个条件比较项检查全部输入，排序检查筛选后实际参与的候选；缺少必需分数或评价仍有歧义时停止，保留精确方法、参考对象、区域和残基轴选择，不隐藏缺分项、将缺值排末尾或用 Candidate ID 破同分。
 
 临时条件、排序的草稿与已应用状态分开。失败明确说明本次修改未应用，原已应用列表仍按原状态显示；可主动重试。完整集合读取失败也明确提供重新读取，不将部分集合用于临时操作。切换结果来源或 Run 后，先前异步请求不能覆盖当前查看。临时操作只返回所选集合中的原条目顺序，不创建 Run、成果或项目修订，也不修改 Workflow；勾选、焦点、比较和导出继续分别管理。
+
+`selection.pareto` 在节点参数 `objectives` 数组中保存各项 `selection` 和 `direction`，评价选择与原值排序使用相同的精确匹配和稳定输入槽。每项方向单独选择较小值更优（`ascending`）或较大值更优（`descending`）；一候选在所有所选指标上不差且至少一项更好时支配另一候选。只使用原值，不要求权重或评分转换；保留互不支配候选的输入相对顺序，不产生综合排名。相等的指标向量不会互相淘汰；任何必需分数缺失或仍有歧义时停止。输出保留候选的原身份、内容和来源，可连接下游。
+
+`selection.weighted_rank` 的编辑配置保存在节点本地 `objectives`，每项为 `{selection, transform_id, weight}`。`selection` 使用与原值排序相同的精确评价选择；评分方式由指标模块声明。编辑器展示评分含义、适用条件和限制，按确切 Metric、Method、Context Profile 列出适用方式。选择可手动保存并重开；不要求用户配置公式或转换端点。评分声明的参数由模块提供可直接使用的默认值，新的节点配置不保存用户覆盖参数。
+
+加权执行及实际参与项的定义依赖解析由 #132 实现；当前 Binding 明确报告 `weighted_execution_pending`，新配置不进入旧的全局 Objective 算法。后续执行须使用 `admit_values(transform.parameter_contract, {})` 解析模块默认值，并冻结同一次解析所用的定义及 callable。原值操作和 Pareto 不依赖 Utility。
+
+### 当前加权评分声明
+
+指标提供模块维护评分含义，Selection 负责选择与呈现。相同的 `[0,1]` 数值范围不意味着跨指标校准；载体不自动缩放原值。现有三项转换逐项核对后的当前状态如下：
+
+| 指标提供模块及评价 | 适用范围 | 当前结论 |
+|---|---|---|
+| Structure comparison 的 TM-score | `structure_comparison.tm_score.reference_axis_normalized.method`；pairwise `subject/reference`，`explicit_relation`，`reference-axis-residue-count` | 提供原始 TM-score 相似度尺度的 identity 方式。分母为选定参考轴残基总数，使用已有对齐残差；不是重新执行 TM-align 或预测正确性概率。 |
+| ESM3 联合生成的 mean pLDDT | `structure.plddt.mean_residue`；`esm3.generate_paired.esm3_medium_2024_08`；intrinsic | 不提供加权方式。原 `/100` 只还原表示尺度，不能据此宣称通用评分含义或跨工具校准。原始 pLDDT 与历史结果保留。 |
+| Biohub ESMFold2 的 mean pLDDT | `structure.plddt.mean_residue`；`folding.fold.esmfold2_fast_biohub_2026_05`；intrinsic | 同样不提供加权方式；不把已有公式自动视为获准的 Utility。原值筛选、排序和 Pareto 不受此限制。 |
+
+[TM-score 作者说明](https://zhanggroup.org/TM-score/)给出结构相似度及归一化对象的含义，并区分固定对应与 TM-align 优化；本模块直接保留该已定义尺度，具体实现与限制见其评分声明。[官方 ESM decoder 源码](https://github.com/Biohub/esm/blob/main/esm/models/vqvae.py)支持该 decoder 的 unit-scale pLDDT 表示，不能据此证明所有远程模型语义。[Biohub Fold 参考](https://docs.biohub.ai/api/protein/models/fold)说明逐位置 pLDDT，却未规定加权评分或跨指标校准。NLL、可溶性、RMSD、pTM、PAE 与区域统计等未声明适用方式的评价不自动获得转换。
+
+
 
 `selection.manual` 仍可作为普通模块操作存在：在其明确输入集合中匹配完整 `selected_candidates` 引用，保持输入顺序，空选择得到空集合。缺失或内容改变时报错，不自动换成同名或同序列候选。它不自行搜旧 Run 替换输入；历史结果应先通过明确采用能力成为输入。
 

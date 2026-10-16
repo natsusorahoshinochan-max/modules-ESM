@@ -18,6 +18,8 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 节点 `value_contract` 支持根级 `$defs` 和本地 `#/$defs/<name>` 引用，可用封闭对象定义递归参数。引用只指向同一参数契约中的命名定义，不读取外部资源；`$ref` 除字段含义与根定义外不附加其他约束。Catalog 校验声明，Commit 准入实际参数，并按实际分支检查嵌套 `input_port` 槽引用。Selection 用这一通用参数能力表达条件树；载体不解释 AND/OR 或阈值含义。
 
+指标模块通过同一 `ModulePackageRegistration.utility_transforms` 声明评分方式。`UtilityTransformDefinition` 必须给出 `title`、`meaning`、`applicability`、非空 `limitations`，以及精确 Metric、Method、Context Profile 的 `compatible_input_contract`、参数默认值、Behavior 与 callable。公共 Catalog 完整投影这些声明；Selection 编辑器仅呈现与已选评价匹配且无需用户补填必需转换参数的方式。无适用方式时明确显示加权不可用，仍允许编辑和保存；已保存但失配的选择保留并标明，不自动换成另一方式。标题是展示内容，含义、适用性与限制仍属于定义事实。
+
 模块通过 `value_previews` 声明 `ValuePreviewDefinition(projection_id, port_type_id, title, describe)`，解释所属工具如何使用一个已准入的临时值。Prompt 模块收集 `protein.prompt` 的已启用投影，公共协议仅编码 `tool_projections`。ESM3 自己调用其 Adapter/Operation 解释，不由公共 codec 导入；禁用 ESM3 不影响一般 Prompt 编辑。
 
 ## 未发布输入检查与编辑预览
