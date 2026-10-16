@@ -127,6 +127,7 @@ class Ledger:
         transaction_store: LedgerStore | None = None,
     ) -> None:
         run_dir = projects.run_storage_directory(project_id, run_id)
+        self._projects = projects
         self._root = run_dir.parent
         self._project_id = project_id
         self._run_id = run_id
@@ -575,6 +576,19 @@ class Ledger:
             self._state = staged_state
             self._transaction_count = transaction_sequence
             self._committed_fact_count = facts[-1].sequence
+            if staged_state.run_terminal:
+                from core.execution.recorded_run import preserve_run_reading
+
+                try:
+                    preserve_run_reading(self._projects, self.projection(), self.events())
+                except (OSError, StoragePathError) as error:
+                    unavailable = V2RunError(
+                        "evidence_unavailable",
+                        "Completed Run reading could not be acknowledged",
+                        details={"last_durable_cursor": self.cursor.value},
+                    )
+                    self._mark_evidence_unavailable(unavailable)
+                    raise unavailable from error
             self._condition.notify_all()
             return LedgerAcknowledgement(
                 first_sequence=first_sequence,

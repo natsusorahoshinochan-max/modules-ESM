@@ -7,6 +7,7 @@ import threading
 
 from core.execution.ledger import Ledger, V2RunError
 from core.execution.resources import CancellationControl
+from core.execution.recorded_run import RecordedRun
 from core.workflow.authoring import VerifiedWorkflowCommit
 
 
@@ -19,7 +20,7 @@ class _RunRecordState:
 @dataclass(slots=True)
 class _RunRecord:
     compiled: VerifiedWorkflowCommit | None
-    ledger: Ledger
+    ledger: Ledger | RecordedRun
     cancellation: CancellationControl = field(
         default_factory=CancellationControl,
     )
