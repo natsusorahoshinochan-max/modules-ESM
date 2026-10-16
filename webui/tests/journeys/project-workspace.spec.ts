@@ -386,3 +386,28 @@ test('historical runs retain exact selection across refresh and project reopen',
   await expect(page.locator('.result-stages')).toContainText(completed[0].run_id)
   await expect(page.locator('.result-stages')).not.toContainText(completed[1].run_id)
 })
+
+test('an active project run keeps editing locked while viewing a completed historical run', async ({ page, request }) => {
+  const { project, workflow } = await createWorkspace(request)
+  const prefix = `/api/v2/projects/${project.id}`
+  const commit = await (await request.post(`${prefix}/workflow:commit`, { data: { workflow } })).json()
+  const runs: string[] = []
+  for (let index = 0; index < 2; index++) {
+    const receipt = await (await request.post(`${prefix}/runs`, { data: { workflow_commit_id: commit.workflow_commit_id, client_request_id: crypto.randomUUID(), scope: { mode: 'full', node_ids: [] } } })).json()
+    await expect.poll(async () => (await (await request.get(`${prefix}/runs/${receipt.run_id}`)).json()).status).toBe('succeeded')
+    runs.push(receipt.run_id)
+  }
+  // Hold the public execution-state seam active while reading real persisted results.
+  await page.route(`**${prefix}/runs`, async route => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.runs.find((run: { run_id: string }) => run.run_id === runs[1]).status = 'running'
+    await route.fulfill({ response, json: body })
+  })
+  await page.routeWebSocket(`**${prefix}/runs/${runs[1]}/events*`, () => {})
+  await page.goto(`/?project=${project.id}&run=${runs[0]}`)
+  await expect(page.locator('.run-progress-id')).toHaveText(runs[0])
+  await expect(page.getByRole('button', { name: '保存项目', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '运行中', exact: true })).toBeDisabled()
+  await expect(page.getByTestId('rf__node-import').locator('article')).toBeVisible()
+})
