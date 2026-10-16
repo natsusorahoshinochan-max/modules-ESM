@@ -1,0 +1,25 @@
+node_type_id: selection_fixture.scores
+title: Existing evaluations
+summary: Existing raw measurements for the study population.
+category: test
+inputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: The measured population.
+outputs:
+  - name: scores
+    port_type_id: score.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: The supplied observations with actual subject identities.
+parameter_groups: []
+node_parameters:
+  values:
+    parameter_scope: scientific
+    scientific_meaning: Supplied measured values in population order, with null for absent observations.
+    default: [12, 12, -8]
+    value_contract:
+      type: array
+      items: {type: [number, 'null']}

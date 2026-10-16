@@ -105,6 +105,11 @@ def _result_identity_descriptor(
             port_name: admitted.value_content_digests
             for port_name, admitted in inputs.items()
         },
+        input_slot_content_digests={
+            port_name: {slot: tuple(value.content_digest for value in values)
+                        for slot, values in admitted.slots.items()}
+            for port_name, admitted in inputs.items() if admitted.slots
+        },
         node_parameters=resolved_node_parameters,
         binding_parameters=resolved_binding_parameters,
         deterministic=node._runtime.deterministic,

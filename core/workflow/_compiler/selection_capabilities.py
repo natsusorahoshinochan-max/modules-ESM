@@ -85,7 +85,6 @@ def selectable_observation(capability: _ObservationCapability, *, ranking: bool)
     return (
         capability.subject_grain == "candidate"
         and capability.source_role == "subject"
-        and capability.guaranteed_multiplicity == "one"
         and (not ranking or capability.context_profile.kind != "pairwise"
              or capability.reference_source is not None)
         and (not ranking or not isinstance(capability.context_profile, PairwiseContextProfile)
@@ -242,8 +241,7 @@ def _validate_observation_selectors(
                 and context_selector_canonical(capability.context_profile) == requested_context
                 and capability.subject_grain == "candidate"
                 and capability.source_role == "subject"
-                and capability.guaranteed_multiplicity == "one"
-                and not _same_contract(
+                        and not _same_contract(
                     capability.method,
                     selector.method,
                 )

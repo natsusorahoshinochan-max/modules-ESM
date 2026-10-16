@@ -1,0 +1,23 @@
+node_type_id: selection_fixture.candidates
+title: Existing candidates
+summary: A fixed study population for public Selection scenarios.
+category: test
+inputs: []
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Original study candidates in their given order.
+parameter_groups: []
+node_parameters:
+  count:
+    parameter_scope: scientific
+    scientific_meaning: Number of existing study candidates supplied.
+    default: 3
+    value_contract: {type: integer, minimum: 0, maximum: 3}
+  start:
+    parameter_scope: scientific
+    scientific_meaning: First supplied candidate position.
+    default: 0
+    value_contract: {type: integer, minimum: 0, maximum: 2}

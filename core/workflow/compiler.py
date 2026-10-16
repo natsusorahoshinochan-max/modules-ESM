@@ -30,7 +30,7 @@ from core.workflow._compiler.identity import (
     _result_contracts_for_node,
     _result_identity_plan_facts,
 )
-from core.workflow._compiler.graph import _admit_workflow_graph
+from core.workflow._compiler.graph import _admit_workflow_graph, _validate_input_slot_references
 from core.workflow._compiler.selection import (
     _compile_selection_objectives,
 )
@@ -44,6 +44,7 @@ from core.workflow import errors as _errors
 from core.workflow.document import WorkflowDocument
 from core.workflow.plan import (
     ArtifactOutputPlan,
+    ResultIdentityPlanFacts,
     ExecutionPlan,
     ExecutionPlanNode,
     _ExecutionPlanNodeRuntime,
@@ -235,6 +236,7 @@ def compile(
         for index, objective in enumerate(workflow.selection_objectives)
     }
     graph = _admit_workflow_graph(workflow, plan_nodes)
+    _validate_input_slot_references(workflow, plan_nodes, {node_id: values[0] for node_id, values in admitted_parameters.items()})
     _validate_selection_capabilities(
         workflow,
         adopted_observations=request.adopted_observations,
@@ -308,8 +310,9 @@ def compile(
                 _ExecutionPlanValueSource(
                     source.node_id,
                     source.output_port,
+                    workflow.edges[edge_index].target_slot,
                 )
-                for _, source in admitted_sources
+                for edge_index, source in admitted_sources
             )
             for port_name, admitted_sources in graph.input_sources[node_id].items()
         }
@@ -399,6 +402,14 @@ def compile(
             selected_objectives=resolved_selected_objectives,
             selected_selectors=selected_selectors,
         )
+        slot_bindings = {port: [source.target_slot for source in sources]
+                         for port, sources in frozen_input_sources.items()
+                         if any(source.target_slot is not None for source in sources)}
+        if slot_bindings:
+            result_identity_plan_facts = ResultIdentityPlanFacts(
+                {**result_identity_plan_facts.identity_projection(), "input_slots": slot_bindings},
+                result_identity_plan_facts.node_parameter_indirections,
+            )
         runtime = _ExecutionPlanNodeRuntime(
             factory=binding_definition.factory,
             readiness_declaration=binding_definition.readiness,

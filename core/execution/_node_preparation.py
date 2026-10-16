@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from core.execution._node_attempt_identity import (
@@ -24,6 +25,7 @@ def prepare_node(
     committed_values: Mapping[tuple[str, str], AdmittedPort],
 ) -> _PreparedNodeExecution:
     admitted_inputs: dict[str, list[Any]] = {}
+    input_slots: dict[str, dict[str, tuple[Any, ...]]] = {}
     for port_name, sources in node._runtime.input_sources.items():
         for source_reference in sources:
             source = committed_values.get(
@@ -31,12 +33,14 @@ def prepare_node(
             )
             if source is not None and source.values:
                 admitted_inputs.setdefault(port_name, []).extend(source.values)
+                if source_reference.target_slot is not None:
+                    input_slots.setdefault(port_name, {})[source_reference.target_slot] = source.values
     inputs = {
-        port_name: combine_admitted_port(
+        port_name: replace(combine_admitted_port(
             port_type=_exact_reference(node._runtime.input_ports[port_name].reference),
             multiplicity=node._runtime.input_ports[port_name].multiplicity,
             values=tuple(values),
-        )
+        ), slots=input_slots.get(port_name, {}))
         for port_name, values in admitted_inputs.items()
     }
     project_inputs = {}

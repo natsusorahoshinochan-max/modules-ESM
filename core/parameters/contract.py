@@ -28,6 +28,7 @@ _SUPPORTED_VALUE_CONTRACT_KEYS = frozenset(
         "exclusiveMinimum",
         "field_scope",
         "items",
+        "input_port",
         "maxItems",
         "maxLength",
         "maxProperties",
@@ -135,6 +136,11 @@ def _validate_value_contract_schema(
             f"{path} has unsupported value-contract keywords "
             f"{sorted(unexpected)!r}"
         )
+    if "input_port" in schema and (
+        type(schema['input_port']) is not str or not schema['input_port']
+        or schema.get('type') != 'string'
+    ):
+        raise ParameterContractDefinitionError(f"{path}.input_port requires a named Port and string slot value")
     discriminators = {"allOf", "anyOf", "const", "enum", "oneOf", "type"}
     if not set(schema).intersection(discriminators):
         raise ParameterContractDefinitionError(
@@ -616,3 +622,11 @@ def admit_values(
                 reason,
             )
     return AdmittedParameterValues(resolved)
+
+
+def matching_value_contract_alternatives(value: Any, schema: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+    """Return active branches using the same matching as value admission."""
+    return tuple(schema.get('allOf', ())) + tuple(
+        alternative for keyword in ('anyOf', 'oneOf') for alternative in schema.get(keyword, ())
+        if _parameter_contract_violation(value, alternative, path=()) is None
+    )

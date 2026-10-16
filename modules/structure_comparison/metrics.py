@@ -75,4 +75,6 @@ def evidence_metric_context(
         reference_axis_content_digest=evidence.reference_axis_content_digest,
         normalization_length=normalization_length,
         aligned_atom_count=evidence.normalization.aligned_atom_count,
+        subject_region=evidence.subject_region or None,
+        reference_region=evidence.reference_region or None,
     )

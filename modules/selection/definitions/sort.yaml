@@ -1,44 +1,502 @@
 node_type_id: selection.sort
-title: Sort Candidates by one exact Utility
-summary: Orders original Candidates by a Workflow-owned exact Utility Transform with stable identity-based ties.
+title: Sort candidates by a raw measurement
+summary: Uses the selected existing raw evaluation and direction, preserving input
+  order for ties.
 category: selection
 inputs:
-  - name: candidates
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact Candidate subjects named by the selected Workflow objective.
-  - name: scores
-    port_type_id: score.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact partitioned Observation source named by the selected Workflow objective.
+- name: candidates
+  port_type_id: candidate.collection
+  required: true
+  multiplicity: one
+  scientific_meaning: The population chosen by the user workflow.
+- name: scores
+  port_type_id: score.collection
+  required: true
+  multiplicity: many
+  scientific_meaning: Existing observations connected through stable node-local input
+    slots.
+- name: relations
+  port_type_id: candidate.relation
+  required: false
+  multiplicity: many
+  scientific_meaning: Optional exact subject-reference relations chosen by the user.
 outputs:
-  - name: candidates
-    port_type_id: candidate.collection
-    required: true
-    multiplicity: one
-    scientific_meaning: Original Candidates in descending exact Utility order with candidate identity ascending ties.
+- name: candidates
+  port_type_id: candidate.collection
+  required: true
+  multiplicity: one
+  scientific_meaning: Original candidates in raw measurement order, with input-relative
+    ties.
 parameter_groups: []
 node_parameters:
-  objective_id:
+  selection:
     parameter_scope: scientific
-    scientific_meaning: Exact Workflow-owned Selection Objective whose Candidate, Observation, Method, Context, Utility, cardinality, and missing policy contracts are consumed.
+    scientific_meaning: The node-owned existing evaluation selection.
+    required: true
+    value_contract:
+      type: object
+      additionalProperties: false
+      required:
+      - score_input
+      - metric_id
+      - method_id
+      - source_partition
+      - context
+      properties:
+        score_input:
+          type: string
+          minLength: 1
+          field_scope: scientific
+          scientific_meaning: score input
+          input_port: scores
+        metric_id:
+          type: string
+          minLength: 1
+          field_scope: scientific
+          scientific_meaning: metric id
+        method_id:
+          type: string
+          minLength: 1
+          field_scope: scientific
+          scientific_meaning: method id
+        source_partition:
+          type: string
+          minLength: 1
+          field_scope: scientific
+          scientific_meaning: source partition
+        context:
+          oneOf:
+          - type: object
+            additionalProperties: false
+            required:
+            - kind
+            properties:
+              kind:
+                const: intrinsic
+                field_scope: scientific
+                scientific_meaning: kind
+          - type: object
+            additionalProperties: false
+            required:
+            - kind
+            - calibration_metric
+            - calibration_value
+            - calibration_unit
+            - population_id
+            properties:
+              kind:
+                const: calibration
+                field_scope: scientific
+                scientific_meaning: kind
+              calibration_metric:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: calibration metric
+              calibration_unit:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: calibration unit
+              population_id:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: population id
+              calibration_value:
+                type: number
+                field_scope: scientific
+                scientific_meaning: calibration value
+          - type: object
+            additionalProperties: false
+            required:
+            - kind
+            - subject_role
+            - reference_role
+            - pairing_mode
+            - normalization
+            properties:
+              kind:
+                const: pairwise
+                field_scope: scientific
+                scientific_meaning: kind
+              subject_role:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: subject role
+              reference_role:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: reference role
+              pairing_mode:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: pairing mode
+              normalization:
+                type: string
+                minLength: 1
+                field_scope: scientific
+                scientific_meaning: normalization
+          field_scope: scientific
+          scientific_meaning: context
+        reference:
+          type: object
+          additionalProperties: false
+          required:
+          - candidate_id
+          - data_type_id
+          - content_digest
+          properties:
+            candidate_id:
+              type: string
+              minLength: 1
+              field_scope: scientific
+              scientific_meaning: candidate id
+            data_type_id:
+              type: string
+              minLength: 1
+              field_scope: scientific
+              scientific_meaning: data type id
+            content_digest:
+              type: string
+              minLength: 1
+              field_scope: scientific
+              scientific_meaning: content digest
+          field_scope: scientific
+          scientific_meaning: reference
+        relation_input:
+          type: string
+          minLength: 1
+          input_port: relations
+          field_scope: scientific
+          scientific_meaning: relation input
+        exact_contexts:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - subject
+            - context
+            properties:
+              subject:
+                type: object
+                additionalProperties: false
+                required:
+                - candidate_id
+                - data_type_id
+                - content_digest
+                properties:
+                  candidate_id:
+                    type: string
+                    minLength: 1
+                    field_scope: scientific
+                    scientific_meaning: candidate id
+                  data_type_id:
+                    type: string
+                    minLength: 1
+                    field_scope: scientific
+                    scientific_meaning: data type id
+                  content_digest:
+                    type: string
+                    minLength: 1
+                    field_scope: scientific
+                    scientific_meaning: content digest
+                field_scope: scientific
+                scientific_meaning: subject
+              context:
+                oneOf:
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - kind
+                  properties:
+                    kind:
+                      const: intrinsic
+                      field_scope: scientific
+                      scientific_meaning: kind
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - kind
+                  - calibration_metric
+                  - calibration_value
+                  - calibration_unit
+                  - population_id
+                  properties:
+                    kind:
+                      const: calibration
+                      field_scope: scientific
+                      scientific_meaning: kind
+                    calibration_metric:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: calibration metric
+                    calibration_unit:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: calibration unit
+                    population_id:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: population id
+                    calibration_value:
+                      type: number
+                      field_scope: scientific
+                      scientific_meaning: calibration value
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - kind
+                  - subject
+                  - reference
+                  - pairing_mode
+                  - normalization
+                  properties:
+                    kind:
+                      const: pairwise
+                      field_scope: scientific
+                      scientific_meaning: kind
+                    subject: &id001
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - role
+                      - candidate
+                      properties:
+                        role:
+                          type: string
+                          minLength: 1
+                          field_scope: scientific
+                          scientific_meaning: role
+                        candidate:
+                          type: object
+                          additionalProperties: false
+                          required:
+                          - candidate_id
+                          - data_type_id
+                          - content_digest
+                          properties:
+                            candidate_id:
+                              type: string
+                              minLength: 1
+                              field_scope: scientific
+                              scientific_meaning: candidate id
+                            data_type_id:
+                              type: string
+                              minLength: 1
+                              field_scope: scientific
+                              scientific_meaning: data type id
+                            content_digest:
+                              type: string
+                              minLength: 1
+                              field_scope: scientific
+                              scientific_meaning: content digest
+                          field_scope: scientific
+                          scientific_meaning: candidate
+                      field_scope: scientific
+                      scientific_meaning: reference
+                    reference: *id001
+                    pairing_mode:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: pairing mode
+                    normalization:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: normalization
+                    evidence_content_digest:
+                      type:
+                      - string
+                      - 'null'
+                      field_scope: scientific
+                      scientific_meaning: evidence content digest
+                    subject_axis_content_digest:
+                      type:
+                      - string
+                      - 'null'
+                      field_scope: scientific
+                      scientific_meaning: subject axis content digest
+                    reference_axis_content_digest:
+                      type:
+                      - string
+                      - 'null'
+                      field_scope: scientific
+                      scientific_meaning: reference axis content digest
+                    evidence_method:
+                      oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - contract_kind
+                        - contract_id
+                        properties:
+                          contract_kind:
+                            type: string
+                            field_scope: scientific
+                            scientific_meaning: contract kind
+                          contract_id:
+                            type: string
+                            minLength: 1
+                            field_scope: scientific
+                            scientific_meaning: contract id
+                      - type: 'null'
+                      field_scope: scientific
+                      scientific_meaning: evidence method
+                    normalization_length:
+                      type:
+                      - integer
+                      - 'null'
+                      field_scope: scientific
+                      scientific_meaning: normalization length
+                    aligned_atom_count:
+                      type:
+                      - integer
+                      - 'null'
+                      field_scope: scientific
+                      scientific_meaning: aligned atom count
+                    sequence_correspondence:
+                      type: array
+                      items:
+                        type: array
+                        minItems: 2
+                        maxItems: 2
+                        items:
+                          type:
+                          - integer
+                          - string
+                      field_scope: scientific
+                      scientific_meaning: sequence correspondence
+                    subject_region:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: Actual selected residue identities retained
+                        by the evaluation provider.
+                    reference_region:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: Actual selected residue identities retained
+                        by the evaluation provider.
+                field_scope: scientific
+                scientific_meaning: context
+              residue_axis:
+                oneOf:
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - axis_kind
+                  - axis_contract
+                  - axis_content_digest
+                  - source
+                  - layout
+                  properties:
+                    axis_kind:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: axis kind
+                    axis_contract: &id002
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - contract_kind
+                      - contract_id
+                      properties:
+                        contract_kind:
+                          type: string
+                          field_scope: scientific
+                          scientific_meaning: contract kind
+                        contract_id:
+                          type: string
+                          minLength: 1
+                          field_scope: scientific
+                          scientific_meaning: contract id
+                      field_scope: scientific
+                      scientific_meaning: port type
+                    axis_content_digest:
+                      type: string
+                      minLength: 1
+                      field_scope: scientific
+                      scientific_meaning: axis content digest
+                    source:
+                      oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - candidate_id
+                        - data_type_id
+                        - content_digest
+                        properties:
+                          candidate_id:
+                            type: string
+                            minLength: 1
+                            field_scope: scientific
+                            scientific_meaning: candidate id
+                          data_type_id:
+                            type: string
+                            minLength: 1
+                            field_scope: scientific
+                            scientific_meaning: data type id
+                          content_digest:
+                            type: string
+                            minLength: 1
+                            field_scope: scientific
+                            scientific_meaning: content digest
+                      - type: object
+                        additionalProperties: false
+                        required:
+                        - port_type
+                        - content_digest
+                        properties:
+                          port_type: *id002
+                          content_digest:
+                            type: string
+                            minLength: 1
+                            field_scope: scientific
+                            scientific_meaning: content digest
+                      field_scope: scientific
+                      scientific_meaning: source
+                    layout:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - residue_ids
+                      properties:
+                        residue_ids:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                          field_scope: scientific
+                          scientific_meaning: residue ids
+                      field_scope: scientific
+                      scientific_meaning: layout
+                - type: 'null'
+                field_scope: scientific
+                scientific_meaning: residue axis
+          field_scope: scientific
+          scientific_meaning: exact contexts
+  direction:
+    parameter_scope: scientific
+    scientific_meaning: Ascending or descending raw measurement order.
     required: true
     value_contract:
       type: string
-      pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
-  out_of_scope_policy:
-    parameter_scope: scientific
-    scientific_meaning: Declared treatment of Observations outside the exact Candidate, partition, Metric, Method, and Context selector.
-    value_contract:
-      type: string
-      enum: ["error", "ignore"]
-    default: "error"
-  tie_policy:
-    parameter_scope: scientific
-    scientific_meaning: Stable resolution independent of Run, Cache, input order, and process hash order.
-    value_contract:
-      type: string
-      const: "candidate_id_ascending"
-    default: "candidate_id_ascending"
+      enum:
+      - ascending
+      - descending
