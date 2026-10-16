@@ -15,3 +15,31 @@ node_parameters:
     scientific_meaning: When true, uniquely and identically named segments are pinned before sequence-based assignment; duplicate names fail.
     value_contract: {type: boolean}
     default: false
+  subject_region:
+    parameter_scope: scientific
+    scientific_meaning: Exact chain, author residue number and insertion locations; empty selects the full axis. Selected positions retain original axis order without changing the structure.
+    default: []
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [chain_id, residue_number, insertion_code]
+        properties:
+          chain_id: {type: string, minLength: 1, field_scope: scientific, scientific_meaning: Original chain identifier.}
+          residue_number: {type: string, minLength: 1, field_scope: scientific, scientific_meaning: Original author residue number.}
+          insertion_code: {type: string, field_scope: scientific, scientific_meaning: Original insertion code or empty.}
+  reference_region:
+    parameter_scope: scientific
+    scientific_meaning: Exact chain, author residue number and insertion locations; empty selects the full axis. Selected positions retain original axis order without changing the structure.
+    default: []
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [chain_id, residue_number, insertion_code]
+        properties:
+          chain_id: {type: string, minLength: 1, field_scope: scientific, scientific_meaning: Original chain identifier.}
+          residue_number: {type: string, minLength: 1, field_scope: scientific, scientific_meaning: Original author residue number.}
+          insertion_code: {type: string, field_scope: scientific, scientific_meaning: Original insertion code or empty.}

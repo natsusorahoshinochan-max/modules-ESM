@@ -10,7 +10,7 @@ Module Package 通过 `ModulePackageRegistration.ui_extensions` 声明浏览器�
 
 TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收当前 `workflow`、`nodeId`、`catalog`、已发布候选集合和 `onApply(workflow)`、`onCancel()`。工作流是此次 WorkspaceEditSession 的基线。取消关闭编辑器，不发布修改；确认仅把完整提案接受到载体内存，用户仍须手动保存项目。组件不能把确认操作当成持久保存。
 
-载体拥有对话框、异步加载会话、运行锁及保存。项目切换会废弃尚未完成的编辑器打开请求；运行期间不接受新编辑。Selection 使用相同接口，其源码位于 `modules/selection/ui/`。Prompt 专用编辑器的统一接入属于后续实现，不能据 Selection 迁移声称所有专用界面均已完成。
+载体拥有对话框、异步加载会话、运行锁及保存。项目切换会废弃尚未完成的编辑器打开请求；运行期间不接受新编辑。Selection 使用相同接口，其源码位于 `modules/selection/ui/`。区域比较、提取和已有指标统计的编辑器由各自模块注册，共用自然位置编辑组件；对齐和统计结果也通过模块单值查看器显示。Prompt 专用编辑器的统一接入属于后续实现，不能据 Selection 迁移声称所有专用界面均已完成。
 
 ## 结果读取与查看器
 

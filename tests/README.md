@@ -151,3 +151,19 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```
 
 不启动本地模型。`test_simplefold_failures.py` 用受控官方 `run_inference` 调用验证明确的 Torch 内存异常分类及普通程序错误原样传播。`simplefold_controlled.py` 是显式测试模块：装配生产 SimpleFold Operation 和受控 Adapter，仅证明公共 Run 的失败停止、完成请求保存、重开续算、首请求与重复失败、候选身份与 seed 保持；它不证明真实 LocalAdapter 激活、资产加载或模型结果。
+
+## 不连续区域比较、提取和已有指标统计
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_regional_operations.py
+```
+
+公共 Run 覆盖作者编号/插入码身份、两侧不连续区域自动对应与现有指标、明确提取的新父子来源及下游轴、区域统计的缺值和有效数量、外部下游传递及重开。测试外部模块提供明确已有观测，不调用预测模型。
+
+浏览器切片用独立临时数据目录运行 `PYTHONPATH=. .venv/bin/python tests/serve_regions.py`（8237），前端以 `PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8237 npm run dev -- --port 5237 --strictPort --host 127.0.0.1` 启动；在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5237 npx playwright test tests/regions.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-regions
+```
+
+验证模块区域选择、取消、手动保存重开、缺值设置，以及持久区域对齐/统计查看。服务器仅增加全新 `region_observations` 外部测试模块作为已有测量数据来源；它不模拟模型质量。

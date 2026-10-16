@@ -47,12 +47,6 @@
 - **当前实现**：Selection 编辑器、序列/结构/Prompt 单值展示及候选、分数、对齐 Run 面板均通过模块声明加载；后端值读取与候选 actions 使用公共注册契约。外部模块用相同接口读取自定义值及同 Run 的多个输出，见[模块 UI 契约](module-ui.md)。
 - **剩余差异**：[App](../webui/src/App.tsx) 的 Prompt 编辑器仍固定分派，不能由结果展示迁移推断编辑器已完成。
 
-### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
-
-- **要求**：相关模块共用明确的链、残基与不连续区域表达，正确传递所选对象和位置；项目用户不维护内部映射。
-- **当前证据**：[align_pairs](../modules/structure_comparison/definitions/align_pairs.yaml)第 1–16 行只接收完整轴，[轴解析声明](../modules/structure_transform/definitions/resolve_candidate_residue_axes.yaml)未提供区域选择；已有专用 inserted-loop 评价不能证明通用组合已完整覆盖。
-- **状态**：按[架构](architecture.md)与[模块能力](module-capabilities.md)核对真实场景覆盖。不同表示本身不证明残基错配，不把模块内部区域处理放进载体。
-
 ### DOC-039｜ESM3 参数接入的调用链待核对
 
 - **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。

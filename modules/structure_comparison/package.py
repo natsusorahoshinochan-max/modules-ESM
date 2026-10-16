@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from core.catalog.result_reading import ResultReaderDefinition
+from core.catalog.ui import ModuleUiDefinition, NodeEditorDefinition, ResultViewerDefinition
 from .published_reading import read_alignment
+from .regional_statistics import RegionStatisticsImplementation, REGION_STATISTICS_PORT_TYPE, read_statistics
 
 from datatypes.observation import PairwiseContextProfile
 
@@ -56,7 +58,7 @@ _TM_NORMALIZATION = "reference-axis-residue-count"
 
 def _build(operation: str) -> Callable[[OperationContext], ScientificOperation]:
     def factory(context: OperationContext) -> ScientificOperation:
-        return StructureComparisonImplementation(context, operation)
+        return RegionStatisticsImplementation(context) if operation == "region_statistics" else StructureComparisonImplementation(context, operation)
 
     return factory
 
@@ -228,11 +230,21 @@ def _binding(
 MODULE_PACKAGE = ModulePackageRegistration(
     result_readers=(
         ResultReaderDefinition("structure_comparison.alignment_evidence", "alignment", read_alignment),
+        ResultReaderDefinition("structure_comparison.region_statistics", "region_statistics", read_statistics),
     ),
+    ui_extensions=(ModuleUiDefinition(
+        extension_id="structure_comparison.regions", resource_package=__package__,
+        entry="ui/build/editor.js", styles=(), react_major=19,
+        editors=(NodeEditorDefinition("structure_comparison.regions", "选择比较区域", ("structure_comparison.align_pairs",), "RegionEditor"),
+                 NodeEditorDefinition("structure_comparison.statistics", "选择统计区域", ("structure_comparison.region_statistics",), "RegionEditor")),
+        viewers=(ResultViewerDefinition("structure_comparison.regions", "区域与对齐", "structure_comparison.alignment_evidence", "AlignmentRegions", True),
+                 ResultViewerDefinition("structure_comparison.statistics", "区域统计", "structure_comparison.region_statistics", "RegionalStatistics", True)),
+    ),),
     package_id="structure_comparison",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/align_pairs.yaml"),
+        DefinitionResource("definitions/region_statistics.yaml"),
         DefinitionResource("definitions/rmsd_from_alignments.yaml"),
         DefinitionResource("definitions/tm_score_from_alignments.yaml"),
         DefinitionResource("definitions/classify_three_way_consistency.yaml"),
@@ -245,6 +257,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=(*ALIGNMENT_METHODS, *STATIC_METHODS),
     utility_transforms=(_tm_score_utility(),),
     bindings=(
+        _binding(node_name="region_statistics", operation="region_statistics", suffix="direct", method=next(method for method in STATIC_METHODS if method.method_id == "structure_comparison.region_statistics.method")),
         _binding(
             node_name="align_pairs",
             operation="align_pairs",
@@ -274,6 +287,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     port_types=(
         ALIGNMENT_EVIDENCE_PORT_TYPE,
+        REGION_STATISTICS_PORT_TYPE,
         THREE_WAY_CONSISTENCY_PORT_TYPE,
         INSERTED_LOOP_EVALUATION_PORT_TYPE,
     ),

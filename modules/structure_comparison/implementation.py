@@ -13,6 +13,8 @@ from datatypes.observation import (
     ScoreObservation,
 )
 from datatypes.structure import ResolvedStructureResidueAxis
+from datatypes.region import region_residue_ids
+from .regions import alignment_region_view
 
 from .alignment import align_resolved_axes
 from .contracts import SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE
@@ -149,10 +151,12 @@ class StructureComparisonImplementation:
         for subject, reference in pairs:
             subject_association = subject_axes[subject]
             reference_association = reference_axes[reference]
+            subject_region = region_residue_ids(subject_association.residue_axis.layout, call.node_parameters["subject_region"])
+            reference_region = region_residue_ids(reference_association.residue_axis.layout, call.node_parameters["reference_region"])
             with self._run_resources.engine_invocation(engine_role=method):
                 resolved = align_resolved_axes(
-                    subject_association.residue_axis,
-                    reference_association.residue_axis,
+                    alignment_region_view(subject_association.residue_axis, subject_region),
+                    alignment_region_view(reference_association.residue_axis, reference_region),
                     correspondence_method=method,
                     pin_matching_chain_ids=call.node_parameters[
                         "pin_matching_chain_ids"
@@ -176,6 +180,8 @@ class StructureComparisonImplementation:
                     rmsd=resolved.rmsd,
                     coverage=resolved.coverage,
                     method=self._method,
+                    subject_region=subject_region,
+                    reference_region=reference_region,
                 )
             )
         return {"alignments": tuple(alignments)}
