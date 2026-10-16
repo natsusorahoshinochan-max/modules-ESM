@@ -65,6 +65,9 @@ class FailedBatchContinuation(unittest.TestCase):
         )
 
     def create_batch(self, client: TestClient):
+        self.json_request(client, "PATCH", "/api/v2/module-settings/folding.fold.esmfold2_remote", json={
+            "values": {"credential_handle": "controlled-sdk-only", "service_url": "https://biohub.ai"},
+        })
         project = self.json_request(client, "POST", "/api/v2/projects", json={"name": "Continue folding"})
         base = f'/api/v2/projects/{project["id"]}'
         source = self.json_request(client, "POST", f"{base}/inputs", json={
@@ -90,11 +93,10 @@ class FailedBatchContinuation(unittest.TestCase):
 
     def test_user_continues_original_batch_after_reopening_without_repeating_success(self):
         provider = ControlledBiohub()
-        environment = {"folding.fold.esmfold2_remote": {"credential_handle": "controlled-sdk-only"}}
         with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
             "PROTEIN_WORKBENCH_DATA_ROOT": root,
         }), patch("esm.sdk.esmfold2_client", return_value=provider):
-            with TestClient(create_application(v2_environment_configuration=environment, load_example_results=False)) as client:
+            with TestClient(create_application(load_example_results=False)) as client:
                 base, commit = self.create_batch(client)
                 receipt = self.json_request(client, "POST", f"{base}/runs", json={
                     "workflow_commit_id": commit["workflow_commit_id"], "client_request_id": "original",
@@ -108,7 +110,7 @@ class FailedBatchContinuation(unittest.TestCase):
                 first = self.read_output(client, base, source_id, "structure_candidates")
                 first_confidence = self.read_output(client, base, source_id, "confidence_facts")
                 self.assertEqual(len(provider.requests), 2, "Stop unstarted requests after failure")
-            with TestClient(create_application(v2_environment_configuration=environment, load_example_results=False)) as client:
+            with TestClient(create_application(load_example_results=False)) as client:
                 self.assertEqual(self.read_output(client, base, source_id, "structure_candidates"), first)
                 resumed = self.json_request(client, "POST", f"{base}/runs:derive", json={
                     "source_run_id": source_id, "policy": "continue_batch", "node_ids": ["fold"], "client_request_id": "continue",
@@ -127,11 +129,10 @@ class FailedBatchContinuation(unittest.TestCase):
 
     def test_empty_failure_and_repeated_failure_keep_the_remaining_batch(self):
         provider = ControlledBiohub(failures=(1, 3))
-        environment = {"folding.fold.esmfold2_remote": {"credential_handle": "controlled-sdk-only"}}
         with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
             "PROTEIN_WORKBENCH_DATA_ROOT": root,
         }), patch("esm.sdk.esmfold2_client", return_value=provider):
-            with TestClient(create_application(v2_environment_configuration=environment, load_example_results=False)) as client:
+            with TestClient(create_application(load_example_results=False)) as client:
                 base, commit = self.create_batch(client)
                 receipt = self.json_request(client, "POST", f"{base}/runs", json={
                     "workflow_commit_id": commit["workflow_commit_id"], "client_request_id": "empty",
@@ -160,6 +161,34 @@ class FailedBatchContinuation(unittest.TestCase):
                 final = self.read_output(client, base, complete["run_id"], "structure_candidates")
                 self.assertEqual(len(final["value"]["fields"]["items"]), 3)
                 self.assertEqual(final["value"]["fields"]["items"][0], retained["value"]["fields"]["items"][0])
+
+    def test_changed_calculation_parameters_start_a_new_batch(self):
+        provider = ControlledBiohub()
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
+            "PROTEIN_WORKBENCH_DATA_ROOT": root,
+        }), patch("esm.sdk.esmfold2_client", return_value=provider):
+            with TestClient(create_application(load_example_results=False)) as client:
+                base, original = self.create_batch(client)
+                started = self.json_request(client, "POST", f"{base}/runs", json={
+                    "workflow_commit_id": original["workflow_commit_id"], "client_request_id": "original",
+                })
+                failed = self.wait_for_run(client, base, started["run_id"])
+                self.assertEqual(failed["status"], "failed")
+                snapshot = self.json_request(client, "GET", f'{base}/workflow/commits/{original["workflow_commit_id"]}')
+                workflow = snapshot["workflow"]
+                fold = next(node for node in workflow["nodes"] if node["node_id"] == "fold")
+                fold["node_parameters"]["num_samples"] = 2
+                fold["binding_parameters"]["num_loops"] = 7
+                changed = self.json_request(client, "POST", f"{base}/workflow:commit", json={"workflow": workflow})
+                started = self.json_request(client, "POST", f"{base}/runs", json={
+                    "workflow_commit_id": changed["workflow_commit_id"], "client_request_id": "new-calculation",
+                })
+                complete = self.wait_for_run(client, base, started["run_id"])
+                self.assertEqual(complete["status"], "succeeded", complete)
+                self.assertEqual(len(provider.requests), 4, "Changed parameters execute both samples anew")
+                self.assertEqual([request[2].num_loops for request in provider.requests[2:]], [7, 7])
+                structures = self.read_output(client, base, started["run_id"], "structure_candidates")
+                self.assertEqual(len(structures["value"]["fields"]["items"]), 2)
 
 
 if __name__ == "__main__":

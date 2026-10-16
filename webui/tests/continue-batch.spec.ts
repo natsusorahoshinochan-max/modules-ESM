@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test'
 const appUrl = process.env.WORKBENCH_TEST_URL ?? 'http://127.0.0.1:5191'
 
 test('continue uses the selected failed Run inputs without saving the edited workspace', async ({ page, request }) => {
+  const settings = await request.patch(`${appUrl}/api/v2/module-settings/folding.fold.esmfold2_remote`, { data: { values: { credential_handle: 'controlled-sdk-only', service_url: 'https://biohub.ai' } } })
+  expect(settings.status()).toBe(200)
   const created = await request.post(`${appUrl}/api/v2/projects`, { data: { name: 'Continue original batch' } })
   expect(created.status()).toBe(201)
   const { id } = await created.json()
@@ -45,6 +47,7 @@ test('continue uses the selected failed Run inputs without saving the edited wor
   expect(receipt.workflow_commit_id).toBe(workflow_commit_id)
   await expect.poll(async () => (await (await request.get(`${base}/runs/${receipt.run_id}`)).json()).status).toBe('succeeded')
   await expect(page.getByRole('button', { name: '继续批次：fold', exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('布局保存状态')).toContainText('未保存')
   expect(saves).toBe(0)
   expect(await (await request.get(`${base}/workspace`)).json()).toEqual(savedBefore)
 })
