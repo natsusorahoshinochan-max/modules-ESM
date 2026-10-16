@@ -973,8 +973,6 @@
         "target_node_id": "export-final",
         "target_port": "structures"
       }
-    ],
-    "observation_selectors": [],
-    "selection_objectives": []
+    ]
   }
 }

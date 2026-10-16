@@ -673,7 +673,5 @@
       "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.author",
       "target_port": "structure_source"
     }
-  ],
-  "observation_selectors": [],
-  "selection_objectives": []
+  ]
 }

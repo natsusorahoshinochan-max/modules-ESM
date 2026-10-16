@@ -106,8 +106,8 @@
 | C 科学快照及再准入 | 从同一Plan提取最小定义快照；当前Catalog重编译后比较实际使用的科学身份；不一致时拒绝执行旧Commit | 模块变化后仍明确工作流及结果的解释依据 |
 | D 适配器转换 | Adapter明确翻译Provider输入、输出、错误与provenance，保持Node Type的科学操作含义；直接实现无需强制配置Adapter | 不同科研工具在共同框架中执行的方式 |
 | E 跨节点结果关联 | Candidate reference包含identity、nominal datatype和canonical content digest；关系不靠集合下标推断；需要时分别记录Prediction Axis和Resolved Structure Axis | 设计、折叠、结构评价节点之间的精确结果关联 |
-| F 评价及选择 | Metric、Method和Observation Context分别声明；观察精确绑定候选；需要排名时按兼容的显式Utility Transform转换后组合 | 用户构建含评价、筛选和多目标偏好环节的设计工作流 |
-| G 执行及耐久证据 | 区分节点尝试、真实操作和引擎调用；缓存命中先于Readiness且不虚构调用；节点输出与终态一次耐久发布，Selection结论与Run终态闭合 | 解释工作流实际执行、复用和结果发布的因果关系 |
+| F 评价及选择 | Metric、Method和Observation Context分别声明；观察按完整引用绑定候选；节点本地规则选择评价，单指标及Pareto使用原值，加权使用指标模块的适用转换与相对权重 | 用户构建含评价、筛选和多目标偏好环节的设计工作流 |
+| G 执行及耐久证据 | 区分节点尝试、真实操作和引擎调用；缓存命中先于Readiness且不虚构调用；节点输出与终态一次耐久发布，实际节点完成后形成Run终态 | 解释工作流实际执行、复用和结果发布的因果关系 |
 | H 局部重执行 | 指定source Run；按当前Result Identity核对并复用已发布成果，执行指定范围，保留原producer Run来源 | 支持用户调整自建工作流并利用已有计算结果 |
 
 上述组别可并列依附独权或按逻辑逐层依附，不能机械串成必须包含全部机制的一条长链。E、F只限定使用相关科学值或评价选择功能的实施方式，不能写成所有模块输出必含评分或残基轴。A—H都服务于整体软件，不要求另立残基算法、评分方法或某个模型发明。[GLOSSARY.md](../../GLOSSARY.md)、[结果与筛选说明](../results.md)、[模块能力说明](../module-capabilities.md)、[运行说明](../execution.md)

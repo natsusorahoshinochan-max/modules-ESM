@@ -35,7 +35,7 @@ flowchart LR
 | F3 | Startup-frozen FrozenCatalog 一次准入稳定 ID 和跨声明关系；Compiler 添加具体 Workflow 来源；runtime 检查实际输出是否兑现同一声明 | [架构说明](../architecture.md)。不是通用服务目录或动态插件管理器。 |
 | F4 | Port compatibility 按 exact nominal Port Type；科学合同拥有单位、形状、missing/mask 语义；相同 carrier 不代表相同科学含义 | [架构说明](../architecture.md)。类型化端口本身已有先例；须比较其科学语义及执行效果。 |
 | F5 | Candidate Data Reference = Candidate identity + nominal data type + canonical content digest；显式 Candidate Relation 承担配对，消费 Method 声明 cardinality | [模块能力说明](../module-capabilities.md)。关系不靠独立列表位置猜测；同内容的不同 Candidate 仍保留不同主体。 |
-| F6 | Score Observation 绑定精确主体、Metric、Method、Observation Context；Selection Objective 显式选定 Utility Transform、weight 和 missing policy | [GLOSSARY.md](../../GLOSSARY.md)、[结果与筛选说明](../results.md)、[架构说明](../architecture.md)。不能将一般评分/加权排序直接视为新特征。 |
+| F6 | Score Observation 绑定精确主体、Metric、Method、Observation Context；节点本地 Selection Rule 明确评价选择与方向，加权时使用指标提供模块的适用转换及非负相对权重，必需分数缺失时停止 | [GLOSSARY.md](../../GLOSSARY.md)、[结果与筛选说明](../results.md)、[架构说明](../architecture.md)。不能将一般评分/加权排序直接视为新特征。 |
 | F7 | 残基值与 identity-complete layout 闭合；Candidate-associated residue axes 精确关联；预测时的 residue axis 与输出结构解析后的 axis 分开；共享 alignment correspondence/transform/normalization evidence | [架构说明](../architecture.md)、[模块能力说明](../module-capabilities.md)。残基映射的算法、适用条件和技术效果还需单独比较。 |
 | F8 | 不可变 Workflow Commit 存最小科学定义快照；Result Identity 覆盖科学/执行 ID、规范输入参数与有效随机性；Run Ledger 区分 Cache replay、实际 Operation Attempt 与 Engine Invocation | [GLOSSARY.md](../../GLOSSARY.md)、[运行说明](../execution.md)。版本、溯源和内容缓存有大量先例；项目的具体闭合规则仍需比对。 |
 
@@ -92,7 +92,7 @@ P1 需特别注意公开申请与授权文本不同：CN A 权1较短；CN B 权
 |---|---|
 | 自定义工具封装、插件安装、节点注册、可视化连接、类型兼容、自动执行 | 注册合同是否同时约束科学操作身份、Method 身份、部署 Binding、Provider translation、观测范围？与 KNIME/Kepler/Galaxy 的工具接口相比，哪些步骤和数据关系不同？ |
 | 蛋白结构输入、预测、评价、选择、外部模块加入画布 | 用户将结构/置信度/多残基轨道在不同工具之间传递时，哪些真实错误由合同机制阻止？不能只列功能，要说明确定的输入、算法/约束、产出和错误消除因果。 |
-| 评分、筛选、排序、语义类型与单位 | Metric/Method/Context 的精确识别是否解决同名指标不同模型、不同参考对象、不同归一化不可混排的问题？显式 Utility 如何与输入关联、缺失策略一起参与执行和 identity？ |
+| 评分、筛选、排序、语义类型与单位 | Metric/Method/Context 的精确识别是否解决同名指标不同模型、不同参考对象、不同归一化不可混排的问题？模块声明的适用转换如何与精确输入、必需分数检查一起参与执行和 identity？ |
 | 结果缓存、版本和来源图 | Cache replay 是否保留精确科学主体/残基映射并诚实地区分历史 engine provenance 与本次实际调用？技术效果是否可以用重复运行、重排、stale digest 等可复现例子证明？ |
 | 对齐和显式关系 | 三元引用、ordered Candidate Relation、prediction/resolved axes 的区分和共享 alignment evidence 是否构成单一有因果联系的机制，而不是多个已知元数据的并列添加？ |
 

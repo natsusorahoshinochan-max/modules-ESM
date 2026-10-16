@@ -14,6 +14,8 @@ python -m modules.selection.migrate /absolute/source-data /absolute/converted-da
 
 原 Commit、Run transactions、输入、结果对象及身份保留原字节。已结束 Run 的 `reading.json` 从实际记录的通用事实形成，不解释旧筛选规则或重放旧 reducer；原状态、失败原因、发布成果、来源和事件游标保持。历史 Commit 的参数导出继续读取原始记录。
 
+随包教学结果 ZIP 采用相同的统一读取资料。原归档条目（包括原 manifest、Commit、Ledger 和科学载荷）保持原字节；新增 `readings.json` 索引、Run 读取及当前 Draft 资料。安装直接读取这些资料，导出使用原 Commit 快照，不将原计算重新编译为当前规则。
+
 `draft-readings` 是当前应用保存与打开 Draft 的唯一表示。转换为每个原 Draft 准备当前读取资料，使原命名版本、工作区编号及返回点仍可打开；改变配置时追加新的当前 Draft 和工作区头。旧 `drafts` 仅保留原件，不作为运行时读取失败的备用路径。新保存与项目复制使用当前表示。
 
 不能等价转换的节点保留原节点身份、参数、Binding 和连线，并附带通用 `preserved_configuration`。界面显示不可运行原因与原设置，不加载当前模块参数默认值或专用编辑器。原 Commit 同样记录明确的执行阻止原因；按原 Commit ID 发起计算也不能绕过。查看、导出、采用原结果仍可进行。需要使用新操作时，由用户新建相应节点并明确配置。

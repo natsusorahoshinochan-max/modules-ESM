@@ -6,13 +6,13 @@
 
 允许手动保存未完成的 Workflow Draft，后续重新打开继续编辑。缺少必要节点、连线、参数或模块时不能运行，但保存与打开不应被可执行编译条件阻断。缺失模块时保留原节点、连线和配置，安装启用兼容模块后恢复使用。保存交互及当前差距见[工作区](workspace.md)。
 
-当前 [Workflow authoring](../core/workflow/authoring.py)拥有 Draft 与 Commit。Commit 根据当前 Catalog 检查拓扑、名义 Port 兼容、参数和实际消费的评价关系，编译一个 Execution Plan 后持久发布可运行版本。Run 使用明确 `workflow_commit_id`，不直接执行正在编辑的 Draft。
+当前 [Workflow authoring](../core/workflow/authoring.py)拥有 Draft 与 Commit。Commit 根据当前 Catalog 检查拓扑、名义 Port 兼容、参数及模块声明的活跃输入和定义依赖，编译一个 Execution Plan 后持久发布可运行版本。Run 使用明确 `workflow_commit_id`，不直接执行正在编辑的 Draft。
 
 Commit 保存 Workflow、来源 Draft 修订和解释原结果需要的最小定义快照，不保存 Python Execution Plan。运行时使用进程内计划，在需要重新装载时由同一 authoring owner 编译已有 Commit，再比较结果相关定义。定义不一致时拒绝当前执行，不改写旧结果解释记录。历史快照、参数导出和采用通过 `recorded_commit` 读取原始保存的 Workflow 与定义，不调用当前可执行 Workflow parser，也不重新批准旧 Commit 执行。
 
 当前相关入口：
 
-- [compiler.py](../core/workflow/compiler.py)生成已解析计划，只纳入本节点实际使用的 selectors/objectives 和结果相关定义。
+- [compiler.py](../core/workflow/compiler.py)生成已解析计划，固定普通输入连线、节点参数及本节点实际依赖的结果相关定义；筛选含义由模块解释。
 - [authoring.py](../core/workflow/authoring.py)保存和读取 Draft/Commit，并处理 Commit 准入。
 - [公共协议 bundle](../protein_workbench_public/resources/v2/bundle.json)定义 REST/WebSocket 当前载荷契约，调用者不维护另一套旧接口回退。
 

@@ -683,7 +683,5 @@
       "target_node_id": "rmsd-simplefold-input",
       "target_port": "relation"
     }
-  ],
-  "observation_selectors": [],
-  "selection_objectives": []
+  ]
 }

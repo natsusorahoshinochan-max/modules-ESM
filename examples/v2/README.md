@@ -11,8 +11,8 @@ The current authored WebUI workflow sorts generated structures by raw mean
 pLDDT, and sorts both refolding stages by raw reference-normalized TM-score,
 all descending with input-order ties. It does not combine confidence and
 similarity into a composite score. The canonical workflow configures two
-module-declared TM-score scoring choices; its weighted execution remains
-unavailable until #132. The shipped completed Run retains its original Commit,
+module-declared TM-score scoring choices with nonnegative relative weights.
+The shipped completed Run retains its original Commit,
 parameters, ranking behavior and outputs; it is a historical result, and may be
 stale against the current authored workflow. Regenerating the example JSON does
 not rewrite `webui-3gb1.results.zip`.
@@ -95,9 +95,12 @@ ESM3 parameters. Updating that teaching Draft does not claim a fresh Run with th
 new definitions. The resource includes its manifest, original immutable Project
 Inputs, Draft/workspace/Commit records, ordered Ledger transactions, and all
 published manifests, values and artifacts needed by that Run. Original identities
-and contents remain unchanged. The archive also contains the current editable
-Draft and workspace as a later revision; original Draft, Commit and Run records
-remain intact. Runtime caches, temporary Provider workspaces,
+and contents remain unchanged. Additive `readings.json` and `reading.json` provide
+the completed Run's current generic reading; normalized Draft readings and
+nonexecutable Commit markers preserve original configurations without invoking
+retired parsers or algorithms. The current authored teaching Draft is packaged
+as a later revision. Original Draft, Commit and Run records remain intact.
+Runtime caches, temporary Provider workspaces,
 weights, process environment, execution profiles, credentials and private
 configuration are excluded.
 

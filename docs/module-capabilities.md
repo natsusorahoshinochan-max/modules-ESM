@@ -18,7 +18,7 @@
 | 结构比较 | [`structure_comparison`](../modules/structure_comparison/definitions/) | 两侧独立选择链上不连续残基，自动对应与对齐，RMSD/TM-score 投影；另有三方一致性分类与插入环分析。 |
 | 候选评价 | [`solubility`](../modules/solubility/definitions/)、[`folding`](../modules/folding/definitions/)、[`proteinmpnn`](../modules/proteinmpnn/definitions/)、[`structure_annotation`](../modules/structure_annotation/definitions/) | SoluProt/Protein-Sol、已有结构 SimpleFold confidence、ProteinMPNN 评分、DSSP 注释及二级结构一致性。ProteinMPNN 评价接受独立序列与所选骨架，以 pairwise 结果记录评价关系，不改写生成来源。 |
 | 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度物化及已有逐残基数值的区域均值，保留原指标、主体、方法、上下文和有效数量；不重新预测。 |
-| 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、多样性、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
+| 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
 
 ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embedding、logits 或 both（默认）。保存 Provider 的 1152 维整序列 mean embedding，以及去除 CLS/EOS 行后与输入残基顺序对应的 `L×64` 实际 logits；未请求值为 null。保留全部模型类别列，列索引为固定 SDK 的模型类别索引，不将其称为概率。模块查看器逐位置显示数值，同名 Port 可交给下游模块；不增加 hidden states、SAE 或新分析算法。
 

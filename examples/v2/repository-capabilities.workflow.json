@@ -1206,7 +1206,5 @@
       "target_node_id": "esm3-represent-sequence-biohub-esmc-600m-2024-12",
       "target_port": "sequence"
     }
-  ],
-  "observation_selectors": [],
-  "selection_objectives": []
+  ]
 }

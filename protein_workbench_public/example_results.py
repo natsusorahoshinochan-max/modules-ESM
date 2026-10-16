@@ -13,7 +13,7 @@ from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from datatypes.i_json import canonical_json_bytes
-from core.execution.ledger import Ledger
+from core.execution.recorded_run import RecordedRun
 from core.execution.ledger.projections import RunProjection
 from core.execution.ledger.store import FilesystemLedgerStore
 from core.execution.results.store import ResultStore
@@ -21,49 +21,34 @@ from core.project.manager import WEBUI_3GB1_PROJECT_ID, ProjectInputDescriptor, 
 from core.project.objects import ProjectObjectStore
 from core.project.storage import write_new_file_durable
 from core.workflow.authoring import WorkflowAuthoringService
-from core.workflow.document import WorkflowDocument
-from protein_workbench_public.workflow_codec import decode_workflow_document
 
 
 EXAMPLE_RESOURCE_NAMESPACE = "protein-workbench-webui-example-results/v1"
 EXAMPLE_RESOURCE_NAME = "webui-3gb1.results.zip"
 
 
-def shipped_example_workflow() -> WorkflowDocument:
-    document = json.loads(files("examples").joinpath("v2", "webui-3gb1.example.json").read_bytes())
-    return decode_workflow_document(document["workflow"])
-
-
 def _example_projection(
     projects: ProjectManager,
     authoring: WorkflowAuthoringService,
     run_id: str,
-    expected_workflow: WorkflowDocument,
 ) -> RunProjection:
     project_id = WEBUI_3GB1_PROJECT_ID
     project = projects.require_meta(project_id)
     if not project.seed:
         raise ValueError("Example evidence requires the protected WebUI Project")
-    ledger = Ledger.load(projects, project_id, run_id)
-    if ledger is None:
-        raise ValueError("Example Run has no retained Ledger")
-    projection = ledger.projection()
-    verified = authoring.require_verified_commit(
+    reading = RecordedRun.load(projects, project_id, run_id)
+    if reading is None:
+        raise ValueError("Example Run has no completed reading")
+    projection = reading.projection()
+    commit = authoring.recorded_commit(
         project_id, workflow_commit_id=projection.workflow_commit_id,
     )
-    commit = verified.commit
-    if commit.workflow != expected_workflow:
-        raise ValueError("Example evidence does not execute the shipped WebUI Workflow")
-    if authoring.load_active_commit(project_id).workflow_commit_id != commit.workflow_commit_id:
-        raise ValueError("Example Run must use its original active Commit")
-    if authoring.load_draft(project_id).workflow != expected_workflow:
-        raise ValueError("Example Draft does not match the executed Workflow")
     if projection.status != "succeeded" or projection.derived_from_run_id is not None:
         raise ValueError("Example resource requires one successful original Run")
     scope = projection.execution_scope
     if scope is None or scope.mode != "full":
         raise ValueError("Example resource requires a full Run")
-    expected_nodes = {node.node_id for node in commit.workflow.nodes}
+    expected_nodes = {node["node_id"] for node in commit.workflow["nodes"]}
     if set(scope.execution_node_ids) != expected_nodes or {
         disposition.node_id for disposition in projection.node_dispositions
     } != expected_nodes:
@@ -83,12 +68,10 @@ def export_example_results(
     results: ResultStore,
     run_id: str,
     destination: Path,
-    expected_workflow: WorkflowDocument | None = None,
 ) -> dict[str, Any]:
     """Export existing complete evidence; this operation invokes no Provider."""
-    workflow = expected_workflow or shipped_example_workflow()
     project_id = WEBUI_3GB1_PROJECT_ID
-    projection = _example_projection(projects, authoring, run_id, workflow)
+    projection = _example_projection(projects, authoring, run_id)
     payloads: dict[str, bytes] = {}
 
     def retain(path: str, payload: bytes) -> dict[str, Any]:
@@ -127,6 +110,10 @@ def export_example_results(
         "objects": objects,
     }
     payloads["manifest.json"] = canonical_json_bytes(manifest)
+    payloads["reading.json"] = (projects.run_storage_directory(project_id, run_id) / "reading.json").read_bytes()
+    payloads["readings.json"] = canonical_json_bytes({
+        "schema_version": 1, "run_reading": {"path": "reading.json"}, "workflow_records": [],
+    })
     stream = BytesIO()
     with ZipFile(stream, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
         for path, payload in sorted(payloads.items()):
@@ -164,7 +151,17 @@ def install_example_results(
     project_id = WEBUI_3GB1_PROJECT_ID
     with ZipFile(resource) as archive:
         manifest = json.loads(archive.read("manifest.json"))
+        readings = json.loads(archive.read("readings.json"))
+        if readings["schema_version"] != 1:
+            raise ValueError("Unsupported example reading version")
         run_id = manifest["run_id"]
+        reading = archive.read(readings["run_reading"]["path"])
+        projection = json.loads(reading)["projection"]
+        if (manifest["project_id"] != project_id or projection["project_id"] != project_id
+                or projection["run_id"] != run_id
+                or projection["workflow_commit_id"] != manifest["workflow_commit_id"]
+                or projection["ledger_cursor"] != manifest["terminal_cursor"]):
+            raise ValueError("Example reading does not identify the recorded Run")
         existing_runs = projects.stored_run_ids(project_id)
         if existing_runs:
             if existing_runs != (run_id,):
@@ -182,7 +179,7 @@ def install_example_results(
             raise ValueError("Protected WebUI Project cannot be installed")
         records = tuple(
             ((item["collection"], item["name"]), archive.read(item["file"]["path"]))
-            for item in manifest["workflow_records"]
+            for item in [*manifest["workflow_records"], *readings["workflow_records"]]
         )
         authoring.install_webui_example_records(records)
         for item in manifest["objects"]:
@@ -205,6 +202,7 @@ def install_example_results(
             pending_root = Path(pending)
             for name, payload in transactions:
                 ledger_store.publish(root=pending_root, relative_parts=(run_id, "ledger", name), payload=payload)
+            write_new_file_durable(pending_root, (run_id, "reading.json"), reading)
             (pending_root / run_id).rename(projects.run_storage_directory(project_id, run_id))
             _fsync_directory(run_root)
         return run_id
