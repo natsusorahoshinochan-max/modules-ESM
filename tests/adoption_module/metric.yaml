@@ -1,0 +1,16 @@
+metric_id: adoption_demo.value
+title: Example value
+description: A declared example intrinsic value.
+value_shape: scalar
+unit: dimensionless
+direction: higher_is_better
+canonical_range: {minimum: 0, maximum: 1}
+granularity: candidate
+aggregation_semantics: {kind: none}
+observation_context_schema:
+  type: object
+  properties:
+    kind: {const: intrinsic}
+  required: [kind]
+  additionalProperties: false
+validation_contract: {finite: true, minimum: 0, maximum: 1}

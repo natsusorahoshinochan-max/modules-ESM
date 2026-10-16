@@ -20,6 +20,12 @@ TypeScript 契约位于 [module-ui.ts](../webui/src/module-ui.ts)。组件接收
 
 Protein I/O 为 `protein.structure` 注册默认三维查看器和结构原文查看器。载体提供选择控件和原始值入口。序列与 Prompt 轨道展示也由各自模块注册；Prompt 保留残基分页、Mask 与整条轨道缺失区别、原子坐标和功能注释。载体对没有查看器的值只提供 JSON 展示，不再固定分派序列或 Prompt。候选分页与候选结构读取由 Protein I/O 的 `protein_io.candidate_page` 和 `protein_io.candidate_structure` 只读 action 提供，经通用 `results:action` 调用；原独立 collection/structure 路由已移除。action 接收发布字节、已准入参数和已发布 Candidate references，分页沿用原身份而不重算。候选关联分数、对齐、筛选和导出由模块 Run 查看器组合呈现。新行为测试中的外部模块通过同一声明为独立 `reader_demo.temperature` 类型提供摄氏与华氏查看器，不依赖蛋白类型。读取投影的 `kind` 由模块定义；没有专用查看器的外部值采用通用 JSON 展示，不因同名 `kind` 被当作蛋白数据。
 
+## 历史值采用声明
+
+模块通过 `ModulePackageRegistration.result_sources` 声明 `ResultSourceDefinition(port_type_id, node_type_id, binding_id, output_port)`；来源节点使用普通 Project Input 参数与类型化输出。`GET /api/v2/result-sources` 供采用界面发现兼容值，`POST /api/v2/projects/{project_id}/inputs:adopt` 接收精确的来源项目、Run、节点、端口和值序号，独立保存输入后返回来源节点参数。该请求不修改或保存 Workflow。
+
+共享 `AdoptedInputOperation` 读取声明的 `project_input_ref`，以 `RestoredOutput` 交给既有输出准入恢复原始 canonical 值和 Candidate references；不按新生成候选分配身份。模块可提供 `observations` 与 `dependencies` 回调，投影原值的评价能力并选择必要依赖。官方 Candidate 来源由 Protein I/O 提供，Score 来源由 Selection 提供；外部包使用同一声明。来源节点的 `restored_output_port` 标记保存在 Commit，原参数读取不依赖当前模块是否启用。
+
 ## 同一次 Run 的跨输出查看
 
 `ModuleUiDefinition.run_viewers` 声明 `RunViewerDefinition(viewer_id, title, port_type_ids, component)`。Run 包含声明类型中的任一输出时，载体显示该面板入口；多个入口按稳定 viewer ID 排序，用户可切换，不按模块加载顺序覆盖。它与单值查看器共用 `register(host)`、资源与 React 实例。
