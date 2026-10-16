@@ -73,6 +73,12 @@ export class WorkspaceEditor {
     this.publish(this.session)
   }
 
+  close(): void {
+    this.session = undefined
+    this.snapshot = { phase: 'idle', dirty: false, readOnly: false, canUndo: false, canRedo: false }
+    for (const listener of this.listeners) listener()
+  }
+
   updateProject(project: WorkspaceProject): void {
     if (this.session?.project.id === project.id) { this.session.project = project; this.publish(this.session) }
   }

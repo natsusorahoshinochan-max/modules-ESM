@@ -6,7 +6,7 @@ import { InteractionDialog } from './InteractionDialog'
 
 type Props = {
   api: ProjectWorkspaceApi
-  currentProjectId: string
+  currentProjectId?: string
   beforeAction: () => Promise<boolean>
   onOpenProject: (project: WorkspaceProject) => Promise<void>
   onViewVersion: (project: WorkspaceProject, view: WorkflowVersionView) => Promise<void>

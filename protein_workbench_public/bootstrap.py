@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import ExitStack
 from importlib.resources import as_file, files
+from importlib.util import find_spec
 import json
 from typing import Any
 
@@ -13,6 +14,9 @@ from fastapi import FastAPI
 from core.catalog.builder import build_frozen_catalog
 from core.catalog.authoring import build_authoring_capability_projection
 from core.catalog.declarations import ModulePackageRegistration
+from core.catalog.model import FrozenCatalog
+from core.workflow.document import WorkflowDocument
+from protein_workbench_public.module_registry import DEFAULT_MODULES, installed_modules
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.results.cache import ProjectReplayIndex
@@ -21,27 +25,6 @@ from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
 from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
-from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS
-from modules.esm3.package import MODULE_PACKAGE as ESM3
-from modules.folding.package import MODULE_PACKAGE as FOLDING
-from modules.prompt_authoring.package import MODULE_PACKAGE as PROMPT_AUTHORING
-from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO
-from modules.proteinmpnn.package import MODULE_PACKAGE as PROTEINMPNN
-from modules.residue_data.package import MODULE_PACKAGE as RESIDUE_DATA
-from modules.selection.package import MODULE_PACKAGE as SELECTION
-from modules.solubility.package import MODULE_PACKAGE as SOLUBILITY
-from modules.structure_annotation.package import (
-    MODULE_PACKAGE as STRUCTURE_ANNOTATION,
-)
-from modules.structure_comparison.package import (
-    MODULE_PACKAGE as STRUCTURE_COMPARISON,
-)
-from modules.structure_prediction.package import (
-    MODULE_PACKAGE as STRUCTURE_PREDICTION,
-)
-from modules.structure_transform.package import (
-    MODULE_PACKAGE as STRUCTURE_TRANSFORM,
-)
 from protein_workbench_public.http.app import create_http_app
 from protein_workbench_public.application_environment import (
     application_storage_roots,
@@ -55,26 +38,48 @@ from protein_workbench_public.example_results import (
 )
 
 
-_MODULE_REGISTRATIONS = (
-    COLLECTION_OPS,
-    ESM3,
-    FOLDING,
-    PROMPT_AUTHORING,
-    PROTEIN_IO,
-    PROTEINMPNN,
-    RESIDUE_DATA,
-    SELECTION,
-    SOLUBILITY,
-    STRUCTURE_ANNOTATION,
-    STRUCTURE_COMPARISON,
-    STRUCTURE_PREDICTION,
-    STRUCTURE_TRANSFORM,
-)
-
-
 def module_registrations() -> tuple[ModulePackageRegistration, ...]:
-    """Return the explicit immutable production registration set."""
-    return _MODULE_REGISTRATIONS
+    """Discover the bundled packages through the public package entry point."""
+    return tuple(package.registration() for package in DEFAULT_MODULES)
+
+
+def _workflow_modules_present(workflow: WorkflowDocument, catalog: FrozenCatalog) -> bool:
+    return all(
+        catalog.get_contract("node_type", node.node_type_id) is not None
+        and catalog.get_contract("binding", node.binding_id) is not None
+        for node in workflow.nodes
+    )
+
+
+def _install_teaching_resources(
+    projects: ProjectManager,
+    authoring: WorkflowAuthoringService,
+    catalog: FrozenCatalog,
+    *,
+    load_example_results: bool,
+) -> None:
+    """Install available teaching content only when its module contracts are present."""
+    if not catalog.contracts or find_spec("examples") is None:
+        return
+    resource_root = files("examples").joinpath("v2")
+    canonical_resource = resource_root.joinpath("canonical-3gb1.workflow.json")
+    webui_resource = resource_root.joinpath("webui-3gb1.example.json")
+    structure_resource = resource_root.joinpath("structures", "3GB1.pdb")
+    if not structure_resource.is_file():
+        return
+    with ExitStack() as asset_stack:
+        structure = asset_stack.enter_context(as_file(structure_resource))
+        if canonical_resource.is_file():
+            workflow = decode_workflow_document(json.loads(canonical_resource.read_text(encoding="utf-8")))
+            if _workflow_modules_present(workflow, catalog):
+                authoring.install_seed_commit(workflow=workflow, input_sources={"3GB1.pdb": structure})
+        if webui_resource.is_file():
+            workflow = decode_workflow_document(json.loads(webui_resource.read_text(encoding="utf-8"))["workflow"])
+            if _workflow_modules_present(workflow, catalog):
+                if load_example_results and resource_root.joinpath("webui-3gb1.results.zip").is_file():
+                    install_bundled_example_results(projects=projects, authoring=authoring)
+                else:
+                    authoring.install_webui_example_commit(workflow=workflow, input_sources={"3GB1.pdb": structure})
 
 
 def create_application(
@@ -85,12 +90,13 @@ def create_application(
     load_example_results: bool = True,
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
-    catalog = build_frozen_catalog(module_registrations())
+    storage = application_storage_roots()
+    registrations = tuple(package.registration() for package in installed_modules(storage.data) if package.enabled)
+    catalog = build_frozen_catalog(registrations)
     authoring_projection = build_authoring_capability_projection(
-        module_registrations(),
+        registrations,
         catalog,
     )
-    storage = application_storage_roots()
     projects = ProjectManager(
         root_dir=storage.projects,
         cache_root=storage.cache,
@@ -101,58 +107,17 @@ def create_application(
         projects,
         catalog,
     )
-    with ExitStack() as asset_stack:
-        canonical_structure = asset_stack.enter_context(
-            as_file(
-                files("examples").joinpath(
-                    "v2",
-                    "structures",
-                    "3GB1.pdb",
-                )
-            )
-        )
-        canonical_workflow_path = asset_stack.enter_context(
-            as_file(
-                files("examples").joinpath(
-                    "v2",
-                    "canonical-3gb1.workflow.json",
-                )
-            )
-        )
-        canonical_workflow = decode_workflow_document(
-            json.loads(
-                canonical_workflow_path.read_text(encoding="utf-8")
-            )
-        )
-        authoring.install_seed_commit(
-            workflow=canonical_workflow,
-            input_sources={"3GB1.pdb": canonical_structure},
-        )
-        webui_example_path = asset_stack.enter_context(
-            as_file(
-                files("examples").joinpath(
-                    "v2",
-                    "webui-3gb1.example.json",
-                )
-            )
-        )
-        webui_example = json.loads(
-            webui_example_path.read_text(encoding="utf-8")
-        )
-        if load_example_results:
-            install_bundled_example_results(projects=projects, authoring=authoring)
-        else:
-            authoring.install_webui_example_commit(
-                workflow=decode_workflow_document(webui_example["workflow"]),
-                input_sources={"3GB1.pdb": canonical_structure},
-            )
+    _install_teaching_resources(projects, authoring, catalog, load_example_results=load_example_results)
+    if v2_environment_configuration is None:
+        active_bindings = {contract.contract_id for contract in catalog.contracts if contract.contract_kind == "binding"}
+        configured = provider_environment_configuration() if active_bindings else {}
+        v2_environment_configuration = {
+            binding_id: values for binding_id, values in configured.items()
+            if binding_id in active_bindings
+        }
     environment = admit_environment_configuration(
         catalog,
-        (
-            provider_environment_configuration()
-            if v2_environment_configuration is None
-            else v2_environment_configuration
-        ),
+        v2_environment_configuration,
     )
     result_store = ResultStore(
         ProjectObjectStore(projects),

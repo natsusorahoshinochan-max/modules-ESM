@@ -27,7 +27,7 @@ flowchart TB
 | `webui/` | React 应用、画布、编辑与展示。模块专用界面应按公共接入规范加载。 |
 | `repositories/` | 固定上游源码；项目维护的 SoluProt-next Provider 是明确例外。 |
 
-当前后端通过 [ModulePackageRegistration](../core/catalog/declarations.py) 和 [Catalog builder](../core/catalog/builder.py)构建唯一目录，每个稳定契约 ID 对应一项当前注册。[bootstrap](../protein_workbench_public/bootstrap.py)仍固定装配科学包及教学项目，不能当作完整用户插件安装机制。公共 Prompt 编码和部分结果读取仍绑定内置模块，属于待对齐差异。
+当前后端通过 [ModulePackageRegistration](../core/catalog/declarations.py) 和 [Catalog builder](../core/catalog/builder.py)构建唯一目录，每个稳定契约 ID 对应一项当前注册。[bootstrap](../protein_workbench_public/bootstrap.py)从安装清单装配启用的包，默认清单附带官方包；空清单不安装科学教学项目。已有教学资源只在所需节点与 Binding 存在时安装。清单由[模块注册入口](../protein_workbench_public/module_registry.py)读取，尚不等于完整应用内用户安装管理机制。公共 Prompt 编码和部分结果读取仍绑定内置模块，属于待对齐差异。
 
 `FrozenCatalog` 保持一个已构建目录不可变；运行使用已编译计划，不重新扫描目录。它不决定用户安装界面的实现方式，也不要求把可变插件管理状态写进一个正在执行的计划。
 
