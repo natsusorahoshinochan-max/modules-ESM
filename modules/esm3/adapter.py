@@ -176,6 +176,7 @@ class ESM3GenerationAdapter(Protocol):
         structure_parameters: ESM3CallParameters,
         base_seed: int | None,
         sample_index: int,
+        completed_sequence: ESM3SequenceResult | None = None,
     ) -> ESM3PairResult: ...
 
 
@@ -714,30 +715,35 @@ class _BaseESM3Adapter:
         structure_parameters: ESM3CallParameters,
         base_seed: int | None,
         sample_index: int,
+        completed_sequence: ESM3SequenceResult | None = None,
     ) -> ESM3PairResult:
         """Invoke one causally linked sequence/structure provider pair."""
         conditioning = _ConditioningProjection.from_prompt(prompt)
-        provider_prompt = conditioning.provider_input()
-        (
-            sequence_response,
-            sequence_invocation_id,
-            sequence_effective_num_steps,
-            sequence_effective_call_seed,
-        ) = self._invoke(
-            provider_prompt,
-            generation_config("sequence", sequence_parameters),
-            role="sequence_parent",
-            provider_operation="generate(track=sequence)",
-            derived_call_seed=conditioning.call_seed(
-                base_seed, sample_index, "sequence",
-            ),
-        )
-        sequence = self._admit_sequence_result(
-            prompt,
-            sequence_response,
-            sequence_effective_num_steps,
-            sequence_effective_call_seed,
-        )
+        sequence_invocation_id = None
+        if completed_sequence is None:
+            provider_prompt = conditioning.provider_input()
+            (
+                sequence_response,
+                sequence_invocation_id,
+                sequence_effective_num_steps,
+                sequence_effective_call_seed,
+            ) = self._invoke(
+                provider_prompt,
+                generation_config("sequence", sequence_parameters),
+                role="sequence_parent",
+                provider_operation="generate(track=sequence)",
+                derived_call_seed=conditioning.call_seed(
+                    base_seed, sample_index, "sequence",
+                ),
+            )
+            sequence = self._admit_sequence_result(
+                prompt,
+                sequence_response,
+                sequence_effective_num_steps,
+                sequence_effective_call_seed,
+            )
+        else:
+            sequence = completed_sequence
         structure_conditioning = replace(
             conditioning, sequence=sequence.sequence.sequence,
         )

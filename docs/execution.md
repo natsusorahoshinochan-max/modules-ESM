@@ -79,7 +79,7 @@ Run Projection 和 WebSocket 只携带有界输出描述与运行信息，不嵌
 
 主动继续不增加自动重试次数。已核对 ESM3、ESMFold2 SDK 默认对指定错误最多总计五次尝试；这不是所有模块和错误的统一次数规则，也不能把一次 Engine Invocation 等同于一次 SDK 网络尝试。
 
-**当前实现与差距：**[折叠实现](../modules/folding/implementation.py)与 [ESM3 生成](../modules/esm3/implementation.py)在已定义运行失败时交回此前完成的结果；联合生成中序列已完成而结构失败时保留该序列。[节点失败发布](../core/execution/_node_attempt_publication.py)将准入后的保留输出与失败结论一起持久发布，供查看和导出；不写成功缓存，也不将部分输出传给依赖下游。失败请求的残缺响应不被修复或伪装为结果。ESMFold2 已支持通过派生 Run 的 `continue_batch` 继续失败批次：固定原 Run 的 Commit，核对 Result Identity，恢复已完成结构与置信度，只执行失败和未开始请求。首请求失败也保留必要续算状态；再次失败仍停止未开始请求，成功后不再显示可继续能力。ESM3 和 SimpleFold 的批内续算尚未实现。
+**当前实现与差距：**[折叠实现](../modules/folding/implementation.py)与 [ESM3 生成](../modules/esm3/implementation.py)在已定义运行失败时交回此前完成的结果；联合生成中序列已完成而结构失败时保留该序列。[节点失败发布](../core/execution/_node_attempt_publication.py)将准入后的保留输出与失败结论一起持久发布，供查看和导出；不写成功缓存，也不将部分输出传给依赖下游。失败请求的残缺响应不被修复或伪装为结果。ESMFold2 已支持通过派生 Run 的 `continue_batch` 继续失败批次：固定原 Run 的 Commit，核对 Result Identity，恢复已完成结构与置信度，只执行失败和未开始请求。首请求失败也保留必要续算状态；再次失败仍停止未开始请求，成功后不再显示可继续能力。ESM3 的序列、结构和联合生成同样支持该续算入口：从持久结果恢复已完成样本及其置信度，联合生成的序列步骤已成功时只继续结构步骤。首请求失败及再次失败仍可主动继续；不会新增自动重试或调用已成功步骤。SimpleFold 的批内续算尚未实现。
 
 Run 公共读取的 `continuable_node_ids` 只列出已终结 Run 中具有持久续算状态的失败节点。界面按此显示“继续批次”，明确继续原输入和参数；此操作不保存或采用当前画布修改。已有结果保持可读，成功祖先复用，所选节点成功后再执行其依赖后代，独立分支不重复计算。改变输入或参数后应启动普通新计算。
 

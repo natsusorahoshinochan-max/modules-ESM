@@ -65,6 +65,8 @@ ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由�
 
 单轨道生成的采样设置属于所选 Binding；配对生成使用独立 `sequence_*` 与 `structure_*` 设置。两次调用分别保留实际请求参数及 SDK 有效步数，包含禁止采样 token ID 与坐标条件开关。仅本地 Binding 提供有效 seed，Biohub 随机性由 Provider 控制。当前配置及路线范围见[参数审查](tool-parameter-exposure-audit.md#esm3-当前参数接入与适用范围)。
 
+生成失败后可在运行结果中主动继续原批次。已完成的序列、结构、重建结构及置信度保留；联合生成在序列完成而结构失败时只继续结构请求。续算沿用原 Commit 与结果身份，改变输入或参数应启动新计算。
+
 ## ESM-3 条件翻译
 
 以下规则由 [`modules/esm3/adapter.py`](../modules/esm3/adapter.py)实现，属于 ESM-3 Adapter 的工具输入处理，不是载体或所有模块的数据限制。
