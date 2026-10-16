@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workbench-lifecycle-meter"
+version = "1.0.0"
+
+[project.entry-points."protein_workbench.modules"]
+lifecycle_meter = "lifecycle_meter:MODULE_PACKAGE"
+
+[tool.setuptools.package-data]
+lifecycle_meter = ["add.yaml", "editor.js"]
