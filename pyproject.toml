@@ -60,7 +60,7 @@ examples = [
     "v2/*.zip",
     "v2/structures/*.pdb",
 ]
-modules = ["**/*.yaml"]
+modules = ["**/*.yaml", "**/ui/build/*.js", "**/ui/build/*.css"]
 protein_workbench_public = ["resources/v2/*.json"]
 
 [tool.setuptools.exclude-package-data]

@@ -12,10 +12,10 @@
 
 ## 实现待对齐
 
-### DOC-011｜远程 ESM3 步数范围与固定官方资料不一致
+### DOC-011｜ESM3 路线步数声明的集成验收待完成
 
-- **当前证据**：[官方 generate 快照](biohub-api-reference/v1/endpoints/generate.md)第 30、53 行限定 1–100；[序列生成声明](../modules/esm3/definitions/generate_sequence.yaml)第 56–63 行及另两种生成节点允许到 2048。
-- **状态**：须按实际调用路线核对并正确声明范围，本地与远程不能混用；未复验线上行为，不能声称远端当前必然拒绝。参数开放要求见[参数审查](tool-parameter-exposure-audit.md)。
+- **当前实现**：[Binding 声明](../modules/esm3/package.py)按官方远程快照限制 Biohub 1–100 步，本地正整数不套用远程上限，保留 SDK 有效步数处理。
+- **待核验**：完整非 Provider 门禁与 Biohub 真实验收；本地重模型执行排除，保留不加载模型的契约检查。
 
 ### DOC-019｜历史运行列表与历史结果采用尚未证实完整
 
@@ -51,7 +51,7 @@
 ### DOC-036｜模块专用界面与结果读取仍固定分派
 
 - **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据可有多个查看器，允许切换。
-- **当前证据**：[App](../webui/src/App.tsx)固定导入和分派 Prompt/Selection 编辑器；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
+- **当前证据**：[App](../webui/src/App.tsx)的 Selection 已改为模块声明的 React 编辑器入口，外部包使用同一发现和资源接口（见[模块 UI 契约](module-ui.md)）；Prompt 编辑器尚有固定分派；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
 - **状态**：后端专用读取与前端加载须一起修正，不能要求自定义数据伪装成蛋白类型。已有 Port Type 注册及编解码不等于专用界面接入完整，见[架构](architecture.md)和[结果说明](results.md)。
 
 ### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
@@ -60,10 +60,10 @@
 - **当前证据**：[align_pairs](../modules/structure_comparison/definitions/align_pairs.yaml)第 1–16 行只接收完整轴，[轴解析声明](../modules/structure_transform/definitions/resolve_candidate_residue_axes.yaml)未提供区域选择；已有专用 inserted-loop 评价不能证明通用组合已完整覆盖。
 - **状态**：按[架构](architecture.md)与[模块能力](module-capabilities.md)核对真实场景覆盖。不同表示本身不证明残基错配，不把模块内部区域处理放进载体。
 
-### DOC-039｜ESM3 适用生成参数仍隐藏或缺乏限制依据
+### DOC-039｜ESM3 参数接入的完整验收待完成
 
-- **当前证据**：[Adapter](../modules/esm3/adapter.py)第 435–444 行未开放 invalid_ids 并固定 condition_on_coordinates_only；生成节点 temperature 上限 10 未找到官方依据，top_p 允许 0 而固定远程快照为 `(0,1]`；paired 两次调用共用配置。
-- **状态**：按当前功能和调用路线开放适用参数，正确传入。默认温度 1 有固定 SDK 依据；远端未支持的 seed 不能伪造。细节见[参数审查](tool-parameter-exposure-audit.md)，步数范围另见 DOC-011。
+- **当前实现**：`invalid_ids`、坐标条件开关与各路线采样设置已由 Binding 声明并传给 Adapter；两阶段分别配置，Biohub 不声明无效 seed。默认温度 1 保留固定 SDK 依据。
+- **待核验**：当前调用方、示例与参数记录的完整集成门禁和 Biohub 真实验收；见[参数审查](tool-parameter-exposure-audit.md)。不将不加载模型的契约检查记为本地重模型通过。
 
 ### DOC-040｜ESMFold2 适用推理参数仍固定
 

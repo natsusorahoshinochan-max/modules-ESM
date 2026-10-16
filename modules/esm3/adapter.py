@@ -94,6 +94,8 @@ class ESM3CallParameters:
     schedule: str
     strategy: str
     temperature_annealing: bool
+    invalid_ids: tuple[int, ...] = ()
+    condition_on_coordinates_only: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +171,8 @@ class ESM3GenerationAdapter(Protocol):
         self,
         prompt: ProteinPrompt,
         *,
-        parameters: ESM3CallParameters,
+        sequence_parameters: ESM3CallParameters,
+        structure_parameters: ESM3CallParameters,
         base_seed: int | None,
         sample_index: int,
     ) -> ESM3PairResult: ...
@@ -440,7 +443,8 @@ def generation_config(
         schedule=parameters.schedule,
         strategy=parameters.strategy,
         temperature_annealing=parameters.temperature_annealing,
-        condition_on_coordinates_only=True,
+        invalid_ids=parameters.invalid_ids,
+        condition_on_coordinates_only=parameters.condition_on_coordinates_only,
     )
 
 
@@ -705,7 +709,8 @@ class _BaseESM3Adapter:
         self,
         prompt: ProteinPrompt,
         *,
-        parameters: ESM3CallParameters,
+        sequence_parameters: ESM3CallParameters,
+        structure_parameters: ESM3CallParameters,
         base_seed: int | None,
         sample_index: int,
     ) -> ESM3PairResult:
@@ -719,7 +724,7 @@ class _BaseESM3Adapter:
             sequence_effective_call_seed,
         ) = self._invoke(
             provider_prompt,
-            generation_config("sequence", parameters),
+            generation_config("sequence", sequence_parameters),
             role="sequence_parent",
             provider_operation="generate(track=sequence)",
             derived_call_seed=conditioning.call_seed(
@@ -743,7 +748,7 @@ class _BaseESM3Adapter:
                 structure_effective_call_seed,
             ) = self._invoke(
                 structure_conditioning.provider_input(),
-                generation_config("structure", parameters),
+                generation_config("structure", structure_parameters),
                 role="structure_child",
                 provider_operation="generate(track=structure)",
                 derived_call_seed=structure_conditioning.call_seed(

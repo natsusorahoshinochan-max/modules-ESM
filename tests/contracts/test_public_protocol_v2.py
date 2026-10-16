@@ -93,6 +93,7 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "trash_project",
         "delete_project",
         "list_project_inputs",
+        "list_project_runs",
         "inspect_project_input",
         "project_workspace",
         "list_workflow_versions",
@@ -105,6 +106,11 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "authoring_capability_projection",
         "cancel_run",
         "catalog_snapshot",
+        "module_inventory",
+        "module_enable",
+        "module_ui_manifest",
+        "module_ui_asset",
+        "result_action",
             "commit_project_workflow",
             "copy_example_project",
             "create_project",
@@ -136,6 +142,7 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "trash_project": ("POST", "/api/v2/projects/{project_id}:trash"),
         "delete_project": ("DELETE", "/api/v2/projects/{project_id}"),
         "list_project_inputs": ("GET", "/api/v2/projects/{project_id}/inputs"),
+        "list_project_runs": ("GET", "/api/v2/projects/{project_id}/runs"),
         "inspect_project_input": ("POST", "/api/v2/projects/{project_id}/inputs/{project_input_ref}:inspect"),
         "project_workspace": ("GET", "/api/v2/projects/{project_id}/workspace"),
         "list_workflow_versions": ("GET", "/api/v2/projects/{project_id}/versions"),
@@ -157,6 +164,11 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
         ),
         "catalog_snapshot": ("GET", "/api/v2/catalog"),
+        "module_inventory": ("GET", "/api/v2/modules"),
+        "module_enable": ("PUT", "/api/v2/modules"),
+        "module_ui_manifest": ("GET", "/api/v2/module-ui"),
+        "module_ui_asset": ("GET", "/api/v2/module-ui/{extension_id}/assets/{resource_path}"),
+        "result_action": ("POST", "/api/v2/projects/{project_id}/runs/{run_id}/results:action"),
         "open_prompt_authoring": (
             "POST",
             "/api/v2/projects/{project_id}/prompt-authoring:open",
@@ -443,6 +455,9 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "values": "safe_bounded_public_values_only",
     }
     assert set(errors["vocabulary"]) == {
+        "module_change_active_runs",
+        "module_configuration_rejected",
+        "module_ui_asset_not_found",
         "workspace_not_found",
         "workflow_version_not_found",
         "project_state_conflict",
@@ -1463,7 +1478,8 @@ def test_backend_public_route_inventory_equals_the_bundle() -> None:
     for route in create_application(
         frozen_catalog_override=builtin_frozen_catalog()
     ).routes:
-        path = getattr(route, "path", "")
+        # Compare the public URL template, excluding Starlette converter syntax.
+        path = getattr(route, "path_format", getattr(route, "path", ""))
         if path in framework_documentation_routes:
             continue
         methods = getattr(route, "methods", None)

@@ -96,7 +96,7 @@ When no teaching Project is installed, the app opens an existing personal Projec
 or offers creation and opening. An empty installed package inventory still exposes
 the canvas and manual Project persistence. The production inventory is
 `modules.json` under the application data root, with a `packages` array of
-`package_module` and boolean `enabled` entries. A missing inventory uses the
+`package_id`, `package_module`, boolean `enabled`, and nullable `source_root` entries. A missing inventory uses the
 bundled enabled packages; `{"packages": []}` selects an empty carrier. This
 composition contract is not yet an in-application package manager. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
 describes what ships in the backend package.
@@ -208,3 +208,5 @@ for preparation, report collection and its required original full Run identity.
 Set `PROTEIN_WORKBENCH_REAL_UI_URL` and `PROTEIN_WORKBENCH_REAL_FASTA_PROJECT_ID`
 for the prepared service and Project, then run
 `npx playwright test --config playwright.real.config.ts` on the verification host.
+
+模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；外部编辑器旅程通过 `npm run test:module-ui` 在独立公共应用上验证。后端源码资产读取检查前执行 `npm run build:module-ui`，wheel 构建自动生成包内资源。

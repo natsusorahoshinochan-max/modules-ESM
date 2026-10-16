@@ -63,7 +63,6 @@
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
       "node_parameters": {
-        "effective_seed": 1603,
         "num_samples": 1
       },
       "binding_parameters": {}
@@ -73,7 +72,6 @@
       "node_type_id": "esm3.generate_sequence",
       "binding_id": "esm3.generate_sequence.biohub_medium",
       "node_parameters": {
-        "effective_seed": 1604,
         "num_samples": 1
       },
       "binding_parameters": {}

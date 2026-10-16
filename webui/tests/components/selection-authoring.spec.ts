@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { CatalogSnapshot, JsonObject, Workflow } from '../../src/protocol/client'
-import { createSelectionDraft, saveSelectionDraft, type ObservationDraft } from '../../src/selection-authoring'
-import { chooseObservation } from '../../src/selection-observations'
+import { createSelectionDraft, saveSelectionDraft, type ObservationDraft } from '../../../modules/selection/ui/selection-authoring'
+import { chooseObservation } from '../../../modules/selection/ui/selection-observations'
 
 function workflow(): Workflow { return { schema_version: '2.1.0', workflow_id: 'work', nodes: [], edges: [], observation_selectors: [], selection_objectives: [] } }
 const source = { node_id: 'source', output_port: 'candidates' }

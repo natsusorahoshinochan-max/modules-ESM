@@ -23,6 +23,7 @@ from core.catalog.errors import (
     UnknownContractError,
 )
 from .port_contract import PortTypeDefinition
+from .ui import ModuleUiDefinition
 from ._observation import produced_observation_plan
 from core.scoring.observation_plan import ProducedObservationPlan
 
@@ -154,6 +155,7 @@ class FrozenCatalog:
     contracts: tuple[CatalogContract, ...]
     availability: tuple[CatalogAvailabilityProjection, ...]
     availability_observed_at: datetime
+    ui_extensions: tuple[ModuleUiDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     _by_identity: Mapping[str, PortTypeDefinition] = field(
         init=False,

@@ -22,8 +22,7 @@ import { WorkflowPorts, type PortSource } from './WorkflowPorts'
 import { connectWorkflowPorts, reconnectWorkflowPorts, deleteWorkflowElements as deleteGraphElements, workflowEdgeId, workflowPortsMatch, PromptMergeSourcesLockedError } from './workflow-connections'
 import { WorkflowParameters } from './WorkflowParameters'
 import { loadWorkflowParameterChoices, type NodeParameterChoices, type WorkflowParameterChoices } from './parameter-choices'
-import { SelectionEditor } from './SelectionEditor'
-import { selectionNodeTypes } from './selection-authoring'
+import { loadNodeEditor, nodeEditor, type ModuleEditorProps, type ModuleUiManifest } from './module-ui'
 import { CanvasOperationPicker } from './CanvasOperationPicker'
 import { copyWorkflowFragment, pasteWorkflowFragment, type WorkflowFragment } from './workflow-fragments'
 import { bindingOptions, insertOrdinaryNode, missingNodeContracts, missingPortPresentation, nodeTypePresentation, parameterPresentations, projectPalette, selectNodeBinding, type BindingOption, type PaletteTaxonomy, type ParameterPresentation, type PortPresentation } from './workflow-authoring'
@@ -34,7 +33,7 @@ type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' 
 type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
 type StageControlView = { kind: 'parameter'; nodeId: string; parameter: Parameter; choices?: NodeParameterChoices } | { kind: 'prompt' | 'selection'; nodeId: string; label: string }
 type StageState = { status: NodeRunStatus | 'idle'; label: string; completed: number; total: number }
-type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; retainedConfiguration?: JsonObject; readOnly?: boolean; resultCollections?: ResultCollection[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; onEditSelection?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
+type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; retainedConfiguration?: JsonObject; readOnly?: boolean; resultCollections?: ResultCollection[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; moduleEditorTitle?: string; onEditModule?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
 type FlowNode = Node<WorkflowNodeData>
 type RunProgress = { status: RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; projectId?: string; runId?: string; }
 type PendingNodeDrop = { nodeTypeId: string; position: { x: number; y: number }; bindings: BindingOption[]; connectionFrom?: { nodeId: string; portName: string }; connectionPort?: string }
@@ -173,7 +172,7 @@ function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
     <NodeResultLinks data={data} />
     {!data.collapsed && <>
       {data.bindingOptions?.find((option) => option.id === data.bindingId)?.availabilityReason?.message && <p className="parameter-empty-hint">{data.bindingOptions.find((option) => option.id === data.bindingId)!.availabilityReason!.message}</p>}
-      {data.missingContracts?.length ? <details className="nodrag nowheel"><summary>已保留配置</summary><pre>{JSON.stringify(data.retainedConfiguration, null, 2)}</pre></details> : data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : data.onEditSelection ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditSelection}>编辑筛选与排序 <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
+      {data.missingContracts?.length ? <details className="nodrag nowheel"><summary>已保留配置</summary><pre>{JSON.stringify(data.retainedConfiguration, null, 2)}</pre></details> : data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : data.onEditModule ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditModule}>{data.moduleEditorTitle} <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
     </>}
   </article>
 }
@@ -237,7 +236,9 @@ function App() {
   const promptReturnFocus = useRef<HTMLElement | null>(null)
   const [inputSource, setInputSource] = useState<{ projectId: string; workflow: Workflow; session: WorkspaceEditSession; mergeTargetNodeId?: string }>()
   const mergeSourceCompletion = useRef<((snapshot: PromptSnapshot | undefined) => void) | undefined>(undefined)
-  const [selectionEdit, setSelectionEdit] = useState<{ nodeId: string; workflow: Workflow; session: WorkspaceEditSession }>()
+  const [moduleUi, setModuleUi] = useState<ModuleUiManifest>({ extensions: [] })
+  const moduleOpenRevision = useRef(0)
+  const [moduleEdit, setModuleEdit] = useState<{ nodeId: string; title: string; Component: React.ComponentType<ModuleEditorProps>; workflow: Workflow; session: WorkspaceEditSession }>()
   const [parameterChoices, setParameterChoices] = useState<{ workflow: Workflow; values: WorkflowParameterChoices }>()
   const [parameterChoicesError, setParameterChoicesError] = useState('')
   const [view, setView] = useState<'workflow' | 'results'>('workflow')
@@ -318,10 +319,11 @@ function App() {
   useEffect(() => {
     let current = true
     void (async () => {
-      const [catalogValue, capabilityValue, projects] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects()])
+      const [catalogValue, capabilityValue, projects, moduleUiValue] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects(), client.moduleUi()])
       const initialProject = projects.projects.find((item) => item.project_kind === 'default_example') ?? projects.projects.find(item => !item.seed)
       const initialWorkspace = initialProject ? await client.projectWorkspace(initialProject.id) : undefined
       if (!current) return
+      setModuleUi(moduleUiValue)
       setCatalog(catalogValue)
       setCapabilities(capabilityValue)
       if (initialProject && initialWorkspace) editor.open(initialProject, initialWorkspace)
@@ -440,6 +442,7 @@ function App() {
     if (!await askUnsaved('leave')) return
     const generation = ++projectGeneration.current
     promptOpenRevision.current += 1
+    moduleOpenRevision.current += 1
     const selectedWorkspace = suppliedWorkspace ?? await client.projectWorkspace(selected.id)
     if (generation !== projectGeneration.current) return
     results.openRun(undefined)
@@ -448,7 +451,7 @@ function App() {
     setBlockedMergeNodes([])
     editor.open(selected, selectedWorkspace, versionView)
     setPrompt(undefined); setPromptOpenError(undefined); setRunError(''); setInputError('')
-    setSelectionEdit(undefined); setView('workflow'); setProjectsOpen(false)
+    setModuleEdit(undefined); setView('workflow'); setProjectsOpen(false)
     setRequestedResultSource(undefined); setPendingCanvasFocus(undefined)
     const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
     requestAnimationFrame(() => { if (canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport) void flowInstance.current?.setViewport((canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport)!); else void flowInstance.current?.fitView({ padding: 0.16 }) })
@@ -660,14 +663,21 @@ function App() {
       setPrompt({ nodeId, snapshot, workflow, session })
     })().catch(reason => { if (request === promptOpenRevision.current) setPromptOpenError({ nodeId, message: workspaceErrorMessage(reason) }) })
   }, [beginCanvasEdit])
-  const openSelectionEditor = useCallback(async (nodeId: string) => {
+  const openModuleEditor = useCallback(async (nodeId: string) => {
+    const request = ++moduleOpenRevision.current
+    const generation = projectGeneration.current
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const session = await beginCanvasEdit()
     if (!session) return
+    const member = session.base.workflow.nodes.find(node => node.node_id === nodeId)!
+    const registration = nodeEditor(moduleUi, member.node_type_id)
+    if (!registration) throw new Error(`节点 ${nodeId} 没有已启用的模块编辑器`)
+    const Component = await loadNodeEditor(registration)
     if (results.getSnapshot().phase !== 'idle' && !await results.ensureCandidates({ all: true })) return
+    if (request !== moduleOpenRevision.current || generation !== projectGeneration.current || editor.getSnapshot().readOnly) return
     if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
-    setSelectionEdit({ nodeId, workflow: session.base.workflow, session })
-  }, [beginCanvasEdit, results])
+    setModuleEdit({ nodeId, title: registration.definition.title, Component, workflow: session.base.workflow, session })
+  }, [beginCanvasEdit, results, moduleUi, editor])
   const nodeLabels = useMemo(() => Object.fromEntries((draft?.workflow.nodes ?? []).map(node => [node.node_id, catalog ? nodeTypePresentation(catalog, node.node_type_id).title : node.node_type_id])), [draft?.workflow.nodes, catalog])
   const resultNodeLabels = useMemo(() => {
     const canvas = canvasFromUi(editing.desired?.ui_state ?? {})
@@ -698,7 +708,7 @@ function App() {
       onOpenResult: openResultSource,
       stageControls,
       stageState: node.data.stage ? { status, label: labels[status], completed, total: members.length } : undefined,
-      onStageAction: (kind, nodeId) => { if (kind === 'prompt') openPromptEditor(nodeId); else void openSelectionEditor(nodeId).catch(reportSaveError) },
+      onStageAction: (kind, nodeId) => { if (kind === 'prompt') openPromptEditor(nodeId); else void openModuleEditor(nodeId).catch(reportSaveError) },
       onEnter: () => { void navigateCanvas(node.id).catch(reportSaveError) },
       onRename: label => { void editor.edit(current => { const canvas = canvasFromUi(current.ui_state); return { ui_state: { ...current.ui_state, canvas: { ...canvas, groups: canvas.groups!.map(group => group.id === node.id ? { ...group, label } : group) } } } }).catch(reportSaveError) },
       groupErrors: node.data.kind === 'group' ? [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)].filter(id => runProgress?.nodeStates[id]?.status === 'failed').length : 0,
@@ -708,7 +718,8 @@ function App() {
       bindingOptions: catalog && sourceNode ? bindingOptions(catalog, sourceNode.node_type_id) : [],
       runState: runProgress?.nodeStates[node.data.sourceNodeId],
       scopeState: scopePreview?.reused_node_ids.includes(node.id) ? 'reuse' : scopePreview?.execution_node_ids.includes(node.id) ? 'execute' : undefined,
-      onEditSelection: sourceNode && selectionNodeTypes.has(sourceNode.node_type_id) ? () => { void openSelectionEditor(node.id).catch(reportSaveError) } : undefined,
+      moduleEditorTitle: sourceNode ? nodeEditor(moduleUi, sourceNode.node_type_id)?.definition.title : undefined,
+      onEditModule: sourceNode && nodeEditor(moduleUi, sourceNode.node_type_id) ? () => { void openModuleEditor(node.id).catch(reportSaveError) } : undefined,
       onToggle: id => { const next = nodesRef.current.map(item => item.id === id ? { ...item, data: { ...item.data, collapsed: !item.data.collapsed } } : item); nodesRef.current = next; setNodes(next); void persistCanvas(next).catch(reportSaveError) },
       onEditPrompt: () => openPromptEditor(node.id),
       onParameter: (nodeId, parameter, raw, commit) => {
@@ -722,11 +733,11 @@ function App() {
       },
       onBinding: (nodeId, bindingId) => { void saveBinding(nodeId, bindingId).catch(reportSaveError) },
     } }
-  }), [editing.readOnly, resultIndex.collections, openResultSource, navigateCanvas, editor, focusCanvasNode, currentFlowNodes, parameterChoices, parameterChoicesError, draft, catalog, runProgress?.nodeStates, scopePreview, openSelectionEditor, openPromptEditor, persistCanvas, reportSaveError, saveBinding, saveParameter])
+  }), [moduleUi, editing.readOnly, resultIndex.collections, openResultSource, navigateCanvas, editor, focusCanvasNode, currentFlowNodes, parameterChoices, parameterChoicesError, draft, catalog, runProgress?.nodeStates, scopePreview, openModuleEditor, openPromptEditor, persistCanvas, reportSaveError, saveBinding, saveParameter])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      if (event.isComposing || unsavedChoice || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || prompt || inputSource || projectsOpen || selectionEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.isComposing || unsavedChoice || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || prompt || inputSource || projectsOpen || moduleEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
       const modifier = event.metaKey || event.ctrlKey
       if (modifier && event.key.toLowerCase() === 'c') { event.preventDefault(); copySelection() }
       if (modifier && event.key.toLowerCase() === 'v') { event.preventDefault(); void pasteSelection().catch(reportSaveError) }
@@ -741,7 +752,7 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [unsavedChoice, canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, prompt, selectionEdit, editor, reportSaveError, runOpen, undo, view])
+  }, [unsavedChoice, canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, prompt, moduleEdit, editor, reportSaveError, runOpen, undo, view])
   const openInputSource = useCallback(async () => {
     const session = await beginCanvasEdit()
     if (!session) return
@@ -831,7 +842,7 @@ function App() {
 
   return <>{unsavedChoice && <InteractionDialog title={unsavedChoice.mode === 'run' ? '保存后运行' : '尚未保存的修改'} className="run-dialog" busy={choiceBusy} onClose={() => resolveUnsaved(false)}><h2>{unsavedChoice.mode === 'run' ? '请先保存项目再运行' : '当前项目有尚未保存的修改'}</h2><p>{project.seed ? '保存将创建你自己的项目，教学原件保持不变。' : '流程内容与画布布局将一起保存。'}</p>{choiceError && <p role="alert">{choiceError}</p>}<footer><button disabled={choiceBusy} onClick={() => resolveUnsaved(false)}>{unsavedChoice.mode === 'run' ? '取消' : '取消退出，继续编辑'}</button>{unsavedChoice.mode === 'leave' && <button disabled={choiceBusy} onClick={() => { editor.discard(); resolveUnsaved(true) }}>放弃修改退出</button>}<button disabled={choiceBusy} onClick={() => { setChoiceBusy(true); setChoiceError(''); void saveProject().then(saved => { if (saved) resolveUnsaved(true) }, reason => setChoiceError(workspaceErrorMessage(reason))).finally(() => setChoiceBusy(false)) }}>{unsavedChoice.mode === 'run' ? '保存并运行' : '保存后退出'}</button></footer></InteractionDialog>}{promptView}{run && catalog && resultsIdentity && visitedResults.has(resultsIdentity) && <div hidden={view !== 'results' || !!prompt} className="persistent-results"><ResultsWorkbench key={resultsIdentity} workspaceProjectId={project.id} viewStateStore={resultsViewStateStore} runControls={runControls} results={results} run={run} index={resultIndex} loading={resultsLoading} loadError={resultLoadError} catalog={{ contracts: resultIndex.definitions, availability: [] }} scienceStatus={scienceStatus} onBack={() => setView('workflow')} active={view === 'results' && !prompt} requestedSource={requestedResultSource} nodeLabels={resultNodeLabels} onLocateNode={(nodeId: string) => locateResultNodes([nodeId])} /></div>}<div hidden={view === 'results' || !!prompt} className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Braces size={16} /></span><div><strong>Protein</strong><span>Workbench</span></div></div><div className="project-identity"><div><span className="page-kicker">{project.project_kind.replace('_', ' ')}</span><strong>{project.name}</strong></div>{project.seed && <span className="immutable-pill">只读示例</span>}</div><nav className="view-tabs"><button className="active"><Network size={14} /> Workflow</button><button disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={showResults}><Activity size={14} /> Results <span>{resultIndex.collections.reduce((sum, item) => sum + item.total, 0)}</span></button></nav><div className="top-actions"><span className="save-state" aria-label="流程保存状态"><span />{saveState}</span><span className="save-state" aria-label="布局保存状态"><span />{uiSaveState}</span><button className="icon-button" aria-label="撤销画布修改" title={editing.undoLabel ? `撤销：${editing.undoLabel}` : '没有可撤销的操作'} disabled={!editing.canUndo} onClick={undo}><RotateCcw size={16} /></button><button className="icon-button" aria-label="重做画布修改" title={editing.redoLabel ? `重做：${editing.redoLabel}` : '没有可重做的操作'} disabled={!editing.canRedo} onClick={redo}>↪</button><button className="secondary-button" onClick={() => { void beforeWorkspaceAction().then(() => setProjectsOpen(true)).catch(reportSaveError) }}><FolderOpen size={14} /> 项目</button><button className="secondary-button" disabled={runActive || editing.phase === 'saving'} onClick={() => void saveProject().catch(reportSaveError)}>保存项目</button><button className="run-button" disabled={runActive} onClick={() => void askUnsaved('run').then(proceed => { if (proceed) setRunOpen(true) }).catch(reportSaveError)}>{runActive ? <LoaderCircle size={14} /> : <Play size={14} />} {runActive ? '运行中' : '运行流程'}</button></div></header>
     {(viewedVersion || workspace?.return_workspace_revision !== null && workspace?.return_workspace_revision !== undefined) && <div className="version-work-banner" role="status"><span>{viewedVersion ? `正在查看版本“${viewedVersion.version.name}”；首次修改将另存为当前工作。` : '当前工作由旧版本继续，原工作仍然保留。'}</span><button onClick={() => void returnOriginalWork().catch(reportSaveError)}>返回原工作</button></div>}
-    {saveError && <div className="workspace-error" role="alert">{saveError}<button onClick={() => void finishInputs().then(() => editor.retry()).then(() => { setInputError(''); if (selectionEdit?.session.submitted) setSelectionEdit(undefined); if (inputSource?.session.submitted) setInputSource(undefined) }).catch(reportSaveError)}>重试保存</button></div>}
+    {saveError && <div className="workspace-error" role="alert">{saveError}<button onClick={() => void finishInputs().then(() => editor.retry()).then(() => { setInputError(''); if (moduleEdit?.session.submitted) setModuleEdit(undefined); if (inputSource?.session.submitted) setInputSource(undefined) }).catch(reportSaveError)}>重试保存</button></div>}
     {blockedMergeNodes.length > 0 && <div className="workspace-error" role="alert">现有合并来源受保护；请先在 Prompt Studio 调整并保存合并操作。{blockedMergeNodes.map(nodeId => <button key={nodeId} onClick={() => openPromptEditor(nodeId)}>打开 Prompt Studio：{nodeId}</button>)}</div>}
     {runControls}
     <nav className="canvas-breadcrumb" aria-label="节点组路径"><button onClick={() => void navigateCanvas(null).catch(reportSaveError)}>{project.name}</button>{groupPath(canvasFromUi(editing.desired!.ui_state), currentCanvasGroup(canvasFromUi(editing.desired!.ui_state))).map(group => <button key={group.id} onClick={() => void navigateCanvas(group.id).catch(reportSaveError)}>› {group.label}</button>)}{currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) && <button onClick={() => { const canvas = canvasFromUi(editing.desired!.ui_state); void navigateCanvas(canvas.groups!.find(group => group.id === currentCanvasGroup(canvas))!.parentId).catch(reportSaveError) }}>返回上层 · Tab</button>}</nav>
@@ -860,7 +871,7 @@ function App() {
       </ContextMenu.Content></ContextMenu.Portal></ContextMenu.Root>
       </div>
     {!prompt && inputSourceDialog}
-    {selectionEdit && catalog && <InteractionDialog title="编辑流程筛选" className="run-dialog selection-dialog" onClose={() => setSelectionEdit(undefined)}>{saveError && <p role="alert">{saveError}{editing.error !== undefined && <button onClick={() => void editor.retry().then(() => { if (selectionEdit.session.submitted) setSelectionEdit(undefined) }).catch(reportSaveError)}>重试保存</button>}</p>}<div inert={selectionEdit.session.submitted} style={{ display: 'contents' }}><SelectionEditor key={selectionEdit.nodeId} catalog={catalog} workflow={selectionEdit.workflow} nodeId={selectionEdit.nodeId} candidateCollections={resultIndex.collections} onCancel={() => setSelectionEdit(undefined)} onChange={(next) => { void commitSession(selectionEdit.session, next).then(() => setSelectionEdit(undefined)).catch(reportSaveError) }} /></div>{selectionEdit.session.submitted && <button onClick={() => setSelectionEdit(undefined)}>关闭查看</button>}</InteractionDialog>}
+    {moduleEdit && catalog && <InteractionDialog title={moduleEdit.title} className="run-dialog module-editor-dialog" onClose={() => setModuleEdit(undefined)}>{saveError && <p role="alert">{saveError}{editing.error !== undefined && <button onClick={() => void editor.retry().then(() => { if (moduleEdit.session.submitted) setModuleEdit(undefined) }).catch(reportSaveError)}>重试保存</button>}</p>}<div inert={moduleEdit.session.submitted || editing.readOnly} style={{ display: 'contents' }}><moduleEdit.Component key={moduleEdit.nodeId} catalog={catalog} workflow={moduleEdit.workflow} nodeId={moduleEdit.nodeId} candidateCollections={resultIndex.collections} onCancel={() => setModuleEdit(undefined)} onApply={(next) => { void commitSession(moduleEdit.session, next).then(() => setModuleEdit(undefined)).catch(reportSaveError) }} /></div>{moduleEdit.session.submitted && <button onClick={() => setModuleEdit(undefined)}>关闭查看</button>}</InteractionDialog>}
     {canvasPicker && catalog && capabilities && <CanvasOperationPicker catalog={catalog} capabilities={capabilities} position={canvasPicker} requiredPort={canvasPicker.from ? { ...canvasPicker.from, direction: 'input' } : undefined} onClose={() => setCanvasPicker(undefined)} onChoose={(nodeTypeId) => { const position = flowInstance.current!.screenToFlowPosition(canvasPicker); const inputs = canvasPicker.from ? nodeTypePresentation(catalog, nodeTypeId).inputs.filter(port => workflowPortsMatch(canvasPicker.from!, port)) : []; const drop: PendingNodeDrop = { nodeTypeId, position, bindings: bindingOptions(catalog, nodeTypeId), connectionFrom: canvasPicker.from, connectionPort: inputs.length === 1 ? inputs[0].name : undefined }; setCanvasPicker(undefined); if (drop.bindings.length === 1 && (!drop.connectionFrom || drop.connectionPort)) void addDroppedNode(drop, drop.bindings[0].id).catch(reportSaveError); else setPendingNodeDrop(drop) }} />}
     {runOpen && <RunDialog selectedNodeIds={[...selectedLeafNodes(canvasFromUi(editing.desired!.ui_state), new Set(nodes.filter((node) => node.selected).map((node) => node.id)))]} sourceRunId={run && run.project_id === project.id && !['admitted', 'running'].includes(run.status) ? run.run_id : undefined} onClose={() => { setRunOpen(false); setScopePreview(undefined) }} onFocus={focusCanvasNode} onPrepare={async (request) => {
       const personal = editor.getSnapshot().project!
@@ -874,7 +885,7 @@ function App() {
       results.openRun({ project_id: receipt.project_id, run_id: receipt.run_id }, receipt.event_cursor)
       const current = editor.getSnapshot().project
       if (current?.id === receipt.project_id) editor.updateProject({ ...current, latest_run_id: receipt.run_id })
-      setRunError(''); setSelectionEdit(undefined)
+      setRunError(''); setModuleEdit(undefined)
       setRunOpen(false); setScopePreview(undefined)
     }} />}
     {pendingNodeDrop && <InteractionDialog title={`为 ${pendingNodeTitle} 选择执行模型${pendingNodeDrop.connectionFrom ? '与连接端口' : ''}`} className="run-dialog binding-dialog" onClose={() => setPendingNodeDrop(undefined)}><header><span className="dialog-icon"><Atom size={18} /></span><div><span className="page-kicker">EXECUTION BINDING</span><h2 id="binding-dialog-title">为 {pendingNodeTitle} 选择执行模型</h2></div><button className="icon-button" onClick={() => setPendingNodeDrop(undefined)}><X size={18} /></button></header>{pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort && <p>有多个兼容输入，请先选择目标端口。</p>}{pendingNodeDrop.connectionFrom && <label>目标输入<select aria-label="新节点目标输入" value={pendingNodeDrop.connectionPort ?? ''} onChange={event => setPendingNodeDrop({ ...pendingNodeDrop, connectionPort: event.target.value || undefined })}><option value="">选择输入…</option>{nodeTypePresentation(catalog!, pendingNodeDrop.nodeTypeId).inputs.filter(port => { const source = draft.workflow.nodes.find(node => node.node_id === pendingNodeDrop.connectionFrom!.nodeId)!; return workflowPortsMatch(nodeTypePresentation(catalog!, source.node_type_id).outputs.find(port => port.name === pendingNodeDrop.connectionFrom!.portName)!, port) }).map(port => <option value={port.name} key={port.name}>{port.name}</option>)}</select></label>}<div className="binding-choice-list">{pendingNodeDrop.bindings.map((binding) => <button disabled={!!pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort} key={binding.id} title={binding.availabilityReason?.message} onClick={() => void addDroppedNode(pendingNodeDrop, binding.id).catch(reportSaveError)}><strong>{binding.label}{binding.available ? '' : '（不可用）'}</strong><small>{binding.id}</small>{binding.availabilityReason?.message && <p>{binding.availabilityReason.message}</p>}</button>)}</div><footer><button className="secondary-button" onClick={() => setPendingNodeDrop(undefined)}>取消</button></footer></InteractionDialog>}

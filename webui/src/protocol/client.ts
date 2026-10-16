@@ -1,3 +1,4 @@
+import type { ModuleUiManifest } from '../module-ui'
 import type { ProjectWorkspace, WorkflowVersion, WorkflowVersionView, WorkflowCommitSnapshot, WorkflowScienceComparison } from '../project-workspace'
 import type { ProjectInputInspection, ProjectInputPublication } from '../input-sources'
 
@@ -126,6 +127,7 @@ export class PublicV2Client {
     if (!response.ok) throw await response.json()
     return response.json() as Promise<T>
   }
+  moduleUi() { return this.json<ModuleUiManifest>('/api/v2/module-ui') }
   catalog() { return this.json<CatalogSnapshot>('/api/v2/catalog') }
   authoringCapabilities() { return this.json<AuthoringCapabilities>('/api/v2/authoring-capabilities') }
   projects(name?: string) { return this.json<{ projects: ProjectMetadata[] }>(`/api/v2/projects${name ? `?name=${encodeURIComponent(name)}` : ''}`) }

@@ -215,3 +215,83 @@ def test_running_project_rejects_mutation_but_remains_readable(
         assert client.wait_terminal(project_id, started["run_id"])["status"] == "succeeded"
         editable = http.put(f"{prefix}/workspace", json={"ui_state": {"zoom": 9}})
         assert editable.status_code == 200, editable.text
+
+
+def test_project_history_lists_success_and_failed_runs_with_retained_results_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    catalog = build_frozen_catalog((PROTEIN_IO_PACKAGE,))
+    app = create_application(frozen_catalog_override=catalog)
+    with TestClient(app) as http:
+        client = PublicRunClient(http)
+        project = http.post("/api/v2/projects", json={"name": "Run history"}).json()
+        project_id = project["id"]
+        prefix = f"/api/v2/projects/{project_id}"
+        inputs = []
+        for name, content in (("good", b">one\nACDE\n"), ("bad", b">one\nACDE\n>two\nGGGG\n")):
+            response = http.post(f"{prefix}/inputs", json={
+                "filename": f"{name}.fasta",
+                "content_base64": base64.b64encode(content).decode("ascii"),
+            })
+            assert response.status_code == 201, response.text
+            inputs.append(response.json()["project_input_ref"])
+        workflow = _workflow(project_id, inputs[0])
+        commit = client.commit_workflow(project_id, workflow)
+        first = client.start_run(project_id, commit["workflow_commit_id"], request_id="history-success")
+        success = client.wait_terminal(project_id, first["run_id"])
+        assert success["status"] == "succeeded"
+        bad_node = _workflow(project_id, inputs[1])["nodes"][0]
+        bad_node["node_id"] = "invalid-import"
+        workflow["nodes"].append(bad_node)
+        commit = client.commit_workflow(project_id, workflow)
+        second = client.start_run(project_id, commit["workflow_commit_id"], request_id="history-failure")
+        failed = client.wait_terminal(project_id, second["run_id"])
+        assert failed["status"] == "failed"
+        assert failed["outputs"]
+        expected = {run["run_id"]: {
+            "run_id": run["run_id"],
+            "workflow_commit_id": run["workflow_commit_id"],
+            "status": run["status"],
+            "has_results": True,
+        } for run in (success, failed)}
+        listed = http.get(f"{prefix}/runs")
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["project_id"] == project_id
+        assert {run["run_id"]: run for run in listed.json()["runs"]} == expected
+
+    with TestClient(create_application(frozen_catalog_override=catalog)) as http:
+        listed = http.get(f"{prefix}/runs")
+        assert listed.status_code == 200, listed.text
+        assert {run["run_id"]: run for run in listed.json()["runs"]} == expected
+        for original in (success, failed):
+            reopened = http.get(f"{prefix}/runs/{original['run_id']}")
+            assert reopened.status_code == 200, reopened.text
+            assert reopened.json() == original
+
+
+def test_project_history_reports_unavailable_persisted_run_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    catalog = build_frozen_catalog((PROTEIN_IO_PACKAGE,))
+    app = create_application(frozen_catalog_override=catalog)
+    with TestClient(app) as http:
+        client = PublicRunClient(http)
+        project_id = http.post("/api/v2/projects", json={"name": "Damaged history"}).json()["id"]
+        prefix = f"/api/v2/projects/{project_id}"
+        published = http.post(f"{prefix}/inputs", json={
+            "filename": "good.fasta", "content_base64": base64.b64encode(b">one\nACDE\n").decode("ascii"),
+        })
+        commit = client.commit_workflow(project_id, _workflow(project_id, published.json()["project_input_ref"]))
+        receipt = client.start_run(project_id, commit["workflow_commit_id"], request_id="damaged-history")
+        assert client.wait_terminal(project_id, receipt["run_id"])["status"] == "succeeded"
+        ledger = app.state.project_manager.run_storage_directory(project_id, receipt["run_id"]) / "ledger"
+    next(ledger.glob("*.json")).write_bytes(b"unreadable transaction")
+    with TestClient(create_application(frozen_catalog_override=catalog)) as http:
+        projection = http.get(f"{prefix}/runs/{receipt['run_id']}")
+        assert projection.status_code == 503
+        assert projection.json()["error"]["code"] == "evidence_unavailable"
+        history = http.get(f"{prefix}/runs")
+        assert history.status_code == 503, history.text
+        assert history.json()["error"]["code"] == "evidence_unavailable"

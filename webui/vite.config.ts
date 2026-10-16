@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  resolve: { dedupe: ['react', 'react-dom'] },
   publicDir: '../examples/v2/structures',
   server: {
     port: 5173,

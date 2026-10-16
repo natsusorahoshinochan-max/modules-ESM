@@ -73,6 +73,13 @@ class _RunRegistry:
     ) -> None:
         self._runs[(project_id, run_id)] = record
 
+    def project_run_ids(self, project_id: str) -> tuple[str, ...]:
+        """Include known persisted identities whose evidence is unavailable."""
+        identities = (*tuple(self._runs), *tuple(self._damaged_runs))
+        return tuple(sorted({
+            run_id for owner, run_id in identities if owner == project_id
+        }))
+
     def active_run_ids(self, project_id: str) -> tuple[str, ...]:
         return tuple(
             run_id for (owner, run_id), record in tuple(self._runs.items())

@@ -79,7 +79,8 @@ def test_startup_admits_only_the_examples_selected_scientific_definitions(
     # Supply real declarations at the production package-registration seam;
     # Catalog compilation, installation, admission, and persistence stay real.
     with monkeypatch.context() as changed:
-        changed.setattr(bootstrap, "module_registrations", lambda: changed_registrations)
+        for registration in changed_registrations:
+            changed.setattr(f"{registration.package_module}.package.MODULE_PACKAGE", registration)
         changed_app = create_application(v2_environment_configuration={})
         if affects_example:
             with pytest.raises(WorkflowAuthoringError) as raised:
@@ -140,6 +141,11 @@ def test_webui_example_public_journey_and_prompt_contract(
         assert nodes["generate-paired"]["binding_id"] == (
             "esm3.generate_paired.biohub_medium"
         )
+        assert nodes["generate-paired"]["node_parameters"] == {"num_samples": 7}
+        assert "effective_seed" not in nodes["generate-paired"]["binding_parameters"]
+        from protein_workbench_public.example_results import shipped_example_workflow
+        from protein_workbench_public.workflow_codec import decode_workflow_document
+        assert decode_workflow_document(workflow) == shipped_example_workflow()
         assert nodes["fold-stage-one"]["binding_id"] == (
             "folding.fold.esmfold2_remote"
         )

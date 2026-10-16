@@ -99,12 +99,16 @@ remote Provider or local model.
 ## Protected WebUI result resource
 
 `webui-3gb1.results.zip` belongs to the protected `webui-3gb1-example` Project.
-It carries the completed real Run of `webui-3gb1.example.json` with the Workflow's
-declared Bindings, Methods and seeds; a canonical verification Run is not a
-substitute. The resource includes its manifest, original immutable Project
+It carries the completed real Run with its original Workflow, declared Bindings,
+Methods and recorded parameters; a canonical verification Run is not a substitute.
+Its current editable Draft follows `webui-3gb1.example.json`, including route-owned
+ESM3 parameters. Updating that teaching Draft does not claim a fresh Run with the
+new definitions. The resource includes its manifest, original immutable Project
 Inputs, Draft/workspace/Commit records, ordered Ledger transactions, and all
 published manifests, values and artifacts needed by that Run. Original identities
-and contents remain unchanged. Runtime caches, temporary Provider workspaces,
+and contents remain unchanged. The archive also contains the current editable
+Draft and workspace as a later revision; original Draft, Commit and Run records
+remain intact. Runtime caches, temporary Provider workspaces,
 weights, process environment, execution profiles, credentials and private
 configuration are excluded.
 

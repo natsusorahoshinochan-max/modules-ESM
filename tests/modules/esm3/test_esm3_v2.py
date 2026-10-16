@@ -151,7 +151,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
 
     sequence_generation = catalog.require_contract(
         "node_type", "esm3.generate_sequence")
-    assert sequence_generation.descriptor["node_parameters"]["num_steps"][
+    assert catalog.require_contract("binding", "esm3.generate_sequence.biohub_medium").descriptor["binding_parameters"]["num_steps"][
         "scientific_meaning"
     ].startswith("Requested upper bound")
     generation_method = catalog.require_contract(
@@ -895,11 +895,17 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     with adapter:
         result = adapter.generate_pair(
             prompt,
-            parameters=parameters,
+            sequence_parameters=parameters,
+            structure_parameters=replace(parameters, num_steps=9, temperature=0.4, invalid_ids=(7,), condition_on_coordinates_only=False),
             base_seed=17,
             sample_index=0,
         )
 
+    assert [config.num_steps for _, config in client.calls] == [4, 9]
+    assert [config.temperature for _, config in client.calls] == [1.0, 0.4]
+    assert [list(config.invalid_ids) for _, config in client.calls] == [[], [7]]
+    assert [config.condition_on_coordinates_only for _, config in client.calls] == [True, False]
+    assert result.structure.effective_num_steps == 9
     assert type(result) is ESM3PairResult
     assert result.sequence == ESM3SequenceResult(
         sequence=ProteinSequence("ACD", ["A:1", "A:2", "A:3"]),
@@ -925,7 +931,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         (1.0, 0.0, 1.0),
         (2.0, 1.0, 0.0),
     ) if include_pae else None)
-    assert result.structure.effective_num_steps == 4
+    assert result.structure.effective_num_steps == 9
     assert result.structure.effective_call_seed is None
     assert _plain_invocations(resources.invocations) == [
         {
@@ -1008,17 +1014,8 @@ def test_generation_operation_passes_sample_intent_and_retains_reported_seed() -
                         value_content_digests=(content_digest,),
                     )
                 },
-                node_parameters={
-                    "effective_seed": 1603,
-                    "num_samples": 2,
-                    "num_steps": 4,
-                    "temperature": 1.0,
-                    "top_p": 1.0,
-                    "schedule": "cosine",
-                    "strategy": "random",
-                    "temperature_annealing": True,
-                },
-                binding_parameters={},
+                node_parameters={'num_samples': 2},
+                binding_parameters={'num_steps': 4, 'temperature': 1.0, 'top_p': 1.0, 'schedule': "cosine", 'strategy': "random", 'temperature_annealing': True, 'invalid_ids': [], 'condition_on_coordinates_only': True},
                 effective_randomness={"effective_seed": 1603},
             )
         )
@@ -1089,17 +1086,8 @@ def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
                         value_content_digests=("sha256:" + "a" * 64,),
                     )
                 },
-                node_parameters={
-                    "effective_seed": 1603,
-                    "num_samples": 1,
-                    "num_steps": 4,
-                    "temperature": 1.0,
-                    "top_p": 1.0,
-                    "schedule": "cosine",
-                    "strategy": "random",
-                    "temperature_annealing": True,
-                },
-                binding_parameters={},
+                node_parameters={'num_samples': 1},
+                binding_parameters={'num_steps': 4, 'temperature': 1.0, 'top_p': 1.0, 'schedule': "cosine", 'strategy': "random", 'temperature_annealing': True, 'invalid_ids': [], 'condition_on_coordinates_only': True},
                 effective_randomness={},
             )
         )
@@ -1531,7 +1519,7 @@ def test_generation_records_requested_and_sdk_effective_steps_per_call(
         num_samples=2,
         sequence="ACD",
         sequence_mask_residue_ids=("A:1",),
-        generation_parameters={"num_steps": 20},
+        binding_parameters={"num_steps": 20},
     )
 
     assert projection["status"] == "succeeded"
@@ -1552,7 +1540,7 @@ def test_generation_records_requested_and_sdk_effective_steps_per_call(
         ]["sequence"]["num_steps"] == 1
 
 
-def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
+def test_remote_generation_identity_contains_no_unused_seed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1584,7 +1572,7 @@ def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
     assert projection["status"] == "succeeded"
     assert descriptors
     assert all(
-        descriptor["node_parameters"]["effective_seed"] == 1603
+        "effective_seed" not in descriptor["node_parameters"]
         and descriptor["determinism"]["effective_randomness"] == {}
         for descriptor in descriptors
     )
@@ -1627,7 +1615,12 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
         operation="generate_paired",
         client=client,
         num_samples=1,
-        generation_parameters={"num_steps": 20},
+        binding_parameters={
+            "sequence_num_steps": 20, "structure_num_steps": 30,
+            "sequence_temperature": 0.6, "structure_temperature": 0.9,
+            "sequence_invalid_ids": [5], "structure_invalid_ids": [7],
+            "structure_condition_on_coordinates_only": False,
+        },
     )
 
     assert projection["status"] == "succeeded"
@@ -1642,7 +1635,7 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
     ).items[0]
     assert structure.metadata["requested_generation_parameters"][
         "num_steps"
-    ] == 20
+    ] == 30
     assert {
         track: values["num_steps"]
         for track, values in structure.metadata[
@@ -1650,6 +1643,12 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
         ].items()
     } == {"sequence": 1, "structure": 2}
 
+
+    assert structure.metadata["effective_generation_parameters"]["sequence"]["temperature"] == 0.6
+    assert structure.metadata["effective_generation_parameters"]["structure"]["temperature"] == 0.9
+    assert structure.metadata["effective_generation_parameters"]["sequence"]["invalid_ids"] == (5,)
+    assert structure.metadata["effective_generation_parameters"]["structure"]["invalid_ids"] == (7,)
+    assert structure.metadata["requested_generation_parameters"]["condition_on_coordinates_only"] is False
 
 def test_structure_generation_normalizes_exact_confidence_before_publication(
     tmp_path: Path,
@@ -2052,7 +2051,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="sequence",
             node_type_id="esm3.generate_sequence",
             binding_id="esm3.generate_sequence.biohub_medium",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=environment(ProviderClient([ProviderResponse("ACD")])),
             workflow_nodes=(source_node("unassigned"),),
             workflow_edges=(
@@ -2066,7 +2065,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="structure",
             node_type_id="esm3.generate_structure",
             binding_id="esm3.generate_structure.biohub_medium",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=environment(ProviderClient([structure_response()])),
             workflow_nodes=(source_node("assigned_sequence"),),
             workflow_edges=(
@@ -2080,7 +2079,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="paired",
             node_type_id="esm3.generate_paired",
             binding_id="esm3.generate_paired.biohub_medium",
-            node_parameters={"effective_seed": 1603, "num_samples": 10},
+            node_parameters={"num_samples": 10},
             environment_values=environment(ProviderClient(paired_responses)),
             workflow_nodes=(source_node("unassigned"),),
             workflow_edges=(
@@ -2094,7 +2093,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="sequence-open",
             node_type_id="esm3.generate_sequence",
             binding_id="esm3.generate_sequence.biohub_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=environment(ProviderClient([ProviderResponse("ACD")])),
             workflow_nodes=(source_node("unassigned"),),
             workflow_edges=(
@@ -2108,7 +2107,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="structure-open",
             node_type_id="esm3.generate_structure",
             binding_id="esm3.generate_structure.biohub_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=environment(ProviderClient([structure_response()])),
             workflow_nodes=(source_node("assigned_sequence"),),
             workflow_edges=(
@@ -2122,7 +2121,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="paired-open",
             node_type_id="esm3.generate_paired",
             binding_id="esm3.generate_paired.biohub_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=environment(
                 ProviderClient([ProviderResponse("ACD"), structure_response()])
             ),
@@ -2138,7 +2137,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             case_id="sequence-local",
             node_type_id="esm3.generate_sequence",
             binding_id="esm3.generate_sequence.local_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=local_environment(
                 ProviderClient([ProviderResponse("ACD")])
             ),
@@ -2148,13 +2147,13 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                     "source", "protein_prompt", "contract-test-node", "protein_prompt"
                 ),
             ),
-            binding_parameters={},
+            binding_parameters={'effective_seed': 1603},
         ),
         "structure-local": lambda: ModulePackageContractCase(
             case_id="structure-local",
             node_type_id="esm3.generate_structure",
             binding_id="esm3.generate_structure.local_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=local_environment(
                 ProviderClient([local_structure_response()])
             ),
@@ -2164,13 +2163,13 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                     "source", "protein_prompt", "contract-test-node", "protein_prompt"
                 ),
             ),
-            binding_parameters={},
+            binding_parameters={'effective_seed': 1603},
         ),
         "paired-local": lambda: ModulePackageContractCase(
             case_id="paired-local",
             node_type_id="esm3.generate_paired",
             binding_id="esm3.generate_paired.local_open",
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             environment_values=local_environment(
                 ProviderClient([ProviderResponse("ACD"), local_structure_response()])
             ),
@@ -2180,7 +2179,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                     "source", "protein_prompt", "contract-test-node", "protein_prompt"
                 ),
             ),
-            binding_parameters={},
+            binding_parameters={'effective_seed': 1603},
         ),
         "direct-esmc": lambda: ModulePackageContractCase(
             case_id="direct-esmc",

@@ -88,6 +88,7 @@ def main() -> int:
     _verify_build_toolchain()
     env = os.environ.copy()
     env["SOURCE_DATE_EPOCH"] = str(SOURCE_DATE_EPOCH)
+    env["PROTEIN_WORKBENCH_UI_TOOLCHAIN"] = str(PROJECT_ROOT / "webui")
     subprocess.run(
         [
             sys.executable,

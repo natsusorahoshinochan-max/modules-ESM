@@ -127,7 +127,7 @@ test('stage Prompt and ranking editors open the referenced internal node and ret
   await stageButton(page, 3).click()
   const rankingAction = page.getByRole('button', { name: '回折筛选规则', exact: true })
   await rankingAction.click()
-  const ranking = page.getByRole('dialog', { name: '编辑流程筛选', exact: true })
+  const ranking = page.getByRole('dialog', { name: '编辑筛选与排序', exact: true })
   await expect(ranking).toBeVisible()
   await expect(ranking.getByLabel('Candidate Collection 来源')).toHaveValue(JSON.stringify(['fold-stage-one', 'structure_candidates']))
   await expect(ranking.getByLabel('Score Collection 来源').first()).toHaveValue(JSON.stringify(['scores-stage-one', 'scores']))
