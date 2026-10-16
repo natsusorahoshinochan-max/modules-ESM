@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, Request
+from .module_ui_routes import register_module_ui_routes
 
 from core.catalog.model import FrozenCatalog
 from core.catalog.authoring import AuthoringCapabilityProjection
@@ -31,6 +32,7 @@ def register_catalog_routes(
     rest_operations: Mapping[str, Any],
     authoring_projection: AuthoringCapabilityProjection,
 ) -> None:
+    register_module_ui_routes(app, catalog)
     catalog_operation = rest_operations["catalog_snapshot"]
 
     @app.get(catalog_operation["route"], include_in_schema=False)

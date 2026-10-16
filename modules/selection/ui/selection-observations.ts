@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { PublicV2Client } from './protocol/client'
-import type { CatalogSnapshot, JsonObject, Workflow } from './protocol/client'
+import { PublicV2Client } from '../../../webui/src/protocol/client'
+import type { CatalogSnapshot, JsonObject, Workflow } from '../../../webui/src/protocol/client'
 import { sourceKey, type ObservationDraft, type SelectionSource } from './selection-authoring'
 
 export type ObservationOption = {

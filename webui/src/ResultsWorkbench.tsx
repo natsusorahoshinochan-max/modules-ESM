@@ -7,7 +7,7 @@ import { resultFilterOutcome } from './result-filter'
 import { type PublishedStructure, type CatalogSnapshot, type ResultLocation, type RunProjection } from './protocol/client'
 import { candidateViewKey, exportCandidates, locationKey, observationKey, referenceKey, scalarObservationChoices, uniqueScalarObservation, type CandidateView, type ResultIndex, type ScoreView } from './result-explorer'
 import type { PublishedResults } from './published-results'
-import { type Predicate } from './selection-authoring'
+import { type Predicate } from '../../modules/selection/ui/selection-authoring'
 import './results.css'
 
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : JSON.stringify(reason)
@@ -170,8 +170,9 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
     if (!compare && !comparisonKeys.some(Boolean) && focusedCandidate) setComparisonKeys([candidateViewKey(focusedCandidate)])
     setCompare(!compare)
   }
+  const [exportFormat, setExportFormat] = useState<'pdb' | 'mmcif'>('pdb')
   async function exportSelected() {
-    const material = await results.prepareExport(checked)
+    const material = await results.prepareExport(checked, exportFormat)
     if (material) exportCandidates(material, scienceStatus)
   }
   async function nextPage() {
@@ -185,7 +186,7 @@ export function ResultsWorkbench({ results, run, index, loading = false, loadErr
     <aside className="result-stages"><button onClick={onBack}>返回 Workflow</button><h2>已发布结果</h2><p>{run.status}</p><p>{scienceStatus === 'current' ? '结果与当前科学流程一致' : scienceStatus === 'stale' ? '结果来自已修改的流程' : '结果一致性待确认'}</p><small>Run {run.run_id}<br />Commit {run.workflow_commit_id}</small><nav aria-label="结果阶段">{collections.map((entry) => <button className={collection === entry ? 'active' : ''} aria-current={collection === entry ? 'true' : undefined} key={locationKey(entry.source)} data-testid={`result-source-${locationKey(entry.source)}`} onClick={() => selectStage(entry.source)}>{sourceTitle(entry.source)}<strong>{entry.total}</strong></button>)}</nav></aside>
     <main ref={mainRef} tabIndex={-1} aria-label="已发布结果工作区" onScroll={rememberView} aria-busy={loading && !loadError}>
       {runControls && <div className="result-run-controls">{runControls}</div>}
-      <header><h1>{displayedSource ? sourceTitle(displayedSource) : collection?.title ?? (loadError ? '结果读取失败' : loading ? '已发布结果' : '尚无已发布候选')}</h1><div><button disabled={!byKey.size || busy} onClick={openComparison}>{compare ? '关闭比较' : `并排比较 (${comparisonKeys.filter(Boolean).length})`}</button><button aria-expanded={basketOpen} onClick={() => setBasketOpen(!basketOpen)}>查看已选 ({checked.length})</button><button disabled={!selected.length || busy} onClick={() => void action(exportSelected)}>导出所选 · ZIP</button></div></header>
+      <header><h1>{displayedSource ? sourceTitle(displayedSource) : collection?.title ?? (loadError ? '结果读取失败' : loading ? '已发布结果' : '尚无已发布候选')}</h1><div><button disabled={!byKey.size || busy} onClick={openComparison}>{compare ? '关闭比较' : `并排比较 (${comparisonKeys.filter(Boolean).length})`}</button><button aria-expanded={basketOpen} onClick={() => setBasketOpen(!basketOpen)}>查看已选 ({checked.length})</button><label>结构导出格式<select aria-label="结构导出格式" value={exportFormat} disabled={busy} onChange={event => setExportFormat(event.target.value as 'pdb' | 'mmcif')}><option value="pdb">PDB</option><option value="mmcif">mmCIF</option></select></label><button disabled={!selected.length || busy} onClick={() => void action(exportSelected)}>导出所选 · ZIP</button></div></header>
       {displayedSource && <section className="result-source" aria-label="当前结果来源"><div><span>来源：{sourceTitle(displayedSource)}</span>{<button disabled={!sourceInCurrentGraph} onClick={() => onLocateNode(displayedSource.node_id)}>在画布中定位</button>}{!sourceInCurrentGraph && <span>来源节点已不在当前图中</span>}</div><details><summary>精确输出位置</summary><code>{JSON.stringify(displayedSource)}</code></details></section>}
       {sourceTarget && !collection && <p role="status" className="result-unpublished">{loading ? '正在读取此节点输出…' : loadError ? '此节点输出读取失败，请查看下方错误。' : '此 Run 尚未发布这个节点输出的候选集合。可以从左侧选择其他已发布输出。'}</p>}
       {<p className="result-selection-summary" aria-label="结果交互状态">焦点：{focusedCandidate?.reference.candidate_id ?? '无'}（查看详情） · 比较：{comparisonKeys.filter(Boolean).length} 项（并排查看） · 勾选：{checked.length} 项（导出）。三者独立，切换输出保留比较和勾选。</p>}

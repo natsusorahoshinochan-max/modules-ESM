@@ -47,3 +47,22 @@ test('result selection and navigation do not expose removed save-as-workflow act
   await expect(checked).toBeChecked()
   await expect(page.getByRole('button', { name: '导出所选 · ZIP' })).toBeEnabled()
 })
+
+test('result export offers PDB and mmCIF and downloads the selected format', async ({ page }) => {
+  const { readFile } = await import('node:fs/promises')
+  const { unzipSync, strFromU8 } = await import('fflate')
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Results/ }).click()
+  await page.getByTestId('result-source-["fold-final","structure_candidates",0]').click()
+  await page.locator('.result-table input[type=checkbox]').first().check()
+  await page.getByLabel('结构导出格式', { exact: true }).selectOption('mmcif')
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: '导出所选 · ZIP' }).click()
+  const download = await downloading
+  const files = unzipSync(await readFile((await download.path())!))
+  const structures = Object.keys(files).filter(name => name.endsWith('.cif'))
+  expect(structures.length).toBeGreaterThan(0)
+  expect(Object.keys(files).some(name => name.endsWith('.pdb'))).toBe(false)
+  expect(strFromU8(files[structures[0]])).toContain('_atom_site.')
+  await page.getByLabel('结构导出格式', { exact: true }).selectOption('pdb')
+})

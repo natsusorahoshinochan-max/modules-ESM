@@ -272,6 +272,37 @@ def register_run_routes(
             _run_receipt_payload(**receipt),
         )
 
+    @app.get(rest_operations["list_project_runs"]["route"], include_in_schema=False)
+    async def public_list_project_runs(request: Request, project_id: str) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(request)
+            admitted = decode_rest_request(
+                "list_project_runs", path_parameters={"project_id": project_id},
+                query_parameters=query_parameters, json_body=json_body,
+            )
+            projections = runtime.project_runs(admitted["project_id"])
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        except V2RunError as error:
+            return public_error_response(error.code, str(error), error.details)
+        except FileNotFoundError:
+            return public_error_response(
+                "project_not_found", "Project was not found",
+                {"resource_kind": "project", "resource_id": project_id},
+            )
+        return emit_rest_json_success("list_project_runs", {
+            "project_id": project_id,
+            "runs": [{
+                "run_id": projection.run_id,
+                "workflow_commit_id": projection.workflow_commit_id,
+                "status": projection.status,
+                "has_results": any(
+                    publication.outputs or publication.artifacts
+                    for publication in projection.publications
+                ),
+            } for projection in projections],
+        })
+
     @app.get(
         rest_operations["run_projection"]["route"],
         include_in_schema=False,

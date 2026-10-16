@@ -96,7 +96,7 @@ When no teaching Project is installed, the app opens an existing personal Projec
 or offers creation and opening. An empty installed package inventory still exposes
 the canvas and manual Project persistence. The production inventory is
 `modules.json` under the application data root, with a `packages` array of
-`package_module` and boolean `enabled` entries. A missing inventory uses the
+`package_id`, `package_module`, boolean `enabled`, and nullable `source_root` entries. A missing inventory uses the
 bundled enabled packages; `{"packages": []}` selects an empty carrier. This
 composition contract is not yet an in-application package manager. The [example resource guide](../examples/v2/README.md#protected-webui-result-resource)
 describes what ships in the backend package.
@@ -115,7 +115,7 @@ have separate requirements; see [Prompt editing](../docs/prompt-editing.md).
 
 Results browse published intermediate outputs, exact Scores, parents and available
 alignment results. Focus, export selection and same-Run comparison are independent.
-The current ZIP exporter writes FASTA, Scores, metadata and structure files in the Candidates’ original PDB or mmCIF format. [Results](../docs/results.md) defines the required history,
+The current ZIP exporter writes FASTA, Scores, metadata and structure files in the selected PDB or mmCIF format. Same-format export preserves source text; conversion leaves stored results unchanged. [Results](../docs/results.md) defines the required history,
 reuse, structure formats, viewers and parameter export behavior.
 
 Edits now remain in memory until an explicit save. Navigation offers save,
@@ -125,8 +125,8 @@ modification while remaining readable. Result-to-workflow actions have been
 removed. These changes passed the frozen snapshot’s non-Provider regressions;
 see the current [verification scope](../docs/testing.md).
 
-The app still mainly opens the latest Run and lacks user-selected structure
-format conversion and complete module settings/viewer integration. Full
+The app still mainly opens the latest Run and lacks complete module settings/viewer integration. The new structure format
+selection and conversion paths await full verification. Full
 historical/cross-project input adoption and source-independent availability
 remain to be verified. Failed batches can publish completed results for reading
 without making the Node successful or sending those outputs downstream; this
@@ -208,3 +208,5 @@ for preparation, report collection and its required original full Run identity.
 Set `PROTEIN_WORKBENCH_REAL_UI_URL` and `PROTEIN_WORKBENCH_REAL_FASTA_PROJECT_ID`
 for the prepared service and Project, then run
 `npx playwright test --config playwright.real.config.ts` on the verification host.
+
+模块专用 React 编辑器的声明、共享依赖和资产构建见[模块 UI 契约](../docs/module-ui.md)。Selection 已迁移到该入口；外部编辑器旅程通过 `npm run test:module-ui` 在独立公共应用上验证。后端源码资产读取检查前执行 `npm run build:module-ui`，wheel 构建自动生成包内资源。

@@ -51,7 +51,7 @@
 ### DOC-036｜模块专用界面与结果读取仍固定分派
 
 - **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据可有多个查看器，允许切换。
-- **当前证据**：[App](../webui/src/App.tsx)固定导入和分派 Prompt/Selection 编辑器；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
+- **当前证据**：[App](../webui/src/App.tsx)的 Selection 已改为模块声明的 React 编辑器入口，外部包使用同一发现和资源接口（见[模块 UI 契约](module-ui.md)）；Prompt 编辑器尚有固定分派；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
 - **状态**：后端专用读取与前端加载须一起修正，不能要求自定义数据伪装成蛋白类型。已有 Port Type 注册及编解码不等于专用界面接入完整，见[架构](architecture.md)和[结果说明](results.md)。
 
 ### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
@@ -75,11 +75,11 @@
 - **当前证据**：[运行时](../modules/folding/simplefold_runtime.py)第 260–268 行固定 tau=.1；[Binding](../modules/folding/package.py)第 424–435 行将步数限制在 1–50，固定上游 CLI 公开步数及 tau，示例采用 500 步。
 - **状态**：开放适用参数并移除无依据限制。tau=.1 有默认依据；不将折叠采样参数套用于不重新采样的已有结构 confidence 操作。见[参数审查](tool-parameter-exposure-audit.md)。
 
-### DOC-045｜结构导出仍缺用户选择格式转换
+### DOC-045｜结构导出格式转换待完整核验
 
 - **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)按原格式输出，尚未提供 Q34 要求的用户选择格式转换。
-- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；导入或原格式导出通过不等于两条导出路径的选择转换已完成。
+- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../webui/src/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
+- **状态**：[结构导入测试](../tests/modules/protein_io/test_protein_io_v2.py)及相关前端旅程已通过；节点四种源/目标组合已通过本次诊断；结果 action 与浏览器选择入口的完整验证仍待完成，不将前者当作后者已验收。
 
 ### DOC-046｜跳过批内成功请求的主动续算仍缺
 

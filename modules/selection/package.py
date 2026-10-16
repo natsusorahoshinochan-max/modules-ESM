@@ -8,6 +8,8 @@ from core.catalog.declarations import (
     CandidateSelectionConsumptionDefinition,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
+    ModuleUiDefinition,
+    NodeEditorDefinition,
     ObservationSelectorConsumptionDefinition,
     ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
@@ -122,6 +124,15 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="selection",
     package_module=__package__,
+    ui_extensions=(ModuleUiDefinition(
+        extension_id="selection.editors", resource_package=__package__,
+        entry="ui/build/editor.js", styles=("ui/build/editor.css",), react_major=19,
+        editors=(NodeEditorDefinition(
+            editor_id="selection.editor", title="编辑筛选与排序",
+            node_type_ids=tuple(f"selection.{operation}" for operation in OPERATIONS),
+            component="SelectionEditor",
+        ),),
+    ),),
     node_definitions=tuple(
         DefinitionResource(f"definitions/{operation}.yaml")
         for operation in OPERATIONS

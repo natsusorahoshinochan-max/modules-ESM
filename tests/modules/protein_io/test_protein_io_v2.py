@@ -156,7 +156,7 @@ def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
                 value_content_digests=("sha256:" + ("a" * 64),),
             )
         },
-        node_parameters={},
+        node_parameters={"format": "pdb"},
         binding_parameters={},
         effective_randomness={},
     )
@@ -616,7 +616,7 @@ ATOM 4 O O . GLY A 1 1 ? 3.000 2.000 3.000 1.00 20.00 7 B 1
         inputs={"structure": admitted_port_fixture(
             structure, port_type_id="protein.structure",
             value_content_digests=(codec.content_digest(structure),),
-        )}, node_parameters={}, binding_parameters={}, effective_randomness={},
+        )}, node_parameters={"format": "mmcif"}, binding_parameters={}, effective_randomness={},
     ))
     artifact = output["standalone_mmcif_artifact"]
     assert artifact.body == payload

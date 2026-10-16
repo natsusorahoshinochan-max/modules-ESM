@@ -801,7 +801,7 @@ test('the example selection chain keeps complete Candidate sources and axes-base
   await enterExampleStage(page, 5)
   const selectionNode = page.getByTestId('rf__node-rank-final')
   await selectionNode.getByRole('button', { name: /编辑筛选与排序/ }).click()
-  const dialog = page.getByRole('dialog', { name: '编辑流程筛选' })
+  const dialog = page.getByRole('dialog', { name: '编辑筛选与排序' })
   await expect(dialog).toBeVisible()
 
   // Complete Candidate values keep coming from the original Candidate branch.

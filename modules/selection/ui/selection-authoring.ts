@@ -1,4 +1,4 @@
-import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject, Workflow, WorkflowNode } from './protocol/client'
+import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject, Workflow, WorkflowNode } from '../../../webui/src/protocol/client'
 
 export type SelectionOperation = 'filter' | 'sort' | 'top_k' | 'weighted_rank' | 'pareto' | 'diversity' | 'manual'
 export const selectionNodeTypes = new Set(['filter', 'sort', 'top_k', 'weighted_rank', 'pareto', 'diversity', 'manual'].map((name) => `selection.${name}`))
