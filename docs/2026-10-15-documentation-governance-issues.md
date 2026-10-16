@@ -10,21 +10,7 @@
 
 本清单依据当前源码与固定官方接口资料记录实现差异。旧测试组件和门禁已废弃，不作为需求或交付依据，见 [AGENTS.md](../AGENTS.md#测试)。专利法律状态与第三方分发授权未重新核验。
 
-下列实现差异在业务实现对齐之前仍保留。代码文件链接用于定位，具体类、函数和字段比随编辑变化的行号更可靠。
-
-## 业务路径待核对
-
-### DOC-045｜结构导出格式转换待完整核验
-
-- **要求**：导入与导出均支持 PDB/mmCIF，工具所需表示由 Adapter 转换。
-- **当前实现**：[输入检查](../modules/protein_io/inspection.py)与导入支持 PDB/mmCIF；[结构值](../datatypes/structure.py)以 text/format 保存原文。[结构导出声明](../modules/protein_io/definitions/structure_export.yaml)和[结果导出](../modules/protein_io/ui/result-explorer.ts)提供 PDB/mmCIF 目标选择；模块拥有转换逻辑，同格式保持原文，结果页通过注册的只读结果 action 调用。
-- **待核对**：结果 action 与浏览器格式选择入口的完整业务路径。
-
-### DOC-050｜结果 ZIP 的计算参数关联
-
-- **要求**：导出附带已经记录的计算参数，供离开软件后查看。
-- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../modules/protein_io/ui/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
-- **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
+下列事项保留其未决范围与核查依据。代码文件链接用于定位，具体类、函数和字段比随编辑变化的行号更可靠。
 
 ## 范围与事实待核实
 
