@@ -32,6 +32,7 @@ from .implementation import (
 )
 from .port_types import ARTIFACT_PAYLOAD_PORT_TYPE
 from .structure_export import EXPORT_STRUCTURE_ACTION
+from .candidate_reading import CANDIDATE_PAGE_ACTION, CANDIDATE_STRUCTURE_ACTION
 
 
 def _build(operation: str):
@@ -120,5 +121,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(ARTIFACT_PAYLOAD_PORT_TYPE,),
-    result_actions=(EXPORT_STRUCTURE_ACTION,),
+    result_actions=(EXPORT_STRUCTURE_ACTION, CANDIDATE_PAGE_ACTION, CANDIDATE_STRUCTURE_ACTION),
 )

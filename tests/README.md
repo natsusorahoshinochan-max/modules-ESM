@@ -113,3 +113,9 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-read
 ```
 
 通过公共接口导入序列或创建空白 Prompt 后执行，完整应用中打开模块查看器并重新打开项目。检查序列原值不变及 Prompt 残基分页、Mask 和整轨缺失区别。只运行确定性模块，不调用 Provider。
+
+候选读取公共 action 的应用重开、分页顺序/引用及结构原文切片：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_candidate_reading.py
+```

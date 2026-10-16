@@ -1,4 +1,4 @@
-import { type PublishedStructure, type CanonicalTypedValue, type PublishedResultValue, type PublishedScientificValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
+import { type PublishedStructure, type CanonicalTypedValue, type PublishedResultValue, type PublishedScientificValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
 import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
 import type { WorkflowCommitSnapshot } from './project-workspace'
 import { readComputationParameters } from './result-parameters'
@@ -166,7 +166,7 @@ export class PublishedResults {
     if (!pending) {
       pending = (exportFormat
         ? this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.export_structure', { item_index: candidate.item_index, format: exportFormat })
-        : this.client.resultStructure(session.reference.project_id, session.reference.run_id, candidate.source, candidate.item_index))
+        : this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.candidate_structure', { item_index: candidate.item_index }))
         .catch(error => { session.structures.delete(contentKey); throw error })
       session.structures.set(contentKey, pending)
     }
@@ -313,7 +313,7 @@ export class PublishedResults {
   private readPage(session: Session, collection: Collection): Promise<void> {
     if (collection.pending) return collection.pending
     const { project_id, run_id } = session.reference
-    const task = this.client.resultCollection(project_id, run_id, collection.source, collection.items.length).then((page) => {
+    const task = this.client.resultAction<ResultCollectionPage>(project_id, run_id, collection.source, 'protein_io.candidate_page', { offset: collection.items.length, limit: 100 }).then((page) => {
       if (this.session !== session) return
       collection.items.push(...page.items)
       collection.total = page.total

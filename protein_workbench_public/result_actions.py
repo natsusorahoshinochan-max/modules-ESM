@@ -26,7 +26,7 @@ class ResultActionReader:
         action = next((item for item in self._catalog.result_actions if item.action_id == action_id), None)
         if action is None:
             raise V2RunError("malformed_request", "Result action is not registered", details={"field_path": ["action_id"]})
-        metadata, body, _ = self._read_value(project_id, run_id, node_id, output_port, value_index)
+        metadata, body, references = self._read_value(project_id, run_id, node_id, output_port, value_index)
         if metadata["typed_value"]["port_type"]["contract_id"] != action.port_type_id:
             raise V2RunError("malformed_request", "Result action does not support this Port Type", details={"field_path": ["action_id"]})
         try:
@@ -34,6 +34,6 @@ class ResultActionReader:
         except ParameterValueAdmissionError as error:
             raise V2RunError("malformed_request", str(error), details={"field_path": ["parameters"]}) from error
         try:
-            return action.apply(body, admitted)
+            return action.apply(body, admitted, references)
         except ResultActionError as error:
             raise V2RunError("malformed_request", str(error), details={"field_path": ["parameters"]}) from error
