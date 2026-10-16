@@ -59,3 +59,62 @@ test('main results ZIP converts the selected historical structure and records it
   expect((await (await request.get(`${base}/workspace`)).json()).draft.workflow.nodes[0].node_parameters.model_index).toBe(2)
   expect(await (await request.get(rawUrl)).text()).toBe(original)
 })
+
+test('mixed ZIP selection associates a cache replay and a new output with their own producer parameters', async ({ page, request }) => {
+  const created = await request.post(`${appUrl}/api/v2/projects`, { data: { name: 'Mixed cached export' } })
+  expect(created.status()).toBe(201)
+  const { id } = await created.json()
+  const base = `${appUrl}/api/v2/projects/${id}`
+  const refs: string[] = []
+  for (const [name, sequence] of [['first', 'ACDE'], ['second', 'GGGG']]) {
+    const uploaded = await request.post(`${base}/inputs`, { data: { filename: `${name}.fasta`, content_base64: Buffer.from(`>${name}\n${sequence}\n`).toString('base64') } })
+    expect(uploaded.status()).toBe(201)
+    refs.push((await uploaded.json()).project_input_ref)
+  }
+  const imported = (name: string, ref: string) => ({ node_id: name, node_type_id: 'protein_io.import_sequences', binding_id: 'protein_io.import_sequences.direct', node_parameters: { project_input_ref: ref }, binding_parameters: {} })
+  const take = (name: string) => ({ node_id: name, node_type_id: 'collection_ops.take_candidates', binding_id: 'collection_ops.take_candidates.direct', node_parameters: { k: 1 }, binding_parameters: {} })
+  const run = async (replay: boolean) => {
+    const takeId = replay ? 'replayed-prefix' : 'original-prefix'
+    const workflow = { schema_version: '2.1.0', workflow_id: id, nodes: [imported('first-source', refs[0]), take(takeId), ...(replay ? [imported('second-source', refs[1])] : [])], edges: [{ source_node_id: 'first-source', source_port: 'sequence_candidates', target_node_id: takeId, target_port: 'candidates' }] }
+    const committed = await request.post(`${base}/workflow:commit`, { data: { workflow } })
+    expect(committed.status()).toBe(200)
+    const started = await request.post(`${base}/runs`, { data: { workflow_commit_id: (await committed.json()).workflow_commit_id, client_request_id: takeId } })
+    expect(started.status()).toBe(202)
+    const { run_id } = await started.json()
+    await expect.poll(async () => (await (await request.get(`${base}/runs/${run_id}`)).json()).status).toBe('succeeded')
+    return (await request.get(`${base}/runs/${run_id}`)).json()
+  }
+  const original = await run(false)
+  const mixed = await run(true)
+  const cached = mixed.outputs.find((output: { node_id: string }) => output.node_id === 'replayed-prefix')
+  expect(cached.materialization.resolution).toBe('cache_replayed')
+  expect(cached.producer_provenance.producer_run_id).toBe(original.run_id)
+  await page.goto(`${appUrl}/?project=${id}&run=${mixed.run_id}`)
+  await page.getByRole('button', { name: '查看结果', exact: true }).click()
+  for (const name of ['Take an ordered Candidate prefix', 'second-source']) {
+    await page.getByRole('navigation', { name: '结果阶段' }).getByRole('button', { name: new RegExp(name) }).click()
+    await page.getByRole('region', { name: '候选列表', exact: true }).getByRole('checkbox').check()
+  }
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('button', { name: '导出所选 · ZIP', exact: true }).click()
+  const stream = await (await downloading).createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk))
+  const files = unzipSync(Buffer.concat(chunks))
+  const manifest = JSON.parse(strFromU8(files['manifest.json']))
+  const parameters = JSON.parse(strFromU8(files['computation-parameters.json']))
+  expect(manifest.candidates.map((candidate: { source: { node_id: string } }) => candidate.source.node_id)).toEqual(['replayed-prefix', 'second-source'])
+  expect(strFromU8(files['candidates.fasta'])).toContain('\nACDE\n')
+  expect(strFromU8(files['candidates.fasta'])).toContain('\nGGGG\n')
+  for (const [exportedNode, producerRun, producerNode, expectedParameters] of [
+    ['replayed-prefix', original.run_id, 'original-prefix', { k: 1 }],
+    ['second-source', mixed.run_id, 'second-source', { project_input_ref: refs[1] }],
+  ] as const) {
+    const output = parameters.outputs.find((entry: { source: { node_id: string } }) => entry.source.node_id === exportedNode)
+    expect(output).toMatchObject({ producer_run_id: producerRun, status: 'recorded' })
+    expect(output.parameter_record_ids).toHaveLength(1)
+    const record = parameters.records.find((entry: { record_id: string }) => entry.record_id === output.parameter_record_ids[0])
+    expect(record).toMatchObject({ project_id: id, run_id: producerRun, node_id: producerNode, node_parameters: expectedParameters, binding_parameters: {} })
+  }
+  expect(parameters.records.some((entry: { node_id: string }) => entry.node_id === 'replayed-prefix')).toBe(false)
+})
