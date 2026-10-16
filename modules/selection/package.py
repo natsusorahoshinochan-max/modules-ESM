@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from core.catalog.result_adoption import ResultSourceDefinition
+
 from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_scores
+from .adopted_scores import AdoptedScoreOperation, adopted_observations, adopted_dependencies
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
@@ -124,7 +127,20 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
 
 
+_ADOPT_BINDING = ExecutionBindingDefinition(
+    binding_id="selection.adopt_scores.direct",
+    node_type=ExactContractReference("node_type", "selection.adopt_scores"),
+    method=ExactContractReference("method", "selection.adopt_scores.method"),
+    binding_parameters={}, execution_route="direct",
+    factory=ScientificOperationFactory(BehaviorReference("selection.adopt_scores/factory"),
+        lambda context: AdoptedScoreOperation(context.resources)),
+    availability=AvailabilityDeclaration(BehaviorReference("selection.adopt_scores/availability"), {}, _available),
+    deterministic=True, cacheable=False,
+)
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_sources=(ResultSourceDefinition("score.collection", "selection.adopt_scores", "selection.adopt_scores.direct", observations=adopted_observations, dependencies=adopted_dependencies),),
     result_readers=(
         ResultReaderDefinition("score.collection", "scores", read_scores),
     ),
@@ -139,7 +155,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             component="SelectionEditor",
         ),),
     ),),
-    node_definitions=tuple(
+    node_definitions=(DefinitionResource("definitions/adopt_scores.yaml"),) + tuple(
         DefinitionResource(f"definitions/{operation}.yaml")
         for operation in OPERATIONS
     ),
@@ -147,5 +163,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
         __package__,
         "definitions/methods.yaml",
     ),
-    bindings=tuple(_binding(operation) for operation in OPERATIONS),
+    bindings=(_ADOPT_BINDING,) + tuple(_binding(operation) for operation in OPERATIONS),
 )

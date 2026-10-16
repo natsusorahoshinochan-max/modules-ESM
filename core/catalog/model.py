@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.result_adoption import ResultSourceDefinition
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -159,6 +161,7 @@ class FrozenCatalog:
     ui_extensions: tuple[ModuleUiDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     result_readers: tuple[ResultReaderDefinition, ...] = ()
+    result_sources: tuple[ResultSourceDefinition, ...] = ()
     _by_identity: Mapping[str, PortTypeDefinition] = field(
         init=False,
         repr=False,
