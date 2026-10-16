@@ -107,7 +107,9 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 应附带已经记录的原计算参数，保证离开软件后可读；只写 Commit ID 或 Method 定义不足以替代实际节点/Binding 参数。不补造未记录数据，不新增日志或证据体系。结构须提供 PDB/mmCIF 选择，并保留所选非蛋白组分。
 
-当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。当前 ZIP 尚缺完整计算参数说明。[结果阅读](../webui/src/published-results.ts)取得原 Commit 后只保留定义，导出材料未传入原 Workflow/参数。不能把现有 ZIP 描述为已满足全部导出要求。
+当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份和输出端口定位原节点，不把当前工作区或重放 Run 的配置冒充原计算参数。多个匹配原节点保留全部关联。
+
+参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责，完整验证仍待当前冻结源码矩阵完成。
 
 ## 当前差距与核对
 
@@ -120,6 +122,6 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 | 结果页转流程 | 已删除入口及节点生成路径，应用旅程回归通过 |
 | ESMC 输出 | 实际 logits 可选输出尚未对齐，不能以矩阵尺寸冒充数值；见[模块能力](module-capabilities.md) |
 | 批次成功结果与续算 | 失败时保留完成结果的受控回归通过；真实工具成功调用不替代失败路径验证；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
-| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，完整验证待完成；当前 ZIP 尚缺已记录参数说明 |
+| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，以及来源 Run/Commit 参数文件；当前冻结源码完整验证待完成 |
 
 后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)在本机执行对应检查；本规范不记录旧验收通过数。

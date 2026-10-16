@@ -93,11 +93,11 @@
 - **当前实现**：[bootstrap](../protein_workbench_public/bootstrap.py)读取安装清单，空 Catalog 不安装教学项目；有教学文件且所需节点与 Binding 存在时才安装，编译错误不被吞掉。前端无教学项目时可进入个人项目或创建入口。
 - **状态**：生产空清单的协议与浏览器旅程已添加，尚待冻结源码验证；应用内模块管理入口仍待接入。默认教学入口、原件保护及首次手动保存副本仍须保持通过。
 
-### DOC-050｜结果 ZIP 缺少已记录的计算参数
+### DOC-050｜结果 ZIP 的计算参数关联
 
 - **要求**：导出附带已经记录的计算参数，供离开软件后查看。
-- **当前证据**：[导出 manifest](../webui/src/result-explorer.ts)第 19、110 行未包含节点或 Binding 参数；[published-results](../webui/src/published-results.ts)第 259–261 行读取 Commit 后只保留 scientific_definitions，prepareExport 未传原 Workflow 参数。
-- **状态**：按[导出约定](results.md)补齐已有参数，不把定义或 Run/Commit ID 当作实际参数，不补造未记录信息或新增日志体系。
+- **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../webui/src/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
+- **状态**：已添加修改工作区后混合导出、缓存原来源及原记录缺失的浏览器下载旅程；当前冻结源码验证待完成。格式及导出边界见[导出约定](results.md#导出)。
 
 ### DOC-051｜多构象选择及拆分尚未提供
 

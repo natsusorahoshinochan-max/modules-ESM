@@ -1,4 +1,5 @@
 import { strToU8, zipSync } from 'fflate'
+import type { ComputationParameters } from './result-parameters'
 import type { CandidateReference, CatalogSnapshot, PublishedStructure, PublishedAlignment, PublishedObservation, PublishedOutput, ResultCandidate, ResultLocation, RunProjection } from './protocol/client'
 
 export type CandidateView = ResultCandidate & { source: ResultLocation; output: PublishedOutput; sequenceSource?: ResultLocation }
@@ -16,7 +17,7 @@ export type ResultIndex = ResultFacts & {
   subjectScores: Map<string, ScoreView[]>
   subjectAlignments: Map<string, AlignmentView[]>
 }
-export type CandidateExportMaterial = { candidates: CandidateView[]; structures: Map<string, PublishedStructure | null>; index: ResultIndex; run: RunProjection }
+export type CandidateExportMaterial = { candidates: CandidateView[]; structures: Map<string, PublishedStructure | null>; index: ResultIndex; run: RunProjection; computationParameters: ComputationParameters }
 
 export function referenceKey(reference: CandidateReference) {
   return JSON.stringify([reference.candidate_id, reference.data_type_id, reference.content_digest])
@@ -83,7 +84,7 @@ export function alignedCoordinate(coordinate: number[], transform: AlignmentView
 const csv = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
 
 /** Formatting cannot fetch or combine another snapshot's scientific facts. */
-export function candidateExportFiles({ candidates, structures, index, run }: CandidateExportMaterial, scienceStatus: 'current' | 'stale' | 'unknown') {
+export function candidateExportFiles({ candidates, structures, index, run, computationParameters }: CandidateExportMaterial, scienceStatus: 'current' | 'stale' | 'unknown') {
   const files: Record<string, Uint8Array> = {}
   const selected = new Set(candidates.map(candidate => referenceKey(candidate.reference)))
   const observations = [...selected].flatMap(key => index.subjectScores.get(key) ?? []).map(score => {
@@ -107,7 +108,12 @@ export function candidateExportFiles({ candidates, structures, index, run }: Can
       return [score.subject.candidate_id, score.subject.data_type_id, score.subject.content_digest, score.metric.contract_id, score.method.contract_id, score.source_partition, JSON.stringify(score.context), JSON.stringify(score.value), metric.unit, JSON.stringify(score.source)].map(csv).join(',')
     }),
   ].join('\n'))
-  files['manifest.json'] = strToU8(JSON.stringify({ schema_namespace: 'protein-workbench-webui-export/v2', project_id: run.project_id, run_id: run.run_id, workflow_commit_id: run.workflow_commit_id, run_status: run.status, current_workflow_relation: scienceStatus, candidates: manifestItems, without_structure: manifestItems.filter(item => item.structure_file === null).map(item => item.reference), without_sequence_evidence: manifestItems.filter(item => !item.has_sequence).map(item => item.reference), observations, alignments, scientific_definitions: index.definitions.filter(contract => ['metric', 'method'].includes(contract.reference.contract_kind)) }, null, 2))
+  files['computation-parameters.json'] = strToU8(JSON.stringify({
+    description: 'Saved computation settings. Match manifest candidate, sequence, observation and alignment source locations to outputs, then parameter_record_ids to records. Records identify original producer Runs, including cache replays. Node and Binding parameters are saved Workflow values; admitted_parameters contains the separately saved compiled values, or null when unavailable. No current defaults or Environment Configuration are added. Workflows preserve saved input connections, selectors and objectives; they do not imply every node executed.',
+    project_id: run.project_id, run_id: run.run_id, workflow_commit_id: run.workflow_commit_id,
+    ...computationParameters,
+  }, null, 2))
+  files['manifest.json'] = strToU8(JSON.stringify({ schema_namespace: 'protein-workbench-webui-export/v2', project_id: run.project_id, run_id: run.run_id, workflow_commit_id: run.workflow_commit_id, run_status: run.status, current_workflow_relation: scienceStatus, computation_parameters_file: 'computation-parameters.json', candidates: manifestItems, without_structure: manifestItems.filter(item => item.structure_file === null).map(item => item.reference), without_sequence_evidence: manifestItems.filter(item => !item.has_sequence).map(item => item.reference), observations, alignments, scientific_definitions: index.definitions.filter(contract => ['metric', 'method'].includes(contract.reference.contract_kind)) }, null, 2))
   return files
 }
 

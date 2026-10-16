@@ -122,7 +122,7 @@ test('a real 1000-record import pages results without loading structures and ret
   await page.getByRole('button', { name: '导出所选 · ZIP' }).click()
   const download = await downloading
   const files = unzipSync(await readFile((await download.path())!))
-  expect(Object.keys(files).sort()).toEqual(['candidates.fasta', 'manifest.json', 'scores.csv'])
+  expect(Object.keys(files).sort()).toEqual(['candidates.fasta', 'computation-parameters.json', 'manifest.json', 'scores.csv'])
   expect(strFromU8(files['candidates.fasta'])).toContain('\nACDEFG\n')
   const manifest = JSON.parse(strFromU8(files['manifest.json']))
   expect(manifest.run_id).toBe(started.run_id)
