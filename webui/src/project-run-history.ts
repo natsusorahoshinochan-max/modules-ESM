@@ -92,7 +92,6 @@ export function useProjectExecution(client: PublicV2Client, projectId: string | 
   return {
     active: !!execution && (execution.reserved || execution.active_run_ids.length > 0),
     editable: !!execution && !execution.reserved && execution.active_run_ids.length === 0,
-    reserved: execution?.reserved ?? false,
     started,
     loading: !!projectId && !execution && !(state.projectId === projectId && state.error),
     error: state.projectId === projectId ? state.error : undefined,

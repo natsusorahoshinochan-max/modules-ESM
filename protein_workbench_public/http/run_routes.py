@@ -280,7 +280,9 @@ def register_run_routes(
                 "project_execution_state", path_parameters={"project_id": project_id},
                 query_parameters=query_parameters, json_body=json_body,
             )
-            run_ids, reserved = runtime.project_execution_state(admitted["project_id"])
+            run_ids, reserved = await asyncio.to_thread(
+                runtime.project_execution_state, admitted["project_id"],
+            )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
         except FileNotFoundError:

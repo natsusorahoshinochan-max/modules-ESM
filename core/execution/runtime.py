@@ -253,7 +253,9 @@ class V2RunService:
             ledger=ledger,
         )
 
-        self._registry.register(project_id, run_id, record)
+        with self._worker_condition:
+            self._registry.register(project_id, run_id, record)
+            self._worker_condition.notify_all()
         receipt = {
             "project_id": project_id,
             "run_id": run_id,
@@ -440,7 +442,14 @@ class V2RunService:
         """Expose the same execution ownership used by project mutation admission."""
         self._projects.require_meta(project_id)
         with self._worker_condition:
-            return self.active_run_ids(project_id), project_id in self._reserved_projects
+            while True:
+                run_ids = self.active_run_ids(project_id)
+                reserved = project_id in self._reserved_projects
+                if run_ids or not reserved:
+                    return run_ids, reserved
+                # Admission will publish a Run identity; completion will release
+                # the reservation. Neither transition needs client polling.
+                self._worker_condition.wait()
 
     def unavailable_run_ids(self, project_id: str) -> tuple[str, ...]:
         return self._registry.unavailable_run_ids(project_id)

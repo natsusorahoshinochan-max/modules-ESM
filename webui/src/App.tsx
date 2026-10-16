@@ -844,7 +844,6 @@ function App() {
     {history.error && <div role="alert">{history.error}<button onClick={history.refresh}>重新读取运行历史</button></div>}
     {execution.loading && <div role="status">正在读取项目执行状态…</div>}
     {execution.error && <div role="alert">{execution.error}<button onClick={execution.refresh}>重新读取项目执行状态</button></div>}
-    {execution.reserved && <div role="status">项目正在准备运行。<button onClick={execution.refresh}>刷新执行状态</button></div>}
     {runProgress && <RunProgressBar progress={runProgress} nodeTitle={progressNodeTitle} resultsLoading={resultsLoading} resultsAvailable={resultsAvailable} onResults={showResults} onCancel={() => { void client.cancelRun(runProgress.projectId!, runProgress.runId!).catch((reason) => setRunError(JSON.stringify(reason))) }} />}
     {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
     {runError && <pre role="alert">{runError}</pre>}
