@@ -10,6 +10,7 @@ from core.project.adopted_input import AdoptedSnapshot, read_adopted_snapshot
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.adopted_results import original_parameters, dependency_values
 from core.execution.runtime import V2RunService
+from datatypes.i_json import thaw_i_json
 
 from fastapi import FastAPI, Request
 
@@ -46,10 +47,19 @@ def register_adoption_routes(
                 snapshot: AdoptedSnapshot = {
                     'port_type_id': type_id, 'canonical_value': canonical.decode('utf-8'),
                     'content_digest': typed['value_content_digest'],
-                    'parameters': {}, 'dependencies': [],
+                    'parameters': {}, 'dependencies': [], 'axis_digests': [], 'definitions': [],
                     'candidate_data': [{'candidate_id': ref.candidate_id, 'data_type_id': ref.data_type_id, 'content_digest': ref.content_digest} for ref in references],
                     'source': {'source_project_id': value['source_project_id'], 'source_run_id': value['source_run_id'], 'node_id': value['node_id'], 'output_port': value['output_port'], 'value_index': value['value_index']},
                 }
+                if source.observations is not None:
+                    observations = source.observations(canonical)
+                    required_definitions = {reference.key for observation in observations for reference in (observation.metric, observation.method)}
+                    source_run = runtime.projection(value['source_project_id'], value['source_run_id'])
+                    source_commit = authoring.load_commit(value['source_project_id'], workflow_commit_id=source_run.workflow_commit_id)
+                    snapshot['definitions'] = [thaw_i_json(definition) for definition in source_commit.scientific_definitions
+                        if (definition['contract_kind'], definition['contract_id']) in required_definitions]
+                    if len(snapshot['definitions']) != len(required_definitions):
+                        raise ValueError('Published observations lack their recorded Metric or Method definition')
                 snapshot['parameters'] = original_parameters(snapshot['source'], runtime=runtime, authoring=authoring, projects=projects, catalog=catalog)
                 if source.dependencies is not None:
                     dependencies = source.dependencies(canonical, dependency_values(snapshot['source'],
@@ -90,7 +100,7 @@ def register_adoption_routes(
             return public_error_response('project_input_not_found', 'Project Input was not found',
                 {'resource_kind': 'project_input', 'resource_id': project_input_ref})
         return emit_rest_json_success('adopted_input_metadata', {
-            'source': snapshot['source'], 'parameters': snapshot['parameters'], 'dependencies': snapshot['dependencies'],
+            'source': snapshot['source'], 'parameters': snapshot['parameters'], 'dependencies': snapshot['dependencies'], 'definitions': snapshot['definitions'],
         })
 
     @app.get(operations['result_sources']['route'], include_in_schema=False)

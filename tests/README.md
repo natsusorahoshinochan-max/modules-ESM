@@ -112,4 +112,4 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 WORKBENCH_TEST_URL=http://127.0.0.1:5193 npx playwright test tests/result-adoption.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-adoption-test-results
 ```
 
-通过公共 API 准备一个真实序列导入结果，再操作应用选择来源项目、历史运行与结果值。覆盖采用后只添加未保存来源节点、不自动连线，以及手动保存后重新打开；不调用模型。来源永久删除后的数据独立性由采用 API 测试覆盖，界面测试不代替该行为证明。
+通过公共 API 准备一个真实序列导入结果，再操作应用选择来源项目、历史运行与结果值。覆盖采用后只添加未保存来源节点、不自动连线，以及手动保存后重新打开；不调用模型。另一个界面切片永久删除来源项目后运行已采用输入，实际下载 ZIP 并核对原始计算参数，防止把采用节点的输入引用误写成原计算；同一结果页加载后再禁用来源模块也覆盖该导出行为。更完整的数据独立性与依赖保留由采用 API 测试覆盖。

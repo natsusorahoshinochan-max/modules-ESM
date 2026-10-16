@@ -15,4 +15,10 @@ outputs:
     multiplicity: one
     scientific_meaning: One intrinsic observation per input subject.
 parameter_groups: []
-node_parameters: {}
+node_parameters:
+  stop:
+    parameter_scope: scientific
+    scientific_meaning: Explicitly stop this example after its first completed observation batch.
+    required: false
+    default: false
+    value_contract: {type: boolean}

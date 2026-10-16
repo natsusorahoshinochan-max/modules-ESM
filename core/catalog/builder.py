@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
+from dataclasses import replace
 from typing import Any
 
 from core.catalog.observation import ObservationPropagation
@@ -313,6 +314,8 @@ def build_frozen_catalog(
                     resource_reference,
                     kind=kind,
                 )
+                if isinstance(definition, NodeTypeDefinition) and any(source.node_type_id == definition.node_type_id for source in registration.result_sources):
+                    definition = replace(definition, restores_published_value=True)
                 definitions.append((registration.package_id, definition))
         definitions.extend(
             (registration.package_id, definition)

@@ -10,11 +10,11 @@ from protein_workbench_public.bootstrap import create_application
 
 
 class ResultAdoption(unittest.TestCase):
-    def run_workflow(self, client, project_id, nodes, edges=()):
+    def run_workflow(self, client, project_id, nodes, edges=(), selectors=(), status="succeeded"):
         base = '/api/v2/projects/' + project_id
         saved = client.post(base + '/workflow:commit', json={'workflow': {
             'schema_version': '2.1.0', 'workflow_id': project_id,
-            'nodes': nodes, 'edges': list(edges)}})
+            'nodes': nodes, 'edges': list(edges), 'observation_selectors': list(selectors)}})
         self.assertEqual(saved.status_code, 200, saved.text)
         start = client.post(base + '/runs', json={
             'workflow_commit_id': saved.json()['workflow_commit_id'],
@@ -28,7 +28,7 @@ class ResultAdoption(unittest.TestCase):
                 break
             self.assertLess(time.monotonic(), deadline)
             time.sleep(.01)
-        self.assertEqual(result['status'], 'succeeded', result)
+        self.assertEqual(result['status'], status, result)
         return run
 
     def test_adopted_candidates_keep_identity_after_reopen_and_source_deletion(self):
@@ -59,6 +59,15 @@ class ResultAdoption(unittest.TestCase):
                 restored = client.get(target_run + '/outputs/adopted/value/values/0')
                 self.assertEqual(restored.status_code, 200, restored.text)
                 self.assertEqual(restored.content, original.content)
+                copied = client.post(f'/api/v2/projects/{target}:duplicate', json={'name': 'Independent copy'})
+                self.assertEqual(copied.status_code, 201, copied.text)
+                copy_id = copied.json()['id']
+                self.assertEqual(client.get(f'/api/v2/projects/{copy_id}/runs').json()['runs'], [])
+                client.post(f'/api/v2/projects/{target}:trash')
+                client.delete(f'/api/v2/projects/{target}')
+                copied_run = self.run_workflow(client, copy_id, [node])
+                self.assertEqual(client.get(copied_run + '/outputs/adopted/value/values/0').content, original.content)
+
 
     def test_missing_target_reports_project_not_found_without_adopting(self):
         with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
@@ -101,7 +110,7 @@ class ResultAdoption(unittest.TestCase):
         with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
             Path(root, 'modules.json').write_text(json.dumps({'packages': [
                 {'package_id': name, 'package_module': 'modules.' + name + '.package', 'enabled': True, 'source_root': None}
-                for name in ('protein_io', 'selection')
+                for name in ('protein_io', 'selection', 'collection_ops')
             ] + [{'package_id': 'adoption_demo', 'package_module': 'adoption_module', 'enabled': True,
                   'source_root': str(Path(__file__).parent.resolve())}]}))
             with TestClient(create_application(load_example_results=False)) as client:
@@ -114,15 +123,26 @@ class ResultAdoption(unittest.TestCase):
                      'binding_id': 'protein_io.import_sequences.direct', 'binding_parameters': {},
                      'node_parameters': {'project_input_ref': uploaded['project_input_ref']}},
                     {'node_id': 'observe', 'node_type_id': 'adoption_demo.observe',
-                     'binding_id': 'adoption_demo.observe.direct', 'binding_parameters': {}, 'node_parameters': {}}],
+                     'binding_id': 'adoption_demo.observe.direct', 'binding_parameters': {}, 'node_parameters': {'stop': True}},
+                    {'node_id': 'blocked', 'node_type_id': 'collection_ops.merge_scores',
+                     'binding_id': 'collection_ops.merge_scores.direct', 'binding_parameters': {}, 'node_parameters': {}}],
                     [{'source_node_id': 'import', 'source_port': 'sequence_candidates',
-                      'target_node_id': 'observe', 'target_port': 'candidates'}])
+                      'target_node_id': 'observe', 'target_port': 'candidates'},
+                     {'source_node_id': 'observe', 'source_port': 'scores', 'target_node_id': 'blocked', 'target_port': 'scores_a'}], status='failed')
                 original = client.get(source_run + '/outputs/observe/scores/values/0').content
                 adopted = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
                     'source_project_id': source, 'source_run_id': source_run.rsplit('/', 1)[1],
                     'node_id': 'observe', 'output_port': 'scores', 'value_index': 0})
                 self.assertEqual(adopted.status_code, 201, adopted.text)
+                unchanged = client.get(source_run).json()
+                self.assertEqual(unchanged['status'], 'failed')
+                self.assertEqual(next(item['outcome'] for item in unchanged['node_dispositions'] if item['node_id'] == 'blocked'), 'blocked')
                 node = adopted.json()['source_node'] | {'node_id': 'adopted'}
+                candidates = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
+                    'source_project_id': source, 'source_run_id': source_run.rsplit('/', 1)[1],
+                    'node_id': 'import', 'output_port': 'sequence_candidates', 'value_index': 0})
+                self.assertEqual(candidates.status_code, 201, candidates.text)
+                candidates_node = candidates.json()['source_node'] | {'node_id': 'candidates'}
                 client.post(f'/api/v2/projects/{source}:trash')
                 client.delete(f'/api/v2/projects/{source}')
             with TestClient(create_application(load_example_results=False)) as client:
@@ -140,6 +160,24 @@ class ResultAdoption(unittest.TestCase):
                 self.assertEqual(options.status_code, 200, options.text)
                 self.assertEqual([(item['metric_id'], item['method_id']) for item in options.json()['options']],
                                  [('adoption_demo.value', 'adoption_demo.method')])
+
+                disabled = client.put('/api/v2/modules', json={'enabled_package_ids': ['protein_io', 'selection']})
+                self.assertEqual(disabled.status_code, 200, disabled.text)
+                filtered_run = self.run_workflow(client, target, [node, candidates_node, {
+                    'node_id': 'filter', 'node_type_id': 'selection.filter', 'binding_id': 'selection.filter.direct',
+                    'binding_parameters': {}, 'node_parameters': {'selector_ids': ['value'],
+                    'expression': [{'selector_index': 0, 'operator': '>', 'threshold': 0.5}], 'out_of_scope_policy': 'error'}}],
+                    [{'source_node_id': 'candidates', 'source_port': 'value', 'target_node_id': 'filter', 'target_port': 'candidates'},
+                     {'source_node_id': 'adopted', 'source_port': 'value', 'target_node_id': 'filter', 'target_port': 'scores'}],
+                    [{'selector_id': 'value', 'candidate_input': {'node_id': 'candidates', 'output_port': 'value'},
+                      'score_collection_input': {'node_id': 'adopted', 'output_port': 'value'},
+                      'metric': {'contract_kind': 'metric', 'contract_id': 'adoption_demo.value'},
+                      'method': {'contract_kind': 'method', 'contract_id': 'adoption_demo.method'},
+                      'context_selector': {'kind': 'intrinsic'}, 'source_partition': 'value',
+                      'match_cardinality': 'exactly_one', 'missing_policy': 'error'}])
+                filtered = client.get(filtered_run + '/outputs/filter/candidates/values/0')
+                self.assertEqual(filtered.status_code, 200, filtered.text)
+                self.assertIn('ACDE', filtered.text)
 
     def test_unfinished_adopted_score_node_has_no_observation_options(self):
         with TemporaryDirectory() as root, patch.dict('os.environ', {'PROTEIN_WORKBENCH_DATA_ROOT': root}):

@@ -43,7 +43,9 @@ FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显�
 
 公共读取入口为 `GET /api/v2/projects/{project_id}/runs`。重启后从持久 Run 记录恢复列表；已知 Run 的必要证据不可用时返回既有 `evidence_unavailable` 错误，不静默遗漏该 Run。实现见 [RunHistoryDialog](../webui/src/RunHistoryDialog.tsx)、[项目运行状态与选择](../webui/src/project-run-history.ts)及[公共 Run 路由](../protein_workbench_public/http/run_routes.py)。
 
-历史/跨项目结果采用及来源永久删除后的独立可用性仍需沿实际采用与持久化路径核对；运行列表、节点级重跑和既有输入复制不代表完整采用能力。相关运行边界见[执行规范](execution.md)。
+画布的“采用历史结果”从项目、Run 与兼容输出选择 Candidate Collection 或 Score Collection。模块通过公共 `result_sources` 声明可采用类型及来源节点；载体先把所选值及依赖写为目标项目的不可变 Project Input，成功后才将来源节点加入当前编辑，用户手动保存流程。取消选择不改变流程，持久化失败不显示成功。
+
+采用保留原始 Candidate ID、数据引用、Score 的 Metric、Method、Context 和值，不生成新谱系。Score 输入保存所需 Candidate、残基轴或比对值，以及已记录的定义和原计算参数；不整体复制来源 Run。已保存的参数导出读取目标本地输入，即使来源项目删除或原模块停用仍保留原参数及 recorded/ambiguous/unavailable 状态。兼容筛选节点可以使用保存的评价定义，不要求重新执行原评分工具。失败 Run 中已发布的值也可明确采用，不改变源 Run 状态或自动启动源下游。相关运行边界见[执行规范](execution.md)。
 
 ## 结果入口与展示
 
@@ -121,7 +123,7 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 |---|---|
 | 单条 FASTA | 单条入口拒绝多条记录并提示批量入口 |
 | 历史 Run 查看 | 项目运行列表与单 Run 选择；按原 Run/Commit 读取状态与保留结果，选择可刷新恢复 |
-| 历史/跨项目采用及来源删除独立 | 节点级复用和输入复制不代表完整采用；采用及来源删除后的可用性尚未证实 |
+| 历史/跨项目采用及来源删除独立 | 统一 Project Input 采用 API 与画布入口；Candidate/Score 保存原值、依赖、定义及参数；来源删除后可重开运行；项目副本保留独立输入，不复制 Run |
 | 结构格式、多构象、非蛋白组分 | 已支持 PDB/mmCIF 导入与格式转换；构象选择/拆分及完整组分操作仍待完成 |
 | 模块查看器 | 内置读取和固定分派须按模块契约开放；多个查看器切换尚待实现 |
 | 结果页转流程 | 已删除入口及节点生成路径 |

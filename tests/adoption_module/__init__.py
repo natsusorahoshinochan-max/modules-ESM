@@ -4,7 +4,7 @@ from core.catalog.declarations import (AvailabilityDeclaration, AvailabilityResu
 from core.catalog.definition_resource import DefinitionResource
 from core.catalog.observation import ProducedObservation
 from core.catalog.port_contract import BehaviorReference
-from core.operation import OperationCall, OperationContext
+from core.operation import OperationCall, OperationContext, OperationFailedWithOutputs
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import ScoreCollection, ScoreObservation, IntrinsicObservationContext, IntrinsicContextProfile
 
@@ -14,10 +14,13 @@ class Observe:
         self.method = context.method
 
     def execute(self, call: OperationCall) -> dict[str, object]:
-        return {'scores': ScoreCollection('original-observations', tuple(
+        outputs = {'scores': ScoreCollection('original-observations', tuple(
             ScoreObservation(reference, ExactContractReference('metric', 'adoption_demo.value'),
                 self.method, IntrinsicObservationContext(), 'value', 0.75)
             for reference in call.inputs['candidates'].candidate_data))}
+        if call.node_parameters['stop']:
+            raise OperationFailedWithOutputs(RuntimeError('Example batch stopped'), outputs)
+        return outputs
 
 
 MODULE_PACKAGE = ModulePackageRegistration(

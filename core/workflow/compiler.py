@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from core.catalog.result_adoption import AdoptedObservation
+from core.catalog.result_adoption import AdoptedObservation, with_adopted_definitions
 from typing import Any, cast
 
 from datatypes.i_json import thaw_i_json
@@ -59,6 +59,7 @@ class CompilationRequest:
 
     workflow: WorkflowDocument
     adopted_observations: Mapping[str, tuple[AdoptedObservation, ...]] = field(default_factory=dict)
+    adopted_definitions: tuple[Mapping[str, Any], ...] = ()
 
 
 def _admit_parameter_values(
@@ -89,6 +90,10 @@ def compile(
 ) -> ExecutionPlan:
     """Compile one stable-ID Workflow before consulting runtime state."""
     workflow = request.workflow
+    try:
+        catalog = with_adopted_definitions(catalog, request.adopted_definitions)
+    except ValueError as error:
+        raise _errors.WorkflowCompileError("adopted_definition_conflict", str(error)) from error
     def resolved_contract(
         contract_kind: str,
         contract_id: str,
@@ -459,6 +464,10 @@ def compile(
                 _runtime=runtime,
             )
         )
+    for definition in request.adopted_definitions:
+        key = (definition['contract_kind'], definition['contract_id'])
+        if key not in scientific_definitions:
+            scientific_definitions[key] = definition
     plan = ExecutionPlan(
         workflow_id=workflow.workflow_id,
         nodes=tuple(nodes),

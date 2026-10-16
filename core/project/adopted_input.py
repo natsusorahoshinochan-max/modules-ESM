@@ -28,6 +28,8 @@ class AdoptedSnapshot(TypedDict):
     source: AdoptedSource
     parameters: dict[str, Any]
     dependencies: list["AdoptedSnapshot"]
+    axis_digests: list[str]
+    definitions: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)

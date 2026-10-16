@@ -139,6 +139,7 @@ class NodeTypeDefinition:
     parameter_groups: tuple[Any, ...]
     node_parameters: Mapping[str, Any]
     parameter_contract: ParameterContract
+    restores_published_value: bool = False
 
     @property
     def identity(self) -> ExactContractReference:
@@ -157,6 +158,8 @@ class NodeTypeDefinition:
             "parameter_groups": self.parameter_groups,
             "node_parameters": self.node_parameters,
         }
+        if self.restores_published_value:
+            descriptor["restores_published_value"] = True
         if self.input_constraints:
             descriptor["input_constraints"] = [
                 {"kind": "exactly_one", "ports": ports}

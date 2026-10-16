@@ -29,13 +29,23 @@ def adopted_dependencies(encoded: bytes, values: Iterable[AdoptedSnapshot]) -> t
     ports = {port.type_id: port for port in builtin_port_types()}
     scores = ports['score.collection'].restore(encoded)
     required = {entry.subject for entry in scores}
+    required_values: set[str] = set()
     for entry in scores:
         if isinstance(entry.context, PairwiseObservationContext):
             required.add(entry.context.reference.candidate)
-        if entry.residue_axis is not None and isinstance(entry.residue_axis.source, CandidateDataReference):
-            required.add(entry.residue_axis.source)
+            required_values.update(digest for digest in (
+                entry.context.evidence_content_digest, entry.context.subject_axis_content_digest,
+                entry.context.reference_axis_content_digest) if digest is not None)
+        if entry.residue_axis is not None:
+            required_values.add(entry.residue_axis.axis_content_digest)
+            if isinstance(entry.residue_axis.source, CandidateDataReference):
+                required.add(entry.residue_axis.source)
     result = []
     for snapshot in values:
+        matching_values = required_values.intersection((snapshot['content_digest'], *snapshot['axis_digests']))
+        if matching_values:
+            result.append(snapshot)
+            required_values.difference_update(matching_values)
         if snapshot['port_type_id'] != 'candidate.collection':
             continue
         references = [reference for reference in snapshot['candidate_data']
@@ -49,8 +59,8 @@ def adopted_dependencies(encoded: bytes, values: Iterable[AdoptedSnapshot]) -> t
         result.append({**snapshot, 'canonical_value': canonical.decode('utf-8'),
                        'content_digest': 'sha256:' + hashlib.sha256(canonical).hexdigest(), 'candidate_data': references})
         required.difference_update(CandidateDataReference(**reference) for reference in references)
-        if not required:
+        if not required and not required_values:
             break
-    if required:
-        raise ValueError('Published observations lack their required exact Candidate values')
+    if required or required_values:
+        raise ValueError('Published observations lack required Candidate, residue-axis or alignment values')
     return tuple(result)
