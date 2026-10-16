@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
+from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition, RunViewerDefinition
 
 from core.catalog.result_reading import ResultReaderDefinition
 from .published_reading import read_sequence
@@ -100,6 +100,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ui_extensions=(ModuleUiDefinition(
         extension_id="protein_io.viewers", resource_package=__package__,
         entry="ui/build/viewers.js", styles=("ui/build/viewers.css",), react_major=19,
+        run_viewers=(RunViewerDefinition("protein_io.candidates", "候选、分数与对齐", ("candidate.collection",), "Candidates"),),
         editors=(), viewers=(
             ResultViewerDefinition("protein_io.sequence", "序列", "protein.sequence", "Sequence", True),
             ResultViewerDefinition("protein_io.structure.3d", "三维结构", "protein.structure", "Structure3D", True),

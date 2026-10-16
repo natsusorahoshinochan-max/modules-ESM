@@ -55,7 +55,7 @@ PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8188 npm run dev -- --port 5188 -
 WORKBENCH_TEST_URL=http://127.0.0.1:5188 npx playwright test tests/result-viewers.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-reader-test-results
 ```
 
-测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算、候选分页迁移或其他业务切片。
+测试通过公共 HTTP 准备项目和运行，再操作完整应用 UI。覆盖外部温度值、官方结构的默认展示和切换、原始值不变、重开，以及外部同名读取 kind 不被误解为蛋白类型。无全局配置、后台矩阵或旧夹具。该入口不覆盖 Provider 计算；候选分页和组合展示见下方官方查看器切片。
 
 ## 模块设置
 
@@ -112,7 +112,7 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 WORKBENCH_TEST_URL=http://127.0.0.1:5199 npx playwright test tests/official-readers.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-official-readers
 ```
 
-通过公共接口导入序列或创建空白 Prompt 后执行，完整应用中打开模块查看器并重新打开项目。检查序列原值不变及 Prompt 残基分页、Mask 和整轨缺失区别。只运行确定性模块，不调用 Provider。
+通过公共接口导入序列或创建空白 Prompt 后执行，完整应用中打开模块查看器并重新打开项目。检查序列原值不变及 Prompt 残基分页、Mask 和整轨缺失区别；候选面板跨页勾选、比较与 Workflow 往返；确定性结构对齐和 RMSD 结果的角色、单位、变换、来源及重开。只运行确定性模块，不调用 Provider。
 
 候选读取公共 action 的应用重开、分页顺序/引用及结构原文切片：
 

@@ -1880,6 +1880,12 @@
                   "$ref": "#/$defs/ModuleUiViewer"
                 },
                 "type": "array"
+              },
+              "run_viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ModuleUiRunViewer"
+                }
               }
             },
             "required": [
@@ -1888,7 +1894,8 @@
               "entry_url",
               "style_urls",
               "editors",
-              "viewers"
+              "viewers",
+              "run_viewers"
             ],
             "type": "object"
           },
@@ -7653,6 +7660,33 @@
         "schema_namespace",
         "bindings"
       ]
+    },
+    "ModuleUiRunViewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "viewer_id",
+        "title",
+        "port_type_ids",
+        "component"
+      ],
+      "properties": {
+        "viewer_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "port_type_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "component": {
+          "type": "string"
+        }
+      }
     }
   },
   "bundle_discovery": {
