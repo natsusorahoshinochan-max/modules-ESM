@@ -41,12 +41,6 @@
 - **当前证据**：[authoring_codec](../protein_workbench_public/authoring_codec.py)第 12–13、87–102 行直接导入 ESM3 Adapter、Operation 并生成 esm3_conditioning；[PromptStudio](../webui/src/PromptStudio.tsx)第 693–704 行固定展示该工具条件。
 - **状态**：工具特有投影应按[架构职责](architecture.md)由模块及 Adapter 提供。可保留有用的工具兼容性展示；现有耦合不证明不能保存其他 Prompt 内容。
 
-### DOC-033｜ESMC 尚未提供所要求的实际 logits 输出
-
-- **要求**：可选输出整序列 embedding 和实际逐位置 logits，供查看与下游使用。logits 不作为概率表述。
-- **当前证据**：[esmc_adapter](../modules/esm3/esmc_adapter.py)第 44–46、64–77 行请求实际 logits 后只保留形状；[表征声明](../modules/esm3/definitions/represent_sequence.yaml)只描述 embedding 与 shape。
-- **状态**：现行说明已明确差异，输出、类型、读取及界面仍需对齐。具体模块归属不由当前包名裁定，不新增分析算法。
-
 ### DOC-036｜模块专用界面与结果读取仍固定分派
 
 - **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据可有多个查看器，允许切换。

@@ -1,0 +1,18 @@
+node_type_id: esmc_consumer.receive
+title: Receive ESMC values
+summary: Pass the received representation to a visible output
+category: representation
+inputs:
+  - name: representation
+    port_type_id: esm3.esmc_sequence_representation
+    required: true
+    multiplicity: one
+    scientific_meaning: Published ESMC values
+outputs:
+  - name: received
+    port_type_id: esm3.esmc_sequence_representation
+    required: true
+    multiplicity: one
+    scientific_meaning: Received values unchanged
+parameter_groups: []
+node_parameters: {}

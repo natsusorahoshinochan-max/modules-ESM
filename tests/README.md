@@ -103,3 +103,9 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 ```
 
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
+
+## ESMC 可选数值
+
+`.venv/bin/python -m unittest discover -s tests -p test_esmc_values.py` 通过公共 Run 和受控官方 SDK 边界覆盖 embedding-only、logits-only、both 的请求选择、CLS/EOS 去除、持久值重开读取及传入外部下游模块。受控数值不证明模型质量。
+
+应用界面切片使用 `PYTHONPATH=. PROTEIN_WORKBENCH_DATA_ROOT="$(mktemp -d)" .venv/bin/python tests/serve_esmc.py` 启动独立受控 SDK 场景（8196）。前端以 `PROTEIN_WORKBENCH_BACKEND_URL=http://127.0.0.1:8196 npm run dev -- --port 5196 --host 127.0.0.1` 启动；在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5196 npx playwright test tests/esmc-values.spec.ts --workers=1 --reporter=line --output=/tmp/esmc-viewer-results`。覆盖查看实际数值、切换残基位置和刷新重开；不会调用真实 Provider。

@@ -37,7 +37,7 @@ ESM-3 与 ESMFold2 使用固定 SDK 的现有适用重试，默认总计最多�
 - ESM-3 structure-track 采样输出标记为 `sampled_structure`；坐标条件下 sequence-track 返回的条件结构重建标记为 `prompt_reconstruction`。二者不冒充独立折叠验证结果。纯序列结果不补造结构或置信度。
 - ESM-3 结构附带的 PAE 当前允许缺失；存在时保留与相应预测残基轴一致的完整矩阵，单位为 Å，不补零或借用另一预测的值。
 - ESMFold2 当前明确请求 `include_pae=true`、`include_embeddings=false`，同时保留该次预测的结构、pLDDT、pTM 与 PAE。与已承诺输出对应的必需开关，不直接视为需要新增关闭选项的证据；也不自动接入其他输出模式。
-- ESMC 当前只保存整序列 mean embedding 和 logits 的形状。Q27 已确认整条序列 embedding 和实际逐位置 logits 均应作为可选输出，供查看与后续计算；该要求尚未对齐。logits 不是概率。
+- ESMC 按 outputs 选择请求和保存整序列 mean embedding、实际逐位置 logits 或两者。logits 去除 CLS/EOS 行，与输入残基顺序对应，保留全部 64 个模型类别列；logits 不是概率。
 
 工具自然产生且属于所需功能的分数随结果保留；不因功能模块拆分而要求用户重算。评价对象与参考对象独立于生成来源，不通过改写来源关系绑定评分。
 

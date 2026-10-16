@@ -18,7 +18,7 @@
 | 指标分析 | [`structure_prediction`](../modules/structure_prediction/definitions/)、[`structure_comparison`](../modules/structure_comparison/definitions/) | 置信度与结构比较结果的物化、统计和派生指标。已有节点不是全部通用区域统计需求已经完成的证明。 |
 | 候选筛选与排序 | [`selection`](../modules/selection/definitions/)、[`collection_ops`](../modules/collection_ops/definitions/) | 阈值、排序、top-k、加权排序、Pareto、多样性、手动选择及集合/关系组合。作用范围由用户构建流程表达，不固定为整批或每骨架二选一。 |
 
-ESMC 序列表征目前位于 `esm3.represent_sequence`：保存 1152 维 mean embedding 与 `(L+2, 64)` logits 形状。Q27 要求整条序列 embedding 和实际逐位置 logits 均以可选输出提供，供查看及后续模块使用；其最终功能模块归属未由此预定。logits 不等于概率。
+ESMC 序列表征位于 `esm3.represent_sequence`：`outputs` 可选择 embedding、logits 或 both（默认）。保存 Provider 的 1152 维整序列 mean embedding，以及去除 CLS/EOS 行后与输入残基顺序对应的 `L×64` 实际 logits；未请求值为 null。保留全部模型类别列，列索引为固定 SDK 的模型类别索引，不将其称为概率。模块查看器逐位置显示数值，同名 Port 可交给下游模块；不增加 hidden states、SAE 或新分析算法。
 
 ### ProteinMPNN 设计与评价
 

@@ -19,4 +19,4 @@ class ESMCRepresentationOperation:
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         sequence = call.inputs["sequence"].value
-        return {"representation": self._adapter.represent(sequence)}
+        return {"representation": self._adapter.represent(sequence, outputs=call.node_parameters["outputs"])}
