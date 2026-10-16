@@ -50,15 +50,15 @@ export function WorkflowPorts({ nodeId, inputs, outputs, collapsed, prompt, sour
       match = workflowPortsMatch(sourcePort, targetPort)
     }
     const matchClass = match === null ? '' : match ? 'port-compatible' : 'port-incompatible'
-    const handle = <Handle id={`${input ? 'in' : 'out'}-${port.name}`} type={handleType} position={input ? Position.Left : Position.Right} isConnectable={!collapsed && !readOnly} isConnectableStart={!collapsed && !readOnly} isConnectableEnd={!collapsed && !readOnly} className={`node-handle ${direction}-handle ${matchClass}`} aria-label={`${port.name} ${input ? '输入' : '输出'}`} />
+    const handle = <Handle id={`${input ? 'in' : 'out'}-${port.name}`} type={handleType} position={input ? Position.Left : Position.Right} isConnectable={!collapsed && !readOnly && !port.missing} isConnectableStart={!collapsed && !readOnly && !port.missing} isConnectableEnd={!collapsed && !readOnly && !port.missing} className={`node-handle ${direction}-handle ${matchClass}`} aria-label={`${port.name} ${input ? '输入' : '输出'}`} />
     if (collapsed) return <div className={`port workflow-port-row collapsed-port-row ${direction}-port`} key={port.name} data-port-name={port.name} data-direction={direction}>{handle}</div>
     const orderedSources = sources[port.name] ?? []
     return <details key={port.name} className={`workflow-port nodrag nowheel ${direction}-port ${matchClass}`}>
       <summary className="port workflow-port-row" data-port-name={port.name} data-direction={direction} aria-label={`${port.name} 端口详情`}>
         {handle}
         <span className="port-name">{port.label ?? port.name}</span>
-        <span className="port-type">{port.portTypeId.slice(port.portTypeId.lastIndexOf('.') + 1).replace(/_/g, ' ')}</span>
-        <span className="port-rules">{port.required ? '必选' : '可选'} · {port.multiplicity === 'many' ? '多值' : '单值'}<span aria-hidden="true"> ⓘ</span></span>
+        <span className="port-type">{port.missing ? '模块缺失' : port.portTypeId.slice(port.portTypeId.lastIndexOf('.') + 1).replace(/_/g, ' ')}</span>
+        <span className="port-rules">{port.missing ? '契约待恢复' : `${port.required ? '必选' : '可选'} · ${port.multiplicity === 'many' ? '多值' : '单值'}`}<span aria-hidden="true"> ⓘ</span></span>
         <span className="port-match-hint" aria-hidden={!match}>{match ? '端口匹配' : '\u00a0'}</span>
       </summary>
       <div className="port-details">

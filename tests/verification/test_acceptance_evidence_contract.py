@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from verification.acceptance_campaign import (
-    CANONICAL_ACCEPTANCE_TIERS,
+    ALL_ACCEPTANCE_TIERS,
     acceptance_definition,
 )
 from tests.providers.retained_evidence import (
@@ -95,11 +95,11 @@ def _typed_value_metadata() -> dict[str, Any]:
 def test_tier_contracts_declare_only_run_labels_and_lifecycle_need() -> None:
     assert {
         tier.name: tier.required_run_labels
-        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for tier in ALL_ACCEPTANCE_TIERS
     } == {**EXPECTED_INSTALLED_RUNS, **EXPECTED_FRESH_RUNS}
     assert {
         tier.name
-        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for tier in ALL_ACCEPTANCE_TIERS
         if tier.lifecycle_receipt_required
     } == {"fresh-2emo", "fresh-local-2emo"}
 

@@ -308,3 +308,41 @@ test('tutorial input inspection and preview stay in memory until the complete pr
   expect(await (await request.get(`${prefix}/inputs`)).json()).toEqual(beforeInputs)
   expect(copies).toHaveLength(1)
 })
+
+test('missing Node Types and Bindings open as placeholders and manual save preserves their graph and opaque configuration', async ({ page, request }) => {
+  const { project, workflow, ui } = await createWorkspace(request)
+  const prefix = `/api/v2/projects/${project.id}`
+  const retainedWorkflow = {
+    ...workflow,
+    nodes: [
+      { ...workflow.nodes[0], binding_id: 'uninstalled.import.direct', binding_parameters: { opaque: { choices: [null, 'keep', 3] } } },
+      { node_id: 'missing', node_type_id: 'uninstalled.transform', binding_id: 'uninstalled.transform.direct', node_parameters: { document: { arbitrary: [false, { preserve: 'exact' }] } }, binding_parameters: { temperature: 0.25 } },
+    ],
+    edges: [{ source_node_id: 'import', source_port: 'sequence', target_node_id: 'missing', target_port: 'original' }],
+  }
+  const retainedUi = { ...ui, canvas: { ...ui.canvas, positions: { ...ui.canvas.positions, missing: { x: 520, y: 140 } } }, module_state: { opaque: ['retained'] } }
+  const saved = await request.put(`${prefix}/workspace`, { data: { workflow: retainedWorkflow, ui_state: retainedUi } })
+  expect(saved.status()).toBe(200)
+  await page.goto('/')
+  await openProject(page, project.name)
+  await expect(page.getByTestId('rf__node-import')).toContainText('缺失模块')
+  await expect(page.getByTestId('rf__node-missing')).toContainText('缺失模块')
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1)
+  await page.getByTestId('rf__node-missing').locator('.node-header .icon-button').click()
+  expect((await (await request.get(`${prefix}/workspace`)).json()).ui_state).toEqual(retainedUi)
+  await page.getByRole('button', { name: '保存项目', exact: true }).click()
+  await expect.poll(async () => (await (await request.get(`${prefix}/workspace`)).json()).ui_state.canvas.collapsed).toContain('missing')
+  const after = await (await request.get(`${prefix}/workspace`)).json() as ProjectWorkspace
+  expect(after.draft!.workflow).toEqual(retainedWorkflow)
+  expect(after.ui_state.module_state).toEqual(retainedUi.module_state)
+  expect((after.ui_state.canvas as typeof retainedUi.canvas).positions).toEqual(retainedUi.canvas.positions)
+  await page.reload()
+  await openProject(page, project.name)
+  await expect(page.getByTestId('rf__node-missing').locator('article')).toHaveClass(/is-collapsed/)
+  await expect(page.getByTestId('rf__node-missing')).toContainText('缺失模块')
+  await page.getByRole('button', { name: '运行流程', exact: true }).click()
+  const run = page.getByRole('dialog', { name: '确认运行范围' })
+  await run.getByRole('button', { name: '准备并查看范围', exact: true }).click()
+  await expect(run.getByRole('alert')).toBeVisible()
+  await expect(run.getByRole('button', { name: '开始运行已确认范围', exact: true })).toHaveCount(0)
+})

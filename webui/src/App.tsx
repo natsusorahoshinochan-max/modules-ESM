@@ -26,7 +26,7 @@ import { SelectionEditor } from './SelectionEditor'
 import { selectionNodeTypes } from './selection-authoring'
 import { CanvasOperationPicker } from './CanvasOperationPicker'
 import { copyWorkflowFragment, pasteWorkflowFragment, type WorkflowFragment } from './workflow-fragments'
-import { bindingOptions, insertOrdinaryNode, nodeTypePresentation, parameterPresentations, projectPalette, selectNodeBinding, type BindingOption, type PaletteTaxonomy, type ParameterPresentation, type PortPresentation } from './workflow-authoring'
+import { bindingOptions, insertOrdinaryNode, missingNodeContracts, missingPortPresentation, nodeTypePresentation, parameterPresentations, projectPalette, selectNodeBinding, type BindingOption, type PaletteTaxonomy, type ParameterPresentation, type PortPresentation } from './workflow-authoring'
 
 const client = new PublicV2Client()
 type Parameter = ParameterPresentation & { suffix?: string }
@@ -34,7 +34,7 @@ type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' 
 type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
 type StageControlView = { kind: 'parameter'; nodeId: string; parameter: Parameter; choices?: NodeParameterChoices } | { kind: 'prompt' | 'selection'; nodeId: string; label: string }
 type StageState = { status: NodeRunStatus | 'idle'; label: string; completed: number; total: number }
-type WorkflowNodeData = Record<string, unknown> & { readOnly?: boolean; resultCollections?: ResultCollection[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; onEditSelection?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
+type WorkflowNodeData = Record<string, unknown> & { missingContracts?: string[]; retainedConfiguration?: JsonObject; readOnly?: boolean; resultCollections?: ResultCollection[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; onEditSelection?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
 type FlowNode = Node<WorkflowNodeData>
 type RunProgress = { status: RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; projectId?: string; runId?: string; }
 type PendingNodeDrop = { nodeTypeId: string; position: { x: number; y: number }; bindings: BindingOption[]; connectionFrom?: { nodeId: string; portName: string }; connectionPort?: string }
@@ -78,7 +78,19 @@ function flowFromDraft(draft: WorkflowDraft, catalog?: CatalogSnapshot, stored: 
   if (!catalog) return { nodes: [], edges: [] }
   const nodes = draft.workflow.nodes.map((node, index): FlowNode => {
     const presentation = nodeTypePresentation(catalog, node.node_type_id)
-    return { id: node.node_id, type: 'workflow', position: positionOverrides[node.node_id] ?? stored.positions[node.node_id] ?? defaultNodePosition(index), data: { kind: node.node_type_id === promptAuthorNodeTypeId ? 'prompt' : 'ordinary', eyebrow: presentation.category.toUpperCase(), title: presentation.title, subtitle: node.node_type_id, index: String(index + 1).padStart(2, '0'), inputs: presentation.inputs, outputs: presentation.outputs, sources: Object.fromEntries(presentation.inputs.map(port => [port.name, draft.workflow.edges.filter(edge => edge.target_node_id === node.node_id && edge.target_port === port.name).map(edge => ({ nodeId: edge.source_node_id, outputPort: edge.source_port }))])), parameters: nodeParameters(node.node_id, draft.workflow, catalog), accent: categoryColors[presentation.category] ?? '#9aa69b', count: '', sourceNodeId: node.node_id, bindingId: node.binding_id, collapsed: stored.collapsed.includes(node.node_id) } }
+    const missingContracts = missingNodeContracts(catalog, node)
+    if (presentation.missing) {
+      const endpoints = [
+        ...draft.workflow.edges.flatMap(edge => [
+          ...(edge.source_node_id === node.node_id ? [{ direction: 'output', name: edge.source_port }] : []),
+          ...(edge.target_node_id === node.node_id ? [{ direction: 'input', name: edge.target_port }] : []),
+        ]),
+        ...(stored.groups ?? []).flatMap(group => group.ports.filter(port => port.nodeId === node.node_id).map(port => ({ direction: port.direction, name: port.portName }))),
+      ]
+      presentation.inputs = [...new Set(endpoints.filter(port => port.direction === 'input').map(port => port.name))].map(missingPortPresentation)
+      presentation.outputs = [...new Set(endpoints.filter(port => port.direction === 'output').map(port => port.name))].map(missingPortPresentation)
+    }
+    return { id: node.node_id, type: 'workflow', position: positionOverrides[node.node_id] ?? stored.positions[node.node_id] ?? defaultNodePosition(index), data: { missingContracts, retainedConfiguration: { node_parameters: node.node_parameters, binding_parameters: node.binding_parameters }, kind: node.node_type_id === promptAuthorNodeTypeId ? 'prompt' : 'ordinary', eyebrow: presentation.category.toUpperCase(), title: presentation.title, subtitle: node.node_type_id, index: String(index + 1).padStart(2, '0'), inputs: presentation.inputs, outputs: presentation.outputs, sources: Object.fromEntries(presentation.inputs.map(port => [port.name, draft.workflow.edges.filter(edge => edge.target_node_id === node.node_id && edge.target_port === port.name).map(edge => ({ nodeId: edge.source_node_id, outputPort: edge.source_port }))])), parameters: nodeParameters(node.node_id, draft.workflow, catalog), accent: categoryColors[presentation.category] ?? '#9aa69b', count: '', sourceNodeId: node.node_id, bindingId: node.binding_id, collapsed: stored.collapsed.includes(node.node_id) } }
   })
   const edges = draft.workflow.edges.map((edge): Edge => ({ id: workflowEdgeId(edge), data: { workflowEdge: edge }, reconnectable: !stored.collapsed.includes(edge.source_node_id) && !stored.collapsed.includes(edge.target_node_id), source: edge.source_node_id, sourceHandle: `out-${edge.source_port}`, target: edge.target_node_id, targetHandle: `in-${edge.target_port}`, type: 'default', style: { stroke: '#637168', strokeWidth: 1.6 } }))
   const scope = currentCanvasGroup(stored)
@@ -155,12 +167,13 @@ function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
   const runStatusLabel: Record<NodeRunStatus, string> = { waiting: '等待', running: '运行中', succeeded: '成功', failed: '失败', blocked: '未执行', cancelled: '已取消', interrupted: '已中断', outside: '范围外', reused: '仅复用' }
   return <article className={`workflow-node ${selected ? 'is-selected' : ''} ${data.collapsed ? 'is-collapsed' : ''} ${data.runState ? `run-status-${data.runState.status}` : ''} ${data.scopeState ? `scope-${data.scopeState}` : ''}`} style={{ '--node-accent': data.accent } as React.CSSProperties}>
     <header className="node-header"><span className="node-icon"><Icon size={15} /></span><div><span className="node-eyebrow">{data.eyebrow}</span><details className="node-title-details nodrag"><summary><h3 title={data.title}>{data.title}</h3></summary><div><strong>{data.title}</strong><code>{data.sourceNodeId}</code></div></details></div>{data.runState ? <span className={`node-run-status ${data.runState.status}`} aria-label={`${data.title}：${runStatusLabel[data.runState.status]}`}>{data.runState.status === 'running' ? <LoaderCircle size={11} /> : data.runState.status === 'succeeded' ? <Check size={11} /> : data.runState.status === 'failed' ? <X size={11} /> : <span />}{runStatusLabel[data.runState.status]}</span> : <span className="node-run-status" />}<span className="node-index">{data.index}</span><button className="icon-button nodrag" aria-label={`${data.collapsed ? '展开' : '折叠'}节点 ${data.title}`} aria-expanded={!data.collapsed} onClick={() => data.onToggle?.(id)}><ChevronDown size={15} /></button></header>
-    {!data.collapsed && <><div className="node-meta">{data.bindingOptions && data.bindingOptions.length > 1 ? <select disabled={data.readOnly} className="node-binding-select nodrag" aria-label={`${data.title}的执行模型`} value={data.bindingId} onChange={(event) => data.onBinding?.(data.sourceNodeId, event.target.value)}>{data.bindingOptions.map((option) => <option value={option.id} key={option.id} title={option.availabilityReason?.message}>{option.label}{option.available ? '' : '（不可用）'}</option>)}</select> : <span>{data.bindingOptions?.find((option) => option.id === data.bindingId)?.label ?? data.subtitle}{data.bindingOptions?.some((option) => option.id === data.bindingId && !option.available) ? '（不可用）' : ''}</span>}<strong>{data.count}</strong></div></>}
+    {!!data.missingContracts?.length && <p className="parameter-empty-hint" role="status">缺失模块：{data.missingContracts.join('、')}。已保留配置；安装并启用兼容模块后重新打开项目。</p>}
+    {!data.collapsed && <><div className="node-meta">{data.bindingOptions && (data.bindingOptions.length > 1 || !!data.missingContracts?.length && data.bindingOptions.length > 0) ? <select disabled={data.readOnly} className="node-binding-select nodrag" aria-label={`${data.title}的执行模型`} value={data.bindingId} onChange={(event) => data.onBinding?.(data.sourceNodeId, event.target.value)}>{!data.bindingOptions.some(option => option.id === data.bindingId) && <option value={data.bindingId}>{data.bindingId}（缺失）</option>}{data.bindingOptions.map((option) => <option value={option.id} key={option.id} title={option.availabilityReason?.message}>{option.label}{option.available ? '' : '（不可用）'}</option>)}</select> : <span>{data.bindingOptions?.find((option) => option.id === data.bindingId)?.label ?? data.subtitle}{data.bindingOptions?.some((option) => option.id === data.bindingId && !option.available) ? '（不可用）' : ''}</span>}<strong>{data.count}</strong></div></>}
     <WorkflowPorts nodeId={id} inputs={data.inputs} outputs={data.outputs} sources={data.sources} collapsed={!!data.collapsed} prompt={data.kind === 'prompt'} readOnly={data.readOnly} />
     <NodeResultLinks data={data} />
     {!data.collapsed && <>
       {data.bindingOptions?.find((option) => option.id === data.bindingId)?.availabilityReason?.message && <p className="parameter-empty-hint">{data.bindingOptions.find((option) => option.id === data.bindingId)!.availabilityReason!.message}</p>}
-      {data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : data.onEditSelection ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditSelection}>编辑筛选与排序 <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
+      {data.missingContracts?.length ? <details className="nodrag nowheel"><summary>已保留配置</summary><pre>{JSON.stringify(data.retainedConfiguration, null, 2)}</pre></details> : data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : data.onEditSelection ? <button className="prompt-edit-button nodrag" disabled={data.readOnly} onClick={data.onEditSelection}>编辑筛选与排序 <ChevronRight size={14} /></button> : <><div inert={data.readOnly}><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} /></div>{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
     </>}
   </article>
 }
@@ -306,14 +319,13 @@ function App() {
     let current = true
     void (async () => {
       const [catalogValue, capabilityValue, projects] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects()])
-      const example = projects.projects.find((item) => item.project_kind === 'default_example')
-      if (!example) throw new Error('Default example Project is absent')
-      const initialWorkspace = await client.projectWorkspace(example.id)
+      const initialProject = projects.projects.find((item) => item.project_kind === 'default_example') ?? projects.projects.find(item => !item.seed)
+      const initialWorkspace = initialProject ? await client.projectWorkspace(initialProject.id) : undefined
       if (!current) return
       setCatalog(catalogValue)
       setCapabilities(capabilityValue)
-      editor.open(example, initialWorkspace)
-      if (example.latest_run_id) results.openRun({ project_id: example.id, run_id: example.latest_run_id })
+      if (initialProject && initialWorkspace) editor.open(initialProject, initialWorkspace)
+      if (initialProject?.latest_run_id) results.openRun({ project_id: initialProject.id, run_id: initialProject.latest_run_id })
     })().catch(reason => { if (current) setRunError(workspaceErrorMessage(reason)) })
     return () => { current = false }
   }, [results, editor])
@@ -668,12 +680,13 @@ function App() {
   }, [nodeLabels, editing.desired?.ui_state])
   const displayed = useMemo<FlowNode[]>(() => currentFlowNodes.map((node): FlowNode => {
     const sourceNode = draft?.workflow.nodes.find(item => item.node_id === node.id)
-    const stageControls: StageControlView[] | undefined = node.data.stage?.controls.map(control => {
-      if (control.kind !== 'parameter') return control
+    const stageControls: StageControlView[] | undefined = node.data.stage?.controls.flatMap((control): StageControlView[] => {
       const member = draft!.workflow.nodes.find(item => item.node_id === control.nodeId)!
+      if (missingNodeContracts(catalog!, member).length) return []
+      if (control.kind !== 'parameter') return [control]
       const parameter = parameterPresentations(catalog!, member).find(item => item.scope === 'node' && item.key === control.key)!
       const raw = activeParameterEdits.current.get(`${control.nodeId}:${parameter.scope}:${parameter.key}`)
-      return { kind: 'parameter', nodeId: control.nodeId, parameter: { ...parameter, label: control.label, ...(raw ? { value: raw.raw } : {}) }, choices: parameterChoices?.workflow === draft!.workflow ? parameterChoices.values[control.nodeId] : undefined }
+      return [{ kind: 'parameter', nodeId: control.nodeId, parameter: { ...parameter, label: control.label, ...(raw ? { value: raw.raw } : {}) }, choices: parameterChoices?.workflow === draft!.workflow ? parameterChoices.values[control.nodeId] : undefined }]
     })
     const members = node.data.kind === 'group' ? [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)] : []
     const states = members.map(id => runProgress?.nodeStates[id]?.status)
@@ -778,7 +791,25 @@ function App() {
     return scope
   }} mergeTargetNodeId={inputSource.mergeTargetNodeId} onPreparePrompt={prepareSourcePrompt} onImportCandidates={importSourceCandidates} onClose={closeInputSource} />
 
-  if (!project || !draft) return <div className="loading-screen">{runError ? <p role="alert">{runError}</p> : '正在从 public v2 protocol 加载 WebUI 示例…'}</div>
+  const projectDialog = projectsOpen && <ProjectWorkspaceDialog api={client} currentProjectId={project?.id} beforeAction={beforeWorkspaceAction} onOpenProject={openProject} onViewVersion={(selected, version) => openProject(selected, version.workspace, version)} onBeforeRemove={async selected => selected.id !== editor.getSnapshot().project?.id || await askUnsaved('leave')} onSaveVersion={async selected => { if (selected.id === editor.getSnapshot().project?.id) await saveProject() }} onReturnWorkspace={async (selected) => { if (editor.getSnapshot().project?.id !== selected.id) { await openProject(selected); if (editor.getSnapshot().project?.id !== selected.id) return undefined } else if (!await askUnsaved('leave')) return undefined; return editor.returnToSavedWork() }} onProjectChanged={(updated, deletedId) => {
+      if (updated && updated.id === project?.id) editor.updateProject(updated)
+      if (deletedId && deletedId === project?.id) {
+        results.openRun(undefined)
+        editor.close()
+        void client.projects().then(async available => {
+          const next = available.projects.find(item => item.project_kind === 'default_example') ?? available.projects.find(item => !item.seed)
+          if (next) await openProject(next)
+        }).catch(reportSaveError)
+      }
+    }} onCreateProject={createProject} onClose={() => setProjectsOpen(false)} />
+  if (!project || !draft) return <div className="loading-screen">
+    {runError ? <p role="alert">{runError}</p> : !catalog ? '正在加载工作区…' : <>
+      <h1>Protein Workbench</h1><p>创建项目，或打开已保存的项目。</p>
+      <button className="secondary-button" onClick={() => void createProject().catch(reportSaveError)}>创建项目</button>
+      <button className="secondary-button" onClick={() => setProjectsOpen(true)}>打开项目</button>
+      {inputError && <p role="alert">{inputError}</p>}{projectDialog}
+    </>}
+  </div>
   const runControls = <>
     {runProgress && <RunProgressBar progress={runProgress} nodeTitle={progressNodeTitle} resultsLoading={resultsLoading} resultsAvailable={resultsAvailable} onResults={showResults} onCancel={() => { void client.cancelRun(runProgress.projectId!, runProgress.runId!).catch((reason) => setRunError(JSON.stringify(reason))) }} />}
     {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
@@ -814,7 +845,9 @@ function App() {
         const port = resolveCanvasPort(canvasFromUi(current.ui_state), current.workflow, state.fromNode.id, state.fromHandle.id!.slice(4), 'output')
         if (!port) return
         const source = current.workflow.nodes.find(node => node.node_id === port.nodeId)!
+        if (nodeTypePresentation(catalog!, source.node_type_id).missing) return
         const presented = nodeTypePresentation(catalog!, source.node_type_id).outputs.find(item => item.name === port.portName)!
+        if (presented.missing) return
         const point = 'changedTouches' in event ? event.changedTouches[0] : event
         setCanvasPicker({ x: point.clientX, y: point.clientY, from: { nodeId: port.nodeId, portName: port.portName, portTypeId: presented.portTypeId, multiplicity: presented.multiplicity } })
       }} onConnect={(connection: Connection) => { void connectPorts(connection).catch(reportConnectionError) }} onReconnect={(edge, connection) => { void connectPorts(connection, edge.data!.workflowEdge as Workflow['edges'][number]).catch(reportConnectionError) }} fitView={!canvasFromUi(editing.desired!.ui_state).viewport && !canvasFromUi(editing.desired!.ui_state).views?.[currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) ?? 'root']} defaultViewport={canvasFromUi(editing.desired!.ui_state).views?.[currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) ?? 'root'] ?? canvasFromUi(editing.desired!.ui_state).viewport} fitViewOptions={{ padding: 0.16 }} minZoom={0.01} maxZoom={1.5} deleteKeyCode={['Backspace', 'Delete']} selectionOnDrag><Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#39413b" /><MiniMap nodeColor={(node) => String(node.data.accent)} maskColor="rgba(14,16,14,.72)" /><Controls showInteractive={false} position="top-right" orientation="horizontal" style={{ top: 60 }} /><Panel position="top-left" className="canvas-heading"><span className="page-kicker">WORKFLOW DRAFT · {draft.workflow.nodes.length} GRAPH NODES</span><h1>{project.name}</h1><p>{draft.workflow.edges.length} 条草稿连线 · 按端口类型与数量匹配</p></Panel><Panel position="top-right" className="canvas-tools"><button disabled={editing.readOnly} onClick={() => void openInputSource().catch(reportSaveError)}><Plus size={14} /> 添加来源</button><button disabled={editing.readOnly} onClick={() => setCanvasPicker({ x: 350, y: 160 })}><Search size={14} /> 添加节点</button><button aria-label="100% 实际大小" onClick={() => { void (async () => { await finishInputs(); const flow = flowInstance.current!; await flow.zoomTo(1); await persistCanvas(nodesRef.current, flow.getViewport()) })().catch(reportSaveError) }}>100%</button><button onClick={() => void flowInstance.current?.fitView({ padding: 0.16 })}><Layers3 size={14} /> 适合视图</button></Panel></ReactFlow><div className="canvas-selection-tools canvas-footer"><span>{nodes.filter(node => node.selected).length} 项已选</span><button onClick={copySelection} disabled={!nodes.some(node => node.selected)}>复制</button><button onClick={() => void pasteSelection().catch(reportSaveError)}>粘贴</button><button onClick={() => void makeGroup().catch(reportSaveError)} disabled={!nodes.some(node => node.selected)}>组合 Ctrl/⌘G</button><button onClick={() => void ungroupSelection().catch(reportSaveError)} disabled={!nodes.some(node => node.selected && node.data.kind === 'group')}>解组</button><span className="canvas-footer-hint">拖动端口连接 · Delete 删除 · Ctrl/⌘Z 撤销</span></div></main></ContextMenu.Trigger><ContextMenu.Portal><ContextMenu.Content className="canvas-context-menu" onCloseAutoFocus={event => event.preventDefault()}>
@@ -845,10 +878,7 @@ function App() {
       setRunOpen(false); setScopePreview(undefined)
     }} />}
     {pendingNodeDrop && <InteractionDialog title={`为 ${pendingNodeTitle} 选择执行模型${pendingNodeDrop.connectionFrom ? '与连接端口' : ''}`} className="run-dialog binding-dialog" onClose={() => setPendingNodeDrop(undefined)}><header><span className="dialog-icon"><Atom size={18} /></span><div><span className="page-kicker">EXECUTION BINDING</span><h2 id="binding-dialog-title">为 {pendingNodeTitle} 选择执行模型</h2></div><button className="icon-button" onClick={() => setPendingNodeDrop(undefined)}><X size={18} /></button></header>{pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort && <p>有多个兼容输入，请先选择目标端口。</p>}{pendingNodeDrop.connectionFrom && <label>目标输入<select aria-label="新节点目标输入" value={pendingNodeDrop.connectionPort ?? ''} onChange={event => setPendingNodeDrop({ ...pendingNodeDrop, connectionPort: event.target.value || undefined })}><option value="">选择输入…</option>{nodeTypePresentation(catalog!, pendingNodeDrop.nodeTypeId).inputs.filter(port => { const source = draft.workflow.nodes.find(node => node.node_id === pendingNodeDrop.connectionFrom!.nodeId)!; return workflowPortsMatch(nodeTypePresentation(catalog!, source.node_type_id).outputs.find(port => port.name === pendingNodeDrop.connectionFrom!.portName)!, port) }).map(port => <option value={port.name} key={port.name}>{port.name}</option>)}</select></label>}<div className="binding-choice-list">{pendingNodeDrop.bindings.map((binding) => <button disabled={!!pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort} key={binding.id} title={binding.availabilityReason?.message} onClick={() => void addDroppedNode(pendingNodeDrop, binding.id).catch(reportSaveError)}><strong>{binding.label}{binding.available ? '' : '（不可用）'}</strong><small>{binding.id}</small>{binding.availabilityReason?.message && <p>{binding.availabilityReason.message}</p>}</button>)}</div><footer><button className="secondary-button" onClick={() => setPendingNodeDrop(undefined)}>取消</button></footer></InteractionDialog>}
-    {projectsOpen && <ProjectWorkspaceDialog api={client} currentProjectId={project.id} beforeAction={beforeWorkspaceAction} onOpenProject={openProject} onViewVersion={(selected, version) => openProject(selected, version.workspace, version)} onBeforeRemove={async selected => selected.id !== editor.getSnapshot().project?.id || await askUnsaved('leave')} onSaveVersion={async selected => { if (selected.id === editor.getSnapshot().project?.id) await saveProject() }} onReturnWorkspace={async (selected) => { if (editor.getSnapshot().project?.id !== selected.id) { await openProject(selected); if (editor.getSnapshot().project?.id !== selected.id) return undefined } else if (!await askUnsaved('leave')) return undefined; return editor.returnToSavedWork() }} onProjectChanged={(updated, deletedId) => {
-      if (updated?.id === project.id) editor.updateProject(updated)
-      if (deletedId === project.id) void client.projects().then((available) => openProject(available.projects.find((item) => item.project_kind === 'default_example')!)).catch(reportSaveError)
-    }} onCreateProject={createProject} onClose={() => setProjectsOpen(false)} />}
+    {projectDialog}
 
   </div></>
 }

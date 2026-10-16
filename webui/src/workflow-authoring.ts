@@ -24,13 +24,21 @@ export type BindingOption = {
 export type PortPresentation = {
   label?: string
   name: string
+  meaning: string
+} & ({
+  missing: true
+  portTypeId?: never
+  multiplicity?: never
+  required?: never
+} | {
+  missing?: false
   portTypeId: string
   multiplicity: 'one' | 'many'
   required: boolean
-  meaning: string
-}
+})
 
 export type NodeTypePresentation = {
+  missing?: boolean
   title: string
   category: string
   inputs: PortPresentation[]
@@ -152,21 +160,31 @@ function parameterPresentationsForScope(parameters: JsonObject | undefined, valu
 export function parameterPresentations(catalog: CatalogSnapshot, node: WorkflowNode): ParameterPresentation[] {
   const nodeType = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === node.node_type_id)
   const binding = catalog.contracts.find((contract) => contract.reference.contract_kind === 'binding' && contract.reference.contract_id === node.binding_id)
-  if (!nodeType) throw new Error(`Node Type ${node.node_type_id} is absent from the active Catalog`)
-  if (!binding) throw new Error(`Binding ${node.binding_id} is absent from the active Catalog`)
+  if (!nodeType || !binding) return []
   return [
     ...parameterPresentationsForScope(nodeType.descriptor.node_parameters as JsonObject | undefined, node.node_parameters, 'node', nodeType.descriptor.parameter_groups as Array<{ id: string; title: string; parameters: string[] }>),
     ...parameterPresentationsForScope(binding.descriptor.binding_parameters as JsonObject | undefined, node.binding_parameters, 'binding'),
   ]
 }
 
+export function missingNodeContracts(catalog: CatalogSnapshot, node: WorkflowNode): string[] {
+  return ([['node_type', node.node_type_id], ['binding', node.binding_id]] as const)
+    .filter(([kind, id]) => !catalog.contracts.some(contract => contract.reference.contract_kind === kind && contract.reference.contract_id === id))
+    .map(([, id]) => id)
+}
+
+/** A saved endpoint locates a wire; its scientific contract is unavailable. */
+export function missingPortPresentation(name: string): PortPresentation {
+  return { name, missing: true, meaning: '模块缺失，保留已保存的端口和连线；启用兼容模块后恢复。' }
+}
+
 export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: string): NodeTypePresentation {
   const descriptor = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === nodeTypeId)?.descriptor
-  if (!descriptor) throw new Error(`Node Type ${nodeTypeId} is absent from the active Catalog`)
+  if (!descriptor) return { missing: true, title: nodeTypeId, category: '缺失模块', inputs: [], outputs: [] }
   const ports = (field: 'inputs' | 'outputs'): PortPresentation[] => ((descriptor[field] as JsonObject[] | undefined) ?? []).map((port) => ({
     name: String(port.name),
     portTypeId: String((port.port_type as JsonObject).contract_id),
-    multiplicity: port.multiplicity as PortPresentation['multiplicity'],
+    multiplicity: port.multiplicity as 'one' | 'many',
     required: port.required as boolean,
     meaning: String(port.scientific_meaning),
   }))

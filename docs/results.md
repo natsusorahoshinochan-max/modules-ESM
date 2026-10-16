@@ -10,7 +10,7 @@
 
 候选 metadata 保留完整 header（不含 `>`）、源文件起始行号、从 1 开始的记录序号和文件名。候选身份来自正常输出发布，不以名称或序列去重生成。原始输入字节保持不可变。公共值允许的字符与具体工具可接收字符分开，由相关值合同及 Adapter 各自负责；当前说明不足以裁定所有特殊氨基酸在全部操作中的适用范围。
 
-当前单条 parser 仍连接多条 FASTA 记录，须按上述要求修正；批量路径不应受此缺陷影响。[FASTA 实现](../modules/protein_io/fasta.py)与[输入 UI](../webui/src/InputSourceDialog.tsx)是核对入口。
+当前单条 parser 使用同一记录解析器并明确拒绝多条记录，错误提示引导使用批量入口；不会拼接多条序列。[FASTA 实现](../modules/protein_io/fasta.py)与[输入 UI](../webui/src/InputSourceDialog.tsx)是核对入口。
 
 ## 结构输入与组分
 
@@ -23,7 +23,7 @@
 
 ### 当前输入检查接口
 
-`POST /api/v2/projects/{project_id}/inputs/{project_input_ref}:inspect` 当前只接受显式 `format: "fasta" | "pdb"`，不按扩展名、内容或 MIME 猜格式。它读取已上传的不可变输入，返回项目、输入引用、摘要及所选格式，不创建 Draft、Run、Candidate 或 Cache。
+`POST /api/v2/projects/{project_id}/inputs/{project_input_ref}:inspect` 接受 `format: "fasta" | "pdb" | "mmcif" | "structure"`。选择 `structure` 时，由模块依据首个非空、非注释记录是否以 `data_` 开头区分 mmCIF 与 PDB；选择明确的 `pdb` 或 `mmcif` 时要求与识别格式一致，不按扩展名或 MIME 选择解析器。它读取已上传的不可变输入，返回项目、输入引用、摘要及所选格式，不创建 Draft、Run、Candidate 或 Cache。
 
 FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显示名、起始行号、长度和总长度；非法记录使检查整体失败。结构检查支持 PDB/mmCIF，按坐标记录首次出现顺序返回链身份，不推断序列、残基对应，也不提前执行蛋白残基轴准入。尚未选择的非蛋白链不应因此阻止蛋白链选择。
 
@@ -122,4 +122,4 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 | 批次成功结果与续算 | 失败时保留完成结果的受控回归通过；真实工具成功调用不替代失败路径验证；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
 | 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，完整验证待完成；当前 ZIP 尚缺已记录参数说明 |
 
-后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)执行远端检查；本规范不记录旧验收通过数。
+后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)在本机执行对应检查；本规范不记录旧验收通过数。
