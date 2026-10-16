@@ -24,17 +24,31 @@ def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) ->
         atoms = read_mmcif_atoms(structure.text)
         indices = [index for index, atom in enumerate(atoms)
                    if structure_residue_id(atom.chain_id, atom.residue_number, atom.insertion_code) in selected]
-        # Keep source polymer sequence declarations needed to interpret retained
-        # modified residues; exclude assembly and connections to removed atoms.
+        # The derived polymer contains only retained residues. Separate entities
+        # keep different selections of source chains from sharing a full sequence.
         data = {'data_': original['data_']}
         data.update({key: [values[index] for index in indices]
                      for key, values in original.items() if key.startswith('_atom_site.')})
-        entities = {original['_atom_site.label_entity_id'][index] for index in indices}
-        prefix = '_entity_poly_seq.'
-        if prefix + 'entity_id' in original:
-            rows = [index for index, entity in enumerate(original[prefix + 'entity_id']) if entity in entities]
-            data.update({key: [values[index] for index in rows]
-                         for key, values in original.items() if key.startswith(prefix)})
+        if '_entity_poly_seq.entity_id' in original:
+            chains = {}
+            positions = {}
+            entity_ids, numbers, components = [], [], []
+            for index in indices:
+                atom = atoms[index]
+                entity = chains.setdefault(atom.chain_id, str(len(chains) + 1))
+                identity = (atom.chain_id, atom.residue_number, atom.insertion_code)
+                if identity not in positions:
+                    number = str(sum(key[0] == atom.chain_id for key in positions) + 1)
+                    positions[identity] = number
+                    entity_ids.append(entity)
+                    numbers.append(number)
+                    components.append(atom.residue_name)
+            data['_atom_site.label_entity_id'] = [chains[atoms[index].chain_id] for index in indices]
+            data['_atom_site.label_seq_id'] = [positions[(atoms[index].chain_id, atoms[index].residue_number,
+                                                        atoms[index].insertion_code)] for index in indices]
+            data['_entity_poly_seq.entity_id'] = entity_ids
+            data['_entity_poly_seq.num'] = numbers
+            data['_entity_poly_seq.mon_id'] = components
         prefix = '_pdbx_struct_mod_residue.' 
         if prefix + 'auth_seq_id' in original:
             rows = [index for index, number in enumerate(original[prefix + 'auth_seq_id'])
@@ -45,9 +59,18 @@ def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) ->
                 data.update({key: [values[index] for index in rows]
                              for key, values in original.items() if key.startswith(prefix)})
         return ProteinStructure(write_mmcif_dictionary(data), 'mmcif')
-    selected_chains = {identity.split(':', 1)[0] for identity in residue_ids}
-    lines = [line for line in structure.text.splitlines()
-             if line.startswith('SEQRES') and line[11] in selected_chains]
+    declared_chains = {line[11] for line in structure.text.splitlines() if line.startswith('SEQRES')}
+    components = {}
+    seen = set()
+    for record in _single_model_records(structure):
+        if record is not None and record.public_residue_id in selected and record.residue_identity not in seen:
+            seen.add(record.residue_identity)
+            if record.chain_id in declared_chains:
+                components.setdefault(record.chain_id, []).append(record.residue_name)
+    lines = []
+    for chain, names in components.items():
+        for offset in range(0, len(names), 13):
+            lines.append(f'SEQRES {offset // 13 + 1:3d} {chain} {len(names):4d}  {" ".join(names[offset:offset + 13])}')
     in_fragment = False
     for line in structure.text.splitlines():
         if line.startswith(('ATOM  ', 'HETATM')):

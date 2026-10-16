@@ -151,6 +151,11 @@ class RegionalOperations(unittest.TestCase):
     def test_explicit_extraction_creates_child_with_original_numbering_and_preserves_parent(self):
         original = mmcif([('A', '10', '', 0, 0, 0), ('A', '11', '', 1, 0, 0),
                           ('A', 'A42', '', 2, 0, 0), ('A', '12', 'A', 3, 0, 0)])
+        # Coordinate-only mmCIF does not require an entity identifier column.
+        original = '\n'.join(
+            ' '.join(line.split()[:7] + line.split()[8:]) if line.startswith('ATOM ') else line
+            for line in original.splitlines() if line != '_atom_site.label_entity_id'
+        ) + '\n'
         with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
             with TestClient(create_application(load_example_results=False)) as client:
                 project_id, base = self.project(client)
@@ -202,17 +207,19 @@ class RegionalOperations(unittest.TestCase):
                 self.assertEqual(prompt['value']['residue_ids'], ['A:A42'])
 
     def test_extracted_modified_residue_keeps_polymer_declarations_for_downstream_resolution(self):
-        pdb = ('SEQRES   1 A    2  ALA MSE\n'
-               'MODRES 1ABC MSE A   12  MET\n'
-               'ATOM      1  CA  ALA A  10       0.000   0.000   0.000  1.00 20.00           C  \n'
-               'HETATM    2  CA  MSE A  12       1.000   0.000   0.000  1.00 20.00           C  \nEND\n')
-        cif = mmcif([('A', '10', '', 0, 0, 0), ('A', '12', '', 1, 0, 0)]).replace(
-            'ATOM 2 C CA . ALA A 1 2 ? 1 0 0 1 80 12 ALA A CA 1',
-            'HETATM 2 C CA . MSE A 1 2 ? 1 0 0 1 80 12 MSE A CA 1',
-        ) + ('loop_\n_entity_poly_seq.entity_id\n_entity_poly_seq.num\n_entity_poly_seq.mon_id\n1 1 ALA\n1 2 MSE\n#\n'
-             'loop_\n_pdbx_struct_mod_residue.auth_asym_id\n_pdbx_struct_mod_residue.auth_seq_id\n'
-             '_pdbx_struct_mod_residue.PDB_ins_code\n_pdbx_struct_mod_residue.auth_comp_id\n'
-             '_pdbx_struct_mod_residue.parent_comp_id\nA 12 ? MSE MET\n#\n')
+        pdb = ('SEQRES   1 A    3  MSE GLY MSE\n'
+               'MODRES 1ABC MSE A   12  MET\nMODRES 1ABC MSE A   14  MET\n'
+               'HETATM    1  CA  MSE A  12       0.000   0.000   0.000  1.00 20.00           C  \n'
+               'ATOM      2  CA  GLY A  13       1.000   0.000   0.000  1.00 20.00           C  \n'
+               'HETATM    3  CA  MSE A  14       2.000   0.000   0.000  1.00 20.00           C  \nEND\n')
+        cif = mmcif([('A', str(number), '', index, 0, 0) for index, number in enumerate([12, 13, 14])])
+        for index, number, name in [(1, 12, 'MSE'), (2, 13, 'GLY'), (3, 14, 'MSE')]:
+            cif = cif.replace(f'ATOM {index} C CA . ALA', f'{"HETATM" if name == "MSE" else "ATOM"} {index} C CA . {name}')
+            cif = cif.replace(f'{number} ALA A CA', f'{number} {name} A CA')
+        cif += ('loop_\n_entity_poly_seq.entity_id\n_entity_poly_seq.num\n_entity_poly_seq.mon_id\n1 1 MSE\n1 2 GLY\n1 3 MSE\n#\n'
+                'loop_\n_pdbx_struct_mod_residue.auth_asym_id\n_pdbx_struct_mod_residue.auth_seq_id\n'
+                '_pdbx_struct_mod_residue.PDB_ins_code\n_pdbx_struct_mod_residue.auth_comp_id\n'
+                '_pdbx_struct_mod_residue.parent_comp_id\nA 12 ? MSE MET\nA 14 ? MSE MET\n#\n')
         for filename, original in [('region.pdb', pdb), ('region.cif', cif)]:
             with self.subTest(format=filename), tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
                 with TestClient(create_application(load_example_results=False)) as client:
@@ -230,6 +237,9 @@ class RegionalOperations(unittest.TestCase):
                     axis = self.request(client, 'GET', run + '/outputs/axis/residue_axes/values/0')['value']['entries'][0]['residue_axis']
                     self.assertEqual(axis['sequence'], 'M')
                     self.assertEqual(axis['layout']['fields']['residue_ids'], ['A:12'])
+                    parent = self.request(client, 'GET', run + '/outputs/input/structure_candidates/values/0')['value']['fields']['items'][0]['fields']
+                    source_field = 'mmcif_string' if filename.endswith('.cif') else 'pdb_string'
+                    self.assertEqual(parent['data']['fields'][source_field], original)
 
     def test_existing_residue_metrics_are_summarized_without_provider_recalculation(self):
         from protein_workbench_public.module_registry import DEFAULT_MODULES
