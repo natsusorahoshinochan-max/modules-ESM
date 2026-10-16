@@ -103,3 +103,13 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5191 npx playwright test tests/continue-batc
 ```
 
 覆盖用户主动继续原 Run、保留未保存的画布布局、无自动保存及完成后移除继续入口。受控 SDK 测试不能证明真实线上调用或模型结果质量。
+
+## 历史结果采用
+
+采用界面测试使用启用官方模块的正常应用和独立临时数据目录；后端与前端启动方式同模块设置，地址通过 `WORKBENCH_TEST_URL` 指定。在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5193 npx playwright test tests/result-adoption.spec.ts --workers=1 --reporter=line --output=/tmp/workbench-adoption-test-results
+```
+
+通过公共 API 准备一个真实序列导入结果，再操作应用选择来源项目、历史运行与结果值。覆盖采用后只添加未保存来源节点、不自动连线，以及手动保存后重新打开；不调用模型。来源永久删除后的数据独立性由采用 API 测试覆盖，界面测试不代替该行为证明。
