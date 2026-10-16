@@ -805,7 +805,7 @@ function App() {
     return String(descriptor?.title ?? node?.node_type_id ?? runProgress.currentNodeId)
   }, [catalog, draft, runProgress?.currentNodeId])
   const runActive = history.active || (run?.project_id === project?.id || !run) && resultSnapshot.connection !== undefined && (!run || ['admitted', 'running'].includes(run.status))
-  useLayoutEffect(() => { editor.setReadOnly(runActive) }, [editor, runActive])
+  useLayoutEffect(() => { editor.setReadOnly(runActive) }, [editor, runActive, project?.id, editing.readOnly])
   const pendingNodeTitle = pendingNodeDrop && catalog ? nodeTypePresentation(catalog, pendingNodeDrop.nodeTypeId).title : ''
   const inputSourceDialog = inputSource && catalog && <InputSourceDialog projectId={inputSource.projectId} workflow={inputSource.workflow} catalog={catalog} client={editor.sources} saveAccepted={inputSource.session.submitted} saveError={editing.error !== undefined ? workspaceErrorMessage(editing.error) : undefined} onRetrySave={async () => { await editor.retry(); if (inputSource.session.submitted) setInputSource(current => current?.session === inputSource.session ? undefined : current) }} preparePublication={async () => {
     const personal = await inputSource.session.writableProject()
