@@ -65,6 +65,7 @@ class SimpleFoldAdapter(Protocol):
         *,
         sequence: ProteinSequence,
         num_steps: int,
+        tau: float,
         num_samples: int,
         derived_call_seed: int,
         engine_role: str,
@@ -158,6 +159,7 @@ class LocalSimpleFoldAdapter:
         *,
         sequence: ProteinSequence,
         num_steps: int,
+        tau: float,
         num_samples: int,
         derived_call_seed: int,
         engine_role: str,
@@ -178,6 +180,7 @@ class LocalSimpleFoldAdapter:
             activated = activate_fold_sequence(
                 sequence=sequence,
                 num_steps=num_steps,
+                tau=tau,
                 num_samples=num_samples,
                 staging_directory=staging_directory,
                 effective_seed=derived_call_seed,

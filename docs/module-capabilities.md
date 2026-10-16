@@ -99,3 +99,7 @@ protein-workbench-esm3-call-seed/v2:{base_seed}:{functional_digest}:{sample_inde
 ## 尚未对齐的实现
 
 [参数开放审查](tool-parameter-exposure-audit.md)记录 ESM-3、ESMFold2、SimpleFold 等现有固定参数与范围差异。[治理问题清单](2026-10-15-documentation-governance-issues.md)记录输入、模块接入、区域表达和其他实现缺口。文档中的目标要求不构成已完成声明；未确认的工具模式、逐残基 ProteinMPNN 输出或所有内部张量不自动成为开发范围。
+
+### SimpleFold 折叠采样参数
+
+折叠 Binding 提供 `num_steps`（正整数，默认 500）与 `tau`（非负数，默认 0.1），无额外上限。默认值来自固定官方 CLI；界面与保存使用同一 Binding 声明，调用将用户值传至官方 wrapper。已有结构的独立 confidence 不重新采样，不提供这两个参数。本地模型执行排除，仅进行不加载模型的契约验证。

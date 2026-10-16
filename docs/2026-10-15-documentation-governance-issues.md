@@ -70,10 +70,10 @@
 - **当前实现**：[Binding](../modules/folding/package.py)已声明六项适用推理参数，由远程和本地 Adapter 分别传入官方接口；范围、默认值和 null 语义按各路线区分。未展示标准本地模型实际忽略的 sampler overrides。
 - **待核验**：完整集成门禁及 Biohub 非默认参数真实验收；本地重模型执行排除，保留不加载模型的契约检查。具体范围见[参数审查](tool-parameter-exposure-audit.md#esmfold2-当前参数接入与待验收范围)。
 
-### DOC-041｜SimpleFold 的 tau 与步数范围仍受封装限制
+### DOC-041｜SimpleFold 折叠参数已接入
 
-- **当前证据**：[运行时](../modules/folding/simplefold_runtime.py)第 260–268 行固定 tau=.1；[Binding](../modules/folding/package.py)第 424–435 行将步数限制在 1–50，固定上游 CLI 公开步数及 tau，示例采用 500 步。
-- **状态**：开放适用参数并移除无依据限制。tau=.1 有默认依据；不将折叠采样参数套用于不重新采样的已有结构 confidence 操作。见[参数审查](tool-parameter-exposure-audit.md)。
+- **当前实现**：[Binding](../modules/folding/package.py)公开 tau 与无额外上限的正整数步数，默认值分别为固定官方 CLI 的 0.1 和 500；[运行时](../modules/folding/simplefold_runtime.py)原样传入官方 wrapper。
+- **核验范围**：使用不加载模型的声明与 Adapter 契约检查；本地 SimpleFold 实际模型执行排除。独立 confidence 操作不新增不适用的采样参数，见[参数审查](tool-parameter-exposure-audit.md)。
 
 ### DOC-045｜结构导出格式转换待完整核验
 

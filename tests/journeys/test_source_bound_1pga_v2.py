@@ -160,6 +160,7 @@ def _provider_free_simplefold_environment(
             return client.fold(
                 sequence=self._kwargs["sequence"],
                 num_steps=self._kwargs["num_steps"],
+                tau=self._kwargs["tau"],
                 num_samples=self._kwargs["num_samples"],
                 effective_seed=self._kwargs["effective_seed"],
                 staging_directory=self._kwargs["staging_directory"],

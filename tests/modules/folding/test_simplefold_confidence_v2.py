@@ -333,6 +333,7 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
     folding_arguments = {
         "sequence": ProteinSequence("AG", ("A:1", "A:2")),
         "num_steps": 50,
+        "tau": 0.1,
         "num_samples": 1,
         "effective_seed": 1603,
         "staged_model_root": model_root,
