@@ -39,6 +39,7 @@ _NON_SCIENTIFIC_CONTRACT_FIELDS = {
     ),
     "metric": frozenset({"title", "description"}),
     "utility_transform": frozenset({"title"}),
+    "binding": frozenset({"availability_declaration", "readiness_declaration", "environment_fields"}),
 }
 _INTERNAL_CONTRACT_FIELDS = frozenset(
     {"schema_namespace", "contract_kind", "contract_id"}

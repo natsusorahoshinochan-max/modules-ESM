@@ -13,10 +13,10 @@ export function ScoringChoiceEditor({ value, catalog, onChange }: { value: Obser
   })
   const selected = choices.find((item) => item.reference.contract_id === value.transformId)
   return <div className="selection-scoring">
-    <label>加权评分方式<select aria-label="加权评分方式" value={value.transformId} onChange={(event) => {
+    <label>加权评分方式<select aria-label="加权评分方式" disabled={choices.length === 0} value={value.transformId} onChange={(event) => {
       onChange({ ...value, transformId: event.target.value, transformParameters: {} })
     }}><option value="">选择指标模块提供的评分方式…</option>
-      {value.transformId && !selected && <option value={value.transformId}>已保存评分方式当前不适用</option>}
+      {value.transformId && !selected && <option value={value.transformId} disabled>已保存评分方式当前不适用</option>}
       {choices.map((item) => <option key={item.reference.contract_id} value={item.reference.contract_id}>{String(item.descriptor.title)}</option>)}
     </select></label>
     {selected && <><p>{String(selected.descriptor.meaning)}</p><p>适用条件：{String(selected.descriptor.applicability)}</p><ul aria-label="评分方式限制">{(selected.descriptor.limitations as string[]).map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></>}

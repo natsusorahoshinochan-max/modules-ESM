@@ -80,13 +80,12 @@ class ScoringChoiceTests(unittest.TestCase):
         self.assertEqual(reopened.json()["draft"]["workflow"]["nodes"][0]["node_parameters"], parameters)
         self.assertEqual(reopened.json()["draft"]["workflow"]["selection_objectives"], [])
 
-    def test_scoring_configuration_does_not_advertise_an_implemented_weighted_calculation(self):
+    def test_weighted_calculation_is_available_for_module_owned_choices(self):
         response = self.client.get("/api/v2/catalog")
         self.assertEqual(response.status_code, 200, response.text)
         availability = next(item for item in response.json()["availability"]
                             if item["binding"]["contract_id"] == "selection.weighted_rank.direct")
-        self.assertFalse(availability["available"])
-        self.assertEqual(availability["reason"]["code"], "weighted_execution_pending")
+        self.assertTrue(availability["available"])
 
 
 if __name__ == "__main__":

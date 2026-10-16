@@ -19,6 +19,7 @@ from core.scoring.selection import (
     selection_objective_identity_facts_from_facts,
 )
 from core.workflow.plan import ResultIdentityPlanFacts
+from datatypes.exact_reference import ExactContractReference
 
 
 def _identity_without_digest(contract: Any) -> dict[str, str]:
@@ -34,6 +35,7 @@ def _result_contracts_for_node(
     selected_objectives: tuple[SelectionObjective, ...],
     selected_selectors: tuple[ObservationSelector, ...],
     catalog: FrozenCatalog,
+    parameter_dependencies: tuple[ExactContractReference, ...] = (),
 ) -> tuple[Any, ...]:
     binding_definition = cast(
         ExecutionBindingDefinition,
@@ -41,6 +43,7 @@ def _result_contracts_for_node(
     )
     keys = {
         (node_contract.contract_kind, node_contract.contract_id),
+        (binding_contract.contract_kind, binding_contract.contract_id),
         binding_definition.method.key,
     }
     keys.update(
@@ -61,7 +64,8 @@ def _result_contracts_for_node(
             reference.key
             for reference in (selector.metric, selector.method)
         )
-    return tuple(catalog.require_contract(*key) for key in sorted(keys))
+    roots = tuple(ExactContractReference(*key) for key in sorted(keys)) + parameter_dependencies
+    return tuple(catalog.require_contract(*reference.key) for reference in catalog.resolve_contract_closure(roots))
 
 def _result_identity_plan_facts(
     *,

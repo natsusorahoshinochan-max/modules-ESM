@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from core.catalog.errors import UnknownContractError
 from core.catalog.result_adoption import AdoptedObservation, with_adopted_definitions
 from typing import Any, cast
 
@@ -13,6 +15,7 @@ from core.catalog.declarations import (
     NodePortDefinition,
     NodeTypeDefinition,
     UtilityTransformDefinition,
+    ParameterDependencies,
 )
 
 from core.scoring.selection import SelectionInput, context_selector_canonical
@@ -25,7 +28,7 @@ from core.parameters.model import (
     AdmittedParameterValues,
     ParameterContract,
 )
-from core.catalog.model import FrozenCatalog, result_identity_contract
+from core.catalog.model import CatalogContract, FrozenCatalog, result_identity_contract
 from core.workflow._compiler.identity import (
     _result_contracts_for_node,
     _result_identity_plan_facts,
@@ -275,6 +278,22 @@ def compile(
         normalized_node_parameters, normalized_binding_parameters = (
             admitted_parameters[node.node_id]
         )
+        parameter_dependencies = ParameterDependencies()
+        if binding_definition.parameter_dependencies is not None:
+            try:
+                parameter_dependencies = binding_definition.parameter_dependencies.resolve(
+                    normalized_node_parameters, normalized_binding_parameters)
+            except ValueError as error:
+                raise _errors.WorkflowCompileError(
+                    "invalid_parameter_dependencies", str(error), node_id=node_id,
+                    field_path=("nodes", node_id, "node_parameters")) from error
+            connected = {(edge.target_port, edge.target_slot) for edge in workflow.edges
+                         if edge.target_node_id == node_id}
+            for port, slot in parameter_dependencies.input_slots:
+                if (port, slot) not in connected:
+                    raise _errors.WorkflowCompileError(
+                        "required_input_missing", f"Input slot {slot!r} on {port!r} is disconnected",
+                        node_id=node_id, field_path=("nodes", node_id, "node_parameters"))
         selected_objectives = selection_consumers.objectives_by_node[node_id]
         selected_selectors = selection_consumers.selectors_by_node[node_id]
         resolved_selected_objectives = _compile_selection_objectives(
@@ -383,17 +402,28 @@ def compile(
             if objective_consumption is not None
             else binding_definition.candidate_selection_consumption
         )
-        result_contracts = _result_contracts_for_node(
-            node_contract=node_type_contract,
-            binding_contract=binding,
-            selected_objectives=selected_objectives,
-            selected_selectors=selected_selectors,
-            catalog=catalog,
-        )
+        try:
+            result_contracts = _result_contracts_for_node(
+                node_contract=node_type_contract,
+                binding_contract=binding,
+                selected_objectives=selected_objectives,
+                selected_selectors=selected_selectors,
+                catalog=catalog,
+                parameter_dependencies=parameter_dependencies.contracts,
+            )
+        except UnknownContractError as error:
+            raise _errors.WorkflowCompileError(
+                "unknown_contract", str(error), node_id=node_id,
+                field_path=("nodes", node_id, "node_parameters")) from error
+        resolved_definitions = MappingProxyType({
+            (facts['contract_kind'], facts['contract_id']):
+                contract.definition if isinstance(contract, CatalogContract) else contract
+            for contract in result_contracts
+            for facts in (result_identity_contract(contract),)
+        })
         for contract in result_contracts:
-            scientific_definitions[
-                (contract.contract_kind, contract.contract_id)
-            ] = thaw_i_json(result_identity_contract(contract))
+            identity_definition = thaw_i_json(result_identity_contract(contract))
+            scientific_definitions[(identity_definition['contract_kind'], identity_definition['contract_id'])] = identity_definition
         result_identity_plan_facts = _result_identity_plan_facts(
             node_contract=node_type_contract,
             binding_contract=binding,
@@ -412,6 +442,7 @@ def compile(
             )
         runtime = _ExecutionPlanNodeRuntime(
             factory=binding_definition.factory,
+            resolved_definitions=resolved_definitions,
             readiness_declaration=binding_definition.readiness,
             required_environment_fields=tuple(
                 field.name for field in binding_definition.environment_fields if field.required

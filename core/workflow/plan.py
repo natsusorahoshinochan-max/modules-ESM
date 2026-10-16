@@ -125,6 +125,7 @@ class _ExecutionPlanNodeRuntime:
     """Private executable facts excluded from the public Plan digest."""
 
     factory: Any = field(repr=False, compare=False)
+    resolved_definitions: Mapping[tuple[str, str], Any] = field(repr=False, compare=False)
     readiness_declaration: Any = field(repr=False, compare=False)
     required_environment_fields: tuple[str, ...]
     effective_randomness_resolver: Any | None = field(
