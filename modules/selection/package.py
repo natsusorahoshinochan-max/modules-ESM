@@ -132,7 +132,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             node_type_ids=tuple(f"selection.{operation}" for operation in OPERATIONS),
             component="SelectionEditor",
         ),),
-    ),
+    ),),
     node_definitions=tuple(
         DefinitionResource(f"definitions/{operation}.yaml")
         for operation in OPERATIONS
