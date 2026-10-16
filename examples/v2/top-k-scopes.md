@@ -22,16 +22,8 @@
 
 每个 Top-k 使用独立 Selection Objective，`candidate_input` 指向本分支候选输出，`score_collection_input` 指向评分输出。其余评价身份与转换相同。候选范围可以不同于评分操作最初的主体输入端点，匹配仍使用完整 Candidate Data Reference。
 
-各分支设置 `out_of_scope_policy: ignore`，明确忽略同一 Score Collection 中其他范围的观察；这不忽略本范围内缺失或多义的必需观察。`match_cardinality: exactly_one` 和 `missing_policy: error` 保持严格含义。`k` 是正整数，不能超过本分支候选数；用户按需要设置为十或其他值。
+各分支设置 `out_of_scope_policy: ignore`，明确忽略同一 Score Collection 中其他范围的观察；这不忽略本范围内缺失或多义的必需观察。`match_cardinality: exactly_one` 和 `missing_policy: error` 保持严格含义。现有实现限制 `k` 不能超过本分支候选数，这与已确认的“最多取 k 个”要求冲突，须在重构中修正。
 
-## 可运行的公共边界示例
+## 重构边界
 
-[新组合测试](../../tests/test_topk_scopes.py)通过公共 API 创建上述完整 Workflow、提交并执行，使用显式外部测试模块提供已知值 A1=0.9、A2=0.8、B1=0.7、B2=0.6。整批 Top-2 是 A1、A2；按骨架各取一名是 A1、B1。测试检查输出保留完整原 Candidate，评分的 reference 与明确骨架关系一致。测试值不代表任何 Provider 的预测质量。
-
-另一条流程只对 A 组产生评分，仍把整批候选送入整批 Top-k。整批与 B 分支明确失败，A 分支成功，已经产生的两条评分保持原值；没有补算、填值或悄悄排除 B 组。
-
-```sh
-.venv/bin/python -m unittest discover -s tests -p test_topk_scopes.py
-```
-
-这条示例不调用模型。应用中的普通节点与 Selection 编辑器使用相同 Workflow/Objective 契约；结果页没有“保存为流程”入口。
+以上为现有实现的组合方式，不是重构后的接口契约。目标要求为节点本地规则、按原值排序、最多取 k 个；候选不足时返回全部。重构测试须依据[当前有效决策](../../docs/documentation-governance-decisions.md#筛选规则与排序)从零编写。
