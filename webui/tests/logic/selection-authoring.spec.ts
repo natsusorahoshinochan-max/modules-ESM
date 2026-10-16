@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Workflow } from '../../src/protocol/client'
-import { createSelectionDraft, decodePredicate, encodePredicate, readSelectionDraft, saveSelectionDraft, type ObservationDraft, type Predicate } from '../../src/selection-authoring'
-import { effectiveWeightPercentages } from '../../src/selection-observations'
+import { createSelectionDraft, decodePredicate, encodePredicate, readSelectionDraft, saveSelectionDraft, type ObservationDraft, type Predicate } from '../../../modules/selection/ui/selection-authoring'
+import { effectiveWeightPercentages } from '../../../modules/selection/ui/selection-observations'
 
 function workflow(): Workflow { return { schema_version: '2.1.0', workflow_id: 'work', nodes: [], edges: [], observation_selectors: [], selection_objectives: [] } }
 const source = { node_id: 'source', output_port: 'candidates' }

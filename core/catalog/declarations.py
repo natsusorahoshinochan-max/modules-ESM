@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .ui import ModuleUiDefinition, NodeEditorDefinition
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -612,6 +614,7 @@ class ModulePackageRegistration:
 
     package_id: str
     package_module: str
+    ui_extensions: tuple[ModuleUiDefinition, ...] = ()
     node_definitions: tuple[DefinitionResource, ...] = ()
     metric_definitions: tuple[DefinitionResource, ...] = ()
     methods: tuple[MethodDefinition, ...] = ()
@@ -629,6 +632,7 @@ class ModulePackageRegistration:
             "port_types",
             "utility_transforms",
             "authoring_capabilities",
+            "ui_extensions",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
 

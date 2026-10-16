@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
-import { SelectionEditor } from '../../src/SelectionEditor'
-import type { SelectionEditorProps } from '../../src/SelectionEditor'
+import { SelectionEditor } from '../../../modules/selection/ui/SelectionEditor'
+import type { SelectionEditorProps } from '../../../modules/selection/ui/SelectionEditor'
 
 const root = createRoot(document.getElementById('root')!)
 window.addEventListener('render-selection-fixture', (event) => {

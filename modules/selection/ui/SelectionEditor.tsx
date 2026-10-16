@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject, ResultCandidate, Workflow } from './protocol/client'
+import type { CandidateReference, CatalogSnapshot, ContractReference, JsonObject, ResultCandidate, Workflow } from '../../../webui/src/protocol/client'
 import { candidateReferenceKey, newObservation, observationLabel, readSelectionDraft, saveSelectionDraft, selectionSources, sourceKey, type ComparisonOperator, type ObservationDraft, type Predicate, type SelectionDraft, type SelectionOperation, type SelectionSource } from './selection-authoring'
 import { chooseObservation, contextLabel, contractTitle, effectiveWeightPercentages, observationOptionKey, sameContext, useObservationOptions } from './selection-observations'
 import './selection-editor.css'

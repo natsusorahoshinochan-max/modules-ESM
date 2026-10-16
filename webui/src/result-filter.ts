@@ -1,6 +1,6 @@
 import type { CandidateReference } from './protocol/client'
 import { referenceKey, uniqueScalarObservation, type ResultIndex } from './result-explorer'
-import type { Predicate } from './selection-authoring'
+import type { Predicate } from '../../modules/selection/ui/selection-authoring'
 
 export type ResultFilterChoice = { key: string; label: string; ambiguous: boolean }
 export type ResultScoreLookup = ResultIndex['observations']

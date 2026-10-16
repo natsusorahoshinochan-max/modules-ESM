@@ -915,6 +915,28 @@ def build_frozen_catalog(
                 result=availability,
             )
         )
+    ui_extensions = tuple(extension for registration in registration_tuple for extension in registration.ui_extensions)
+    extension_ids: set[str] = set()
+    editor_ids: set[str] = set()
+    editor_nodes: set[str] = set()
+    for extension in ui_extensions:
+        _require_identifier(extension.extension_id, "extension_id")
+        if extension.extension_id in extension_ids:
+            raise CatalogBuildError(f"duplicate UI extension {extension.extension_id}")
+        extension_ids.add(extension.extension_id)
+        if extension.react_major != 19:
+            raise CatalogBuildError("Module UI requires the shared React 19 runtime")
+        for editor in extension.editors:
+            _require_identifier(editor.editor_id, "editor_id")
+            if editor.editor_id in editor_ids:
+                raise CatalogBuildError(f"duplicate Node editor {editor.editor_id}")
+            editor_ids.add(editor.editor_id)
+            for node_type in editor.node_type_ids:
+                if ("node_type", node_type) not in resolved:
+                    raise CatalogBuildError(f"Node editor requires absent Node Type {node_type}")
+                if node_type in editor_nodes:
+                    raise CatalogBuildError(f"Node Type has multiple default editors: {node_type}")
+                editor_nodes.add(node_type)
     return FrozenCatalog(
         tuple(
             entry
@@ -923,4 +945,5 @@ def build_frozen_catalog(
         contracts=tuple(resolved[key] for key in sorted(resolved)),
         availability=tuple(availability_snapshots),
         availability_observed_at=observation_time,
+        ui_extensions=ui_extensions,
     )

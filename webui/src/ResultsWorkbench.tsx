@@ -7,7 +7,7 @@ import { resultFilterOutcome } from './result-filter'
 import { type PublishedStructure, type CatalogSnapshot, type ResultLocation, type RunProjection } from './protocol/client'
 import { candidateViewKey, exportCandidates, locationKey, observationKey, referenceKey, scalarObservationChoices, uniqueScalarObservation, type CandidateView, type ResultIndex, type ScoreView } from './result-explorer'
 import type { PublishedResults } from './published-results'
-import { type Predicate } from './selection-authoring'
+import { type Predicate } from '../../modules/selection/ui/selection-authoring'
 import './results.css'
 
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : JSON.stringify(reason)

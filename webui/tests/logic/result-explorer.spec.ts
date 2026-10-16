@@ -3,7 +3,7 @@ import { strFromU8 } from 'fflate'
 import { type CandidateReference, type RunProjection } from '../../src/protocol/client'
 import { buildResultIndex, resolveParentReferences, alignedCoordinate, candidateExportFiles, candidateViewKey, observationKey, scalarObservationChoices, uniqueScalarObservation, type CandidateView, type ResultFacts, type ScoreView } from '../../src/result-explorer'
 import { resultFilterOutcome } from '../../src/result-filter'
-import { encodePredicate, type Predicate } from '../../src/selection-authoring'
+import { encodePredicate, type Predicate } from '../../../modules/selection/ui/selection-authoring'
 
 const reference = (id: string, digest = 'a'): CandidateReference => ({ candidate_id: id, data_type_id: 'protein.sequence', content_digest: `sha256:${digest.repeat(64)}` })
 const candidate = (id: string, parents: string[] = []): CandidateView => ({ item_index: 0, reference: reference(id), parent_ids: parents, metadata: {}, sequence: 'ACD', has_structure: false, source: { node_id: id, output_port: 'candidates', value_index: 0 }, output: { node_id: id, output_port: 'candidates', port_type: { contract_kind: 'port_type', contract_id: 'candidate.collection' }, content_digest: `sha256:${'b'.repeat(64)}`, result_identity: 'result', value_count: 1, producer_provenance: {} } })

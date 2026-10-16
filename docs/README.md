@@ -12,6 +12,7 @@
 | 项目、画布、手动保存和教学实例 | [工作区](workspace.md) |
 | 导入、历史结果复用、查看、筛选与导出 | [结果与数据](results.md) |
 | 序列、轨道、区域、随机插入和结构编辑 | [Prompt 编辑](prompt-editing.md) |
+| 模块 React 编辑器接入与打包 | [模块 UI 契约](module-ui.md) |
 | 功能模块职责与当前工具调用能力 | [模块能力](module-capabilities.md) |
 | 官方 Biohub 请求与项目适配范围 | [Biohub 资料入口](biohub-api-reference/README.md) |
 | 核对当前参数开放差异 | [参数审查](tool-parameter-exposure-audit.md) |

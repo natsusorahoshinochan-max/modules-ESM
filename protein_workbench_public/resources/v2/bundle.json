@@ -1629,6 +1629,123 @@
       ],
       "type": "object"
     },
+    "ModuleUiAssetMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "media_type",
+        "size"
+      ],
+      "type": "object"
+    },
+    "ModuleUiAssetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "extension_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "resource_path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "extension_id",
+        "resource_path"
+      ],
+      "type": "object"
+    },
+    "ModuleUiEditor": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "editor_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "node_type_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "editor_id",
+        "title",
+        "node_type_ids",
+        "component"
+      ],
+      "type": "object"
+    },
+    "ModuleUiManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "extensions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "editors": {
+                "items": {
+                  "$ref": "#/$defs/ModuleUiEditor"
+                },
+                "type": "array"
+              },
+              "entry_url": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "extension_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "react_major": {
+                "const": 19,
+                "type": "integer"
+              },
+              "style_urls": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "extension_id",
+              "react_major",
+              "entry_url",
+              "style_urls",
+              "editors"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "extensions"
+      ],
+      "type": "object"
+    },
     "NodeAttemptStartedEvent": {
       "additionalProperties": false,
       "properties": {
@@ -3913,28 +4030,28 @@
               "type": "integer"
             },
             "target_residues": {
-              "type": "array",
               "items": {
-                "type": "object",
                 "additionalProperties": false,
+                "properties": {
+                  "origin": {
+                    "enum": [
+                      "source",
+                      "inserted"
+                    ],
+                    "type": "string"
+                  },
+                  "residue_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
                 "required": [
                   "residue_id",
                   "origin"
                 ],
-                "properties": {
-                  "residue_id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "origin": {
-                    "type": "string",
-                    "enum": [
-                      "source",
-                      "inserted"
-                    ]
-                  }
-                }
-              }
+                "type": "object"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -5538,14 +5655,14 @@
     "ResultStructure": {
       "additionalProperties": false,
       "properties": {
-        "text": {
-          "type": "string"
-        },
         "format": {
           "enum": [
             "pdb",
             "mmcif"
           ],
+          "type": "string"
+        },
+        "text": {
           "type": "string"
         }
       },
@@ -7608,6 +7725,39 @@
         "default": "structured_error"
       }
     },
+    "module_ui_asset": {
+      "method": "GET",
+      "request_schema": "#/$defs/ModuleUiAssetRequest",
+      "response": {
+        "headers": {
+          "Content-Length": "size",
+          "Content-Type": "media_type"
+        },
+        "kind": "binary",
+        "metadata_schema": "#/$defs/ModuleUiAssetMetadata",
+        "success_status": 200
+      },
+      "route": "/api/v2/module-ui/{extension_id}/assets/{resource_path}",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "module_ui_manifest": {
+      "method": "GET",
+      "request_schema": "#/$defs/CatalogSnapshotRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ModuleUiManifest",
+        "success_status": 200
+      },
+      "route": "/api/v2/module-ui",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
     "name_workflow_version": {
       "method": "POST",
       "request_schema": "#/$defs/ProjectRenameRequest",
@@ -8126,6 +8276,12 @@
         "code": "malformed_request",
         "details_schema": "#/$defs/MalformedRequestDetails",
         "http_status": 400,
+        "retryable": false
+      },
+      "module_ui_asset_not_found": {
+        "code": "module_ui_asset_not_found",
+        "details_schema": "#/$defs/ModuleUiAssetRequest",
+        "http_status": 404,
         "retryable": false
       },
       "node_execution_failed": {

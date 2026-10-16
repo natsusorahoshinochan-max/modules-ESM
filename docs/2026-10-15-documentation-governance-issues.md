@@ -51,7 +51,7 @@
 ### DOC-036｜模块专用界面与结果读取仍固定分派
 
 - **要求**：统一 React 接口，官方与外部模块同等提供编辑器及查看器；同一数据可有多个查看器，允许切换。
-- **当前证据**：[App](../webui/src/App.tsx)固定导入和分派 Prompt/Selection 编辑器；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
+- **当前证据**：[App](../webui/src/App.tsx)的 Selection 已改为模块声明的 React 编辑器入口，外部包使用同一发现和资源接口（见[模块 UI 契约](module-ui.md)）；Prompt 编辑器尚有固定分派；[PublishedOutputs](../webui/src/PublishedOutputs.tsx)按固定类型选择展示；[published_results](../protein_workbench_public/published_results.py)第 27–32 行及 value() 固定专用读取种类。
 - **状态**：后端专用读取与前端加载须一起修正，不能要求自定义数据伪装成蛋白类型。已有 Port Type 注册及编解码不等于专用界面接入完整，见[架构](architecture.md)和[结果说明](results.md)。
 
 ### DOC-037｜通用区域比较、处理与指标分析的组合覆盖不足
