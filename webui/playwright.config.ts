@@ -6,6 +6,7 @@ import { join } from 'node:path'
 const testDataRoot = mkdtempSync(join(tmpdir(), 'protein-workbench-webui-playwright-'))
 
 export default defineConfig({
+  tsconfig: './tsconfig.test.json',
   testDir: './tests/journeys',
   globalSetup: './tests/support/journey-environment.ts',
   metadata: { backendDataRoot: testDataRoot },

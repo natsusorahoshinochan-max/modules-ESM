@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 // Pure owners and transformations run in Node; no browser or server is started.
 export default defineConfig({
+  tsconfig: './tsconfig.test.json',
   testDir: './tests/logic',
   timeout: 15_000,
   workers: 4,
