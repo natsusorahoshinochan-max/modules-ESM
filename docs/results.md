@@ -39,7 +39,11 @@ FASTA 检查与运行共用 parser，返回记录顺序、序号、header、显�
 
 不提供不同次运行的候选并排查看。同次运行内的多候选比较仍可用；历史结果参与结构比较等计算模块，也不等同于跨运行并排查看。评价所用参考对象与真实生成来源分别记录，不能要求修改谱系才能比较或追加评分。
 
-当前前端主要打开最近运行，已有按节点重跑及既有输入复制路径不能被写成任意历史/跨项目采用已经完成。完整采用入口及来源永久删除后的独立可用性尚未核实，需沿实际采用与持久化路径继续核对；相关运行边界见[执行规范](execution.md)。
+项目的“运行历史”列出已保存 Run 的真实状态、原 Workflow Commit 与保留结果情况，并通过“打开运行”切换唯一的结果读取会话；失败、取消和中断不会隐藏已发布结果。选中 Run 保存在页面 URL 与当前浏览器会话的项目查看状态中，刷新和重新打开项目恢复该选择，不保存或修改流程。当前项目的活动运行锁独立于正在查看的历史 Run；浏览旧结果不解除运行期间的编辑限制。
+
+公共读取入口为 `GET /api/v2/projects/{project_id}/runs`。重启后从持久 Run 记录恢复列表；已知 Run 的必要证据不可用时返回既有 `evidence_unavailable` 错误，不静默遗漏该 Run。实现见 [RunHistoryDialog](../webui/src/RunHistoryDialog.tsx)、[项目运行状态与选择](../webui/src/project-run-history.ts)及[公共 Run 路由](../protein_workbench_public/http/run_routes.py)。
+
+历史/跨项目结果采用及来源永久删除后的独立可用性仍需沿实际采用与持久化路径核对；运行列表、节点级重跑和既有输入复制不代表完整采用能力。相关运行边界见[执行规范](execution.md)。
 
 ## 结果入口与展示
 
@@ -107,19 +111,22 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 应附带已经记录的原计算参数，保证离开软件后可读；只写 Commit ID 或 Method 定义不足以替代实际节点/Binding 参数。不补造未记录数据，不新增日志或证据体系。结构须提供 PDB/mmCIF 选择，并保留所选非蛋白组分。
 
-当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。当前 ZIP 尚缺完整计算参数说明。[结果阅读](../webui/src/published-results.ts)取得原 Commit 后只保留定义，导出材料未传入原 Workflow/参数。不能把现有 ZIP 描述为已满足全部导出要求。
+当前 ZIP 格式化由[结果导出](../webui/src/result-explorer.ts)维护；它写 FASTA、分数 CSV、manifest，并按用户选择写 PDB 或 mmCIF。导出节点的 `format` 参数与结果页“结构导出格式”均默认 PDB；不同格式由 protein_io 的 Gemmi 转换处理，同格式保持原文，保留的输入及发布结果不会改写。PDB 无法表示的链、残基身份或坐标明确拒绝转换，用户仍可选择 mmCIF。跨格式保留所支持的结构内容，不保证任意源格式专用元数据的无损往返。ZIP 中的 `computation-parameters.json` 保存来源 Run/Commit 的节点与 Binding 参数，以及 Commit 中实际保存的 admitted 参数；后者缺失时写 `null`，不根据当前定义补默认值。`manifest.json` 指向该文件；候选、序列、观察和对齐的 `source` 对应参数文件的 `outputs`，其 `parameter_record_ids` 指向计算记录。混合勾选保留各自来源。缓存重放按发布记录的 producer Run 读取原 Commit，以结果身份和输出端口定位原节点，不把当前工作区或重放 Run 的配置冒充原计算参数。多个匹配原节点保留全部关联。
+
+参数文件中的 `workflows` 是来源 Commit 已保存的流程、连线、Selector 与 Objective，不表示其中每个节点都执行过。不存在原 Run/Commit 或节点记录时，对应输出明确记为 `unavailable`；其他读取失败停止本次导出，用户可明确重试。只导出计算记录与结果，不读取 Environment Configuration 或凭据，不新增持久日志。参数读取由[结果参数读取](../webui/src/result-parameters.ts)负责，完整验证仍待当前冻结源码矩阵完成。
 
 ## 当前差距与核对
 
 | 范围 | 当前状态 |
 |---|---|
 | 单条 FASTA | 单条入口拒绝多条记录并提示批量入口，模块及应用旅程回归通过 |
-| 历史/跨项目采用及来源删除独立 | 已有最近运行、节点级复用和输入复制路径；完整采用及来源删除后的可用性尚未证实 |
+| 历史 Run 查看 | 项目运行列表与单 Run 选择；按原 Run/Commit 读取状态与保留结果，选择可刷新恢复 |
+| 历史/跨项目采用及来源删除独立 | 节点级复用和输入复制不代表完整采用；采用及来源删除后的可用性尚未证实 |
 | 结构格式、多构象、非蛋白组分 | PDB/mmCIF 导入及原格式输出回归通过；新增格式转换的完整验证、构象选择/拆分及完整组分操作仍待完成 |
 | 模块查看器 | 内置读取和固定分派须按模块契约开放；多个查看器切换尚待实现 |
 | 结果页转流程 | 已删除入口及节点生成路径，应用旅程回归通过 |
 | ESMC 输出 | 实际 logits 可选输出尚未对齐，不能以矩阵尺寸冒充数值；见[模块能力](module-capabilities.md) |
 | 批次成功结果与续算 | 失败时保留完成结果的受控回归通过；真实工具成功调用不替代失败路径验证；跳过成功请求的主动续算仍缺，见[执行规范](execution.md) |
-| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，完整验证待完成；当前 ZIP 尚缺已记录参数说明 |
+| 导出参数与 mmCIF | 已提供节点及结果页格式选择与转换，以及来源 Run/Commit 参数文件；当前冻结源码完整验证待完成 |
 
 后续行为修改须按[WebUI 验证](../webui/README.md#verification)和[后端验证](backend-verification.md#execution-policy)在本机执行对应检查；本规范不记录旧验收通过数。

@@ -227,3 +227,5 @@ reinstallation imports the new distribution files.
 persistence and the user wheel-install / disable / enable / uninstall / restore
 chain with a deterministic external operation. It runs under the same explicit
 private Execution Profile policy as the other browser journeys.
+
+所有 Playwright 入口使用 `tsconfig.test.json` 将 React 运行时解析到 WebUI 工具链依赖，使位于 `modules/*/ui` 的源码也使用同一安装包；应用类型检查仍使用 `tsconfig.app.json`。模块资产在浏览器中按声明的绝对 URL 导入，不接受开发服务器额外添加的协议查询参数。

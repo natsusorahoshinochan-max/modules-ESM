@@ -46,8 +46,8 @@ test('sequence-only ZIP export retains exact parents even when only a child is s
   const child = candidate('child', ['parent', 'unpublished-parent'])
   const facts: ResultFacts = { collections: [parent, child].map((item) => ({ source: item.source, output: item.output, title: item.reference.candidate_id, total: 1, items: [item] })), scores: [], alignments: [], definitions: [], sequences: {} }
   const index = buildResultIndex(facts)
-  const files = candidateExportFiles({ candidates: [child], structures: new Map([[candidateViewKey(child), null]]), index, run }, 'stale')
-  expect(Object.keys(files).sort()).toEqual(['candidates.fasta', 'manifest.json', 'scores.csv'])
+  const files = candidateExportFiles({ candidates: [child], structures: new Map([[candidateViewKey(child), null]]), index, run, computationParameters: { records: [], outputs: [], workflows: [] } }, 'stale')
+  expect(Object.keys(files).sort()).toEqual(['candidates.fasta', 'computation-parameters.json', 'manifest.json', 'scores.csv'])
   expect(strFromU8(files['candidates.fasta'])).toBe('>child\nACD\n')
   const manifest = JSON.parse(strFromU8(files['manifest.json']))
   expect(manifest.current_workflow_relation).toBe('stale')
@@ -70,7 +70,7 @@ test('complete export preserves full Context, residue axis, alignment evidence a
   const alignment = { subject: child.reference, reference: reference('parent'), transform: { maps_from_role: 'subject', maps_to_role: 'reference', row_vector_rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: [0, 0, 0] }, rmsd: 0, coverage: 1, method: { contract_kind: 'method', contract_id: 'alignment-method' }, source: child.source, output: child.output, correspondence: [{ subject: 'A:1', reference: 'B:4' }], segment_map: ['complete'], axis_digests: { subject: 'exact' }, policy: { name: 'original' } }
   const definitions = [{ reference: observation.metric, descriptor: { unit: 'dimensionless', meaning: 'Commit definition' } }]
   const index = buildResultIndex({ collections: [{ source: child.source, output: child.output, title: 'child', total: 1, items: [child] }], scores: [observation], alignments: [alignment], sequences: {}, definitions })
-  const files = candidateExportFiles({ candidates: [child], structures: new Map([[candidateViewKey(child), null]]), index, run }, 'current')
+  const files = candidateExportFiles({ candidates: [child], structures: new Map([[candidateViewKey(child), null]]), index, run, computationParameters: { records: [], outputs: [], workflows: [] } }, 'current')
   const manifest = JSON.parse(strFromU8(files['manifest.json']))
   expect(manifest.observations[0].context).toEqual(observation.context)
   expect(manifest.observations[0].residue_axis).toEqual(observation.residue_axis)
@@ -97,7 +97,7 @@ for (const format of ['pdb', 'mmcif'] as const) test(`structure ZIP preserves or
   const item = { ...candidate('structure'), has_structure: true }
   const index = buildResultIndex({ collections: [{ source: item.source, output: item.output, title: 'structure', total: 1, items: [item] }], scores: [], alignments: [], definitions: [], sequences: {} })
   const text = format === 'pdb' ? 'REMARK original bytes\nEND\n' : 'data_original\n# original bytes\n'
-  const files = candidateExportFiles({ candidates: [item], structures: new Map([[candidateViewKey(item), { text, format }]]), index, run }, 'current')
+  const files = candidateExportFiles({ candidates: [item], structures: new Map([[candidateViewKey(item), { text, format }]]), index, run, computationParameters: { records: [], outputs: [], workflows: [] } }, 'current')
   const path = `structures/candidate-0001.${format === 'pdb' ? 'pdb' : 'cif'}`
   expect(Object.keys(files).filter(name => name.startsWith('structures/'))).toEqual([path])
   expect(strFromU8(files[path])).toBe(text)

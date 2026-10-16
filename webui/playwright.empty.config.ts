@@ -11,6 +11,7 @@ const externalWheel = execFileSync(join(repository, '.venv/bin/python'), ['-m', 
 writeFileSync(join(testDataRoot, 'modules.json'), JSON.stringify({ packages: [] }))
 
 export default defineConfig({
+  tsconfig: './tsconfig.test.json',
   testDir: './tests/empty-carrier',
   globalSetup: './tests/support/journey-environment.ts',
   metadata: { backendDataRoot: testDataRoot, externalWheel },

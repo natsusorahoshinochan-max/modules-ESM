@@ -100,6 +100,7 @@ export type RunStatus = 'admitted' | 'running' | 'succeeded' | 'failed' | 'cance
 export type RunScopeRequest = { mode: 'full' | 'to_node' | 'from_node'; node_ids: string[]; source_run_id?: string }
 export type RunScope = { mode: RunScopeRequest['mode']; selected_node_ids: string[]; execution_node_ids: string[]; forced_node_ids: string[]; reused_node_ids: string[]; out_of_scope_node_ids: string[]; out_of_scope_selection_ids: string[]; source_run_id?: string }
 export type RunScopePreview = { workflow_commit_id: string; scope: RunScope; blockers: Array<{ code: string; message: string; node_id?: string; field_path: Array<string | number> }>; nodes: Array<{ node_id: string; binding: ContractReference; method: ContractReference; node_parameters: JsonObject; binding_parameters: JsonObject; action: 'reuse' | 'execute'; randomness_status: 'resolved' | 'awaiting_inputs'; effective_randomness?: JsonObject }> }
+export type ProjectRunSummary = Pick<RunProjection, 'run_id' | 'workflow_commit_id' | 'status'> & { has_results: boolean }
 export type RunReceipt = { project_id: string; run_id: string; workflow_commit_id: string; admitted_sequence: number; event_cursor: string }
 type NodeDispositionBase = { node_id: string; terminal_sequence: number }
 export type NodeDisposition =
@@ -168,6 +169,7 @@ export class PublicV2Client {
   commitWorkflow(projectId: string, workflow: Workflow) { return this.json<{ workflow_commit_id: string }>(`/api/v2/projects/${projectId}/workflow:commit`, { method: 'POST', body: JSON.stringify({ workflow }) }) }
   previewRunScope(projectId: string, workflowCommitId: string, scope: RunScopeRequest) { return this.json<RunScopePreview>(`/api/v2/projects/${projectId}/runs/preview`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, scope }) }) }
   startRun(projectId: string, workflowCommitId: string, scope: RunScopeRequest = { mode: 'full', node_ids: [] }) { return this.json<RunReceipt>(`/api/v2/projects/${projectId}/runs`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, client_request_id: crypto.randomUUID(), scope }) }) }
+  projectRuns(projectId: string) { return this.json<{ project_id: string; runs: ProjectRunSummary[] }>(`/api/v2/projects/${projectId}/runs`) }
   runProjection(projectId: string, runId: string) { return this.json<RunProjection>(`/api/v2/projects/${projectId}/runs/${runId}`) }
   cancelRun(projectId: string, runId: string) { return this.json<JsonObject>(`/api/v2/projects/${projectId}/runs/${runId}:cancel`, { method: 'POST' }) }
   resultCollection(projectId: string, runId: string, source: ResultLocation, offset = 0, limit = 100) { return this.json<ResultCollectionPage>(`/api/v2/projects/${projectId}/runs/${runId}/results:collection`, { method: 'POST', body: JSON.stringify({ ...source, offset, limit }) }) }

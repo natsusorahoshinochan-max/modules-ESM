@@ -1,5 +1,7 @@
 import { type PublishedStructure, type CanonicalTypedValue, type PublishedResultValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultLocation, type RunProjection, type RunDiagnostic, type RunEventEnvelope } from './protocol/client'
 import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
+import type { WorkflowCommitSnapshot } from './project-workspace'
+import { readComputationParameters } from './result-parameters'
 
 export type RunReference = Pick<RunProjection, 'project_id' | 'run_id'>
 export type ResultSnapshot = {
@@ -26,6 +28,7 @@ type Session = {
   revision: number
   refresh?: Promise<void>
   definitions?: ResultIndex['definitions']
+  commit?: WorkflowCommitSnapshot
   definitionsPending?: Promise<void>
   collections: Map<string, Collection>
   scores: Map<string, ScoreView[]>
@@ -222,7 +225,9 @@ export class PublishedResults {
       return !original || original.format === format ? original : this.structure(key, format)
     }))
     if (this.session !== session) return undefined
-    return { candidates, structures: new Map(candidates.map((candidate, index) => [candidateViewKey(candidate), content[index]!])), index: snapshot.index, run: snapshot.run }
+    const computationParameters = await readComputationParameters(this.client, snapshot.run, session.commit!)
+    if (this.session !== session) return undefined
+    return { candidates, structures: new Map(candidates.map((candidate, index) => [candidateViewKey(candidate), content[index]!])), index: snapshot.index, run: snapshot.run, computationParameters }
   }
 
   private readValue(session: Session, source: ResultLocation): Promise<PublishedResultValue> {
@@ -264,6 +269,7 @@ export class PublishedResults {
     const run = session.run!
     if (!session.definitions) {
       session.definitionsPending ??= this.client.workflowCommit(run.project_id, run.workflow_commit_id).then((commit) => {
+        session.commit = commit
         session.definitions = commit.scientific_definitions.map((definition) => ({ reference: { contract_kind: definition.contract_kind as string, contract_id: definition.contract_id as string }, descriptor: definition.descriptor as JsonObject }))
       }).finally(() => { session.definitionsPending = undefined })
       await session.definitionsPending

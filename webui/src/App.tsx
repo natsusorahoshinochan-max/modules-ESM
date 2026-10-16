@@ -12,6 +12,8 @@ import type { CandidateInputPlan, PromptSourcePlan } from './input-sources'
 import { ProjectWorkspaceDialog } from './ProjectWorkspaceDialog'
 import { workspaceErrorMessage, type ProjectWorkspace, type WorkflowVersionView } from './project-workspace'
 import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type PromptAuthoringDocument, type PromptSnapshot, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type JsonObject } from './protocol/client'
+import { RunHistoryDialog } from './RunHistoryDialog'
+import { rememberedRun, rememberRun, useProjectRunHistory } from './project-run-history'
 import { RunDialog } from './RunDialog'
 import { RunDiagnostics } from './RunDiagnostics'
 import { ResultsWorkbench, type ResultsViewStateStore } from './ResultsWorkbench'
@@ -193,7 +195,7 @@ function RunProgressBar({ progress, nodeTitle, resultsLoading, resultsAvailable,
   const stage = progress.status === 'admitted' ? '已接纳，等待执行开始' : progress.currentNodeId ? nodeTitle : progress.status === 'running' ? '等待下一个 Node Instance' : progress.status === 'succeeded' && resultsLoading ? '加载 Run 结果' : 'Run Closure'
   return <section className={`run-progress-bar ${terminal ? 'terminal' : 'active'} status-${progress.status}`} role="status" aria-live="polite">
     <span className="run-progress-icon">{terminal && progress.status === 'succeeded' ? <Check size={15} /> : terminal ? <Info size={15} /> : <LoaderCircle size={16} />}</span>
-    <div className="run-progress-state"><span className="page-kicker">LIVE RUN</span><strong>{progress.status === 'succeeded' && resultsLoading ? '运行完成 · 正在加载结果' : runProgressTitle(progress.status)}</strong></div>
+    <div className="run-progress-state"><span className="page-kicker">SELECTED RUN</span><strong>{progress.status === 'succeeded' && resultsLoading ? '运行完成 · 正在加载结果' : runProgressTitle(progress.status)}</strong></div>
     <div className="run-progress-stage"><span>当前阶段</span><strong>{stage}</strong>{progress.currentNodeId && <code>{progress.currentNodeId}</code>}</div>
     <div className="run-progress-meter" role="progressbar" aria-label="Run Node 进度" aria-valuemin={0} aria-valuemax={progress.totalNodes} aria-valuenow={progress.completedNodeIds.length}><div><span style={{ width: `${percent}%` }} /></div><small>{progress.completedNodeIds.length} / {progress.totalNodes} Nodes · {percent}%</small></div>
     {progress.runId && <code className="run-progress-id">{progress.runId}</code>}
@@ -208,6 +210,8 @@ function App() {
   const [editor] = useState(() => new WorkspaceEditor(client))
   const editing = useSyncExternalStore(editor.subscribe, editor.getSnapshot)
   const project = editing.project
+  const history = useProjectRunHistory(client, project?.id, project?.latest_run_id)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const workspace = editing.acknowledged
   const viewedVersion = editing.version
   const draft = useMemo<WorkflowDraft | undefined>(() => editing.desired && project ? { project_id: project.id, draft_revision: workspace?.draft?.draft_revision ?? 0, workflow: editing.desired.workflow } : undefined, [editing.desired, project, workspace?.draft?.draft_revision])
@@ -322,14 +326,20 @@ function App() {
     let current = true
     void (async () => {
       const [catalogValue, capabilityValue, projects, moduleUiValue] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects(), client.moduleUi()])
-      const initialProject = projects.projects.find((item) => item.project_kind === 'default_example') ?? projects.projects.find(item => !item.seed)
+      const requestedProject = new URL(window.location.href).searchParams.get('project')
+      const initialProject = requestedProject ? projects.projects.find(item => item.id === requestedProject) : projects.projects.find((item) => item.project_kind === 'default_example') ?? projects.projects.find(item => !item.seed)
+      if (requestedProject && !initialProject) throw new Error('所选项目不存在，请返回项目列表。')
       const initialWorkspace = initialProject ? await client.projectWorkspace(initialProject.id) : undefined
       if (!current) return
       setModuleUi(moduleUiValue)
       setCatalog(catalogValue)
       setCapabilities(capabilityValue)
       if (initialProject && initialWorkspace) editor.open(initialProject, initialWorkspace)
-      if (initialProject?.latest_run_id) results.openRun({ project_id: initialProject.id, run_id: initialProject.latest_run_id })
+      if (initialProject) {
+        const selected = rememberedRun(initialProject.id) ?? (initialProject.latest_run_id ? { project_id: initialProject.id, run_id: initialProject.latest_run_id } : undefined)
+        rememberRun(initialProject.id, selected)
+        results.openRun(selected)
+      }
     })().catch(reason => { if (current) setRunError(workspaceErrorMessage(reason)) })
     return () => { current = false }
   }, [results, editor])
@@ -408,7 +418,7 @@ function App() {
     await finishInputs()
     const wasSeed = editor.getSnapshot().project?.seed
     const saved = editor.getSnapshot().error === undefined ? await editor.save() : await editor.retry()
-    if (saved && wasSeed) results.openRun(undefined)
+    if (saved && wasSeed) { results.openRun(undefined); rememberRun(editor.getSnapshot().project!.id) }
     setInputError('')
     return saved
   }, [editor, finishInputs, results])
@@ -453,7 +463,7 @@ function App() {
     setBlockedMergeNodes([])
     editor.open(selected, selectedWorkspace, versionView)
     setPrompt(undefined); setPromptOpenError(undefined); setRunError(''); setInputError('')
-    setModuleEdit(undefined); setView('workflow'); setProjectsOpen(false)
+    setModuleEdit(undefined); setView('workflow'); setProjectsOpen(false); setHistoryOpen(false)
     setRequestedResultSource(undefined); setPendingCanvasFocus(undefined)
     const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
     requestAnimationFrame(() => { if (canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport) void flowInstance.current?.setViewport((canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport)!); else void flowInstance.current?.fitView({ padding: 0.16 }) })
@@ -462,7 +472,9 @@ function App() {
       resultProject = (await client.projects()).projects.find(item => item.id === selected.reference_results_project_id)!
       if (generation !== projectGeneration.current || results.getSnapshot() !== openingResults) return
     }
-    if (resultProject.latest_run_id) results.openRun({ project_id: resultProject.id, run_id: resultProject.latest_run_id })
+    const reference = rememberedRun(selected.id) ?? (resultProject.latest_run_id ? { project_id: resultProject.id, run_id: resultProject.latest_run_id } : undefined)
+    rememberRun(selected.id, reference)
+    results.openRun(reference)
   }, [askUnsaved, editor, results])
   const returnOriginalWork = useCallback(async () => {
     if (!await askUnsaved('leave')) return
@@ -739,7 +751,7 @@ function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      if (event.isComposing || unsavedChoice || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || prompt || inputSource || projectsOpen || modulesOpen || moduleEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.isComposing || historyOpen || unsavedChoice || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || prompt || inputSource || projectsOpen || modulesOpen || moduleEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
       const modifier = event.metaKey || event.ctrlKey
       if (modifier && event.key.toLowerCase() === 'c') { event.preventDefault(); copySelection() }
       if (modifier && event.key.toLowerCase() === 'v') { event.preventDefault(); void pasteSelection().catch(reportSaveError) }
@@ -754,7 +766,7 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [unsavedChoice, canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, modulesOpen, prompt, moduleEdit, editor, reportSaveError, runOpen, undo, view])
+  }, [historyOpen, unsavedChoice, canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, modulesOpen, prompt, moduleEdit, editor, reportSaveError, runOpen, undo, view])
   const openInputSource = useCallback(async () => {
     const session = await beginCanvasEdit()
     if (!session) return
@@ -794,8 +806,8 @@ function App() {
     const descriptor = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === node?.node_type_id)?.descriptor
     return String(descriptor?.title ?? node?.node_type_id ?? runProgress.currentNodeId)
   }, [catalog, draft, runProgress?.currentNodeId])
-  const runActive = (run?.project_id === project?.id || !run) && resultSnapshot.connection !== undefined && (!run || ['admitted', 'running'].includes(run.status))
-  useLayoutEffect(() => { editor.setReadOnly(runActive) }, [editor, runActive])
+  const runActive = history.active || (run?.project_id === project?.id || !run) && resultSnapshot.connection !== undefined && (!run || ['admitted', 'running'].includes(run.status))
+  useLayoutEffect(() => { editor.setReadOnly(runActive) }, [editor, runActive, project?.id, editing.readOnly])
   const pendingNodeTitle = pendingNodeDrop && catalog ? nodeTypePresentation(catalog, pendingNodeDrop.nodeTypeId).title : ''
   const inputSourceDialog = inputSource && catalog && <InputSourceDialog projectId={inputSource.projectId} workflow={inputSource.workflow} catalog={catalog} client={editor.sources} saveAccepted={inputSource.session.submitted} saveError={editing.error !== undefined ? workspaceErrorMessage(editing.error) : undefined} onRetrySave={async () => { await editor.retry(); if (inputSource.session.submitted) setInputSource(current => current?.session === inputSource.session ? undefined : current) }} preparePublication={async () => {
     const personal = await inputSource.session.writableProject()
@@ -817,7 +829,7 @@ function App() {
       }
     }} onCreateProject={createProject} onClose={() => setProjectsOpen(false)} />
   if (!project || !draft) return <div className="loading-screen">
-    {runError ? <p role="alert">{runError}</p> : !catalog ? '正在加载工作区…' : <>
+    {runError ? <><p role="alert">{runError}</p><a href="/">重新打开工作区</a></> : !catalog ? '正在加载工作区…' : <>
       <h1>Protein Workbench</h1><p>创建项目，或打开已保存的项目。</p>
       <button className="secondary-button" onClick={() => void createProject().catch(reportSaveError)}>创建项目</button>
       <button className="secondary-button" onClick={() => setProjectsOpen(true)}>打开项目</button>
@@ -826,6 +838,8 @@ function App() {
     </>}
   </div>
   const runControls = <>
+    {view === 'results' && <button onClick={() => { history.refresh(); setHistoryOpen(true) }}>运行历史</button>}
+    {history.error && <div role="alert">{history.error}<button onClick={history.refresh}>重新读取项目运行状态</button></div>}
     {runProgress && <RunProgressBar progress={runProgress} nodeTitle={progressNodeTitle} resultsLoading={resultsLoading} resultsAvailable={resultsAvailable} onResults={showResults} onCancel={() => { void client.cancelRun(runProgress.projectId!, runProgress.runId!).catch((reason) => setRunError(JSON.stringify(reason))) }} />}
     {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
     {runError && <pre role="alert">{runError}</pre>}
@@ -844,7 +858,13 @@ function App() {
     if (saved) { setNotice({ workspace: saved, message: 'Prompt 修改已采用，尚未保存项目' }); setBlockedMergeNodes([]); closePromptEditor() }
   }} />{inputSourceDialog}</>
 
-  return <>{unsavedChoice && <InteractionDialog title={unsavedChoice.mode === 'run' ? '保存后运行' : '尚未保存的修改'} className="run-dialog" busy={choiceBusy} onClose={() => resolveUnsaved(false)}><h2>{unsavedChoice.mode === 'run' ? '请先保存项目再运行' : '当前项目有尚未保存的修改'}</h2><p>{project.seed ? '保存将创建你自己的项目，教学原件保持不变。' : '流程内容与画布布局将一起保存。'}</p>{choiceError && <p role="alert">{choiceError}</p>}<footer><button disabled={choiceBusy} onClick={() => resolveUnsaved(false)}>{unsavedChoice.mode === 'run' ? '取消' : '取消退出，继续编辑'}</button>{unsavedChoice.mode === 'leave' && <button disabled={choiceBusy} onClick={() => { editor.discard(); resolveUnsaved(true) }}>放弃修改退出</button>}<button disabled={choiceBusy} onClick={() => { setChoiceBusy(true); setChoiceError(''); void saveProject().then(saved => { if (saved) resolveUnsaved(true) }, reason => setChoiceError(workspaceErrorMessage(reason))).finally(() => setChoiceBusy(false)) }}>{unsavedChoice.mode === 'run' ? '保存并运行' : '保存后退出'}</button></footer></InteractionDialog>}{promptView}{run && catalog && resultsIdentity && visitedResults.has(resultsIdentity) && <div hidden={view !== 'results' || !!prompt} className="persistent-results"><ResultsWorkbench key={resultsIdentity} workspaceProjectId={project.id} viewStateStore={resultsViewStateStore} runControls={runControls} results={results} run={run} index={resultIndex} loading={resultsLoading} loadError={resultLoadError} catalog={{ contracts: resultIndex.definitions, availability: [] }} scienceStatus={scienceStatus} onBack={() => setView('workflow')} active={view === 'results' && !prompt} requestedSource={requestedResultSource} nodeLabels={resultNodeLabels} onLocateNode={(nodeId: string) => locateResultNodes([nodeId])} /></div>}<div hidden={view === 'results' || !!prompt} className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Braces size={16} /></span><div><strong>Protein</strong><span>Workbench</span></div></div><div className="project-identity"><div><span className="page-kicker">{project.project_kind.replace('_', ' ')}</span><strong>{project.name}</strong></div>{project.seed && <span className="immutable-pill">只读示例</span>}</div><nav className="view-tabs"><button className="active"><Network size={14} /> Workflow</button><button disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={showResults}><Activity size={14} /> Results <span>{resultIndex.collections.reduce((sum, item) => sum + item.total, 0)}</span></button></nav><div className="top-actions"><span className="save-state" aria-label="流程保存状态"><span />{saveState}</span><span className="save-state" aria-label="布局保存状态"><span />{uiSaveState}</span><button className="icon-button" aria-label="撤销画布修改" title={editing.undoLabel ? `撤销：${editing.undoLabel}` : '没有可撤销的操作'} disabled={!editing.canUndo} onClick={undo}><RotateCcw size={16} /></button><button className="icon-button" aria-label="重做画布修改" title={editing.redoLabel ? `重做：${editing.redoLabel}` : '没有可重做的操作'} disabled={!editing.canRedo} onClick={redo}>↪</button><button className="secondary-button" onClick={() => { void beforeWorkspaceAction().then(() => setProjectsOpen(true)).catch(reportSaveError) }}><FolderOpen size={14} /> 项目</button><button className="secondary-button" onClick={() => setModulesOpen(true)}>模块管理</button><button className="secondary-button" disabled={runActive || editing.phase === 'saving'} onClick={() => void saveProject().catch(reportSaveError)}>保存项目</button><button className="run-button" disabled={runActive} onClick={() => void askUnsaved('run').then(proceed => { if (proceed) setRunOpen(true) }).catch(reportSaveError)}>{runActive ? <LoaderCircle size={14} /> : <Play size={14} />} {runActive ? '运行中' : '运行流程'}</button></div></header>
+  return <>{historyOpen && <RunHistoryDialog runs={history.runs} loading={history.loading} error={history.error} selected={run?.project_id === project.id ? run : undefined} onRefresh={history.refresh} onClose={() => setHistoryOpen(false)} onOpen={runId => {
+    const reference = { project_id: project.id, run_id: runId }
+    rememberRun(project.id, reference)
+    results.openRun(reference)
+    setRequestedResultSource(undefined)
+    setView('workflow')
+  }} />}{unsavedChoice && <InteractionDialog title={unsavedChoice.mode === 'run' ? '保存后运行' : '尚未保存的修改'} className="run-dialog" busy={choiceBusy} onClose={() => resolveUnsaved(false)}><h2>{unsavedChoice.mode === 'run' ? '请先保存项目再运行' : '当前项目有尚未保存的修改'}</h2><p>{project.seed ? '保存将创建你自己的项目，教学原件保持不变。' : '流程内容与画布布局将一起保存。'}</p>{choiceError && <p role="alert">{choiceError}</p>}<footer><button disabled={choiceBusy} onClick={() => resolveUnsaved(false)}>{unsavedChoice.mode === 'run' ? '取消' : '取消退出，继续编辑'}</button>{unsavedChoice.mode === 'leave' && <button disabled={choiceBusy} onClick={() => { editor.discard(); resolveUnsaved(true) }}>放弃修改退出</button>}<button disabled={choiceBusy} onClick={() => { setChoiceBusy(true); setChoiceError(''); void saveProject().then(saved => { if (saved) resolveUnsaved(true) }, reason => setChoiceError(workspaceErrorMessage(reason))).finally(() => setChoiceBusy(false)) }}>{unsavedChoice.mode === 'run' ? '保存并运行' : '保存后退出'}</button></footer></InteractionDialog>}{promptView}{run && catalog && resultsIdentity && visitedResults.has(resultsIdentity) && <div hidden={view !== 'results' || !!prompt} className="persistent-results"><ResultsWorkbench key={resultsIdentity} workspaceProjectId={project.id} viewStateStore={resultsViewStateStore} runControls={runControls} results={results} run={run} index={resultIndex} loading={resultsLoading} loadError={resultLoadError} catalog={{ contracts: resultIndex.definitions, availability: [] }} scienceStatus={scienceStatus} onBack={() => setView('workflow')} active={view === 'results' && !prompt} requestedSource={requestedResultSource} nodeLabels={resultNodeLabels} onLocateNode={(nodeId: string) => locateResultNodes([nodeId])} /></div>}<div hidden={view === 'results' || !!prompt} className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Braces size={16} /></span><div><strong>Protein</strong><span>Workbench</span></div></div><div className="project-identity"><div><span className="page-kicker">{project.project_kind.replace('_', ' ')}</span><strong>{project.name}</strong></div>{project.seed && <span className="immutable-pill">只读示例</span>}</div><nav className="view-tabs"><button className="active"><Network size={14} /> Workflow</button><button disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={showResults}><Activity size={14} /> Results <span>{resultIndex.collections.reduce((sum, item) => sum + item.total, 0)}</span></button></nav><div className="top-actions"><span className="save-state" aria-label="流程保存状态"><span />{saveState}</span><span className="save-state" aria-label="布局保存状态"><span />{uiSaveState}</span><button className="icon-button" aria-label="撤销画布修改" title={editing.undoLabel ? `撤销：${editing.undoLabel}` : '没有可撤销的操作'} disabled={!editing.canUndo} onClick={undo}><RotateCcw size={16} /></button><button className="icon-button" aria-label="重做画布修改" title={editing.redoLabel ? `重做：${editing.redoLabel}` : '没有可重做的操作'} disabled={!editing.canRedo} onClick={redo}>↪</button><button className="secondary-button" onClick={() => { void beforeWorkspaceAction().then(() => setProjectsOpen(true)).catch(reportSaveError) }}><FolderOpen size={14} /> 项目</button><button className="secondary-button" onClick={() => setModulesOpen(true)}>模块管理</button><button className="secondary-button" onClick={() => { history.refresh(); setHistoryOpen(true) }}>运行历史</button><button className="secondary-button" disabled={runActive || editing.phase === 'saving'} onClick={() => void saveProject().catch(reportSaveError)}>保存项目</button><button className="run-button" disabled={runActive} onClick={() => void askUnsaved('run').then(proceed => { if (proceed) setRunOpen(true) }).catch(reportSaveError)}>{runActive ? <LoaderCircle size={14} /> : <Play size={14} />} {history.loading ? '读取运行状态…' : history.error ? '运行状态不可用' : runActive ? '运行中' : '运行流程'}</button></div></header>
     {(viewedVersion || workspace?.return_workspace_revision !== null && workspace?.return_workspace_revision !== undefined) && <div className="version-work-banner" role="status"><span>{viewedVersion ? `正在查看版本“${viewedVersion.version.name}”；首次修改将另存为当前工作。` : '当前工作由旧版本继续，原工作仍然保留。'}</span><button onClick={() => void returnOriginalWork().catch(reportSaveError)}>返回原工作</button></div>}
     {saveError && <div className="workspace-error" role="alert">{saveError}<button onClick={() => void finishInputs().then(() => editor.retry()).then(() => { setInputError(''); if (moduleEdit?.session.submitted) setModuleEdit(undefined); if (inputSource?.session.submitted) setInputSource(undefined) }).catch(reportSaveError)}>重试保存</button></div>}
     {blockedMergeNodes.length > 0 && <div className="workspace-error" role="alert">现有合并来源受保护；请先在 Prompt Studio 调整并保存合并操作。{blockedMergeNodes.map(nodeId => <button key={nodeId} onClick={() => openPromptEditor(nodeId)}>打开 Prompt Studio：{nodeId}</button>)}</div>}
@@ -886,6 +906,7 @@ function App() {
       return { projectId: personal.id, request, preview }
     }} onStart={async ({ projectId, request, preview }) => {
       const receipt = await client.startRun(projectId, preview.workflow_commit_id, request)
+      rememberRun(projectId, { project_id: receipt.project_id, run_id: receipt.run_id })
       results.openRun({ project_id: receipt.project_id, run_id: receipt.run_id }, receipt.event_cursor)
       const current = editor.getSnapshot().project
       if (current?.id === receipt.project_id) editor.updateProject({ ...current, latest_run_id: receipt.run_id })

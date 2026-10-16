@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 // Controlled hosts exercise component contracts; they do not provide an app backend.
 export default defineConfig({
+  tsconfig: './tsconfig.test.json',
   testDir: './tests/components',
   timeout: 60_000,
   workers: 4,
