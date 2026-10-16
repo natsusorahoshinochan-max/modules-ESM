@@ -137,6 +137,8 @@ def _forget_package_imports(source_root: Path) -> None:
     """Release exactly the removed distribution so reinstall imports its new files."""
     root = source_root.resolve()
     for name, module in tuple(sys.modules.items()):
+        if module is None:
+            continue
         namespace = vars(module)
         filename = namespace.get("__file__")
         paths = ([filename] if filename is not None else []) + list(namespace.get("__path__", ()))

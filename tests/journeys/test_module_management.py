@@ -41,6 +41,7 @@ def test_external_wheel_installs_runs_and_recovers_without_source_checkout(
 ) -> None:
     import base64
     import json
+    import sys
 
     from tests.fixtures.external_module import build_external_module_wheel
     from tests.support.public_runs import PublicRunClient
@@ -70,6 +71,7 @@ def test_external_wheel_installs_runs_and_recovers_without_source_checkout(
         assert run["status"] == "succeeded", run
         assert json.loads(client.typed_output_bytes(project_id, receipt["run_id"], run["outputs"][0], 0))["value"] == "installed external value"
         saved = http.get(f"/api/v2/projects/{project_id}/workspace").json()
+        monkeypatch.setitem(sys.modules, "unavailable_optional_module", None)
         removed = http.delete("/api/v2/modules/external_echo")
         assert removed.status_code == 200, removed.text
         assert removed.json()["modules"] == []
