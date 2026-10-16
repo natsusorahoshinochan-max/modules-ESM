@@ -106,7 +106,6 @@
       "node_type_id": "folding.fold",
       "binding_id": "folding.fold.esmfold2_remote",
       "node_parameters": {
-        "effective_seed": 2066002,
         "num_samples": 1
       },
       "binding_parameters": {}

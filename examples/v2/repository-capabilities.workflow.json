@@ -108,17 +108,17 @@
       "node_type_id": "folding.fold",
       "binding_id": "folding.fold.esmfold2_local",
       "node_parameters": {
-        "effective_seed": 3511,
         "num_samples": 1
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "effective_seed": 3511
+      }
     },
     {
       "node_id": "folding-fold-esmfold2-remote",
       "node_type_id": "folding.fold",
       "binding_id": "folding.fold.esmfold2_remote",
       "node_parameters": {
-        "effective_seed": 3512,
         "num_samples": 1
       },
       "binding_parameters": {}
@@ -128,10 +128,11 @@
       "node_type_id": "folding.fold",
       "binding_id": "folding.fold.simplefold_local",
       "node_parameters": {
-        "effective_seed": 3513,
         "num_samples": 1
       },
-      "binding_parameters": {}
+      "binding_parameters": {
+        "effective_seed": 3513
+      }
     },
     {
       "node_id": "folding-simplefold-confidence-simplefold-local",

@@ -30,7 +30,6 @@
       "node_type_id": "folding.fold",
       "binding_id": "folding.fold.esmfold2_remote",
       "node_parameters": {
-        "effective_seed": 1075001,
         "num_samples": 1
       },
       "binding_parameters": {}
@@ -40,11 +39,11 @@
       "node_type_id": "folding.fold",
       "binding_id": "folding.fold.simplefold_local",
       "node_parameters": {
-        "effective_seed": 1075002,
         "num_samples": 1
       },
       "binding_parameters": {
-        "num_steps": 50
+        "num_steps": 50,
+        "effective_seed": 1075002
       }
     },
     {

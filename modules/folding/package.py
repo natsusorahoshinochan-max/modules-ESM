@@ -204,8 +204,8 @@ def _resolve_effective_randomness(
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    del inputs, binding_parameters
-    return {"effective_seed": node_parameters["effective_seed"]}
+    del inputs, node_parameters
+    return {"effective_seed": binding_parameters["effective_seed"]}
 
 
 def _build_remote(context: OperationContext) -> ScientificOperation:
@@ -259,6 +259,20 @@ def _build_simplefold_confidence(
     )
 
 
+def _local_seed_parameter() -> dict[str, Any]:
+    return {
+        "parameter_scope": "scientific",
+        "scientific_meaning": (
+            "Base seed for local calls derived from parent-sequence content "
+            "and stable parent/sample semantics."
+        ),
+        "required": True,
+        "value_contract": {
+            "type": "integer", "minimum": 0, "maximum": 9007199254740991,
+        },
+    }
+
+
 def _esmfold2_parameters(*, local: bool) -> dict[str, Any]:
     """Inference controls consumed by the selected official folding route."""
     fraction = {"type": "number", "minimum": 0, "maximum": 1}
@@ -277,7 +291,9 @@ def _esmfold2_parameters(*, local: bool) -> dict[str, Any]:
         ),
         "lm_dropout": (
             nullable_fraction if local else fraction, 0.3,
-            "LM pair-embedding dropout fraction; local null disables dropout.",
+            ("LM pair-embedding dropout fraction; local 0/null leaves checkpoint "
+             "dropout configuration unchanged." if local else
+             "LM pair-embedding dropout fraction."),
         ),
         "lm_mask_pct": (
             nullable_fraction if local else fraction, None if local else 0.1,
@@ -405,7 +421,10 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "method",
             method_id,
         ),
-        binding_parameters=_esmfold2_parameters(local=route == "local"),
+        binding_parameters={
+            **_esmfold2_parameters(local=route == "local"),
+            **({"effective_seed": _local_seed_parameter()} if route == "local" else {}),
+        },
         environment_fields=(
             _BIOHUB_ENVIRONMENT_FIELDS
             if route == "remote"
@@ -463,6 +482,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             method_id,
         ),
         binding_parameters={
+            "effective_seed": _local_seed_parameter(),
             "num_steps": {
                 "parameter_scope": "scientific",
                 "scientific_meaning": (
