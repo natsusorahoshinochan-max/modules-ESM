@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.project.adopted_input import RestoredOutput
+from core.execution.output_admission.port_values import restore_admitted_port
+from datatypes.candidate import CandidateDataReference
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -245,6 +249,26 @@ def _admit_node_output(
             raise PortValueError(
                 f"Required output Port {output_port!r} is missing"
             )
+
+    restored = {}
+    for name, output in raw_outputs.items():
+        if isinstance(output, RestoredOutput):
+            snapshot = output.snapshot
+            declaration = declarations[name]
+            if snapshot['port_type_id'] != declaration.port_type.type_id:
+                raise PortValueError('Adopted value has a different nominal Port Type')
+            restored[name] = restore_admitted_port(
+                port_type=declaration.port_type,
+                multiplicity=declaration.multiplicity,
+                values=((snapshot['canonical_value'].encode('utf-8'),
+                         snapshot['content_digest'],
+                         tuple(CandidateDataReference(**ref) for ref in snapshot['candidate_data'])),),
+                content_digest=snapshot['content_digest'],
+            )
+    if restored:
+        if set(restored) != set(raw_outputs):
+            raise PortValueError('Restored and newly produced outputs must be separate operations')
+        return restore_node_output(plan=node_plan, result_identity=result_identity, ports=restored)
 
     identity_encoder = _FreshOutputIdentityEncoder()
     materialized = _resolve_identity_intents(

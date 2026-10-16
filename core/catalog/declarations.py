@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.catalog.preview import ValuePreviewDefinition
+from core.catalog.result_adoption import ResultSourceDefinition
 
 from .ui import ModuleUiDefinition, NodeEditorDefinition, ResultViewerDefinition
 
@@ -139,6 +140,7 @@ class NodeTypeDefinition:
     parameter_groups: tuple[Any, ...]
     node_parameters: Mapping[str, Any]
     parameter_contract: ParameterContract
+    restored_output_port: str | None = None
 
     @property
     def identity(self) -> ExactContractReference:
@@ -157,6 +159,8 @@ class NodeTypeDefinition:
             "parameter_groups": self.parameter_groups,
             "node_parameters": self.node_parameters,
         }
+        if self.restored_output_port is not None:
+            descriptor["restored_output_port"] = self.restored_output_port
         if self.input_constraints:
             descriptor["input_constraints"] = [
                 {"kind": "exactly_one", "ports": ports}
@@ -630,6 +634,7 @@ class ModulePackageRegistration:
     authoring_capabilities: tuple[AuthoringCapabilityDefinition, ...] = ()
     result_actions: tuple[ResultActionDefinition, ...] = ()
     result_readers: tuple[ResultReaderDefinition, ...] = ()
+    result_sources: tuple[ResultSourceDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -644,6 +649,7 @@ class ModulePackageRegistration:
             "value_previews",
             "result_actions",
             "result_readers",
+            "result_sources",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
 

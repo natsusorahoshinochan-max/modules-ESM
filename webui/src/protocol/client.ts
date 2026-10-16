@@ -13,6 +13,11 @@ export type CatalogSnapshot = { contracts: Array<{ reference: ContractReference;
 export type CandidateReference = { candidate_id: string; data_type_id: string; content_digest: string }
 export type ResultCandidate = { item_index: number; reference: CandidateReference; parent_ids: string[]; metadata: JsonObject; sequence: string | null; has_structure: boolean }
 export type ResultCollectionPage = { collection_id: string; item_type: string; total: number; offset: number; items: ResultCandidate[] }
+export type ResultSource = { port_type_id: string; node_type_id: string; binding_id: string; output_port: string }
+export type AdoptedResult = { project_input_ref: string; source_node: Omit<WorkflowNode, 'node_id'> }
+export type AdoptionParameterRecord = WorkflowNode & { project_id: string; run_id: string; workflow_commit_id: string; admitted_parameters: Pick<WorkflowNode, 'node_parameters' | 'binding_parameters'> | null; definitions: unknown[] }
+export type AdoptionMetadata = { source: ResultAdoptionRequest; parameters: { status: 'recorded' | 'ambiguous' | 'unavailable'; records: AdoptionParameterRecord[] }; dependencies: unknown[] }
+export type ResultAdoptionRequest = ResultLocation & { source_project_id: string; source_run_id: string }
 export type ResultLocation = { node_id: string; output_port: string; value_index: number }
 export type PublishedObservation = { subject: CandidateReference; metric: ContractReference; method: ContractReference; context: JsonObject; context_profile: JsonObject; value: unknown; residue_axis: unknown; source_partition: string }
 export type PublishedAlignment = { subject: CandidateReference; reference: CandidateReference; transform: { maps_from_role: string; maps_to_role: string; row_vector_rotation: number[][]; translation: number[] }; rmsd: number; coverage: number; method: ContractReference; [field: string]: unknown }
@@ -138,6 +143,9 @@ export class PublicV2Client {
   authoringCapabilities() { return this.json<AuthoringCapabilities>('/api/v2/authoring-capabilities') }
   projects(name?: string) { return this.json<{ projects: ProjectMetadata[] }>(`/api/v2/projects${name ? `?name=${encodeURIComponent(name)}` : ''}`) }
   createProject(name: string) { return this.json<ProjectMetadata>('/api/v2/projects', { method: 'POST', body: JSON.stringify({ name }) }) }
+  resultSources() { return this.json<{ sources: ResultSource[] }>('/api/v2/result-sources') }
+  adoptionMetadata(projectId: string, inputRef: string) { return this.json<AdoptionMetadata>(`/api/v2/projects/${projectId}/inputs/${inputRef}:adoption`) }
+  adoptResult(projectId: string, source: ResultAdoptionRequest) { return this.json<AdoptedResult>(`/api/v2/projects/${projectId}/inputs:adopt`, { method: 'POST', body: JSON.stringify(source) }) }
   listProjectInputs(projectId: string) { return this.json<{ project_id: string; inputs: ProjectInputPublication[] }>(`/api/v2/projects/${projectId}/inputs`) }
   publishProjectInput(projectId: string, input: { filename: string; content_base64: string }) { return this.json<ProjectInputPublication>(`/api/v2/projects/${projectId}/inputs`, { method: 'POST', body: JSON.stringify(input) }) }
   inspectProjectInput(projectId: string, inputRef: string, format: 'fasta' | 'pdb' | 'mmcif' | 'structure', input?: ProspectiveInput) { return this.json<ProjectInputInspection>(`/api/v2/projects/${projectId}/inputs/${inputRef}:inspect`, { method: 'POST', body: JSON.stringify({ format, ...(input ? { input } : {}) }) }) }
