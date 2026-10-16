@@ -284,3 +284,19 @@ does not launch a Provider. Build module UI assets before starting the applicati
 使用独立临时数据目录启动正常应用及前端，在 `webui/` 执行 `WORKBENCH_TEST_URL=http://127.0.0.1:5215 npx playwright test tests/run-history.spec.ts --workers=1 --reporter=line --output=/tmp/history-results`。
 
 测试通过公开 API 在同项目创建两次不同序列的真实导入运行，再从界面“运行历史”列表选择较旧 Run，核对所选标记、节点状态、旧序列查看及刷新恢复；同时确认查看不改变已保存工作区。不调用模型，也不以此单个成功运行场景替代批次失败与保留成果的续算测试。
+
+## 结构导出节点与主结果 ZIP
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_structure_export.py
+```
+
+通过公共 Run 实际执行 `protein_io.export_structure` 的单结构及 Candidate 输入。独立 PDB/mmCIF 源文件分别选择两种目标格式，下载实际 Artifact 后按声明格式解析，核对链、残基编号、插入码、蛋白及水坐标，并检查原结构文本保持不变。
+
+使用默认模块、独立临时数据目录的正常后端及前端，在 `webui/` 执行：
+
+```sh
+WORKBENCH_TEST_URL=http://127.0.0.1:5304 npx playwright test tests/structure-export.spec.ts --workers=1 --reporter=line --output=/tmp/structure-export-ui
+```
+
+主结果界面选择 PDB/mmCIF 后下载真实 ZIP，读取结构文件、manifest 和 `computation-parameters.json`；下载结构经公共明确格式导入检查重新读取。工作区随后保存了不同构象参数，导出仍关联所选历史 Run/Commit 的原构象和节点/Binding 参数。同文件的混合导出旅程先真实执行 `take_candidates(k=1)`，再以不同节点 ID 重放缓存并加入第二来源，勾选两个阶段下载 ZIP，核对每个输出分别关联原 producer Run、原节点及参数，且不将重放节点记为生产者。测试明确要求实际 `cache_replayed`，不模拟缓存。该切片不调用 Provider；历史采用由独立测试覆盖。原 Run/Commit 缺失只能静态核对：公开接口没有单独删除这些记录并保留结果的入口，不通过改内部存储构造场景。

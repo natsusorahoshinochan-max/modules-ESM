@@ -24,7 +24,9 @@
 
 - **要求**：导出附带已经记录的计算参数，供离开软件后查看。
 - **当前实现**：[参数读取](../webui/src/result-parameters.ts)按输出的 producer Run 读取原 Commit，保留 Workflow 节点/Binding 参数与已保存 admitted 参数；[ZIP 导出](../modules/protein_io/ui/result-explorer.ts)以输出位置关联离线 JSON，缺少原记录明确标为 unavailable，不使用当前工作区或补造默认值。
-- **待核对**：混合导出、缓存原来源及原记录缺失时的业务路径。格式及导出边界见[导出约定](results.md#导出)。
+- **已核对**：主结果 ZIP 的 PDB/mmCIF 下载、明确格式读回与原 Run/Commit 参数关联；后来保存的不同构象参数不会替代原计算设置。历史采用在来源删除后的参数保留由独立界面切片覆盖。
+- **已核对**：混合勾选真实缓存重放输出与新执行输出，ZIP 分别关联原 producer Run/节点参数，不把改名后的重放节点记为生产者。
+- **静态核对范围**：原 Run/Commit 不存在时仅接受明确的 not-found，输出标为 `unavailable` 且不补造参数；其他读取错误停止导出。公开接口没有单删 Run/Commit 并保留结果的入口，该缺失分支未做实际破坏性运行。格式及导出边界见[导出约定](results.md#导出)。
 
 ## 范围与事实待核实
 
