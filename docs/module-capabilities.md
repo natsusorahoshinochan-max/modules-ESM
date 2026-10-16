@@ -66,12 +66,12 @@ ESMFold2 的采样步数、循环、LM dropout/mask、MSA depth/column mask 由�
 模块使用同一位置表达：`{chain_id, residue_number, insertion_code}`，对应原始链、作者残基编号和独立插入码。编辑器可逐项选择不连续位置，不要求填写内部身份或对应表。空列表表示完整轴；未知位置和重复位置失败，实际顺序沿用输入残基轴。两侧区域独立，比较的自动对应仍由已选算法负责。
 
 - `structure_comparison.align_pairs` 的 `subject_region` / `reference_region` 只限制进入对齐工具的位置；原结构、原轴及 Candidate 保持不变。序列优先 affine/SVD 与现有单片段 TM-align 路线均使用所选位置；TM-align 原有单片段适用边界保留。RMSD 采用对应 CA，TM-score 的归一化长度为选定参考区域长度，coverage 为对应 CA 数除以两侧所选区域长度的最大值。对齐结果保留两侧完整引用、原轴摘要、所选身份、自动对应和实际 Method；已有结果未记录区域时只显示“未记录”，不补造。
-- `structure_transform.extract_region` 是明确改变输出内容的操作，为每个输入建立一个新片段 Candidate，父来源指向原 Candidate。保留所选原子坐标、链、作者编号和插入码及适用修饰声明；不拼接或重编号。PDB 中删去位置形成的断点写为 TER；mmCIF 保留选中 atom_site 行，不宣称保留完整聚合物、组装或指向已排除位置的连接。原候选和保存原文不改写。该节点只提取已解释的蛋白残基，不替代其他组分选择操作。
+- `structure_transform.extract_region` 是明确改变输出内容的操作，为每个输入建立一个新片段 Candidate，父来源指向原 Candidate。保留所选原子坐标、链、作者编号和插入码及适用修饰声明；保留选中链/实体的原始 SEQRES/entity_poly_seq，以便后续解释 MSE 等修饰残基。不拼接或重编号。PDB 中删去位置形成的断点写为 TER；mmCIF 保留选中 atom_site 行和解释所需原聚合物声明，不保留组装或指向已排除位置的连接。原候选和保存原文不改写。该节点只提取已解释的蛋白残基，不替代其他组分选择操作。
 - `structure_comparison.region_statistics` 接收现有 Score Collection，按 `metric_id` 选择数值型逐残基观察，每个主体/方法/上下文分别统计。输出均值沿用原指标单位。`exclude_null` 排除所选缺值，`require_all` 在任一所选位置缺值时失败；全缺值均失败。报告含 `selected_count` 和非空的 `valid_count`，完整保留来源 Metric、Method、Context、partition、集合摘要、主体和残基轴。没有 Provider 重算，也不改变全轴 pLDDT 均值或专用环方法原规则。
 
 统计输出是 `structure_comparison.region_statistics` 名义值，可交给接受该类型的下游模块；已用外部下游模块验证完整传递。它不是 `score.collection`，不能直接连接现有 Selection；不自动发明新 Metric 或区域筛选语义。模块查看器显示区域、均值、数量和来源，保存结果可重开。
 
-结构解析对普通数字作者编号保留可读身份（例如数字 `12` 与插入码 `A` 为 `A:12A`）；非数字作者编号始终以 `x<UTF-8 hex>.<insertion hex>` 编码，因此作者编号 `12A`、无插入码为 `A:x313241.`。这一规则不依赖其他残基是否存在。已有保存的 Prompt、轨道和发布结果仍直接读取已存身份，不重新解析或改写。
+结构解析保持已有身份规则，不改写保存的来源标签，例如作者编号 `A42` 保持 `A:A42`。比较/提取在结构中核对独立的 `(chain, author number, insertion)` 后才选择轴位置。已有身份表示仍可能把作者编号 `12A`、无插入码与数字 `12`、插入码 `A` 都表示为 `A:12A`；两者同时存在的结构轴明确失败，不猜对应，也不根据是否碰撞更换身份。修订身份表示必须先解决既有 Prompt 来源重开的保全，当前没有引入新编码、旧解析器或别名。统计使用原观察已保存的残基轴，不重新推断作者编号。
 
 ## ESM-3 生成参数
 

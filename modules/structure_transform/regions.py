@@ -4,7 +4,17 @@ from datatypes.candidate import Candidate, CandidateCollection
 from datatypes.region import region_residue_ids, structure_residue_id
 from datatypes.structure import ProteinStructure
 from datatypes.structure_format import mmcif_dictionary, read_mmcif_atoms, write_mmcif_dictionary
-from .residue_axis import resolve_residue_axis
+from .residue_axis import resolve_residue_axis, _single_model_records
+
+
+def structural_region_ids(axis, selection) -> tuple[str, ...]:
+    """Check author locations before mapping to the existing saved axis labels."""
+    if selection:
+        available = {record.residue_identity for record in _single_model_records(axis.structure) if record is not None}
+        requested = {(item['chain_id'], item['residue_number'], item['insertion_code']) for item in selection}
+        if not requested <= available:
+            raise ValueError('region contains an author location absent from the source structure')
+    return region_residue_ids(axis.layout, selection)
 
 
 def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) -> ProteinStructure:
@@ -14,12 +24,18 @@ def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) ->
         atoms = read_mmcif_atoms(structure.text)
         indices = [index for index, atom in enumerate(atoms)
                    if structure_residue_id(atom.chain_id, atom.residue_number, atom.insertion_code) in selected]
-        # This is a new coordinate fragment, not a claim to retain the full
-        # polymer sequence, assembly, or connections to excluded residues.
+        # Keep source polymer sequence declarations needed to interpret retained
+        # modified residues; exclude assembly and connections to removed atoms.
         data = {'data_': original['data_']}
         data.update({key: [values[index] for index in indices]
                      for key, values in original.items() if key.startswith('_atom_site.')})
-        prefix = '_pdbx_struct_mod_residue.'
+        entities = {original['_atom_site.label_entity_id'][index] for index in indices}
+        prefix = '_entity_poly_seq.'
+        if prefix + 'entity_id' in original:
+            rows = [index for index, entity in enumerate(original[prefix + 'entity_id']) if entity in entities]
+            data.update({key: [values[index] for index in rows]
+                         for key, values in original.items() if key.startswith(prefix)})
+        prefix = '_pdbx_struct_mod_residue.' 
         if prefix + 'auth_seq_id' in original:
             rows = [index for index, number in enumerate(original[prefix + 'auth_seq_id'])
                     if structure_residue_id(original[prefix + 'auth_asym_id'][index], number,
@@ -29,7 +45,9 @@ def extract_region(structure: ProteinStructure, residue_ids: tuple[str, ...]) ->
                 data.update({key: [values[index] for index in rows]
                              for key, values in original.items() if key.startswith(prefix)})
         return ProteinStructure(write_mmcif_dictionary(data), 'mmcif')
-    lines = []
+    selected_chains = {identity.split(':', 1)[0] for identity in residue_ids}
+    lines = [line for line in structure.text.splitlines()
+             if line.startswith('SEQRES') and line[11] in selected_chains]
     in_fragment = False
     for line in structure.text.splitlines():
         if line.startswith(('ATOM  ', 'HETATM')):
@@ -62,7 +80,7 @@ class ExtractRegionImplementation:
         with self._resources.engine_invocation():
             for index, parent in enumerate(parents.items):
                 axis = resolve_residue_axis(parent.data)
-                selected = region_residue_ids(axis.layout, call.node_parameters['region'])
+                selected = structural_region_ids(axis, call.node_parameters['region'])
                 children.append(Candidate(
                     candidate_id=f'region-{index}', data=extract_region(parent.data, selected),
                     parent_ids=(parent.candidate_id,),

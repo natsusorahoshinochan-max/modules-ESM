@@ -46,9 +46,9 @@ class RegionalOperations(unittest.TestCase):
         project = self.request(client, 'POST', '/api/v2/projects', json={'name': 'Regions'})
         return project['id'], '/api/v2/projects/' + project['id']
 
-    def upload(self, client, base, text):
+    def upload(self, client, base, text, filename='region.cif'):
         return self.request(client, 'POST', base + '/inputs', json={
-            'filename': 'region.cif', 'content_base64': base64.b64encode(text.encode()).decode(),
+            'filename': filename, 'content_base64': base64.b64encode(text.encode()).decode(),
         })['project_input_ref']
 
     def execute_workflow(self, client, base, workflow, expected_status="succeeded"):
@@ -66,7 +66,7 @@ class RegionalOperations(unittest.TestCase):
         self.assertEqual(result['status'], expected_status, result)
         return run_url
 
-    def test_distinct_author_number_and_insertion_have_stable_distinct_axis_ids(self):
+    def test_colliding_author_labels_fail_without_rewriting_original_data(self):
         text = mmcif([('A', '12A', '', 0, 0, 0), ('A', '12', 'A', 1, 0, 0)])
         with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
             with TestClient(create_application(load_example_results=False)) as client:
@@ -76,13 +76,11 @@ class RegionalOperations(unittest.TestCase):
                     node('input', 'protein_io.import_structure', {'project_input_ref': source}),
                     node('axis', 'structure_transform.resolve_candidate_residue_axes'),
                 ], edges=[edge('input', 'structure_candidates', 'axis', 'structure_candidates')])
-                run = self.execute_workflow(client, base, workflow)
-                value = self.request(client, 'GET', run + '/outputs/axis/residue_axes/values/0')['value']
-                axis = value['entries'][0]['residue_axis']
-                self.assertEqual(axis['layout']['fields']['residue_ids'], ['A:x313241.', 'A:12A'])
-                self.assertEqual(axis['structure']['fields']['mmcif_string'], text)
+                run = self.execute_workflow(client, base, workflow, expected_status='failed')
+                original = self.request(client, 'GET', run + '/outputs/input/structure/values/0')
+                self.assertEqual(original['value']['fields']['mmcif_string'], text)
             with TestClient(create_application(load_example_results=False)) as client:
-                self.assertEqual(self.request(client, 'GET', run + '/outputs/axis/residue_axes/values/0')['value'], value)
+                self.assertEqual(self.request(client, 'GET', run + '/outputs/input/structure/values/0'), original)
 
     def test_discontinuous_comparison_preserves_full_structures_and_reopens_regions(self):
         subject = mmcif([('A', '10', '', 0, 0, 0), ('A', '11', '', 100, 100, 100),
@@ -152,7 +150,7 @@ class RegionalOperations(unittest.TestCase):
 
     def test_explicit_extraction_creates_child_with_original_numbering_and_preserves_parent(self):
         original = mmcif([('A', '10', '', 0, 0, 0), ('A', '11', '', 1, 0, 0),
-                          ('A', '12A', '', 2, 0, 0), ('A', '12', 'A', 3, 0, 0)])
+                          ('A', 'A42', '', 2, 0, 0), ('A', '12', 'A', 3, 0, 0)])
         with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
             with TestClient(create_application(load_example_results=False)) as client:
                 project_id, base = self.project(client)
@@ -161,7 +159,7 @@ class RegionalOperations(unittest.TestCase):
                     node('input', 'protein_io.import_structure', {'project_input_ref': source}),
                     node('extract', 'structure_transform.extract_region', {'region': [
                         {'chain_id': 'A', 'residue_number': '10', 'insertion_code': ''},
-                        {'chain_id': 'A', 'residue_number': '12A', 'insertion_code': ''},
+                        {'chain_id': 'A', 'residue_number': 'A42', 'insertion_code': ''},
                     ]}),
                     node('axis', 'structure_transform.resolve_candidate_residue_axes'),
                 ], edges=[edge('input', 'structure_candidates', 'extract', 'structure_candidates'),
@@ -174,10 +172,64 @@ class RegionalOperations(unittest.TestCase):
                 self.assertNotEqual(child['candidate_id'], parent['candidate_id'])
                 self.assertEqual(parent['data']['fields']['mmcif_string'], original)
                 axis = self.request(client, 'GET', run + '/outputs/axis/residue_axes/values/0')['value']['entries'][0]['residue_axis']
-                self.assertEqual(axis['layout']['fields']['residue_ids'], ['A:10', 'A:x313241.'])
+                self.assertEqual(axis['layout']['fields']['residue_ids'], ['A:10', 'A:A42'])
                 self.assertEqual(axis['sequence'], 'AA')
             with TestClient(create_application(load_example_results=False)) as client:
                 self.assertEqual(self.request(client, 'GET', run + '/outputs/extract/structure_candidates/values/0'), child_value)
+
+    def test_saved_prompt_author_labels_remain_valid_when_source_is_reopened(self):
+        original = mmcif([('A', 'A42', '', 0, 0, 0)])
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+            with TestClient(create_application(load_example_results=False)) as client:
+                project_id, base = self.project(client)
+                source = self.upload(client, base, original)
+                # A saved document authored before regional operations uses this
+                # exact pre-existing source ID. Do not migrate or alias it.
+                workflow = dict(schema_version='2.1.0', workflow_id=project_id, nodes=[
+                    node('input', 'protein_io.import_structure', {'project_input_ref': source}),
+                    node('axis', 'structure_transform.resolve_residue_axis'),
+                    node('prompt', 'prompt_authoring.author', {'document': {
+                        'target_residues': [{'residue_id': 'A:A42', 'origin': 'source'}],
+                    }}),
+                ], edges=[edge('input', 'structure', 'axis', 'structure'),
+                          edge('axis', 'residue_axis', 'prompt', 'structure_source')])
+                self.request(client, 'PUT', base + '/workspace', json={'workflow': workflow, 'ui_state': {}})
+            with TestClient(create_application(load_example_results=False)) as client:
+                run = self.execute_workflow(client, base, workflow)
+                prompt = self.request(client, 'POST', run + '/results:value', json={
+                    'node_id': 'prompt', 'output_port': 'protein_prompt', 'value_index': 0,
+                })
+                self.assertEqual(prompt['value']['residue_ids'], ['A:A42'])
+
+    def test_extracted_modified_residue_keeps_polymer_declarations_for_downstream_resolution(self):
+        pdb = ('SEQRES   1 A    2  ALA MSE\n'
+               'MODRES 1ABC MSE A   12  MET\n'
+               'ATOM      1  CA  ALA A  10       0.000   0.000   0.000  1.00 20.00           C  \n'
+               'HETATM    2  CA  MSE A  12       1.000   0.000   0.000  1.00 20.00           C  \nEND\n')
+        cif = mmcif([('A', '10', '', 0, 0, 0), ('A', '12', '', 1, 0, 0)]).replace(
+            'ATOM 2 C CA . ALA A 1 2 ? 1 0 0 1 80 12 ALA A CA 1',
+            'HETATM 2 C CA . MSE A 1 2 ? 1 0 0 1 80 12 MSE A CA 1',
+        ) + ('loop_\n_entity_poly_seq.entity_id\n_entity_poly_seq.num\n_entity_poly_seq.mon_id\n1 1 ALA\n1 2 MSE\n#\n'
+             'loop_\n_pdbx_struct_mod_residue.auth_asym_id\n_pdbx_struct_mod_residue.auth_seq_id\n'
+             '_pdbx_struct_mod_residue.PDB_ins_code\n_pdbx_struct_mod_residue.auth_comp_id\n'
+             '_pdbx_struct_mod_residue.parent_comp_id\nA 12 ? MSE MET\n#\n')
+        for filename, original in [('region.pdb', pdb), ('region.cif', cif)]:
+            with self.subTest(format=filename), tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': root}):
+                with TestClient(create_application(load_example_results=False)) as client:
+                    project_id, base = self.project(client)
+                    source = self.upload(client, base, original, filename)
+                    workflow = dict(schema_version='2.1.0', workflow_id=project_id, nodes=[
+                        node('input', 'protein_io.import_structure', {'project_input_ref': source}),
+                        node('extract', 'structure_transform.extract_region', {'region': [
+                            {'chain_id': 'A', 'residue_number': '12', 'insertion_code': ''},
+                        ]}),
+                        node('axis', 'structure_transform.resolve_candidate_residue_axes'),
+                    ], edges=[edge('input', 'structure_candidates', 'extract', 'structure_candidates'),
+                              edge('extract', 'structure_candidates', 'axis', 'structure_candidates')])
+                    run = self.execute_workflow(client, base, workflow)
+                    axis = self.request(client, 'GET', run + '/outputs/axis/residue_axes/values/0')['value']['entries'][0]['residue_axis']
+                    self.assertEqual(axis['sequence'], 'M')
+                    self.assertEqual(axis['layout']['fields']['residue_ids'], ['A:12'])
 
     def test_existing_residue_metrics_are_summarized_without_provider_recalculation(self):
         from protein_workbench_public.module_registry import DEFAULT_MODULES

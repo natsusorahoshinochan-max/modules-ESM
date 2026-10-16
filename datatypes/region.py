@@ -1,17 +1,13 @@
 """Exact chain/author-number/insertion selection shared by regional operations."""
 from collections.abc import Mapping, Sequence
-import re
 
 from datatypes.residue import ResidueLayout
 
 
 def structure_residue_id(chain_id: str, residue_number: str, insertion_code: str = '') -> str:
-    """Keep numeric author labels readable; encode other labels without ambiguity."""
-    if re.fullmatch(r'[+-]?[0-9]+', residue_number) and re.fullmatch(r'[A-Za-z]?', insertion_code):
-        label = residue_number + insertion_code
-    else:
-        label = 'x' + residue_number.encode().hex() + '.' + insertion_code.encode().hex()
-    return f'{chain_id}:{label}'
+    """Use the existing residue-axis identity; never rewrite saved source labels."""
+    return f'{chain_id}:{residue_number}{insertion_code}'
+
 
 
 def region_residue_ids(layout: ResidueLayout, selection: Sequence[Mapping[str, str]]) -> tuple[str, ...]:

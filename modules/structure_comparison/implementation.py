@@ -13,7 +13,7 @@ from datatypes.observation import (
     ScoreObservation,
 )
 from datatypes.structure import ResolvedStructureResidueAxis
-from datatypes.region import region_residue_ids
+from modules.structure_transform.regions import structural_region_ids
 from .regions import alignment_region_view
 
 from .alignment import align_resolved_axes
@@ -151,8 +151,8 @@ class StructureComparisonImplementation:
         for subject, reference in pairs:
             subject_association = subject_axes[subject]
             reference_association = reference_axes[reference]
-            subject_region = region_residue_ids(subject_association.residue_axis.layout, call.node_parameters["subject_region"])
-            reference_region = region_residue_ids(reference_association.residue_axis.layout, call.node_parameters["reference_region"])
+            subject_region = structural_region_ids(subject_association.residue_axis, call.node_parameters["subject_region"])
+            reference_region = structural_region_ids(reference_association.residue_axis, call.node_parameters["reference_region"])
             with self._run_resources.engine_invocation(engine_role=method):
                 resolved = align_resolved_axes(
                     alignment_region_view(subject_association.residue_axis, subject_region),
