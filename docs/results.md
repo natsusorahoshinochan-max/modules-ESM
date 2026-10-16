@@ -81,6 +81,8 @@ Score 显示保留 subject、Metric、Method、Context、数值、单位、轴�
 
 `out_of_scope_policy` 只处理该 Score 来源上所声明 Selector 并集之外的观察：`error` 拒绝，`ignore` 明确忽略；范围内缺失和多义规则不变。输出保留原候选对象、metadata、谱系及相对顺序。
 
+整批 Top-k 直接连接完整候选集合；按骨架 Top-k 先用 `collection_ops.select_related_subjects` 根据显式 Candidate Relation 和所选骨架取得候选范围，再连接普通 `selection.top_k`。多个分支可以共享同一 Score Collection，各自明确 `out_of_scope_policy: ignore`；范围内缺分仍失败，不因该选项变为排除缺分候选。评价关系通过 `relate_to_single_reference`、`concat_relations` 等普通操作组合，不伪造生成 parents。可运行公共 API 场景与连线说明见[Top-k 范围示例](../examples/v2/top-k-scopes.md)。
+
 现有排序、Top-N、加权排名分别由 `selection.sort`、`selection.top_k`、`selection.weighted_rank` 提供，使用 Selection Objective 声明的 Utility Transform；原值显示排序不能悄悄变成效用排序。平局沿用 Candidate ID 升序。结果页临时条件草稿与已应用条件分开，条件完整并明确应用才改变列表，可放弃或清除；临时筛选、排序不修改流程。
 
 `selection.manual` 仍可作为普通模块操作存在：在其明确输入集合中匹配完整 `selected_candidates` 引用，保持输入顺序，空选择得到空集合。缺失或内容改变时报错，不自动换成同名或同序列候选。它不自行搜旧 Run 替换输入；历史结果应先通过明确采用能力成为输入。

@@ -1,0 +1,20 @@
+metric_id: topk_demo.compatibility
+title: Controlled compatibility
+description: Declared values solely for deterministic composition tests.
+value_shape: scalar
+unit: dimensionless
+direction: higher_is_better
+canonical_range: {minimum: 0, maximum: 1}
+granularity: candidate
+aggregation_semantics: {kind: none}
+observation_context_schema:
+  type: object
+  properties:
+    kind: {const: pairwise}
+    subject_role: {const: subject}
+    reference_role: {const: reference}
+    pairing_mode: {const: explicit_relation}
+    normalization: {const: test_scale}
+  required: [kind, subject_role, reference_role, pairing_mode, normalization]
+  additionalProperties: false
+validation_contract: {finite: true, minimum: 0, maximum: 1}

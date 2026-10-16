@@ -179,3 +179,7 @@ WORKBENCH_TEST_URL=http://127.0.0.1:5207 npx playwright test tests/prompt-editor
 ```
 
 覆盖模块编辑确认与手动保存分离、重开、随机新增残基继续编辑和删除、放弃、结构临时移动取消，以及无需输入内部身份的局部轨道采用。
+
+## 可组合 Top-k 范围
+
+`.venv/bin/python -m pytest tests/test_topk_scopes.py -q` 通过公共 API 执行整批及按骨架范围的 Top-k。独立导入序列与结构，使用普通关系操作表达评价对象；显式外部测试模块提供四个已知评分，不调用 Provider。覆盖完整 Candidate 和骨架关联保持、同一评分源复用，以及缺少本范围必需评分时对应筛选失败、已评分分支仍成功。

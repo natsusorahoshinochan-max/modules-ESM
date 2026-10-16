@@ -6,7 +6,7 @@
 
 本报告排除 ProteinMPNN。核对 ESM3/ESMC、ESMFold2、SimpleFold、SoluProt、Protein-Sol、DSSP、结构比较及通用参数界面。依据本地固定上游、仓库保存的官方 API 快照及实现；不声称全部当前线上接口已复验；各实现调整的验证状态分别说明。
 
-新增工具模式、部署路径/设备、满足当前固定输出所必需的开关，不因存在常量就自动成为缺陷。能通过 Binding 选择的功能不算隐藏。部署入口与 Q47 尚未实现的应用内设置见[Provider 配置](provider-configuration.md)。
+新增工具模式、部署路径/设备、满足当前固定输出所必需的开关，不因存在常量就自动成为缺陷。能通过 Binding 选择的功能不算隐藏。部署入口与已接入的应用内模块设置见[Provider 配置](provider-configuration.md)；凭据、路径和服务地址与计算参数分开。
 
 下文的“固定”描述当前实现，不将其升级为目标要求。[Biohub 接入说明](biohub-api-reference/product-contract-supplement.md)采用当前 Q26，不以 Method identity 为由禁止开放适用参数。文档已经按决定对齐，不表示所列实现差异已修正。
 
@@ -55,7 +55,7 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 
 ### SoluProt 非标准字符处理
 
-项目始终传 `--check_unknown`，且调用前拒绝非标准残基；项目自有 Provider CLI 将其定义为可选且默认 false。关闭检查时 Provider 会过滤非标准字符，不是原样评价。因此项目固定了工具的一项输入处理选择，需要与参数策略对齐，但不能简单删除检查并静默改变输入。
+项目始终传 `--check_unknown`，且调用前拒绝非标准残基；项目自有 Provider CLI 将其定义为可选且默认 false。关闭检查时 Provider 会删除非标准字符，改变评价对象。保持检查符合正确传递用户输入的要求，不把静默删除字符作为应直接开放的普通计算参数。实际 Provider 接受标准20种、最短20残基，依据与版本边界见[输入限制](tool-input-restrictions.md#有依据的约束与对齐)。
 
 依据：[固定参数](../modules/solubility/soluprot.py#L238)、[前置检查](../modules/solubility/implementation.py#L53)、[自有 CLI](../repositories/soluprot-next/soluprot_core/cli.py#L65)、[过滤行为](../repositories/soluprot-next/soluprot_core/features.py#L259)。这里的 CLI 是项目自有代码，不当作第三方官方规范。
 
@@ -65,7 +65,9 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 
 ### Protein-Sol
 
-当前调用外部部署的 wrapper，工作区未找到该固定脚本源码，不能确定还有哪些官方参数被遗漏。项目的最短21残基要求尚未核实上游依据，不将其称为官方硬限制。[调用入口](../modules/solubility/protein_sol.py#L158)、[长度要求](../modules/solubility/implementation.py#L152)。
+当前调用官方 October 2017 包的 `multiple_prediction_wrapper_export.sh`，入口接收 FASTA 文件路径。官方包的 `fasta_seq_reformat_export.pl` 在两个记录出口均要求过滤后至少21个标准残基；并会删掉非标准字符。Workbench 在调用前拒绝短序列及非标准字符，避免静默改变评价对象。这一长度依据来自实际入口判断，不是由滑动窗口推测。
+
+[官方软件入口](https://www.protein-sol.manchester.ac.uk/software)提供源码；已核对的包、parser 摘要及与本机部署的一致性见[输入限制依据](tool-input-restrictions.md#有依据的约束与对齐)。[Adapter](../modules/solubility/protein_sol.py)传入文件路径并调用该 wrapper，[Operation](../modules/solubility/implementation.py)在进入工具前检查输入。未发现该 wrapper 声明其他用户计算参数，不据此推断其他 Protein-Sol 产品或版本的接口。
 
 ## 不应误判为本原则冲突的事项
 
@@ -87,4 +89,4 @@ Biohub 步数为 1–100、`top_p` 为 `(0,1]`；本地 SDK 步数为正整数�
 
 ## 结论
 
-ESM3 生成条件及采样参数、ESMFold2 推理参数、SimpleFold 的 tau 和步数范围已接入。SoluProt 输入处理策略需避免静默改输入；DSSP 与 Protein-Sol 等证据不完整项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。
+ESM3 生成条件及采样参数、ESMFold2 推理参数、SimpleFold 的 tau 和步数范围已接入。SoluProt 与 Protein-Sol 保留已有输入对象，拒绝工具会删除的字符；Protein-Sol 最短21已有官方入口依据。DSSP 的公开轨道影响、折叠路线的特殊字符范围等未决项继续核实，不升级为未经证实的缺陷。本报告没有决定这些模块需要全部重写，也没有新增计算模式。
