@@ -5,7 +5,10 @@ import base64
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 import unittest
+
+import httpx
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -14,7 +17,7 @@ from protein_workbench_public.bootstrap import create_application
 
 
 class ModuleSettingsBehavior(unittest.TestCase):
-    def test_partial_settings_survive_application_reopen(self):
+    def test_partial_settings_survive_application_reopen(self) -> None:
         with TemporaryDirectory() as root, patch.dict(
             "os.environ", {"PROTEIN_WORKBENCH_DATA_ROOT": root}
         ):
@@ -32,7 +35,7 @@ class ModuleSettingsBehavior(unittest.TestCase):
                                if item["binding_id"] == "folding.fold.esmfold2_local")
                 self.assertEqual(binding["values"], {"model_snapshot_path": model_path})
 
-    def test_concurrent_field_saves_preserve_both_settings(self):
+    def test_concurrent_field_saves_preserve_both_settings(self) -> None:
         with TemporaryDirectory() as root, patch.dict(
             "os.environ", {"PROTEIN_WORKBENCH_DATA_ROOT": root}
         ), TestClient(create_application(load_example_results=False)) as client:
@@ -40,7 +43,7 @@ class ModuleSettingsBehavior(unittest.TestCase):
                       "language_model_snapshot_path": root + "/language"}
             start = Barrier(2)
 
-            def save_field(item):
+            def save_field(item: tuple[str, str]) -> httpx.Response:
                 name, value = item
                 start.wait()
                 return client.patch("/api/v2/module-settings/folding.fold.esmfold2_local",
@@ -55,7 +58,7 @@ class ModuleSettingsBehavior(unittest.TestCase):
                            if item["binding_id"] == "folding.fold.esmfold2_local")
             self.assertEqual(binding["values"], fields)
 
-    def test_missing_remote_credential_is_reported_before_provider_execution(self):
+    def test_missing_remote_credential_is_reported_before_provider_execution(self) -> None:
         with TemporaryDirectory() as root, patch.dict(
             "os.environ", {"PROTEIN_WORKBENCH_DATA_ROOT": root}
         ), TestClient(create_application(load_example_results=False)) as client:
@@ -69,7 +72,7 @@ class ModuleSettingsBehavior(unittest.TestCase):
             self.assertEqual(fold_terminal["error"]["details"]["reason_code"],
                              "environment_configuration_incomplete")
 
-    def run_remote_fold(self, client):
+    def run_remote_fold(self, client: TestClient) -> list[dict[str, Any]]:
         project = client.post("/api/v2/projects", json={"name": "Unconfigured fold"})
         self.assertEqual(project.status_code, 201, project.text)
         prefix = "/api/v2/projects/" + project.json()["id"]
@@ -117,7 +120,7 @@ class ModuleSettingsBehavior(unittest.TestCase):
                     break
         return events
 
-    def test_saved_service_address_and_credential_reach_official_sdk_after_reopen(self):
+    def test_saved_service_address_and_credential_reach_official_sdk_after_reopen(self) -> None:
         from esm.sdk.api import ESMProteinError
 
         with TemporaryDirectory() as root, patch.dict(
