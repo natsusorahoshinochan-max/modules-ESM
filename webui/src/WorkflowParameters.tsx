@@ -131,6 +131,15 @@ export function WorkflowParameters({ parameters, onParameter, onCancel, choices 
   }
   return <details className="parameter-group nodrag nowheel" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary aria-label="编辑参数">参数 <span>{parameters.length}</span></summary>
     <div className="parameter-fields schema-parameter-fields">{[...groups].map(([id, group]) => <details className="parameter-subgroup" key={id} open><summary>{group.title}</summary>{group.parameters.map((parameter) => {
+      if (parameter.undeclared) return <div className="schema-parameter-field" key={parameter.key}>
+        <span className="parameter-label">{parameter.label}</span>
+        <pre>{parameter.value}</pre>
+        <small className="parameter-description">{parameter.description}</small>
+        <button type="button" aria-label={`移除未声明的${parameter.label}`} onClick={() => {
+          onParameter(parameter, '', false)
+          onParameter(parameter, '', true)
+        }}>移除此参数</button>
+      </div>
       const custom = renderParameter?.(parameter)
       if (custom !== undefined) return <div key={parameter.key}>{custom}</div>
       const numeric = parameter.valueType === 'number' || parameter.valueType === 'integer'

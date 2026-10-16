@@ -69,6 +69,7 @@ export type ParameterValueContract = {
 }
 
 export type ParameterPresentation = {
+  undeclared?: boolean
   key: string
   label: string
   value: string
@@ -136,7 +137,7 @@ function displayParameterValue(value: unknown): string {
 
 function parameterPresentationsForScope(parameters: JsonObject | undefined, values: Record<string, unknown>, scope: 'node' | 'binding', groups: Array<{ id: string; title: string; parameters: string[] }> = []): ParameterPresentation[] {
   const nodeLabels: Record<string, string> = { effective_seed: '有效种子', num_samples: '生成数量', k: '保留数量', num_sequences: '每个父结构', temperature: '温度', backbone_noise: '骨架噪声' }
-  return Object.entries(parameters ?? {}).map(([key, value]) => {
+  const declared = Object.entries(parameters ?? {}).map(([key, value]): ParameterPresentation => {
     const descriptor = value as JsonObject
     const valueContract = descriptor.value_contract as ParameterValueContract
     const group = groups.find((item) => item.parameters.includes(key))
@@ -155,6 +156,19 @@ function parameterPresentationsForScope(parameters: JsonObject | undefined, valu
       contract: valueContract,
     }
   })
+  return [...declared, ...Object.entries(values).filter(([key]) => !Object.hasOwn(parameters ?? {}, key)).map(([key, value]): ParameterPresentation => ({
+    key,
+    label: `${scope === 'node' ? '节点' : '模型'}参数 · ${key}`,
+    value: JSON.stringify(value),
+    scope,
+    undeclared: true,
+    valueType: 'json',
+    required: false,
+    groupId: `${scope}:undeclared`,
+    groupTitle: '已保存但当前未声明的参数',
+    description: '当前模块未声明此参数，原值仍保留。可在确认不再需要后主动移除；移除后须手动保存项目。',
+    contract: {},
+  }))]
 }
 
 export function parameterPresentations(catalog: CatalogSnapshot, node: WorkflowNode): ParameterPresentation[] {
