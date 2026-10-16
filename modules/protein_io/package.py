@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
+
+from core.catalog.result_reading import ResultReaderDefinition
+from .published_reading import read_sequence
+from .published_reading import read_structure
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -86,6 +92,18 @@ _OPERATIONS = (
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_readers=(
+        ResultReaderDefinition("protein.sequence", "sequence", read_sequence),
+        ResultReaderDefinition("protein.structure", "structure", read_structure),
+    ),
+    ui_extensions=(ModuleUiDefinition(
+        extension_id="protein_io.viewers", resource_package=__package__,
+        entry="ui/build/viewers.js", styles=("ui/build/viewers.css",), react_major=19,
+        editors=(), viewers=(
+            ResultViewerDefinition("protein_io.structure.3d", "三维结构", "protein.structure", "Structure3D", True),
+            ResultViewerDefinition("protein_io.structure.text", "结构原文", "protein.structure", "StructureText"),
+        ),
+    ),),
     package_id="protein_io",
     package_module=__package__,
     node_definitions=(

@@ -947,6 +947,23 @@ def build_frozen_catalog(
         if action.port_type_id not in port_ids:
             raise CatalogBuildError(f"unknown result action Port Type {action.port_type_id}")
         action_ids.add(action.action_id)
+    result_readers = tuple(reader for package in registration_tuple for reader in package.result_readers)
+    reader_types: set[str] = set()
+    for reader in result_readers:
+        if reader.port_type_id not in port_ids or reader.port_type_id in reader_types:
+            raise CatalogBuildError(f"unknown or duplicate result reader Port Type {reader.port_type_id}")
+        reader_types.add(reader.port_type_id)
+    viewer_ids: set[str] = set()
+    viewer_defaults: dict[str, int] = {}
+    for extension in ui_extensions:
+        for viewer in extension.viewers:
+            _require_identifier(viewer.viewer_id, "viewer_id")
+            if viewer.viewer_id in viewer_ids or viewer.port_type_id not in reader_types:
+                raise CatalogBuildError(f"duplicate viewer or missing result reader: {viewer.viewer_id}")
+            viewer_ids.add(viewer.viewer_id)
+            viewer_defaults[viewer.port_type_id] = viewer_defaults.get(viewer.port_type_id, 0) + int(viewer.is_default)
+    if any(count != 1 for count in viewer_defaults.values()):
+        raise CatalogBuildError("Each viewed Port Type must declare exactly one default result viewer")
     return FrozenCatalog(
         tuple(
             entry
@@ -957,4 +974,5 @@ def build_frozen_catalog(
         availability_observed_at=observation_time,
         ui_extensions=ui_extensions,
         result_actions=result_actions,
+        result_readers=result_readers,
     )

@@ -123,6 +123,6 @@ def create_http_app(
         rest_operations,
     )
     register_run_routes(app, runtime, rest_operations, run_event_stream)
-    register_result_routes(app, PublishedResultReader(runtime.published_value), rest_operations,
+    register_result_routes(app, PublishedResultReader(runtime.published_value, catalog.result_readers), rest_operations,
                            ResultActionReader(catalog, runtime.published_value))
     return app

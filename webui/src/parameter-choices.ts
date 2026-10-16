@@ -69,7 +69,7 @@ export async function loadWorkflowParameterChoices(client: ChoicesClient, projec
         const payload = await reading!.value({ node_id: source.node_id, output_port: outputPort, value_index: 0 })
         if (!payload) return { choices: {} }
         if (payload.kind !== 'axis_layout') throw new Error('已发布来源不是残基轴布局')
-        const axis = payload.value
+        const axis = payload.value as { chain_ids: string[]; residue_ids: string[] }
         return { choices: {
           chains: [...new Set(axis.chain_ids)].map(value => ({ value, label: `Chain ${value}` })),
           residues: axis.residue_ids.map(value => ({ value, label: value })),

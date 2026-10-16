@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from core.catalog.result_reading import ResultReaderDefinition
+from .published_reading import read_scores
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -122,6 +125,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
+    result_readers=(
+        ResultReaderDefinition("score.collection", "scores", read_scores),
+    ),
     package_id="selection",
     package_module=__package__,
     ui_extensions=(ModuleUiDefinition(
