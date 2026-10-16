@@ -19,7 +19,7 @@ class ResultReaders(unittest.TestCase):
                 'enabled': True, 'source_root': str(Path(__file__).parent.resolve()),
             }]}))
             with patch.dict(os.environ, {'PROTEIN_WORKBENCH_DATA_ROOT': directory}):
-                with TestClient(create_application(v2_environment_configuration={})) as client:
+                with TestClient(create_application()) as client:
                     project = client.post('/api/v2/projects', json={'name': 'Observations'})
                     self.assertEqual(project.status_code, 201, project.text)
                     project_id = project.json()['id']
@@ -47,7 +47,7 @@ class ResultReaders(unittest.TestCase):
                     self.assertEqual(projection['status'], 'succeeded', projection)
                     raw = client.get(run + '/outputs/observe/observation/values/0')
                     self.assertEqual(raw.status_code, 200, raw.text)
-                with TestClient(create_application(v2_environment_configuration={})) as client:
+                with TestClient(create_application()) as client:
                     reading = client.post(run + '/results:value', json={
                         'node_id': 'observe', 'output_port': 'observation', 'value_index': 0,
                     })
