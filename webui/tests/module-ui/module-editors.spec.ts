@@ -7,7 +7,11 @@ test('external editor cancels, applies locally, saves, reopens and runs through 
   const workflow = { schema_version: '2.1.0', workflow_id: project.id, nodes: [{ node_id: 'source', node_type_id: 'contract_test.synthetic_candidate_source', binding_id: 'contract_test.synthetic_candidate_source.direct', node_parameters: { message: 'Original' }, binding_parameters: { repeat_count: 2 } }], edges: [], observation_selectors: [], selection_objectives: [] }
   expect((await request.put(`${base}/workspace`, { data: { workflow, ui_state: {} } })).status()).toBe(200)
   await page.goto('/')
+  const editorAsset = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v2/module-ui/external.editor/assets/editor.js')
   await page.getByRole('button', { name: 'External editor', exact: true }).click()
+  const assetResponse = await editorAsset
+  expect(new URL(assetResponse.url()).search).toBe('')
+  expect(assetResponse.status()).toBe(200)
   const dialog = page.getByRole('dialog', { name: 'External editor', exact: true })
   await dialog.getByLabel('External label').fill('Cancelled')
   await dialog.getByRole('button', { name: 'Cancel external edit' }).click()

@@ -343,6 +343,7 @@ _STRUCTURED_ERROR_DETAILS_FIELDS = {
     "internal_error": (("incident_id",), ()),
     "invalid_cursor": (("after_sequence",), ()),
     "malformed_request": (("field_path",), ()),
+    "module_ui_asset_not_found": (("extension_id", "resource_path"), ()),
     "node_execution_failed": (
         ("exception_type",),
         ("cleanup_exception_types", "operation_diagnostic", "retained_output_failure"),
