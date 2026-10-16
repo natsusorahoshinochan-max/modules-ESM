@@ -120,7 +120,7 @@ def _method(operation: str) -> MethodDefinition:
                 "missing_backbone": (
                     "axis-selected-coordinate-or-provider-NaN-mask"
                 ),
-                "sequence": "standard-20-amino-acids-plus-X complete backbone order; explicit identities must match",
+                "sequence": "standard-20-amino-acids-plus-X; matching identities or explicit complete sequence-position-to-backbone-residue correspondence",
                 "tensorization": (
                     "ProteinMPNN tied_featurize all chains designed"
                 ),
@@ -181,9 +181,6 @@ def _method(operation: str) -> MethodDefinition:
             },
             scale_contract={
                 "sequence": "canonical_20_amino_acids",
-                "provider_score": (
-                    "optional-native-negative-log-probability-validated-only"
-                ),
             },
         )
     return MethodDefinition(

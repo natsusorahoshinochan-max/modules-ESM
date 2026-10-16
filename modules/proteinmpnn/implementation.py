@@ -289,6 +289,31 @@ class ProteinMPNNScoreImplementation:
             axis_reference,
         ) = self._evaluation_pair(call)
         sequence = cast(ProteinSequence, sequence_candidate.data)
+        correspondence = call.node_parameters["sequence_correspondence"]
+        if correspondence:
+            positions = [entry["sequence_position"] for entry in correspondence]
+            residue_ids = [entry["residue_id"] for entry in correspondence]
+            if (
+                len(sequence.sequence) != residue_axis.layout.length
+                or sorted(positions) != list(range(1, len(sequence.sequence) + 1))
+                or len(residue_ids) != len(set(residue_ids))
+                or set(residue_ids) != set(residue_axis.layout.residue_ids)
+            ):
+                raise ValueError("Sequence correspondence must map every sequence position to exactly one backbone residue")
+            amino_acids = {
+                entry["residue_id"]: sequence.sequence[entry["sequence_position"] - 1]
+                for entry in correspondence
+            }
+            sequence = ProteinSequence(
+                "".join(amino_acids[residue_id] for residue_id in residue_axis.layout.residue_ids),
+                residue_axis.layout.residue_ids,
+            )
+        position_by_residue = (
+            {entry["residue_id"]: entry["sequence_position"] for entry in correspondence}
+            if correspondence else {
+                residue_id: position for position, residue_id in enumerate(residue_axis.layout.residue_ids, 1)
+            }
+        )
         _require_sequence_axis(
             sequence, residue_axis, "scoring",
             alphabet=_CANONICAL_AMINO_ACIDS | {"X"},
@@ -308,6 +333,10 @@ class ProteinMPNNScoreImplementation:
                 reference=PairwiseParticipant("reference", structure_reference),
                 pairing_mode="fixed_reference",
                 normalization="provider_masked_mean",
+                sequence_correspondence=tuple(
+                    (position_by_residue[residue_id], residue_id)
+                    for residue_id in residue_axis.layout.residue_ids
+                ),
             ),
             source_partition="default",
             value=score,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 from typing import Any, Literal
 
@@ -89,6 +89,15 @@ class PairwiseObservationContext:
     reference_axis_content_digest: str | None = None
     normalization_length: int | None = None
     aligned_atom_count: int | None = None
+    sequence_correspondence: tuple[tuple[int, str], ...] | None = field(
+        default=None, metadata={"wire_optional": True},
+    )
+
+    def __post_init__(self) -> None:
+        if self.sequence_correspondence is not None:
+            object.__setattr__(self, "sequence_correspondence", FrozenList(
+                FrozenList(pair) for pair in self.sequence_correspondence
+            ))
 
 
 @dataclass(frozen=True, slots=True)

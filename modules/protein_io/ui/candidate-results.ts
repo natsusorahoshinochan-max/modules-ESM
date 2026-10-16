@@ -1,3 +1,4 @@
+import type { ComponentReading } from './StructureComponents'
 import type { PublishedResults } from '../../../webui/src/published-results'
 import { type PublishedStructure, type PublishedResultValue, type PublishedScientificValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection } from '../../../webui/src/protocol/client'
 import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
@@ -137,6 +138,26 @@ export class CandidateResults {
       const structure = await pending
       return this.session === session ? structure : undefined
     } catch (error) { if (this.session === session) throw error }
+  }
+
+  componentSelectionKey(key: string): string {
+    return JSON.stringify([this.session?.reference.project_id, this.session?.reference.run_id, key])
+  }
+
+  async components(key: string): Promise<ComponentReading | undefined> {
+    const session = this.session
+    if (!session) return undefined
+    const candidate = this.snapshot.index.candidates.get(key)!
+    const reading = await this.client.resultAction<ComponentReading>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.structure_components', { item_index: candidate.item_index })
+    return this.session === session ? reading : undefined
+  }
+
+  async exportComponents(key: string, indices: number[], format: PublishedStructure['format']): Promise<PublishedStructure | undefined> {
+    const session = this.session
+    if (!session) return undefined
+    const candidate = this.snapshot.index.candidates.get(key)!
+    const value = await this.client.resultAction<PublishedStructure>(session.reference.project_id, session.reference.run_id, candidate.source, 'protein_io.export_structure_components', { item_index: candidate.item_index, component_indices: indices, format })
+    return this.session === session ? value : undefined
   }
 
   async prepareExport(keys: readonly string[], format: PublishedStructure['format']): Promise<CandidateExportMaterial | undefined> {
