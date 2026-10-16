@@ -112,6 +112,8 @@ class ResultAdoption(unittest.TestCase):
                 {'package_id': name, 'package_module': 'modules.' + name + '.package', 'enabled': True, 'source_root': None}
                 for name in ('protein_io', 'selection', 'collection_ops')
             ] + [{'package_id': 'adoption_demo', 'package_module': 'adoption_module', 'enabled': True,
+                  'source_root': str(Path(__file__).parent.resolve())},
+                 {'package_id': 'reader_demo', 'package_module': 'reader_module', 'enabled': True,
                   'source_root': str(Path(__file__).parent.resolve())}]}))
             with TestClient(create_application(load_example_results=False)) as client:
                 source = client.post('/api/v2/projects', json={'name': 'Source'}).json()['id']
@@ -119,6 +121,8 @@ class ResultAdoption(unittest.TestCase):
                 uploaded = client.post(f'/api/v2/projects/{source}/inputs', json={
                     'filename': 'sequence.fasta', 'content_base64': base64.b64encode(b'>original\nACDE\n').decode()}).json()
                 source_run = self.run_workflow(client, source, [
+                    {'node_id': 'a-unrelated', 'node_type_id': 'reader_demo.observe',
+                     'binding_id': 'reader_demo.observe.direct', 'binding_parameters': {}, 'node_parameters': {}},
                     {'node_id': 'import', 'node_type_id': 'protein_io.import_sequences',
                      'binding_id': 'protein_io.import_sequences.direct', 'binding_parameters': {},
                      'node_parameters': {'project_input_ref': uploaded['project_input_ref']}},
@@ -129,6 +133,11 @@ class ResultAdoption(unittest.TestCase):
                     [{'source_node_id': 'import', 'source_port': 'sequence_candidates',
                       'target_node_id': 'observe', 'target_port': 'candidates'},
                      {'source_node_id': 'observe', 'source_port': 'scores', 'target_node_id': 'blocked', 'target_port': 'scores_a'}], status='failed')
+                unrelated = client.get(source_run + '/outputs/a-unrelated/observation/values/0')
+                self.assertEqual(unrelated.status_code, 200, unrelated.text)
+                disabled_unrelated = client.put('/api/v2/modules', json={
+                    'enabled_package_ids': ['protein_io', 'selection', 'collection_ops', 'adoption_demo']})
+                self.assertEqual(disabled_unrelated.status_code, 200, disabled_unrelated.text)
                 original = client.get(source_run + '/outputs/observe/scores/values/0').content
                 adopted = client.post(f'/api/v2/projects/{target}/inputs:adopt', json={
                     'source_project_id': source, 'source_run_id': source_run.rsplit('/', 1)[1],

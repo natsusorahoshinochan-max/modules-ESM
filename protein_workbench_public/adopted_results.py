@@ -87,8 +87,8 @@ def dependency_values(source: AdoptedSource, *, runtime: V2RunService,
                     'output_port': output.output_port, 'value_index': value_index}
                 metadata, canonical, references = runtime.published_value(
                     source['source_project_id'], source['source_run_id'], publication.node_id, output.output_port, value_index)
-                port = catalog.require_port_type(output.port_type.contract_id)
-                axes = port.scientific_axis_references(port.restore(canonical)) if port.runtime_scientific_axis_projection is not None else ()
+                port = catalog.get_port_type(output.port_type.contract_id)
+                axes = port.scientific_axis_references(port.restore(canonical)) if port is not None and port.runtime_scientific_axis_projection is not None else ()
                 yield {'definitions': [], 'axis_digests': [axis.axis_content_digest for axis in axes],
                     'port_type_id': output.port_type.contract_id, 'canonical_value': canonical.decode('utf-8'),
                     'content_digest': metadata['typed_value']['value_content_digest'],
