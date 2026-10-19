@@ -72,4 +72,3 @@ def retain_result(result, request, source, ordinal, runtime, files):
     return {'id': uuid4().hex, 'sequence': sequence, 'positions': deepcopy(source['positions']),
             'generation': {'input': source['id'], 'sample': ordinal + 1, 'tracks': deepcopy(request.tracks)},
             'native': {'file': key}, 'tool': {'parameters': deepcopy(result.parameters), 'actual_seed': result.actual_seed}}, native
-
