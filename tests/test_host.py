@@ -12,3 +12,14 @@ def test_host_without_modules_saves_and_reopens_incomplete_project(tmp_path):
     assert reopened["flow"] == flow
     assert reopened["layout"] == layout
     assert reopened["missing_modules"] == ["absent.edit"]
+
+
+def test_external_declarations_and_settings_survive_reopening(tmp_path):
+    app = Workbench(tmp_path)
+    installed = app.install("tests.fixtures.host_module:module")
+    app.configure(installed["id"], {"label": "configured"})
+    reopened = Workbench(tmp_path)
+    assert reopened.list_modules()[0]["settings"] == {"label": "configured"}
+    catalog = reopened.catalog()
+    assert [node["id"] for node in catalog["nodes"]] == ["independent.encode", "independent.receive"]
+    assert catalog["nodes"][0]["inputs"] == {"source": {"accepts": ["independent.request"], "cardinality": "one", "required": True}}

@@ -1,0 +1,23 @@
+"""An independent module authored exclusively against the public SDK."""
+from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort
+
+
+def encode(call, runtime):
+    incoming = call.inputs["source"][0]
+    with incoming.open(incoming.entry) as stream:
+        data = stream.read()
+    (runtime.workdir / "encoded").mkdir()
+    (runtime.workdir / "encoded" / "bytes.bin").write_bytes(data + call.parameters.get("suffix", "").encode() + call.settings.get("label", "").encode())
+    return Outcome(outputs={"result": [Delivery(format="independent.binary", entry="entry.bin", files={"entry.bin": "encoded/bytes.bin"})]}, continuation={"done": 1})
+
+
+def receive(call, runtime):
+    package = call.inputs["source"][0]
+    with package.open("entry.bin") as stream:
+        data = stream.read()
+    (runtime.workdir / "summary").write_bytes(b"received:" + data)
+    return Outcome(outputs={"result": [Delivery("independent.received", "summary", {"summary": "summary"})]})
+
+
+def module():
+    return Module(id="independent", name="Independent module", settings={"label": {"type": "string"}}, nodes=(Node(id="independent.encode", name="Encode", execute=encode, inputs={"source": InputPort(("independent.request",))}, outputs={"result": OutputPort("independent.binary")}), Node(id="independent.receive", name="Receive", execute=receive, inputs={"source": InputPort(("independent.binary",))}, outputs={"result": OutputPort("independent.received")})))

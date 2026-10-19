@@ -45,8 +45,63 @@ class Workbench:
     def _write(connection, kind, record):
         connection.execute("INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data", (kind, record["id"], json.dumps(record, allow_nan=False)))
 
+    def _modules(self):
+        from .registry import load
+        loaded = []
+        for record in self._records("module"):
+            if record["enabled"]:
+                try:
+                    loaded.append((record, load(record["entry_point"])))
+                except HostError:
+                    continue
+        return loaded
+
+    def install(self, entry_point):
+        from .registry import load
+        module = load(entry_point)
+        for record in self._records("module"):
+            if record["id"] == module.id:
+                if record["entry_point"] != entry_point:
+                    raise HostError(f"Duplicate module identity: {module.id}")
+                return record
+        existing = {node["id"] for node in self.catalog()["nodes"]}
+        for node in module.nodes:
+            if node.id in existing:
+                raise HostError(f"Duplicate node identity: {node.id}")
+        return self._put("module", {"id": module.id, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
+
+    def configure(self, module_id, settings):
+        if not isinstance(settings, dict):
+            raise HostError("Module settings must be an object")
+        record = self._get("module", module_id)
+        record["settings"] = settings
+        return self._put("module", record)
+
+    def list_modules(self):
+        return self._records("module")
+
+    def enable(self, module_id, enabled):
+        record = self._get("module", module_id)
+        record["enabled"] = bool(enabled)
+        return self._put("module", record)
+
+    def uninstall(self, module_id):
+        self._get("module", module_id)
+        with self._connect() as connection:
+            connection.execute("DELETE FROM records WHERE kind='module' AND id=?", (module_id,))
+
+    def ui_entry(self, module_id):
+        record = self._get("module", module_id)
+        if not record["enabled"] or not record["ui"]:
+            raise HostError(f"Module has no enabled UI entry: {module_id}")
+        path = Path(record["ui"])
+        if not path.is_file():
+            raise HostError(f"Missing module UI entry: {path}")
+        return path
+
     def catalog(self):
-        return {"nodes": [], "modules": []}
+        from .registry import node_record
+        return {"nodes": [node_record(module, node) for _, module in self._modules() for node in module.nodes], "modules": self.list_modules()}
 
     def create_project(self, name):
         return self._put("project", {"id": uuid4().hex, "name": name, "flow": {"nodes": [], "edges": []}, "layout": {}})
