@@ -87,7 +87,7 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 `Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
 
-模块记录的 `installation_id` 标识当前这次安装；启停和设置保留它，卸载重装重新分配。`GET /api/catalog` 返回当前 `ui_url`，载体通过该地址装载界面。入口按当前安装核对，过期安装地址返回 409。模块入口为单文件 bundle；其依赖沿下述共享和打包约定提供。
+模块记录的 `installation_id` 标识当前这次安装；启停和设置保留它，卸载重装重新分配。`GET /api/catalog` 返回当前 `ui_url`，载体通过该地址装载界面。入口按当前安装核对，与当前身份不符的地址返回 409。模块入口为单文件 bundle；其依赖沿下述共享和打包约定提供。
 
 载体传入自己安装的 React 19 实例。模块使用这个实例创建元素和调用 hooks；构建模块时将 React 作为共享依赖，产物只保留传入的运行时引用。其他浏览器依赖由模块打包进自己的入口文件。
 

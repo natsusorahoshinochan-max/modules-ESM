@@ -21,10 +21,10 @@ def discard_paths(paths):
     paths = {Path(path).resolve() for path in paths}
     def owned(value):
         return any(Path(value).resolve().is_relative_to(path) for path in paths)
+    # Namespace paths consult their parents lazily; snapshot before removing either.
+    loaded = [(name, module, getattr(module, "__file__", None), list(getattr(module, "__path__", ()))) for name, module in list(sys.modules.items())]
     sys.path[:] = [value for value in sys.path if not owned(value)]
-    for name, module in list(sys.modules.items()):
-        source = getattr(module, "__file__", None)
-        locations = list(getattr(module, "__path__", ()))
+    for name, module, source, locations in loaded:
         if source and owned(source):
             sys.modules.pop(name, None)
         elif any(owned(value) for value in locations):

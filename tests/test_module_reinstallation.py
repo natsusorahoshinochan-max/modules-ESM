@@ -166,3 +166,20 @@ with TestClient(create_application(data_root=Path(sys.argv[1]))) as client:
 ''', str(tmp_path), str(candidate)], capture_output=True, text=True, timeout=20)
         assert process.returncode == 0, process.stderr
         warm.delete('/api/modules/reinstall.example')
+
+
+def test_uninstall_evicts_nested_namespace_search_paths_before_parent_removal(tmp_path):
+    def nested(label):
+        data = BytesIO(package(label, python_name='ordinary_warm/nested/alpha'))
+        with ZipFile(data, 'a') as archive:
+            archive.writestr('ordinary_warm/__init__.py', '')
+        return data.getvalue()
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        response = install(client, nested('first'), 'ordinary_warm.nested.alpha:module')
+        assert response.status_code == 200, response.text
+        removed = client.delete('/api/modules/reinstall.example')
+        assert removed.status_code == 200, removed.text
+        restored = install(client, nested('second'), 'ordinary_warm.nested.alpha:module')
+        assert restored.status_code == 200, restored.text
+        assert_execution(client, 'reinstall.example', 'second')
+        assert client.delete('/api/modules/reinstall.example').status_code == 200
