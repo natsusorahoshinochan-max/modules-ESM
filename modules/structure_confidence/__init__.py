@@ -47,6 +47,11 @@ def execute(call, runtime):
         content = reader.read()
     positions = positions_for(content, description['format'])
     region = call.parameters.get('region')
+    if region is not None and (not isinstance(region, list) or not region or any(
+            not isinstance(position, dict) or set(position) != {'chain', 'author_number', 'insertion_code'}
+            or type(position['chain']) is not str or type(position['author_number']) is not int
+            or type(position['insertion_code']) is not str for position in region)):
+        raise ValueError('Region positions require exactly chain and insertion_code strings and an integer author_number')
     if region is not None and (not isinstance(region, list) or not region or any(position not in positions for position in region) or len({json.dumps(position, sort_keys=True) for position in region}) != len(region)):
         raise ValueError('Region must select unique actual chain, author_number and insertion_code positions')
     folder = runtime.workdir / uuid4().hex

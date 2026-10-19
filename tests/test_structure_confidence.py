@@ -263,3 +263,72 @@ def test_discontinuous_region_reads_complete_geometry_and_only_selects_reported_
     assert len(calls) == 1
     with app.package(package['id']).open('original.pdb') as reader:
         assert reader.read() == complete
+
+
+def test_region_types_fail_before_evaluation_and_valid_positions_remain_independently_readable(tmp_path, monkeypatch):
+    import sys
+    import types
+    from core.host import Workbench
+    from protein_workbench_public.module_api import Delivery, Module, Tool
+    from modules.structure_confidence.contract import ConfidenceResult, SLOT
+    from modules.structure_confidence.formats import read_evaluations
+    from tests.run_helpers import wait_run
+
+    calls = []
+    def factory(settings):
+        def evaluate(request, parameters, runtime):
+            calls.append(request)
+            assert Path(request.structure_path).read_bytes() == original
+            return ConfidenceResult(request.positions, (.2, .8, .4), method='Explicit original-geometry evaluator')
+        return evaluate
+    provider = types.ModuleType('confidence_region_provider')
+    provider.module = lambda: Module('test.region', 'Region evaluator', tools=(Tool('test.region.evaluate', 'Region evaluator', SLOT, factory),))
+    monkeypatch.setitem(sys.modules, provider.__name__, provider)
+    app = Workbench(tmp_path / 'store')
+    app.install('modules.structure_confidence:module')
+    app.install('confidence_region_provider:module')
+    project = app.create_project('Strict region correspondence')
+    work = app.new_workdir()
+    original = b''.join(PDB.replace(b'END\n', b'').replace(b'Z  12A', value) for value in (b'Z  12A', b'Z   1 ', b'Z  19 ')) + b'END\n'
+    (work / 'manifest.json').write_text(json.dumps({'objects': [{'id': 'existing', 'structure': {'file': 'original.pdb', 'format': 'pdb'}}]}))
+    (work / 'original.pdb').write_bytes(original)
+    source = app.create_input(project['id'], Delivery('workbench.structure_set', 'manifest.json', {'manifest.json': 'manifest.json', 'original.pdb': 'original.pdb'}), work)
+    position = {'chain': 'Z', 'author_number': 12, 'insertion_code': 'A'}
+    def run_region(region):
+        app.save_project(project['id'], {'nodes': [{'id': 'e', 'type': 'workbench.evaluate_structure_confidence',
+            'inputs': {'structures': [source['id']]}, 'parameters': {'object': 'existing', 'region': region},
+            'tools': {'evaluator': 'test.region.evaluate'}}], 'edges': []}, {})
+        return wait_run(app, app.start(project['id']))['nodes']['e']
+    invalid = [
+        [{**position, 'author_number': 12.0}],
+        [{**position, 'author_number': True, 'insertion_code': ''}],
+        [{**position, 'chain': 1}],
+        [{**position, 'insertion_code': False}],
+        [{'chain': 'Z', 'author_number': 12}],
+        [{**position, 'extra': 'unrecognized'}],
+        [position, position],
+        [{**position, 'author_number': 99}],
+        [], 'all', [None],
+    ]
+    for region in invalid:
+        failure = run_region(region)
+        assert failure['status'] == 'failed' and not failure.get('outputs'), (region, failure)
+        assert 'Region' in str(failure['diagnostics']), failure
+        assert calls == []
+    for region in ([position, {'chain': 'Z', 'author_number': 19, 'insertion_code': ''}], None):
+        succeeded = run_region(region)
+        assert succeeded['status'] == 'succeeded', succeeded
+        output = app.package(succeeded['outputs']['evaluation'][0])
+        document = read_evaluations(output)
+        evaluation = document['evaluations'][0]
+        assert evaluation['region'] == region
+        with output.open(evaluation['per_position']['file']) as reader:
+            scores = json.load(reader)
+        assert scores['positions'] == (region if region is not None else list(calls[-1].positions))
+        assert scores['plddt'] == ([.2, .4] if region is not None else [.2, .8, .4])
+        assert all(type(item['author_number']) is int for item in scores['positions'])
+        with output.open('original.pdb') as reader:
+            assert reader.read() == original
+    assert len(calls) == 2 and all(len(request.positions) == 3 for request in calls)
+    with app.package(source['id']).open('original.pdb') as reader:
+        assert reader.read() == original

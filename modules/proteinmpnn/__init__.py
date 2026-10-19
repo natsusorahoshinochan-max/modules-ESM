@@ -49,7 +49,7 @@ def _objects(result, source):
             values = sample.get(name)
             if not isinstance(values, dict) or set(values) != set(by_chain) or any(not isinstance(values[chain], list) or len(values[chain]) != len(rows) or any(type(value) not in (int, float) or not math.isfinite(value) for value in values[chain]) for chain, rows in by_chain.items()):
                 raise ValueError(f'Tool must return complete numeric {name} values')
-        obj = {'id': uuid4().hex, 'sequence': ''.join(chains[chain] for chain in by_chain),
+        obj = {'id': uuid4().hex,
                'chains': deepcopy(chains), 'positions': deepcopy(result.positions), 'backbone': deepcopy(source),
                'design': deepcopy(sample), 'tool': {'actual_seed': result.actual_seed, 'parameters': deepcopy(result.parameters)}}
         if 'label' in source:
@@ -125,18 +125,56 @@ def execute(call, runtime):
             'tool': {'id': call.tool_choices['mpnn'], 'parameters': parameters}}, allow_nan=False))
         files[manifest] = manifest
         outputs['design'] = [Delivery('workbench.proteinmpnn_design', manifest, dict(files))]
-        sequence_objects = []
-        for obj in objects:
-            plain = {'id': obj['id'], 'sequence': obj['sequence'], 'positions': [
-                {'sequence_index': index, **{key: position[key] for key in ('chain', 'author_number', 'insertion_code')}}
-                for index, position in enumerate(obj['positions'], 1)]}
-            if 'label' in obj:
-                plain['label'] = obj['label']
-            sequence_objects.append(plain)
-        sequence_manifest = 'sequences-' + uuid4().hex + '.json'
-        (runtime.workdir / sequence_manifest).write_text(json.dumps({'objects': sequence_objects}, allow_nan=False))
-        outputs['sequence'] = [Delivery('workbench.sequence', 'manifest.json', {'manifest.json': sequence_manifest})]
     return Outcome(status, outputs, diagnostics, {'completed': completed, 'random_seeds': random_seeds})
+
+
+def _chain_sequence_objects(document, chain):
+    objects = document.get('objects') if isinstance(document, dict) else None
+    if not isinstance(objects, list) or not objects or any(not isinstance(obj, dict) or not isinstance(obj.get('chains'), dict) or not obj['chains'] or any(not isinstance(key, str) or not key for key in obj['chains']) for obj in objects):
+        raise ValueError('Chain conversion requires design objects with actual named chains')
+    if chain is None:
+        choices = [list(obj['chains']) for obj in objects]
+        if any(len(names) != 1 or names != choices[0] for names in choices):
+            raise ValueError('Choose an explicit chain for every design sample; actual chains: ' + '; '.join(', '.join(names) for names in choices))
+        chain = choices[0][0]
+    converted = []
+    for index, obj in enumerate(objects, 1):
+        context = f'Design sample {index}, chain {chain!r}'
+        if chain not in obj['chains']:
+            raise ValueError(f'{context} is missing; actual chains: {", ".join(obj["chains"])}')
+        sequence = obj['chains'][chain]
+        if not isinstance(sequence, str) or not sequence:
+            raise ValueError(f'{context} requires a complete chain sequence')
+        for position, symbol in enumerate(sequence, 1):
+            if symbol not in 'ACDEFGHIKLMNPQRSTVWY':
+                raise ValueError(f'{context}, position {position} contains {symbol!r}; workbench.sequence requires the 20 canonical amino acids')
+        positions = obj.get('positions')
+        if not isinstance(positions, list) or any(not isinstance(row, dict) for row in positions):
+            raise ValueError(f'{context} requires complete residue correspondence')
+        rows = [row for row in positions if row.get('chain') == chain]
+        if len(rows) != len(sequence) or any(type(row.get('tool_position')) is not int or type(row.get('author_number')) is not int or not isinstance(row.get('insertion_code'), str) for row in rows):
+            raise ValueError(f'{context} requires complete residue correspondence')
+        rows.sort(key=lambda row: row['tool_position'])
+        if [row['tool_position'] for row in rows] != list(range(1, len(sequence) + 1)) or len({(row['author_number'], row['insertion_code']) for row in rows}) != len(rows):
+            raise ValueError(f'{context} requires complete unambiguous residue correspondence')
+        plain = {'id': uuid4().hex, 'sequence': sequence, 'positions': [
+            {'sequence_index': row['tool_position'], **{key: row[key] for key in ('chain', 'author_number', 'insertion_code')}} for row in rows]}
+        if 'label' in obj:
+            if not isinstance(obj['label'], str):
+                raise ValueError(f'{context} label must be text')
+            plain['label'] = f'{obj["label"]} · chain {chain}'
+        converted.append(plain)
+    return converted
+
+
+def _chain_sequence(call, runtime):
+    if set(call.parameters) - {'chain'} or 'chain' in call.parameters and (not isinstance(call.parameters['chain'], str) or not call.parameters['chain']):
+        raise ValueError('Chain conversion accepts only an optional actual chain name')
+    package = call.inputs['design'][0]
+    with package.open(package.entry) as stream:
+        objects = _chain_sequence_objects(json.load(stream), call.parameters.get('chain'))
+    (runtime.workdir / 'manifest.json').write_text(json.dumps({'objects': objects}, allow_nan=False))
+    return Outcome(outputs={'sequence': [Delivery('workbench.sequence', 'manifest.json', {'manifest.json': 'manifest.json'})]})
 
 
 def module():
@@ -144,7 +182,10 @@ def module():
     return Module('workbench.proteinmpnn', 'ProteinMPNN backbone design', nodes=(Node(
         'workbench.design_backbone', 'Design sequences from backbone', execute,
         inputs={'structure': InputPort(('workbench.structure_set', 'workbench.prediction'))},
-        outputs={'sequence': OutputPort('workbench.sequence'), 'design': OutputPort('workbench.proteinmpnn_design')}, tools={'mpnn': ToolSlot(SLOT, 'Backbone sequence design and scoring')}),),
+        outputs={'design': OutputPort('workbench.proteinmpnn_design')}, tools={'mpnn': ToolSlot(SLOT, 'Backbone sequence design and scoring')}),
+        Node('workbench.proteinmpnn_chain_sequence', 'Use one design chain as sequence', _chain_sequence,
+             inputs={'design': InputPort(('workbench.proteinmpnn_design',))}, outputs={'sequence': OutputPort('workbench.sequence')},
+             parameters={'chain': {'description': 'Actual chain name; omit only when every sample has the same single chain'}})),
         tools=tools(), settings={'source': 'Existing ProteinMPNN source directory', 'weights': 'Existing weights root with vanilla_model_weights and soluble_model_weights',
                                 'python': 'Existing Python executable with torch, numpy and gemmi', 'device': 'cpu, cuda or mps'},
         ui=str(Path(__file__).with_name('ui.js').resolve()))

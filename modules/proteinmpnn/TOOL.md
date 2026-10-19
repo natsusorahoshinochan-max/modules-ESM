@@ -3,9 +3,14 @@
 Install and enable `modules.proteinmpnn:module`, add **Design sequences from
 backbone**, and bind an explicit structure package. Select the local ProteinMPNN
 tool and configure native conditions and sampling in its tool parameter JSON.
-The module editor explains limits; its sequence viewer displays actual NLL values,
+The module editor explains limits; its design viewer displays each actual chain, NLL values,
 parameters, masks and real residue correspondence. The host's generic ZIP action
 exports all declared files. Use the run's Continue action for unfinished batches.
+The design node delivers the complete `workbench.proteinmpnn_design` result.
+Before folding or another canonical single-chain task, add **Use one design chain
+as sequence** and select the actual chain. Empty selection works only for the same
+single chain in every sample. The result viewer can add a converter for its
+explicitly selected package; full conversion rules are in [FORMAT.md](FORMAT.md).
 
 Deployment settings are `source` (existing ProteinMPNN directory containing
 `protein_mpnn_utils.py`), `weights` (existing root containing
@@ -107,6 +112,6 @@ Run through the application, import, Adapter, persistence and result reader:
 .venv/bin/python -m modules.proteinmpnn.verify configuration.json --output /absolute/new-verification-data
 ```
 
-This prints completed object counts, actual seeds, position counts and natural
+This prints per-chain lengths, actual seeds, position counts and natural
 scores read back from persisted package files. Choose a new output directory for
 a distinct verification. Original research files remain unchanged.
