@@ -21,12 +21,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "react": [
-        "./node_modules/@types/react"
-      ],
-      "react/*": [
-        "./node_modules/@types/react/*"
-      ],
       "fflate": [
         "./node_modules/fflate"
       ],
@@ -48,7 +42,6 @@
     "src/main.tsx",
     "src/App.tsx",
     "src/host-client.ts",
-    "src/host-ui.ts",
-    "../protein_workbench_public/react-api.ts"
+    "src/host-ui.ts"
   ]
 }

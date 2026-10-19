@@ -3,7 +3,7 @@ requires = ["setuptools>=80,<82"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "workbench-notes-example"
+name = "workbench-notes-producer"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["protein-workbench"]

@@ -9,6 +9,7 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@protein-workbench/module-ui": "file:../protein_workbench_public/module_ui",
     "@radix-ui/react-context-menu": "2.3.7",
     "@radix-ui/react-dialog": "1.1.23",
     "@radix-ui/react-dropdown-menu": "2.1.24",

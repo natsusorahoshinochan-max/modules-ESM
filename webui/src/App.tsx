@@ -1,5 +1,5 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Edge, Extensions, FlowNode, ModuleHost, PackageInfo } from '../../protein_workbench_public/react-api'
+import type { Edge, Extensions, FlowNode, ModuleHost, PackageInfo } from '@protein-workbench/module-ui'
 import { client, type Catalog, type ModuleRecord, type Project, type Run } from './host-client'
 import { loadExtensions } from './host-ui'
 

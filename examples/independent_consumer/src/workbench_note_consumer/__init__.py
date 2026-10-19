@@ -1,4 +1,4 @@
-"""Independent public-format reader; does not import the producer implementation."""
+"""Consumer of the public example.note format."""
 from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort
 
 

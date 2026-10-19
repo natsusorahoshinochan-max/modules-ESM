@@ -5,12 +5,18 @@ prune repositories
 global-exclude __pycache__ *.py[cod]
 include setup.py
 include webui/package.json webui/package-lock.json
+include webui/.npmrc
+include webui/tsconfig*.json
 recursive-include webui/src *.ts *.tsx *.css
 recursive-include webui/tests *.mjs
 recursive-include tests *.py
 include examples/external_module/pyproject.toml
 recursive-include examples/external_module/src *.py *.js *.md
 recursive-include examples/external_module/src/workbench_notes/sample *.txt
+include examples/independent_consumer/pyproject.toml
+recursive-include examples/independent_consumer/src *.py *.md *.txt
+include examples/typescript_module/package.json examples/typescript_module/tsconfig.json
+recursive-include examples/typescript_module/src *.ts
 recursive-include modules */ui/*.ts */ui/*.tsx */ui/*.css */ui/*.json
 
 recursive-include modules/residue_data/components *.tsx *.json

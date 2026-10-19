@@ -42,7 +42,7 @@ providers = [
 ]
 
 [tool.setuptools.packages.find]
-exclude = ["examples.external_module*"]
+exclude = ["examples.external_module*", "examples.independent_consumer*", "examples.typescript_module*"]
 include = [
     "core*",
     "datatypes*",
@@ -59,5 +59,8 @@ examples = [
     "v2/structures/*.pdb",
 ]
 modules = ["**/*.yaml", "**/ui/build/*.js", "**/ui/build/*.css"]
-protein_workbench_public = ["react-api.ts"]
+protein_workbench_public = ["module_ui/package.json", "module_ui/index.d.ts"]
+
+[tool.setuptools.exclude-package-data]
+examples = ["external_module/*", "independent_consumer/*", "typescript_module/*"]
 

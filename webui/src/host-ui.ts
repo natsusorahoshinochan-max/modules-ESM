@@ -1,5 +1,5 @@
 import * as React from 'react'
-import type { Extensions, ModuleEntry } from '../../protein_workbench_public/react-api'
+import type { Extensions, ModuleEntry } from '@protein-workbench/module-ui'
 import type { ModuleRecord } from './host-client'
 
 export async function loadExtensions(modules: ModuleRecord[]): Promise<Extensions> {

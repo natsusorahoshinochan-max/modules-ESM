@@ -1,4 +1,4 @@
-import type { Edge, FlowNode, PackageInfo } from '../../protein_workbench_public/react-api'
+import type { Edge, FlowNode, PackageInfo } from '@protein-workbench/module-ui'
 export interface Project { id: string; name: string; flow: { nodes: FlowNode[]; edges: Edge[] }; layout: Record<string, { x: number; y: number }>; missing_modules?: string[] }
 export interface NodeDeclaration { id: string; module_id: string; name: string; inputs: Record<string, { accepts: string[]; cardinality: string; required: boolean }>; outputs: Record<string, { format: string; cardinality: string }>; parameters: Record<string, unknown> }
 export interface ModuleRecord { id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }

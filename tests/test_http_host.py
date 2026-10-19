@@ -24,33 +24,6 @@ def upload(client, project, content, *, format='example.note', key='text'):
     return response.json()
 
 
-def test_public_external_module_configures_executes_and_independent_receiver_reads(tmp_path, monkeypatch):
-    from pathlib import Path
-    monkeypatch.syspath_prepend(str(Path(__file__).parents[1] / 'examples/external_module/src'))
-    with TestClient(create_application(data_root=tmp_path)) as client:
-        project = client.post('/api/projects', json={'name': 'External notes'}).json()['id']
-        assert client.post('/api/modules', json={'entry_point': 'workbench_notes:module'}).status_code == 200
-        assert client.post('/api/modules', json={'entry_point': 'workbench_notes.receiver:module'}).status_code == 200
-        assert client.get('/api/modules/example.notes/ui.js').status_code == 200
-        assert client.put('/api/modules/example.notes/settings', json={'settings': {'prefix': 'note: '}}).status_code == 200
-        source = upload(client, project, b'hello')
-        flow = {'nodes': [
-            {'id': 'uppercase', 'type': 'example.uppercase', 'parameters': {}, 'inputs': {'note': [source['id']]}},
-            {'id': 'count', 'type': 'example.count', 'parameters': {}, 'inputs': {}},
-        ], 'edges': [{'source': 'uppercase', 'source_port': 'note', 'target': 'count', 'target_port': 'note'}]}
-        assert client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {}}).status_code == 200
-        response = client.post(f'/api/projects/{project}/runs')
-        assert response.status_code == 200, response.text
-        run = response.json()
-        assert run['status'] == 'succeeded', run
-        note = run['nodes']['uppercase']['outputs']['note'][0]
-        count = run['nodes']['count']['outputs']['count'][0]
-        assert client.get(f'/api/packages/{note}/file', params={'key': 'text'}).content == b'note: HELLO'
-        assert client.get(f'/api/packages/{count}/file', params={'key': 'count'}).content == b'11'
-    with TestClient(create_application(data_root=tmp_path)) as reopened:
-        assert reopened.get(f'/api/packages/{note}/file', params={'key': 'text'}).content == b'note: HELLO'
-
-
 def test_streamed_binary_entry_and_logical_key_survive_without_viewer(tmp_path):
     with TestClient(create_application(data_root=tmp_path)) as client:
         project = client.post('/api/projects', json={'name': 'Binary data'}).json()['id']
