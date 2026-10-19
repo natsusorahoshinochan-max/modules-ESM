@@ -58,7 +58,7 @@ export function register({ React }) {
       return [low, high];
     });
     const center = limits.map(([low, high]) => (low + high) / 2);
-    const span = Math.max(1, ...limits.map(([low, high]) => high - low));
+    const span = Math.max(1, Math.hypot(...limits.map(([low, high]) => high - low)));
     const angle = yaw * Math.PI / 180, tilt = pitch * Math.PI / 180;
     const project = atom => {
       const [x, y, z] = atom.position.map((value, axis) => value - center[axis]);
@@ -75,7 +75,7 @@ export function register({ React }) {
       h('dl', null,
         h('dt', null, `TM-score / subject length: ${manifest.metrics.tm_subject.normalization_length}`), h('dd', null, manifest.metrics.tm_subject.value.toFixed(6)),
         h('dt', null, `TM-score / reference length: ${manifest.metrics.tm_reference.normalization_length}`), h('dd', null, manifest.metrics.tm_reference.value.toFixed(6)),
-        h('dt', null, 'Aligned Cα RMSD (Å)'), h('dd', null, manifest.metrics.rmsd.value.toFixed(6))),
+        h('dt', null, `Aligned Cα RMSD (Å; ${manifest.metrics.rmsd.aligned_pair_count} paired residues)`), h('dd', null, manifest.metrics.rmsd.value.toFixed(6))),
       h('p', null, `${manifest.method.name} (${manifest.method.algorithm}), tmtools ${manifest.method.tmtools}. Both original files and all atom coordinates are included.`),
       ...['subject', 'reference'].map(side => h('label', { key: side },
         h('input', { type: 'checkbox', 'aria-label': `Show ${side}`, checked: visible[side], onChange: event => setVisible({ ...visible, [side]: event.target.checked }) }),

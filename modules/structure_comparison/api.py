@@ -94,8 +94,9 @@ def _parse(source):
             info = gemmi.find_tabulated_residue(residue.name)
             if info.kind in (gemmi.ResidueKind.RNA, gemmi.ResidueKind.DNA):
                 raise ValueError('TM-align comparison does not support nucleic acid components')
-            protein = residue.name in _AMINO
-            if not protein and (residue.het_flag == 'A' or info.kind in (gemmi.ResidueKind.AA, gemmi.ResidueKind.AAD, gemmi.ResidueKind.PAA, gemmi.ResidueKind.MAA)):
+            polymer = residue.entity_type == gemmi.EntityType.Polymer
+            protein = polymer and residue.name in _AMINO
+            if polymer and not protein:
                 raise ValueError(f'Unsupported protein residue {residue.name} at {identity}')
             for atom in residue:
                 coordinate = [atom.pos.x, atom.pos.y, atom.pos.z]
@@ -158,6 +159,7 @@ normalizations, preserved inputs, alignment positions and transform convention.
     if runtime.cancelled:
         return Outcome(status='cancelled')
     rotation, translation = np.asarray(result.u), np.asarray(result.t)
+    aligned_pair_count = sum(a != '-' and b != '-' for a, b in zip(result.seqxA, result.seqyA, strict=True))
     for atom in ax:
         atom['position'] = (np.asarray(atom['position']) @ rotation.T + translation).tolist()
     folder = runtime.workdir / uuid4().hex
@@ -188,7 +190,7 @@ normalizations, preserved inputs, alignment positions and transform convention.
         'metrics': {
             'tm_subject': {'value': float(result.tm_norm_chain1), 'normalization': 'subject protein residue count', 'normalization_length': len(x), 'unit': 'dimensionless'},
             'tm_reference': {'value': float(result.tm_norm_chain2), 'normalization': 'reference protein residue count', 'normalization_length': len(y), 'unit': 'dimensionless'},
-            'rmsd': {'value': float(result.rmsd), 'unit': 'angstrom', 'scope': 'TM-align aligned C-alpha pairs'},
+            'rmsd': {'value': float(result.rmsd), 'unit': 'angstrom', 'scope': 'TM-align aligned C-alpha pairs', 'aligned_pair_count': aligned_pair_count},
         },
         'alignment': {'subject_sequence': result.seqxA, 'reference_sequence': result.seqyA, 'markers': result.seqM,
                       'subject_positions': _aligned_positions(result.seqxA, sx, px),

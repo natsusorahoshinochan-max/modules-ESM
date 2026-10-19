@@ -81,3 +81,27 @@ test('comparison viewer reopens a real saved overlay and exposes all components 
     assert.equal(container.querySelectorAll('svg circle').length, 6)
   } finally { await React.act(async () => root.unmount()); container.remove() }
 })
+
+
+test('rotation keeps every atom inside the selectable overlay viewport', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const manifest = await readFile(new URL('../../modules/structure_comparison/sample/manifest.json', import.meta.url))
+  const atoms = [{ position: [0.5, 0.5, -0.5], component: 'other', residue_name: 'ZN' }, { position: [-0.5, -0.5, 0.5], component: 'other', residue_name: 'HOH' }]
+  const host = { readFile: async (_id, key) => new Blob([key === 'manifest.json' ? manifest : JSON.stringify({ subject: atoms, reference: atoms })]) }
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.viewers[0].component, { package: { id: 'diagonal-overlay', entry: 'manifest.json' }, host })))
+    for (const label of ['Rotate around vertical axis', 'Tilt around horizontal axis']) {
+      const input = container.querySelector(`[aria-label="${label}"]`)
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '45')
+        input.dispatchEvent(new window.Event('input', { bubbles: true }))
+      })
+    }
+    assert.equal(container.querySelectorAll('circle').length, 4)
+    for (const atom of container.querySelectorAll('circle')) {
+      assert.ok(Number(atom.getAttribute('cy')) >= 5 && Number(atom.getAttribute('cy')) <= 435)
+      assert.ok(Number(atom.getAttribute('cx')) >= 5 && Number(atom.getAttribute('cx')) <= 595)
+    }
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})

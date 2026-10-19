@@ -73,6 +73,7 @@ def test_independent_comparison_persists_complete_reopenable_overlay(tmp_path):
         assert manifest['metrics']['tm_subject']['value'] == pytest.approx(1)
         assert manifest['metrics']['tm_reference']['value'] == pytest.approx(1)
         assert manifest['metrics']['rmsd']['value'] == pytest.approx(0, abs=1e-5)
+        assert manifest['metrics']['rmsd']['aligned_pair_count'] == 5
         assert manifest['metrics']['tm_subject']['normalization_length'] == 5
         assert manifest['alignment']['subject_positions'][1] == {'chain': 'X', 'author_number': 12, 'insertion_code': 'A'}
         transform = manifest['transform']
@@ -139,3 +140,36 @@ def test_consumer_runs_when_importing_producer_and_legacy_scientific_packages_is
         subject, reference, _ = inputs(client, project)
         result = run(client, project, subject, reference)
         assert result['status'] == 'succeeded', result
+
+
+@pytest.mark.parametrize('chain', ['X', 'L'])
+def test_nonpolymer_amino_acid_ligands_are_preserved_without_entering_protein_alignment(tmp_path, chain):
+    content = pdb().replace(b'HOH W', f'GLY {chain}'.encode())
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Free amino acid ligand'}).json()['id']
+        subject, reference, _ = inputs(client, project, content)
+        result = run(client, project, subject, reference)
+        assert result['status'] == 'succeeded', result
+        identifier = result['nodes']['compare']['outputs']['comparison'][0]
+        overlay = client.get(f'/api/packages/{identifier}/file', params={'key': 'overlay.json'}).json()
+        assert overlay['subject'][-1]['residue_name'] == 'GLY'
+        assert overlay['subject'][-1]['component'] == 'other'
+        manifest = client.get(f'/api/packages/{identifier}/file', params={'key': 'manifest.json'}).json()
+        assert manifest['metrics']['tm_subject']['normalization_length'] == 5
+        assert manifest['metrics']['tm_subject']['value'] == pytest.approx(1)
+
+
+def test_unknown_residue_in_declared_mmcif_protein_polymer_stops_comparison(tmp_path):
+    structure = gemmi.read_pdb_string(pdb())
+    structure.setup_entities()
+    structure[0][0][2].name = 'XYZ'
+    structure[0][0][2].het_flag = 'H'
+    content = structure.make_mmcif_document().as_string().encode()
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Unknown polymer residue'}).json()['id']
+        subject, _, _ = inputs(client, project)
+        reference = upload(client, project, 'workbench.reference', {'objects': [{'id': 'modified-reference', 'structure': {'file': 'reference.cif', 'format': 'mmcif'}}]}, content, 'reference.cif')
+        result = run(client, project, subject, reference)
+        assert result['status'] == 'failed', result
+        assert 'Unsupported protein residue XYZ' in ' '.join(result['nodes']['compare']['diagnostics'])
+        assert not result['nodes']['compare']['outputs']
