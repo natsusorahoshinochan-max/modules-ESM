@@ -192,3 +192,94 @@ def test_workdir_allocation_failure_only_stops_the_node_and_its_dependents(tmp_p
         output = run['nodes']['isolated']['outputs']['result'][0]
         assert client.get(f'/api/packages/{output}/file', params={'key': 'data'}).content == b'complete result'
         assert not client.get(f"/api/projects/{project['id']}").json()['running']
+
+
+def test_first_running_commit_already_has_its_execution_lease(tmp_path, monkeypatch):
+    import json
+    import sqlite3
+    app = Workbench(tmp_path)
+    project = app.create_project('Lease before record')
+    other = Workbench(tmp_path)
+    connect = sqlite3.connect
+    observed = []
+    class ObserveCommit(sqlite3.Connection):
+        def commit(self):
+            run = self.execute("SELECT data FROM records WHERE kind='run'").fetchone() if self.in_transaction and not observed else None
+            super().commit()
+            if run:
+                observed.append('checking')
+                observed[0] = other.get_run(json.loads(run[0])['id'])['status']
+    monkeypatch.setattr(sqlite3, 'connect', lambda *args, **kwargs: connect(*args, **kwargs, factory=ObserveCommit))
+    run = wait_run(app, app.start(project['id']))
+    assert observed == ['running']
+    assert run['status'] == 'succeeded'
+
+
+def test_thread_dispatch_failure_reports_terminal_state_and_releases_both_leases(tmp_path, monkeypatch):
+    from threading import Thread
+    app = Workbench(tmp_path)
+    app.install('tests.fixtures.host_module:branch_module')
+    project = app.create_project('Dispatch')
+    app.save_project(project['id'], {'nodes': [{'id': 'one', 'type': 'branch.node'}]}, {})
+    def refuse(_thread):
+        raise RuntimeError('thread dispatch refused')
+    with monkeypatch.context() as fault:
+        fault.setattr(Thread, 'start', refuse)
+        with pytest.raises(RuntimeError, match='dispatch refused'):
+            app.start(project['id'])
+    failed = app.list_runs(project['id'])[0]
+    assert failed['status'] == 'failed'
+    assert failed['nodes']['one']['status'] == 'blocked'
+    assert 'dispatch refused' in str(failed['diagnostics'])
+    app.save_project(project['id'], {'nodes': [], 'edges': []}, {})
+    assert wait_run(app, app.start(project['id']))['status'] == 'succeeded'
+
+
+def test_workdir_cleanup_failure_keeps_received_output_and_continues_independent_group(tmp_path, monkeypatch):
+    import shutil
+    app = Workbench(tmp_path)
+    app.install('tests.fixtures.host_module:branch_module')
+    project = app.create_project('Cleanup')
+    app.save_project(project['id'], {'nodes': [{'id': name, 'type': 'branch.node'} for name in ('one', 'other')]}, {})
+    remove = shutil.rmtree
+    failed = False
+    def once(path, *args, **kwargs):
+        nonlocal failed
+        if path.parent == tmp_path / 'work' and path.name.startswith('execution-') and not failed:
+            failed = True
+            raise OSError('directory cleanup refused')
+        return remove(path, *args, **kwargs)
+    monkeypatch.setattr(shutil, 'rmtree', once)
+    run = wait_run(app, app.start(project['id']))
+    assert run['status'] == 'failed'
+    assert run['nodes']['one']['status'] == 'failed'
+    assert 'cleanup refused' in str(run['nodes']['one']['diagnostics'])
+    assert run['nodes']['other']['status'] == 'succeeded'
+    with app.package(run['nodes']['one']['outputs']['result'][0]).open('data') as stream:
+        assert stream.read() == b'complete result'
+
+
+def test_fatal_commit_failure_keeps_received_results_and_labels_unstarted_independent_nodes(tmp_path, monkeypatch):
+    import sqlite3
+    app = Workbench(tmp_path)
+    app.install('tests.fixtures.host_module:branch_module')
+    project = app.create_project('Fatal commit')
+    app.save_project(project['id'], {'nodes': [{'id': name, 'type': 'branch.node'} for name in ('one', 'dependent', 'isolated')], 'edges': [{'source': 'one', 'source_port': 'result', 'target': 'dependent', 'target_port': 'source'}]}, {})
+    connect = sqlite3.connect
+    refused = False
+    class FailAfterFirst(sqlite3.Connection):
+        def commit(self):
+            nonlocal refused
+            if self.in_transaction and (refused or self.execute("SELECT COUNT(*) FROM records WHERE kind='package'").fetchone()[0] > 1):
+                refused = True
+                raise sqlite3.OperationalError('second result commit refused')
+            return super().commit()
+    monkeypatch.setattr(sqlite3, 'connect', lambda *args, **kwargs: connect(*args, **kwargs, factory=FailAfterFirst))
+    run = wait_run(app, app.start(project['id']))
+    assert run['status'] == 'failed'
+    assert {name: node['status'] for name, node in run['nodes'].items()} == {'one': 'succeeded', 'dependent': 'failed', 'isolated': 'blocked'}
+    assert 'before this node started' in run['nodes']['isolated']['diagnostics'][0]
+    assert 'upstream' not in str(run['nodes']['isolated']['diagnostics']).lower()
+    assert len(app.list_packages(project['id'])) == 1
+    with app.package(run['nodes']['one']['outputs']['result'][0]).open('data') as stream:
+        assert stream.read() == b'complete result'

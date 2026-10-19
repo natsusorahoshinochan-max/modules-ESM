@@ -800,3 +800,99 @@ test('application startup opens the editable teaching example by default', async
   assert.equal(title(), 'Teaching example · unsaved')
   assert.equal(records.length, 2)
 })
+
+test('a poll begun before start cannot unlock the accepted running project', async () => {
+  const previousFetch = globalThis.fetch
+  const stalePoll = deferred()
+  let pollingStarted = false, backendRunning = false
+  const runRecord = { id: 'new-run', status: 'running', nodes: {}, diagnostics: [] }
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/a/runs') {
+      if (options.method === 'POST') { backendRunning = true; return Response.json(runRecord) }
+      const snapshot = backendRunning ? [runRecord] : []
+      pollingStarted = true
+      await stalePoll.promise
+      return Response.json(snapshot)
+    }
+    return previousFetch(url, options)
+  }
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  assert.equal(pollingStarted, true)
+  await click('Run')
+  assert.equal(button('Save project').disabled, true)
+  assert.equal(backendRunning, true)
+  await act(async () => stalePoll.resolve())
+  assert.equal(button('Save project').disabled, true, 'old empty history must not unlock a project whose start was accepted')
+})
+
+test('a poll package response begun before cancel cannot overwrite the cancellation view', async () => {
+  const previousFetch = globalThis.fetch
+  const oldPackages = deferred()
+  let packageRequested = false
+  let status = 'running'
+  const history = () => [{ id: 'background', status, nodes: {}, diagnostics: [] }]
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/a/runs') return Response.json(options.method === 'POST' ? history()[0] : history())
+    if (String(url) === '/api/projects/a/packages' && !packageRequested) {
+      packageRequested = true
+      await oldPackages.promise
+      return Response.json([{ id: 'stale-package', format: 'other', entry: 'data', files: ['data'] }])
+    }
+    if (String(url) === '/api/runs/background/cancel') return Response.json(history()[0])
+    return previousFetch(url, options)
+  }
+  await click('Run')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  assert.equal(packageRequested, true)
+  await click('Cancel run')
+  await act(async () => oldPackages.resolve())
+  assert.match(container.querySelector('[role=status]').textContent, /Cancellation requested/)
+  assert.equal(button('Save project').disabled, true)
+  assert.equal([...container.querySelector('[aria-label="Data package"]').options].some(option => option.value === 'stale-package'), false)
+  status = 'cancelled'
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  assert.equal(button('Save project').disabled, false)
+})
+
+test('lost start response keeps the project locked until a current poll observes the backend', async () => {
+  const previousFetch = globalThis.fetch
+  const stalePoll = deferred()
+  let backendRunning = false
+  const runRecord = { id: 'accepted-with-lost-response', status: 'running', nodes: {}, diagnostics: [] }
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/a/runs') {
+      if (options.method === 'POST') { backendRunning = true; throw new Error('start response lost') }
+      const snapshot = backendRunning ? [runRecord] : []
+      if (!backendRunning) await stalePoll.promise
+      return Response.json(snapshot)
+    }
+    return previousFetch(url, options)
+  }
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  await click('Run')
+  assert.match(container.querySelector('[role=alert]').textContent, /response lost/)
+  assert.equal(button('Save project').disabled, true)
+  await act(async () => stalePoll.resolve())
+  assert.equal(button('Save project').disabled, true)
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  assert.equal(button('Save project').disabled, true)
+  assert.match(container.textContent, /accepted-with-lost-response/)
+})
+
+test('a rejected poll from before start cannot replace the current run with an error', async () => {
+  const previousFetch = globalThis.fetch
+  const oldPoll = deferred()
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/a/runs') {
+      if (options.method === 'POST') return Response.json({ id: 'accepted', status: 'running', nodes: {}, diagnostics: [] })
+      await oldPoll.promise
+      throw new Error('obsolete poll failed')
+    }
+    return previousFetch(url, options)
+  }
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  await click('Run')
+  await act(async () => oldPoll.resolve())
+  assert.equal(container.querySelector('[role=alert]'), null)
+  assert.equal(button('Save project').disabled, true)
+})

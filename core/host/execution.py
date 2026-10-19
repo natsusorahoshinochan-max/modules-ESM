@@ -206,8 +206,8 @@ def create_run(app, project_id, run_id):
             for identifier in group["nodes"]:
                 states[identifier].update(status="configuration_blocked", diagnostics=group["diagnostics"])
     run = {"id": run_id, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"]}
-    app._put("run", run)
     tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
+    app._put("run", run)
     return run, (by_id, selected, edges, ordered, tools)
 
 
