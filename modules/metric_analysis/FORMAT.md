@@ -14,6 +14,9 @@ installing or calling their producers:
 
 | Input | Existing values used |
 | --- | --- |
+| `workbench.metric_analysis` | Explicit saved `mean`, `minimum`, `maximum`, `count` statistics; analysis method and region remain separate from the original source method and region |
+| [`workbench.proteinmpnn_design`](../proteinmpnn/FORMAT.md) | Natural whole-design `score`, `global_score` and optional `recovery`, retaining every chain, original backbone and native masks |
+| [`workbench.esm3_generation`](../esm3/FORMAT.md) | Native whole-generation pTM scalar; local single-invocation pTM with its declared size-1 batch axis |
 | [`workbench.structure_confidence`](../structure_confidence/FORMAT.md) | Explicit evaluation `values` scalars; `per_position` JSON `positions` / `plddt` |
 | [`workbench.prediction`](../folding/FORMAT.md#workbenchprediction) | Source-generation pLDDT fractions and whole-prediction pTM |
 | [`workbench.comparison`](../structure_comparison/FORMAT.md) | Saved native TM-scores and aligned-pair RMSD, with their original normalization/scope |
@@ -102,3 +105,43 @@ evaluation, generation record and research file. They remain independently
 readable after the source project and producer modules are removed. The module
 viewer shows actual methods, reference, scope, statistics and input values;
 ordinary host save, ZIP export and adoption operations handle all files.
+
+## Public existing-metric reader
+
+`modules.metric_analysis.read_metric_choices(package, selected=None)` is the
+public reader shared with filtering. Reuse requires the `protein-workbench`
+distribution and its declared structure-processing dependency; no producer
+registration is required. `FORMATS` lists the concrete accepted formats. The
+reader returns choices with complete `selector`, original `object`, `reference`,
+`source_region`, `source_method`, `metric`, `unit`, `meaning`, `positions`,
+`input_values`, and optional `unavailable`. Joint backbone choices retain their
+complete `members` and masks. `selected` restricts resolution to an exact original
+selector; callers must still require one matching usable choice. Inspection keeps
+unavailable choices with their concrete reason.
+
+For ESM3 native generation, selector origin is `native_generation`. The original
+manifest object and native file retain all chains and native axes. Source method
+records the actual implementation and object controls/seed. pTM reads the original
+finite scalar. `workbench.esm3.local` can also return exactly `[value]`: the pinned
+SDK `decode_structure` only decodes one structure and `compute_tm` preserves that
+single batch axis. This declared axis is decoded after exact shape validation.
+Other non-scalar pTM shapes stop. Other native metrics are listed as unavailable
+for scalar analysis with an explicit axis-aware-analysis reason; no native array
+is implicitly averaged or assigned to a member chain. Source native files remain
+unchanged and copied into saved analysis results.
+
+For native ProteinMPNN designs, selector origin is `native_design`. Each scalar
+belongs to the whole generated sample with all original chains, explicit backbone
+and complete native scoring masks. `score` and `global_score` retain NLL in natural
+logarithm units; `recovery` retains the native design-mask fraction. The reader
+checks the selected scalar's required original sample and mask correspondence and
+never attributes the design score to a chain extracted from that sample.
+
+Saved analysis statistics use selector origin `analysis`, the exact `analysis`
+array index, and metric `<original metric>.<statistic>`. Each choice retains the
+original object/context and reference. Its region is the explicitly analyzed
+region; `source_method` records the actual analysis method/statistic and separately
+preserves the original method, source region and selection. Count uses count units;
+mean/minimum/maximum retain original units. Multiple analyses of an object remain
+separate choices. To filter them, bind the original candidate package to
+`candidates` and this saved analysis package to `evaluations`.

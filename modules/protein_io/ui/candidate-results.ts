@@ -120,27 +120,6 @@ export class CandidateResults {
     }
   }
 
-  /** Apply Selection's read-only view to a complete, immutable collection. */
-  async temporaryView(source: ResultLocation, parameters: JsonObject): Promise<number[] | undefined> {
-    const session = this.session
-    if (!session) return undefined
-    // This explicit operation also retries a previously failed initial read.
-    await this.refresh()
-    if (this.session !== session) return undefined
-    const snapshot = await this.ensureCandidates({ source, count: 'all' })
-    if (!snapshot?.run || this.session !== session) return undefined
-    const scores = snapshot.run.outputs.filter(output => output.port_type.contract_id === 'score.collection').flatMap(output =>
-      Array.from({ length: output.value_count }, (_, value_index) => {
-        const location = { node_id: output.node_id, output_port: output.output_port, value_index }
-        return { ...location, slot: locationKey(location) }
-      }))
-    try {
-      const value = await this.client.resultAction<{ candidate_indices: number[] }>(session.reference.project_id, session.reference.run_id,
-        { candidates: [{ ...source, slot: 'collection' }], scores }, 'selection.view', parameters)
-      return this.session === session ? value.candidate_indices : undefined
-    } catch (error) { if (this.session === session) throw error }
-  }
-
   async structure(key: string, exportFormat?: PublishedStructure['format']): Promise<PublishedStructure | null | undefined> {
     const session = this.session
     if (!session) return undefined

@@ -7,7 +7,7 @@ from pathlib import Path
 from protein_workbench_public.module_api import Delivery, InputPort, Interaction, InteractionResult, Module, Node, Outcome, OutputPort
 from .formats import finite, positions
 
-FORMATS = ('workbench.structure_confidence', 'workbench.comparison', 'workbench.solubility', 'workbench.prediction', 'workbench.sequence_backbone_evaluation')
+FORMATS = ('workbench.metric_analysis', 'workbench.proteinmpnn_design', 'workbench.esm3_generation', 'workbench.structure_confidence', 'workbench.comparison', 'workbench.solubility', 'workbench.prediction', 'workbench.sequence_backbone_evaluation')
 
 
 def read_json(package, key):
@@ -64,10 +64,32 @@ def _add_choice(result, common, selector, selected, resolve):
     result.append(choice)
 
 
-def choices(package, selected=None):
+def read_metric_choices(package, selected=None):
     document = read_json(package, package.entry)
     if not isinstance(document, dict):
         raise ValueError('Metric input requires an object entry')
+    if package.format == 'workbench.metric_analysis':
+        from .formats import read_analysis
+        saved = read_analysis(package)
+        result = []
+        for index, analysis in enumerate(saved['analyses']):
+            obj = analysis['object']
+            identity = {'objects':[member['id'] for member in obj['members']]} if 'members' in obj else {'object':obj['id']}
+            for statistic in ('mean','minimum','maximum','count'):
+                common = {'object':obj,'reference':analysis['reference'],'source_region':analysis['region'],
+                    'source_method':{'method':analysis['method'],'statistic':statistic,
+                        'source_method':analysis['source_method'],'source_region':analysis['source_region'],'source_selection':analysis['selection']},
+                    'unit':'count' if statistic=='count' else analysis['unit'],
+                    'meaning':f"Existing analysis {statistic}: {analysis['meaning']}"}
+                _add_choice(result, common, {**identity,'origin':'analysis','analysis':index,'metric':analysis['metric']+'.'+statistic},selected,
+                    lambda analysis=analysis,statistic=statistic:{'input_values':[analysis['statistics'][statistic]]})
+        return result
+    if package.format == 'workbench.proteinmpnn_design':
+        from .design import design_choices
+        return design_choices(document, package, selected)
+    if package.format == 'workbench.esm3_generation':
+        from .esm3 import native_choices
+        return native_choices(document, package, selected)
     if package.format == 'workbench.sequence_backbone_evaluation':
         from .backbone import backbone_choices
         return backbone_choices(document, package, selected)
@@ -189,7 +211,7 @@ def analyze(call, runtime):
         selector = {k: v for k, v in selection.items() if k not in ('input', 'region')}
         if not isinstance(selector.get('metric'), str) or not isinstance(selector.get('origin'), str) or not ({'object', 'objects'} & selector.keys()):
             raise ValueError('Existing metric selection is missing or ambiguous; choose object, reference, method and metric')
-        available = choices(packages[selection['input']], selector)
+        available = read_metric_choices(packages[selection['input']], selector)
         found = [choice for choice in available if set(choice['selector']) == set(selector) and all(type(choice['selector'][k]) is type(v) and choice['selector'][k] == v for k, v in selector.items())]
         if len(found) != 1:
             raise ValueError('Existing metric selection is missing or ambiguous; choose object, reference, method and metric')
@@ -245,7 +267,7 @@ def inspect_metrics(call, runtime):
         if runtime.cancelled:
             raise ValueError('Metric inspection cancelled')
         object_labels = {}
-        for choice in choices(package):
+        for choice in read_metric_choices(package):
             identity = json.dumps(choice['selector'].get('object', choice['selector'].get('objects')))
             if identity not in object_labels:
                 object_labels[identity] = f'Object {len(object_labels) + 1}'

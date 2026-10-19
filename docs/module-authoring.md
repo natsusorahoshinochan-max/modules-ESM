@@ -164,3 +164,18 @@ workbench_note_consumer:module
 需要机器资源互斥的本地 Adapter 可调用仅依赖标准库的公共入口 `protein_workbench_public.worker_process.run_worker(command, *, cwd, log_path, cancelled, label)`。`command` 为可执行文件及参数列表，`cancelled` 为读取取消状态的无参数函数，`label` 用于错误显示。正常退出后返回；非零退出时报告退出码及日志末尾的具体原因，取消时等待进程清理后报告错误。模块自行准备配置文件并读取结果文件；资源与进程约束见 [本地模型](local-models.md)。
 
 结构读取、真实位置选择、提取、坐标变换与格式导出入口为 `modules.structure_io:module`，公开 Python 能力、安装依赖和独立格式见 [完整结构格式](../modules/structure_io/FORMAT.md)。模块直接读取包内坐标文件，通用载体只负责交付、持久化及 ZIP。
+
+### Result-page module actions
+
+`Extensions.resultActions` declares `{id, name, component}` entries using public
+`ResultActionProps {host, packages}`. The host renders them beside current-project
+data packages and supplies the available package list. Modules own explicit input
+selection, their formats, parameters and result display; `host.preview` calls a
+named temporary interaction. Result actions are published with their module
+catalog/extensions snapshot. They remain available during a run for read-only
+viewing; mutation methods enforce the ordinary project lock. Project changes
+unmount the action and end its temporary interactions. Modules cancel pending
+requests and release returned preview handles after reading display data.
+
+The installed [filtering module](../modules/filtering/FORMAT.md) uses this entry
+for temporary multi-package filtering; its canvas node uses the same module core.

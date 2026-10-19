@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, beforeEach, test } from 'node:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -19,6 +19,7 @@ await build({ entryPoints: ['src/App.tsx'], bundle: true, packages: 'external', 
 const { default: App } = await import(pathToFileURL(output).href)
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === '/api/modules/test.filtering/ui.js') return { url: pathToFileURL(join(directory, 'filtering-ui.mjs')).href, shortCircuit: true }
     if (specifier.startsWith('/api/modules/test.delayed/ui.js')) return { url: pathToFileURL(join(directory, 'delayed-ui.mjs')).href + new URL(specifier, 'http://localhost').search, shortCircuit: true }
     if (specifier.startsWith('/api/modules/test.reinstall/ui.js')) return { url: pathToFileURL(join(directory, 'reinstall-ui.mjs')).href + new URL(specifier, 'http://localhost').search, shortCircuit: true }
     if (specifier === '/api/modules/test.broken/ui.js') return { url: new URL('./module-broken-viewer.mjs', import.meta.url).href, shortCircuit: true }
@@ -1691,4 +1692,57 @@ test('a received editor file cannot write into a project opened while it was pen
  assert.doesNotMatch(container.querySelector('.toolbar').textContent,/unsaved/)
  await click('Save project')
  assert.deepEqual(savedFlows[0].flow,{nodes:[],edges:[]})
+})
+
+test('copying a node retains independent complete parameters and direct package bindings', async () => {
+  records[0].flow.nodes=[{id:'original-filter',type:'test.one',parameters:{conditions:[{value:.4}],sort:{direction:'descending'},limit:2},inputs:{input:['first','second']},tools:{task:'chosen'},tool_parameters:{task:{seed:8}}}]
+  packages.a.push(...['first','second'].map(id=>({id,project_id:'a',format:'test.format',entry:'data',files:['data']})))
+  await click('Project A')
+  await click('Copy node')
+  assert.equal(nodeCount(),2)
+  await click('Save project')
+  const [original,copy]=savedFlows.at(-1).flow.nodes
+  assert.notEqual(original.id,copy.id)
+  assert.deepEqual(copy.parameters,original.parameters)
+  assert.deepEqual(copy.inputs,{input:['first','second']})
+  assert.deepEqual(copy.tools,{task:'chosen'})
+  assert.deepEqual(copy.tool_parameters,{task:{seed:8}})
+  const editor=container.querySelector('.canvas textarea')
+  await act(async()=>{editor.value=JSON.stringify({...original.parameters,limit:1});editor.dispatchEvent(new window.FocusEvent('focusout',{bubbles:true}))})
+  await click('Save project')
+  assert.equal(savedFlows.at(-1).flow.nodes[0].parameters.limit,1)
+  assert.equal(savedFlows.at(-1).flow.nodes[1].parameters.limit,2)
+})
+
+test('actual App result action selects multiple current packages and leaves canvas and runs unchanged', async()=>{
+ await writeFile(join(directory,'filtering-ui.mjs'),await readFile(new URL('../../modules/filtering/ui.js',import.meta.url),'utf8'))
+ packages.a.push(...['private-one','private-two'].map(id=>({id,project_id:'a',format:'workbench.structure_confidence',entry:'manifest.json',files:['manifest.json']})))
+ const fetch=globalThis.fetch,requests=[]
+ globalThis.fetch=async(url,options={})=>{
+  if(url==='/api/modules' && options.method==='POST')return Response.json({})
+  if(url==='/api/catalog'){
+   const response=await fetch(url,options),catalog=await response.json()
+   catalog.modules.push({id:'test.filtering',name:'Filter',enabled:true,settings:{},settings_schema:{},entry_point:'modules.filtering:module',installation_id:'filter',ui_url:'/api/modules/test.filtering/ui.js'})
+   return Response.json(catalog)
+  }
+  if(url==='/api/projects/a/interactions')requests.push(JSON.parse(options.body))
+  if(url==='/api/interactions/preview/execute')return Response.json({id:'preview',data:{selected:[{input:1,item:0}]},outputs:[]})
+  return fetch(url,options)
+ }
+ await click('Register module')
+ await click('Project A')
+ const section=container.querySelector('[aria-label="Result filtering"]')
+ assert.ok(section,'result action must be loaded with the module catalog')
+ for(const checkbox of section.querySelectorAll('input[type=checkbox]')){
+  if(checkbox.closest('fieldset')?.querySelector('legend')?.textContent==='Conditions')continue
+  await act(async()=>checkbox.click())
+ }
+ await click('Apply temporary filter')
+ assert.deepEqual(requests,[{interaction:'workbench.filter',inputs:{candidates:['private-one','private-two'],evaluations:['private-one','private-two']},parameters:{}}])
+ assert.match(section.textContent,/Input 2 · Item 1/)
+ assert.equal(title(),'Project A')
+ assert.equal(nodeCount(),0)
+ assert.equal(savedFlows.length,0)
+ assert.equal(runRequests.length,0)
+ assert.equal(interactionCancellations,1)
 })
