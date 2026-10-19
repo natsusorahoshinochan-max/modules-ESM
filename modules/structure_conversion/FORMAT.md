@@ -14,7 +14,7 @@ The converter independently reads the [published prediction format](../folding/F
 
 The C-only consumer reads this structure record independently and constructs `StructureInput`, reads its independent reference with `read_comparison_input`, then calls `compare` from `modules.structure_comparison.api`. It requires the comparison module installed from the `protein-workbench` distribution, which also ships this conversion module in this repository. It imports no prediction producer code. A separately distributed consumer reusing these APIs must declare `protein-workbench` as an installation dependency.
 
-The consumer uses the complete-protein TM-align operation and delivers `workbench.comparison`. Method limits, output files, metric meanings and result viewer are maintained in the [comparison format](../structure_comparison/FORMAT.md).
+The consumer uses the TM-align operation with independently selectable complete, chain or discontinuous residue scopes and delivers `workbench.comparison`. Method limits, output files, metric meanings and result viewer are maintained in the [comparison format](../structure_comparison/FORMAT.md).
 
 ## Application path
 

@@ -106,3 +106,45 @@ test('rotation keeps every atom inside the selectable overlay viewport', async (
     }
   } finally { await React.act(async () => root.unmount()); container.remove() }
 })
+
+
+test('comparison editor selects a chain and discontinuous author positions without JSON or internal IDs', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const changes = []
+  let parameters = {}
+  const Editor = extensions.editors?.find(editor => editor.node === 'workbench.compare')?.component
+  assert.ok(Editor, 'the actual comparison node has its own selection editor')
+  function render() { root.render(React.createElement(Editor, { parameters, readOnly: false, onChange(next) { parameters = next; changes.push(next); render() } })) }
+  async function edit(label, value) {
+    const element = container.querySelector(`[aria-label="${label}"]`)
+    await React.act(async () => {
+      const prototype = element.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype
+      Object.getOwnPropertyDescriptor(prototype, 'value').set.call(element, value)
+      element.dispatchEvent(new window.Event(element.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }))
+    })
+  }
+  try {
+    await React.act(async () => render())
+    await edit('Subject scope', 'positions')
+    await edit('Subject chain', 'X')
+    await edit('Subject residues', '12A, 16, 20')
+    await React.act(async () => container.querySelector('[aria-label="Apply Subject region"]').click())
+    assert.deepEqual(parameters.subject_selection, { positions: [
+      { chain: 'X', author_number: 12, insertion_code: 'A' },
+      { chain: 'X', author_number: 16, insertion_code: '' },
+      { chain: 'X', author_number: 20, insertion_code: '' },
+    ] })
+    await edit('Reference scope', 'chain')
+    await edit('Reference chain', 'R')
+    await React.act(async () => container.querySelector('[aria-label="Apply Reference region"]').click())
+    assert.deepEqual(parameters.reference_selection, { chains: ['R'] })
+    assert.ok(!container.querySelector('textarea'))
+    assert.match(container.textContent, /complete original structures/)
+    await edit('Subject residues', '12A, missing, 20')
+    const count = changes.length
+    await React.act(async () => container.querySelector('[aria-label="Apply Subject region"]').click())
+    assert.equal(changes.length, count)
+    assert.match(container.querySelector('[role=alert]').textContent, /actual residue/)
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})

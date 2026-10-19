@@ -5,7 +5,6 @@ This module never imports the prediction producer or follows a source run.
 """
 from dataclasses import dataclass
 import json
-import math
 from uuid import uuid4
 
 import gemmi
@@ -13,6 +12,8 @@ import numpy as np
 from tmtools import tm_align
 
 from protein_workbench_public.module_api import Delivery, Outcome
+# Voluntary public reuse; installation requires structure_io in protein-workbench.
+from modules.structure_io import parse, resolve_selection
 
 
 @dataclass(frozen=True)
@@ -95,70 +96,90 @@ _AMINO = {'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C', 'GLN': 'Q'
           'PRO': 'P', 'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'}
 
 
-def _parse(source):
+def _parse(source, selection=None):
     if not isinstance(source.object_id, str) or not source.object_id:
         raise ValueError('Structure object id is required')
-    if source.format == 'pdb':
-        structure = gemmi.read_pdb_string(source.content)
-    elif source.format == 'mmcif':
-        document = gemmi.cif.read_string(source.content.decode('utf-8'))
-        if len(document) != 1:
-            raise ValueError('Select a single structure data block before comparison')
-        structure = gemmi.make_structure_from_block(document.sole_block())
-    else:
-        raise ValueError('Comparison supports PDB and mmCIF structures')
+    structure = parse(source.content, source.format)
     if len(structure) != 1:
         raise ValueError('Select one conformation before comparison; multiple or missing models are unsupported')
+    if selection is not None:
+        if not isinstance(selection, dict) or set(selection) not in ({'chains'}, {'positions'}):
+            raise ValueError('Comparison selection requires chains or actual residue positions')
+        if 'chains' in selection and (not isinstance(selection['chains'], list) or len(selection['chains']) != 1):
+            raise ValueError('TM-align comparison requires exactly one selected chain per structure')
+        if 'positions' in selection:
+            if not isinstance(selection['positions'], list):
+                raise ValueError('Comparison positions must be a nonempty list of actual residue positions')
+            if any(not isinstance(p, dict) or set(p) != {'chain', 'author_number', 'insertion_code'} for p in selection['positions']):
+                raise ValueError('Comparison positions require actual chain, author_number and insertion_code')
+            keys = [json.dumps(p, sort_keys=True) for p in selection['positions']]
+            if len(set(keys)) != len(keys):
+                raise ValueError('Comparison residue positions must be unique')
+    chosen_atoms = set(resolve_selection(structure, selection))
     structure.setup_entities()
-    atoms, chains = [], []
+    atoms, residues, all_sequence = [], [], ''
+    selected_components = set()
+    index = 0
     for chain in structure[0]:
-        positions, coords, sequence = [], [], ''
-        seen = set()
+        chain_sequence = ''
         for residue in chain:
             identity = {'chain': chain.name, 'author_number': residue.seqid.num,
                         'insertion_code': residue.seqid.icode.strip()}
-            info = gemmi.find_tabulated_residue(residue.name)
-            if info.kind in (gemmi.ResidueKind.RNA, gemmi.ResidueKind.DNA):
-                raise ValueError('TM-align comparison does not support nucleic acid components')
             polymer = residue.entity_type == gemmi.EntityType.Polymer
             protein = polymer and residue.name in _AMINO
-            if polymer and not protein:
-                raise ValueError(f'Unsupported protein residue {residue.name} at {identity}')
+            selected = any(i in chosen_atoms for i in range(index, index + len(residue)))
+            if protein:
+                all_sequence += _AMINO[residue.name]
+                chain_sequence += _AMINO[residue.name]
             for atom in residue:
-                coordinate = [atom.pos.x, atom.pos.y, atom.pos.z]
-                if not all(math.isfinite(value) for value in coordinate):
-                    raise ValueError(f'Nonfinite atom coordinate at {identity}')
                 atoms.append({**identity, 'residue_name': residue.name, 'atom_name': atom.name,
                               'element': atom.element.name, 'altloc': atom.altloc.strip('\x00 '),
-                              'component': 'protein' if protein else 'other', 'position': coordinate})
+                              'component': 'protein' if protein else 'other',
+                              'position': [atom.pos.x, atom.pos.y, atom.pos.z]})
+                index += 1
+            if not selected:
+                continue
+            info = gemmi.find_tabulated_residue(residue.name)
+            if info.kind in (gemmi.ResidueKind.RNA, gemmi.ResidueKind.DNA):
+                raise ValueError('TM-align comparison does not support nucleic acid components in its selected scope')
+            if polymer and not protein:
+                raise ValueError(f'Unsupported protein residue {residue.name} at {identity}')
             if not protein:
+                if selection is not None and 'positions' in selection:
+                    raise ValueError(f'Comparison position is not a canonical protein residue: {identity}')
                 continue
             key = (chain.name, residue.seqid.num, residue.seqid.icode)
-            if key in seen:
+            if key in selected_components:
                 raise ValueError(f'Ambiguous repeated protein residue position {identity}')
-            seen.add(key)
+            selected_components.add(key)
             ca = [atom for atom in residue if atom.name == 'CA']
             if len(ca) != 1 or ca[0].altloc not in ('\x00', ' '):
-                raise ValueError(f'Every protein residue requires one unambiguous CA atom: {identity}')
-            sequence += _AMINO[residue.name]
-            positions.append(identity)
-            coords.append([ca[0].pos.x, ca[0].pos.y, ca[0].pos.z])
-        if positions:
+                raise ValueError(f'Every selected protein residue requires one unambiguous CA atom: {identity}')
+            residues.append((_AMINO[residue.name], identity, [ca[0].pos.x, ca[0].pos.y, ca[0].pos.z]))
+        if chain_sequence and (selection is None or ('chains' in selection and chain.name in selection['chains'])):
             subchain = chain.get_polymer().subchain_id()
             entity = next((item for item in structure.entities if subchain in item.subchains), None)
             if entity is not None and entity.full_sequence:
                 declared = ''.join(_AMINO.get(name, '?') for name in entity.full_sequence)
-                if declared != sequence:
+                if declared != chain_sequence:
                     raise ValueError('Structure has unresolved polymer residues or incomplete sequence correspondence')
-            chains.append((sequence, positions, coords))
-    if len(chains) != 1:
-        raise ValueError('TM-align comparison requires exactly one protein chain per structure; no automatic chain pairing')
-    sequence, positions, coords = chains[0]
-    if len(coords) < 3:
-        raise ValueError('TM-align requires at least three protein residues per structure')
-    if source.sequence is not None and source.sequence != sequence:
+    if len({p['chain'] for _, p, _ in residues}) != 1:
+        raise ValueError('TM-align comparison requires exactly one protein chain in each selected scope; select a chain explicitly')
+    if len(residues) < 3:
+        raise ValueError('TM-align requires at least three protein residues per selected scope')
+    if source.sequence is not None and source.sequence != all_sequence:
         raise ValueError('Prediction sequence and complete structure residue correspondence disagree')
-    return sequence, positions, np.asarray(coords, dtype=np.float64), atoms
+    sequence = ''.join(letter for letter, _, _ in residues)
+    positions = [p for _, p, _ in residues]
+    coords = np.asarray([c for _, _, c in residues], dtype=np.float64)
+    return sequence, positions, coords, atoms
+
+
+def comparison_parameters(parameters):
+    """Validate the public selection parameters shared by both comparison nodes."""
+    if set(parameters) - {'subject_selection', 'reference_selection'}:
+        raise ValueError('Comparison parameters are subject_selection and reference_selection')
+    return {name: parameters.get(name) for name in ('subject_selection', 'reference_selection')}
 
 
 def _aligned_positions(alignment, sequence, positions):
@@ -171,16 +192,16 @@ def _aligned_positions(alignment, sequence, positions):
     return aligned
 
 
-def compare(subject: StructureInput, reference: StructureInput, runtime):
-    """Align complete supported structures and deliver a self-contained overlay.
+def compare(subject: StructureInput, reference: StructureInput, runtime, *, subject_selection=None, reference_selection=None):
+    """Align selected protein streams and deliver a complete self-contained overlay.
 
 Returns Outcome on output ``comparison``. See FORMAT.md for exact method scope,
 normalizations, preserved inputs, alignment positions and transform convention.
 """
     if runtime.cancelled:
         return Outcome(status='cancelled')
-    sx, px, x, ax = _parse(subject)
-    sy, py, y, ay = _parse(reference)
+    sx, px, x, ax = _parse(subject, subject_selection)
+    sy, py, y, ay = _parse(reference, reference_selection)
     result = tm_align(x, y, sx, sy)
     if runtime.cancelled:
         return Outcome(status='cancelled')
@@ -211,11 +232,12 @@ normalizations, preserved inputs, alignment positions and transform convention.
     manifest = {
         'id': uuid4().hex,
         'subject': describe(subject, 'subject'), 'reference': describe(reference, 'reference'),
+        'region': {'subject': subject_selection, 'reference': reference_selection},
         'method': {'name': 'TM-align', 'tmtools': '0.3.0', 'algorithm': '20210224',
-                   'scope': 'complete single protein chain C-alpha alignment; other retained components excluded from metrics', 'parameters': {}},
+                   'scope': 'selected single protein chain C-alpha alignment; complete original structures retained, other components excluded from metrics', 'parameters': {}},
         'metrics': {
-            'tm_subject': {'value': float(result.tm_norm_chain1), 'normalization': 'subject protein residue count', 'normalization_length': len(x), 'unit': 'dimensionless'},
-            'tm_reference': {'value': float(result.tm_norm_chain2), 'normalization': 'reference protein residue count', 'normalization_length': len(y), 'unit': 'dimensionless'},
+            'tm_subject': {'value': float(result.tm_norm_chain1), 'normalization': 'selected subject protein residue count', 'normalization_length': len(x), 'unit': 'dimensionless'},
+            'tm_reference': {'value': float(result.tm_norm_chain2), 'normalization': 'selected reference protein residue count', 'normalization_length': len(y), 'unit': 'dimensionless'},
             'rmsd': {'value': float(result.rmsd), 'unit': 'angstrom', 'scope': 'TM-align aligned C-alpha pairs', 'aligned_pair_count': aligned_pair_count},
         },
         'alignment': {'subject_sequence': result.seqxA, 'reference_sequence': result.seqyA, 'markers': result.seqM,
