@@ -54,3 +54,63 @@ actual coordinates and selects atoms or complete residues/components. Add an
 export node with the chosen format, run it and download its package ZIP. Existing
 prediction result viewers also provide the format export action. Generic ZIP
 packaging retains the module's declared files and existing parameter records.
+
+## Public structure processing
+
+Install this module with `modules.structure_io:module`; it has no dependency on
+sequence/condition editing. The installable Python code is supplied by the
+`protein-workbench` distribution, with `gemmi==0.7.3`. A consumer voluntarily
+importing these public functions declares `protein-workbench` in its Python
+installation dependencies. A consumer reading this format independently needs
+only its own coordinate reader. Module installation and shared React dependencies
+follow [module authoring](../../docs/module-authoring.md).
+
+The public Python entry `modules.structure_io` exports:
+
+- `parse(bytes, encoding)` and `encode(structure, encoding)` read/write Gemmi
+  structures as PDB or mmCIF with the preservation limits above.
+- `read_structure(package, object_id)` reads exactly one selected object through
+  the public `Package` file interface. It requires the declared coordinate file,
+  a single conformation and an unambiguous object ID.
+- `atoms(structure)` returns the atom mapping described above.
+- `positions(structure)` returns actual component positions, each with `model`,
+  `chain`, `author_number`, `insertion_code`, `residue_name` and `atoms`. Each
+  atom has `index`, `name`, `altloc` and Cartesian `position`.
+- `resolve_selection(structure, selection=None)` returns atom indices in source
+  file order. A selection has exactly one key: `atoms`, `chains`, or `positions`,
+  whose value is a nonempty list. Atom indices and chain names are unique and
+  must exist. Every position specifies `chain`, integer `author_number` and
+  `insertion_code` (including the empty string); optional `model` and
+  `residue_name` disambiguate components. Every requested position must match
+  exactly one actual component. All its atoms and alternate locations are
+  selected. Missing or ambiguous selections fail in full.
+- `extract(structure, selection)` returns a clone containing only selected atoms.
+- `transform(structure, rotation, translation, selection=None)` returns a clone
+  retaining every atom. Selected atoms receive `rotation @ xyz + translation`;
+  all others retain their coordinates. The finite 3×3 matrix is a proper
+  orthonormal rotation (tolerance 1e-6), applied about the coordinate origin;
+  translation is three finite values in Å. Reflections, scale and shear fail.
+  Omitting the selection selects all atoms.
+
+The input to these operations remains unchanged. Selection retains original
+model, author numbering, insertion codes, component names and alternate locations.
+Extraction does not fill missing atoms, complete residues or expand the selection.
+
+`workbench.extract_structure` and `workbench.transform_structure` accept the same
+input/output formats as export. Both take `object`, `format` and `selection` in
+the public form above; extraction requires selection, transformation permits it
+to be omitted and additionally requires `rotation` and `translation`. The output
+object records `operation: {kind, selection}` (plus rotation and translation for
+transformation), and `source_object` contains the previous object description.
+All source package files and existing calculation records are retained. New
+object IDs are independently assigned. Existing calculation parameters continue
+to describe the source calculation. `workbench.export_structure` is the explicit
+format conversion node; it retains its optional atom selection contract above.
+
+In the complete structure viewer, select chains, residues/components or individual
+atoms; the coordinate table shows their actual positions. Add an extraction node,
+choose an export format, or enter a rotation matrix and translation to add a
+coordinate transform node. Run the node on the canvas, open its output package to
+inspect the result and download the ZIP to save its files. Rotation/tilt view
+controls only change the viewing angle. Coordinate transformations execute only
+through the explicit transform node.

@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from core.operation import (
-    OperationResources,
-    OperationCall,
-)
 from datatypes.residue import (
     ModifiedResidueAtomMapping,
     ModifiedResidueNormalization,
@@ -446,20 +442,3 @@ def _normalize_mmcif_csh(
         ProteinStructure(write_mmcif_dictionary(data), "mmcif"),
         ModifiedResidueNormalizationCollection(entries=normalizations),
     )
-
-
-class NormalizeCshParentSpanImplementation:
-    """Normalize admitted CSH structure components and emit typed provenance."""
-
-    def __init__(self, run_resources: OperationResources) -> None:
-        self._run_resources = run_resources
-
-    def execute(self, call: OperationCall) -> dict[str, object]:
-        with self._run_resources.engine_invocation():
-            normalized, normalizations = normalize_csh_parent_span(
-                call.inputs["structure"].value
-            )
-            return {
-                "structure": normalized,
-                "modified_residue_normalizations": normalizations,
-            }

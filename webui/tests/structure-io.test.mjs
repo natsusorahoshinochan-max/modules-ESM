@@ -44,7 +44,7 @@ test('single-file import passes the actual model selection and preserves origina
   } finally { await React.act(async () => root.unmount()); container.remove() }
 })
 
-test('viewer shows every actual atom and exports the selected metal component in chosen format', async () => {
+test('viewer selects actual components and adds export, extraction and coordinate nodes', async () => {
   const container = document.createElement('div'); document.body.append(container)
   const root = createRoot(container), calls = []
   const files = { 'manifest.json': JSON.stringify({objects:[{id:'actual',label:'Original model 9',atoms:'atoms.json'}]}),
@@ -66,5 +66,23 @@ test('viewer shows every actual atom and exports the selected metal component in
     await React.act(async () => [...container.querySelectorAll('button')].find(b => b.textContent.includes('export node')).click())
     assert.deepEqual(calls[0], {type:'workbench.export_structure',inputs:{structures:['saved']},parameters:{object:'actual',format:'mmcif',atoms:[1]}})
     assert.match(metal.getAttribute('aria-label'), /9: M -2 ZN ZN/)
+    const extract = [...container.querySelectorAll('button')].find(b => b.textContent === 'Add extraction node')
+    assert.ok(extract, 'Viewer provides explicit extraction')
+    await React.act(async () => extract.click())
+    assert.deepEqual(calls[1], {type:'workbench.extract_structure',inputs:{structures:['saved']},parameters:{object:'actual',format:'mmcif',selection:{atoms:[1]}}})
+    const transform = [...container.querySelectorAll('button')].find(b => b.textContent === 'Add coordinate transform node')
+    assert.ok(transform, 'Viewer provides coordinate operation')
+    await React.act(async () => {
+      const matrix = container.querySelector('[aria-label="Coordinate rotation matrix"]')
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(matrix, '[[0,-1,0],[1,0,0],[0,0,1]]')
+      matrix.dispatchEvent(new window.Event('input', {bubbles:true}))
+      const translation = container.querySelector('[aria-label="Coordinate translation"]')
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(translation, '[10,20,30]')
+      translation.dispatchEvent(new window.Event('input', {bubbles:true}))
+    })
+    await React.act(async () => transform.click())
+    assert.deepEqual(calls[2], {type:'workbench.transform_structure',inputs:{structures:['saved']},parameters:{object:'actual',format:'mmcif',selection:{atoms:[1]},rotation:[[0,-1,0],[1,0,0],[0,0,1]],translation:[10,20,30]}})
+    assert.match(container.textContent, /7, 8, 9 Å/)
+
   } finally { await React.act(async () => root.unmount()); container.remove() }
 })

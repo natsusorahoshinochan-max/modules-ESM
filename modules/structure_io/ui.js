@@ -32,6 +32,7 @@ export function register({ React }) {
     const [atoms, setAtoms] = React.useState([]), [selected, setSelected] = React.useState([]);
     const [angle, setAngle] = React.useState(0), [tilt, setTilt] = React.useState(0), [format, setFormat] = React.useState('mmcif');
     const [error, setError] = React.useState('');
+    const [rotation, setRotation] = React.useState('[[1,0,0],[0,1,0],[0,0,1]]'), [translation, setTranslation] = React.useState('[0,0,0]');
     React.useEffect(() => {
       let active = true; setData(null); setObject(''); setAtoms([]); setSelected([]); setError('');
       host.readFile(pkg.id, pkg.entry).then(b => b.text()).then(JSON.parse).then(d => { if (active) { setData(d); setObject(d.objects[0].id); } }).catch(e => { if (active) setError(String(e)); });
@@ -45,9 +46,23 @@ export function register({ React }) {
     }, [data, object, pkg.id, host.readFile]);
     function toggle(index) { setSelected(s => s.includes(index) ? s.filter(i => i !== index) : [...s, index]); }
     async function exportSelection() {
+      if (host.readOnly) return;
       try {
         await host.addNode({ type: 'workbench.export_structure', inputs: { structures: [pkg.id] }, parameters: { object, format, ...(selected.length ? { atoms: selected } : {}) } });
         setError('Run the export node, then download its ZIP from Data packages. Existing parameters describe the source calculation; selection is not recalculated.');
+      } catch (failure) { setError(String(failure)); }
+    }
+    async function addOperation(kind) {
+      if (host.readOnly) return;
+      try {
+        if (kind === 'extract' && !selected.length) throw new Error('Select atoms, chains or components to extract.');
+        const parameters = { object, format, ...(selected.length ? { selection: { atoms: selected } } : {}) };
+        if (kind === 'transform') {
+          parameters.rotation = JSON.parse(rotation);
+          parameters.translation = JSON.parse(translation);
+        }
+        await host.addNode({ type: `workbench.${kind}_structure`, inputs: { structures: [pkg.id] }, parameters });
+        setError('Run the structure operation node, then open its result or download its package ZIP.');
       } catch (failure) { setError(String(failure)); }
     }
     const limits = [0, 1, 2].map(axis => atoms.reduce(([lo, hi], a) => [Math.min(lo, a.position[axis]), Math.max(hi, a.position[axis])], [Infinity, -Infinity]));
@@ -70,6 +85,13 @@ export function register({ React }) {
       }, h('title', null, `${a.residue_name} ${a.atom_name}: ${a.position.join(', ')} Å`)))),
       h('p', null, `${atoms.length} atoms; ${selected.length} selected. No selection exports the complete candidate.`),
       h('button', { onClick: () => setSelected([]) }, 'Clear selection'),
+      h('details', null, h('summary', null, 'Select chains'), [...new Set(atoms.map(a => a.chain))].map(chain => {
+        const indices = atoms.filter(a => a.chain === chain).map(a => a.index);
+        return h('label', { key: chain, style: { display: 'block' } }, h('input', { type: 'checkbox', checked: indices.every(i => selected.includes(i)), onChange: e => setSelected(s => e.target.checked ? [...new Set([...s, ...indices])] : s.filter(i => !indices.includes(i))) }), `Chain ${chain || '(blank)'}`);
+      })),
+      h('details', null, h('summary', null, 'Actual atom coordinates (Å)'), h('table', null,
+        h('thead', null, h('tr', null, ['Model / chain / residue', 'Atom / alternate location', 'x, y, z Å'].map(label => h('th', { key: label }, label)))),
+        h('tbody', null, atoms.map(a => h('tr', { key: a.index }, h('td', null, `${a.model} / ${a.chain} / ${a.author_number}${a.insertion_code} ${a.residue_name}`), h('td', null, `${a.atom_name} ${a.altloc}`), h('td', null, `${a.position.join(', ')} Å`)))))),
       h('details', null, h('summary', null, 'Select residues and components'), components.map(key => {
         const [chain, number, insertion, name] = JSON.parse(key);
         const indices = atoms.filter(a => a.chain === chain && a.author_number === number && a.insertion_code === insertion && a.residue_name === name).map(a => a.index);
@@ -77,6 +99,12 @@ export function register({ React }) {
       })),
       h('select', { 'aria-label': 'Export structure format', value: format, onChange: e => setFormat(e.target.value) }, h('option', { value: 'mmcif' }, 'mmCIF'), h('option', { value: 'pdb' }, 'PDB')),
       h('button', { disabled: host.readOnly || !atoms.length, onClick: exportSelection }, 'Add selected structure export node'),
+      h('button', { disabled: host.readOnly || !selected.length, onClick: () => addOperation('extract') }, 'Add extraction node'),
+      h('fieldset', null, h('legend', null, 'Rigid coordinate operation: rotation × xyz + translation'),
+        h('label', null, 'Rotation matrix JSON (3 × 3, about coordinate origin)', h('textarea', { 'aria-label': 'Coordinate rotation matrix', value: rotation, disabled: host.readOnly, onChange: e => setRotation(e.target.value) })),
+        h('label', null, 'Translation JSON [x, y, z] in Å', h('input', { 'aria-label': 'Coordinate translation', value: translation, disabled: host.readOnly, onChange: e => setTranslation(e.target.value) })),
+        h('p', null, 'Selected atoms move; with no selection all atoms move. Other atoms remain in the result.'),
+        h('button', { disabled: host.readOnly || !atoms.length, onClick: () => addOperation('transform') }, 'Add coordinate transform node')),
       error && h('p', { role: 'status' }, error));
   }
   return { actions: [{ id: 'workbench.structure_io.import', name: 'Import PDB or mmCIF structure', component: Import }], viewers: [{ id: 'workbench.structure_io.complete', name: 'Complete structure and components', formats: ['workbench.structure_set'], component: Viewer }] };
