@@ -65,6 +65,26 @@ class Workbench:
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
     @contextmanager
+    def _run_lease(self, project_id, run_id, *, probe=False):
+        # Callers supply generated IDs or IDs read from a persisted run record.
+        path = self._locks / ("execution-" + project_id + "-" + run_id)
+        try:
+            with path.open("a+b") as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    if probe:
+                        yield False
+                        return
+                    raise HostError(f"Run is already executing: {run_id}") from exc
+                try:
+                    yield True
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+        except OSError as exc:
+            raise HostError(f"Could not access run lease {run_id}: {exc}") from exc
+
+    @contextmanager
     def _project_operation(self, project_ids, *, mutable=()):
         # Run leases reject immediately; file leases serialize complete copies/deletes.
         with ExitStack() as stack:
@@ -340,8 +360,9 @@ class Workbench:
         return workdir
 
     def _release_workdir(self, workdir):
+        if workdir.exists():
+            shutil.rmtree(workdir)
         self._workdirs.discard(workdir)
-        shutil.rmtree(workdir, ignore_errors=True)
 
     def create_draft_input(self, project_id, delivery, workdir):
         """Hold a teaching draft input until the user saves or abandons it."""
@@ -425,6 +446,9 @@ class Workbench:
             finally:
                 if committed or not moved:
                     try:
+                        if committed:
+                            for lease in self._locks.glob("execution-" + project_id + "-*"):
+                                lease.unlink()
                         shutil.rmtree(trash)
                     except OSError as exc:
                         raise HostError(f"Project records removed but owned file cleanup failed: {exc}") from exc
@@ -447,37 +471,60 @@ class Workbench:
         self._get("project", project_id)
         return [record for record in self._records("package") if record["project_id"] == project_id]
 
+    @staticmethod
+    def _failed_run(run, detail):
+        run["status"] = "failed"
+        run["diagnostics"] = [*run["diagnostics"], detail]
+        for node in run["nodes"].values():
+            if node["status"] == "running":
+                node.update(status="failed", diagnostics=[*node["diagnostics"], detail])
+            elif node["status"] == "pending":
+                node.update(status="blocked", diagnostics=["Backend execution interrupted before this node started: " + detail])
+        return run
+
+    def _fail_run(self, run_id, error):
+        import logging
+        detail = f"Backend run failed: {error}"
+        self._run_errors[run_id] = detail
+        try:
+            # Only persisted outputs and terminal node states survive a fatal error.
+            self._put("run", self._failed_run(self._get("run", run_id), detail))
+        except Exception as commit_error:
+            self._run_errors[run_id] = f"{detail}; failure state could not be committed: {commit_error}"
+            logging.getLogger(__name__).exception("Could not commit failed backend run %s", run_id)
+
     def start(self, project_id):
         if self._get("project", project_id).get("tutorial"):
             raise HostError("Save the teaching example as your own project first")
         from threading import Thread
         from .execution import create_run, execute
-        lease = self._project_lock(project_id, running=True)
-        lease.__enter__()
+        leases = ExitStack()
+        run = None
         try:
-            run, prepared = create_run(self, project_id)
-            # The cancellation marker is independent of run-record replacement.
-            marker = self._locks / ("cancel-" + run["id"])
+            leases.enter_context(self._project_lock(project_id, running=True))
+            run_id = uuid4().hex
+            leases.enter_context(self._run_lease(project_id, run_id))
+            run, prepared = create_run(self, project_id, run_id)
+            marker = self._locks / ("cancel-" + run_id)
             def work():
                 try:
                     execute(self, run, prepared, marker.exists)
                 except Exception as exc:
-                    run["status"] = "failed"
-                    run["diagnostics"].append(f"Backend run failed: {exc}")
-                    try:
-                        self._put("run", run)
-                    except HostError as commit_error:
-                        import logging
-                        self._run_errors[run["id"]] = str(commit_error)
-                        logging.getLogger(__name__).exception("Could not commit failed backend run %s", run["id"])
+                    self._fail_run(run_id, exc)
                 finally:
-                    lease.__exit__(None, None, None)
-                    marker.unlink(missing_ok=True)
+                    try:
+                        marker.unlink(missing_ok=True)
+                    except OSError as exc:
+                        self._fail_run(run_id, f"Cancellation marker cleanup failed: {exc}")
+                    finally:
+                        leases.close()
             response = json.loads(json.dumps(run))
-            Thread(target=work, name="workbench-run-" + run["id"], daemon=False).start()
+            Thread(target=work, name="workbench-run-" + run_id, daemon=False).start()
             return response
-        except BaseException:
-            lease.__exit__(None, None, None)
+        except BaseException as exc:
+            if run is not None:
+                self._fail_run(run["id"], f"Could not dispatch backend task: {exc}")
+            leases.close()
             raise
 
     def cancel_run(self, run_id):
@@ -493,19 +540,15 @@ class Workbench:
 
     def get_run(self, run_id):
         run = self._get("run", run_id)
-        if run["status"] == "running" and not self._project_running(run["project_id"]):
-            # Re-read after acquiring the lease: a terminal commit may have happened
-            # between the first read and the lease probe.
+        if run["status"] != "running":
+            return run
+        with self._run_lease(run["project_id"], run["id"], probe=True) as idle:
+            # Keep an idle probe locked across the re-read and failure projection.
             run = self._get("run", run_id)
-            if run["status"] == "running":
-                run["status"] = "failed"
+            if idle and run["status"] == "running":
                 detail = self._run_errors.get(run_id, "Run lease ended without a committed terminal state")
-                run["diagnostics"] = [*run["diagnostics"], detail]
-                for node in run["nodes"].values():
-                    if node["status"] in ("pending", "running"):
-                        node["status"] = "failed" if node["status"] == "running" else "blocked"
-                        node["diagnostics"] = [*node["diagnostics"], "Backend run ended before this node's terminal state was committed"]
-        return run
+                return self._failed_run(run, detail)
+            return run
 
     def list_runs(self, project_id):
         self._get("project", project_id)

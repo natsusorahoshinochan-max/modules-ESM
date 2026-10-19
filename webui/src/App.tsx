@@ -30,6 +30,7 @@ export default function App() {
   const opening = useRef(0)
   const runningNow = useRef(false)
   const submittingRun = useRef(false)
+  const runOperationEpoch = useRef(0)
   const [dirty, setDirty] = useState(false)
   const dirtyNow = useRef(false)
   const draftRevision = useRef(0)
@@ -55,6 +56,7 @@ export default function App() {
   const deletingProject = useRef('')
   const locked = running || (deleting && deletingProject.current === project?.id)
   const [runs, setRuns] = useState<Run[]>([])
+  const cancellableRuns = runs.filter(item => item.status === 'running')
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
   const fail = (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure))
   async function refresh() {
@@ -160,8 +162,12 @@ export default function App() {
     } catch (failure) { if (session === projectSession.current) throw failure }
     finally { savingNow.current = false; setSaving(false) }
   }
+  function currentRunOperation(target: { projectId: string; session: number; epoch: number }) {
+    return currentProject.current?.id === target.projectId && projectSession.current === target.session && runOperationEpoch.current === target.epoch
+  }
   async function run() {
     if (!project) return
+    const epoch = ++runOperationEpoch.current
     const session = projectSession.current
     if (dirtyNow.current || currentProject.current?.tutorial) {
       if (!window.confirm('Save changes and run?')) return
@@ -170,40 +176,64 @@ export default function App() {
       if (!saved) throw new Error('Project changed while saving; save again before running')
     }
     const runProject = currentProject.current
-    if (!runProject) return
-    opening.current += 1; runningNow.current = true; setRunning(true); setError(''); setNotice('Running on the backend…')
+    if (!runProject || epoch !== runOperationEpoch.current) return
+    const target = { projectId: runProject.id, session: projectSession.current, epoch }
+    opening.current += 1; submittingRun.current = true
+    runningNow.current = true; setRunning(true); setError(''); setNotice('Running on the backend…')
     try {
-      submittingRun.current = true
-      const result = await client.run(runProject.id)
+      const result = await client.run(target.projectId)
+      if (!currentRunOperation(target)) return
+      if (result.status !== 'running') {
+        const files = await client.packages(target.projectId)
+        if (!currentRunOperation(target)) return
+        setPackages(files)
+      }
       setRuns(items => [...items.filter(item => item.id !== result.id), result])
       runningNow.current = result.status === 'running'; setRunning(runningNow.current)
-      if (!runningNow.current) setPackages(await client.packages(runProject.id))
       setNotice(`Run ${result.status}`)
     } catch (failure) {
-      // Re-read the backend on the next poll if the submission response was lost.
-      throw failure
-    } finally { submittingRun.current = false }
+      // A lost submission response leaves the lock until a current poll confirms state.
+      if (currentRunOperation(target)) fail(failure)
+    } finally { if (currentRunOperation(target)) submittingRun.current = false }
+  }
+  async function cancelRun() {
+    const current = currentProject.current
+    if (!current || submittingRun.current || !cancellableRuns.length) return
+    const target = { projectId: current.id, session: projectSession.current, epoch: ++runOperationEpoch.current }
+    submittingRun.current = true; runningNow.current = true; setRunning(true)
+    try {
+      await Promise.all(cancellableRuns.map(item => client.cancelRun(item.id)))
+      if (!currentRunOperation(target)) return
+      setNotice('Cancellation requested; waiting for the backend…')
+    } catch (failure) { if (currentRunOperation(target)) fail(failure) }
+    finally { if (currentRunOperation(target)) submittingRun.current = false }
   }
   useEffect(() => {
     if (!project) return
-    const id = project.id
+    const projectId = project.id
     const session = projectSession.current
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     async function poll() {
+      const target = { projectId, session, epoch: runOperationEpoch.current }
+      const current = () => !stopped && currentRunOperation(target)
       try {
-        const history = await client.runs(id)
-        if (stopped || session !== projectSession.current || submittingRun.current) return
+        if (submittingRun.current) return
+        const history = await client.runs(projectId)
+        if (!current()) return
         const active = history.some(item => item.status === 'running')
         const wasRunning = runningNow.current
-        setRuns(history); runningNow.current = active; setRunning(active)
+        let files: PackageInfo[] | undefined
         if (active || wasRunning) {
-          const files = await client.packages(id)
-          if (stopped || session !== projectSession.current) return
+          files = await client.packages(projectId)
+          if (!current()) return
+        }
+        setRuns(history); runningNow.current = active; setRunning(active)
+        if (files) {
           setPackages(files)
           if (!active) setNotice(`Run ${history.at(-1)?.status ?? 'finished'}`)
         }
-      } catch (failure) { if (!stopped && session === projectSession.current) fail(failure) }
+      } catch (failure) { if (current()) fail(failure) }
       finally { if (!stopped) timer = setTimeout(poll, 500) }
     }
     timer = setTimeout(poll, 500)
@@ -296,7 +326,7 @@ export default function App() {
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
       <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} invalidateRefresh={invalidateRefresh} fail={fail} />
     </aside>
-    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button onClick={() => Promise.all(runs.filter(item => item.status === 'running').map(item => client.cancelRun(item.id))).then(() => setNotice('Cancellation requested; waiting for the backend…')).catch(fail)}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
+    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button disabled={submittingRun.current || !cancellableRuns.length} onClick={() => void cancelRun()}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id + action.installation_id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
         <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
@@ -329,7 +359,7 @@ export default function App() {
           <ul>{project.flow.edges.map((edge, index) => <li key={index}>{project.flow.nodes.findIndex(node => node.id === edge.source) + 1}:{edge.source_port} → {project.flow.nodes.findIndex(node => node.id === edge.target) + 1}:{edge.target_port} <button disabled={locked} onClick={() => change(current => ({ ...current, flow: { ...current.flow, edges: current.flow.edges.filter((_, i) => i !== index) } }))}>Disconnect</button></li>)}</ul>
         </section>
         <fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
-        <h3>Runs</h3>{runs.map(run => <details key={run.id}><summary>{run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.entries(run.nodes).map(([id, result]) => <p key={id}>{id}: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed: dependency failed' : result.status} {result.diagnostics?.join('; ')}</p>)}</details>)}
+        <h3>Runs</h3>{runs.map(run => <details key={run.id}><summary>{run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.entries(run.nodes).map(([id, result]) => <p key={id}>{id}: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed' : result.status} {result.diagnostics?.join('; ')}</p>)}</details>)}
         <h3>Data packages</h3><select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select>
         {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id + activeViewer?.installation_id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
       </>}
