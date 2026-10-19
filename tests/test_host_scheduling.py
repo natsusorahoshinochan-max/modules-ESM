@@ -145,5 +145,6 @@ def test_terminal_commit_failure_is_reported_instead_of_leaving_a_phantom_runnin
     terminal = wait_run(app, run)
     assert terminal['status'] == 'failed'
     assert 'persistent terminal commit refused' in str(terminal['diagnostics'])
+    assert terminal['nodes']['source']['status'] == 'failed'
     assert app.list_packages(project['id']) == []
     assert Workbench(tmp_path).get_run(run['id'])['diagnostics'] == ['Run lease ended without a committed terminal state']

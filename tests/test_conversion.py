@@ -1,5 +1,5 @@
-from tests.run_helpers import wait_response
 """Explicit format conversion through the production HTTP/application boundary."""
+from tests.run_helpers import wait_response
 import json
 
 import pytest

@@ -412,14 +412,18 @@ test('backend running state keeps editing locked through polling and cancellatio
 })
 
 test('opening a project with an existing backend run restores the edit lock', async () => {
+  let status = 'running'
   const previousFetch = globalThis.fetch
   globalThis.fetch = async (url, options = {}) => String(url) === '/api/projects/a/runs'
-    ? Response.json([{ id: 'existing', status: 'running', nodes: {}, diagnostics: [] }])
+    ? Response.json([{ id: 'existing', status, nodes: {}, diagnostics: [] }])
     : previousFetch(url, options)
   await click('Project A')
   assert.equal(button('Save project').disabled, true)
   assert.equal(button('Run').disabled, true)
   assert.ok(button('Cancel run'))
+  status = 'succeeded'
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  assert.equal(button('Save project').disabled, false)
 })
 
 test('module deployment fields save credentials and locations independently of node parameters', async () => {

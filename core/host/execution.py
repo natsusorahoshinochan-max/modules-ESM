@@ -56,7 +56,7 @@ def prepare_group(app, flow, project_id):
             choice = choices[name]
             if not isinstance(choice, str) or choice not in tools or tools[choice][1].slot != slot.id:
                 raise HostError(f"Selected tool is unavailable or does not implement {slot.id}: {choice}")
-        if selected[identifier][1].tools and set(instance.get("tool_parameters", {})) - set(choices):
+        if set(instance.get("tool_parameters", {})) - set(choices):
             raise HostError(f"Unknown tool parameter slot on node {identifier}")
     connections = set()
     for edge in edges:

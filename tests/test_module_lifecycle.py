@@ -8,6 +8,7 @@ import sys
 from fastapi.testclient import TestClient
 
 from protein_workbench_public.bootstrap import create_application
+from tests.run_helpers import wait_response
 
 
 def wheel():
@@ -60,7 +61,7 @@ def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_pa
         assert client.put('/api/modules/lifecycle.example/settings', json={'settings': settings}).status_code == 200
         project = client.post('/api/projects', json={'name': 'Kept workflow'}).json()['id']
         assert client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {'one': {'x': 11, 'y': 2}}}).status_code == 200
-        result = client.post(f'/api/projects/{project}/runs').json()
+        result = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
         assert result['status'] == 'succeeded', result
         package = result['nodes']['one']['outputs']['result'][0]
         assert client.get(f'/api/packages/{package}/file', params={'key': 'data'}).content == b'chosen-token|/existing/model|http://localhost:9000|/existing/program'
@@ -70,9 +71,9 @@ def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_pa
         assert unavailable['flow'] == flow
         assert unavailable['layout'] == {'one': {'x': 11, 'y': 2}}
         assert unavailable['missing_modules'] == ['lifecycle.first', 'lifecycle.second']
-        rejected = client.post(f'/api/projects/{project}/runs')
-        assert rejected.status_code == 400
-        assert 'lifecycle.first' in rejected.json()['detail']
+        rejected = wait_response(client, client.post(f'/api/projects/{project}/runs'))
+        assert rejected.json()['status'] == 'failed'
+        assert 'lifecycle.first' in str(rejected.json()['nodes']['one']['diagnostics'])
         assert client.put('/api/modules/lifecycle.example/enabled', json={'enabled': True}).status_code == 200
         assert client.get(f'/api/projects/{project}').json()['missing_modules'] == []
         assert client.delete('/api/modules/lifecycle.example').status_code == 200
@@ -85,9 +86,10 @@ import sys
 from pathlib import Path
 from fastapi.testclient import TestClient
 from protein_workbench_public.bootstrap import create_application
+from tests.run_helpers import wait_response
 with TestClient(create_application(data_root=Path(sys.argv[1]))) as client:
     assert client.get('/api/projects/' + sys.argv[2]).json()['missing_modules'] == []
-    result = client.post('/api/projects/' + sys.argv[2] + '/runs').json()
+    result = wait_response(client, client.post('/api/projects/' + sys.argv[2] + '/runs')).json()
     assert result['status'] == 'succeeded', result
     assert client.get('/api/packages/' + sys.argv[3] + '/file', params={'key': 'data'}).status_code == 200
 """, str(tmp_path), project, package], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)

@@ -151,7 +151,7 @@ export default function App() {
     }
     timer = setTimeout(poll, 500)
     return () => { stopped = true; clearTimeout(timer) }
-  }, [project?.id])
+  }, [project?.id, projectSession.current])
 
   async function deleteProject() {
     const current = currentProject.current

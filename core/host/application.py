@@ -367,9 +367,13 @@ class Workbench:
 
     def cancel_run(self, run_id):
         run = self.get_run(run_id)
+        marker = self._locks / ("cancel-" + run["id"])
         if run["status"] == "running":
-            (self._locks / ("cancel-" + run["id"])).touch()
-        return self.get_run(run_id)
+            marker.touch()
+        result = self.get_run(run_id)
+        if result["status"] != "running":
+            marker.unlink(missing_ok=True)
+        return result
 
     def get_run(self, run_id):
         run = self._get("run", run_id)
@@ -381,6 +385,10 @@ class Workbench:
                 run["status"] = "failed"
                 detail = self._run_errors.get(run_id, "Run lease ended without a committed terminal state")
                 run["diagnostics"] = [*run["diagnostics"], detail]
+                for node in run["nodes"].values():
+                    if node["status"] in ("pending", "running"):
+                        node["status"] = "failed" if node["status"] == "running" else "blocked"
+                        node["diagnostics"] = [*node["diagnostics"], "Backend run ended before this node's terminal state was committed"]
         return run
 
     def list_runs(self, project_id):

@@ -34,7 +34,6 @@ export const client = {
   packages: (id: string) => json<PackageInfo[]>(`/projects/${id}/packages`),
   run: (id: string) => json<Run>(`/projects/${id}/runs`, {}),
   cancelRun: (id: string) => json<Run>(`/runs/${encodeURIComponent(id)}/cancel`, {}),
-  runStatus: (id: string) => json<Run>(`/runs/${encodeURIComponent(id)}`),
   runs: (id: string) => json<Run[]>(`/projects/${id}/runs`),
   fileUrl: (id: string, key: string) => `/api/packages/${encodeURIComponent(id)}/file?key=${encodeURIComponent(key)}`,
   readFile: async (id: string, key: string) => {
