@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import os
+import json
+import tempfile
+import zipfile
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -73,6 +76,48 @@ def receive(project_id, delivery, workdir, destination):
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         shutil.rmtree(final, ignore_errors=True)
+        raise
+
+
+def copy_package(project_id, source, destination):
+    package_id = uuid4().hex
+    staging = destination / (".receiving-" + package_id)
+    final = destination / package_id
+    staging.mkdir()
+    try:
+        for number, key in enumerate(source.files):
+            try:
+                with source.open(key) as reader, (staging / str(number)).open("wb") as writer:
+                    shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                    writer.flush()
+                    os.fsync(writer.fileno())
+            except OSError as exc:
+                raise _error(f"Could not adopt declared file {key!r}: {exc}") from exc
+        os.replace(staging, final)
+        return {"id": package_id, "project_id": project_id, "format": source.format, "entry": source.entry, "files": list(source.files)}
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(final, ignore_errors=True)
+        raise
+
+
+def export_package(source, workdir):
+    fd, name = tempfile.mkstemp(prefix="export-", suffix=".zip", dir=workdir)
+    os.close(fd)
+    archive = Path(name)
+    try:
+        members = [{"key": key, "member": f"files/{number:06d}"} for number, key in enumerate(source.files)]
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zipped:
+            zipped.writestr("package.json", json.dumps({"format": source.format, "entry": source.entry, "files": members}, ensure_ascii=False))
+            for item in members:
+                try:
+                    with source.open(item["key"]) as reader, zipped.open(item["member"], "w", force_zip64=True) as writer:
+                        shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                except OSError as exc:
+                    raise _error(f"Could not export declared file {item['key']!r}: {exc}") from exc
+        return archive
+    except BaseException:
+        archive.unlink(missing_ok=True)
         raise
 
 

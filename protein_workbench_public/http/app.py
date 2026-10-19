@@ -14,6 +14,15 @@ from core.host import HostError, Workbench
 from protein_workbench_public.module_api import Delivery
 
 
+class ArchiveResponse(FileResponse):
+    """Remove the fully built download even if sending it is interrupted."""
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
+
+
 class ProjectName(BaseModel):
     name: str
 
@@ -33,6 +42,10 @@ class ModuleConfiguration(BaseModel):
 
 class EnableModule(BaseModel):
     enabled: bool
+
+
+class Adoption(BaseModel):
+    package_id: str
 
 
 class InputDescription(BaseModel):
@@ -119,15 +132,31 @@ def create_http_app(host: Workbench) -> FastAPI:
     def save(project_id: str, body: ProjectEdit):
         return host.save_project(project_id, body.flow, body.layout)
 
+    @app.delete('/api/projects/{project_id}')
+    def delete_project(project_id: str):
+        with upload_lock:
+            owned = [(token, upload) for token, upload in uploads.items() if upload.project_id == project_id]
+            if any(upload.pending for _, upload in owned):
+                raise HostError('Wait for active file uploads before deleting this project')
+            host.delete_project(project_id)
+            for token, upload in owned:
+                uploads.pop(token)
+                host.discard_workdir(upload.workdir)
+        return {'removed': project_id}
+
+    @app.post('/api/projects/{project_id}/adoptions')
+    def adopt(project_id: str, body: Adoption):
+        return host.adopt(project_id, body.package_id)
+
     @app.get('/api/projects/{project_id}/packages')
     def packages(project_id: str):
         return host.list_packages(project_id)
 
     @app.post('/api/projects/{project_id}/uploads')
     def begin_upload(project_id: str):
-        host.get_project(project_id)
         token = uuid4().hex
         with upload_lock:
+            host.get_project(project_id)
             uploads[token] = Upload(project_id, host.new_workdir())
         return {'upload_id': token}
 
@@ -185,6 +214,11 @@ def create_http_app(host: Workbench) -> FastAPI:
     @app.get('/api/packages/{package_id}')
     def package(package_id: str):
         return host.package(package_id).metadata()
+
+    @app.get('/api/packages/{package_id}/export.zip')
+    def export_package(package_id: str):
+        archive = host.export_package(package_id)
+        return ArchiveResponse(archive, media_type='application/zip', filename='package.zip')
 
     @app.get('/api/packages/{package_id}/file')
     def file(package_id: str, key: str):

@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
+import fcntl
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 import sqlite3
 import shutil
@@ -32,9 +33,36 @@ class Workbench:
         self._packages.mkdir(exist_ok=True)
         self._work = self.root / "work"
         self._work.mkdir(exist_ok=True)
+        self._locks = self.root / "locks"
+        self._locks.mkdir(exist_ok=True)
         self._database = self.root / "host.sqlite"
         with self._connect() as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, data TEXT NOT NULL, PRIMARY KEY(kind,id))")
+
+    @contextmanager
+    def _project_lock(self, project_id, *, running=False):
+        # Resolve IDs through stored records before using them in an owned path.
+        project_id = self._get("project", project_id)["id"]
+        with (self._locks / (("run-" if running else "files-") + project_id)).open("a+b") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if running else 0))
+            except BlockingIOError as exc:
+                raise HostError(f"Project is running: {project_id}") from exc
+            try:
+                self._get("project", project_id)
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+    @contextmanager
+    def _project_operation(self, project_ids, *, mutable=()):
+        # Run leases reject immediately; file leases serialize complete copies/deletes.
+        with ExitStack() as stack:
+            for project_id in sorted(set(mutable)):
+                stack.enter_context(self._project_lock(project_id, running=True))
+            for project_id in sorted(set(project_ids)):
+                stack.enter_context(self._project_lock(project_id))
+            yield
 
     @contextmanager
     def _connect(self):
@@ -164,10 +192,11 @@ class Workbench:
         return project
 
     def save_project(self, project_id, flow, layout):
-        project = self._get("project", project_id)
-        project.update(flow=flow, layout=layout)
-        self._put("project", project)
-        return self.get_project(project_id)
+        with self._project_operation([project_id], mutable=[project_id]):
+            project = self._get("project", project_id)
+            project.update(flow=flow, layout=layout)
+            self._put("project", project)
+            return self.get_project(project_id)
 
     def new_workdir(self):
         path = Path(tempfile.mkdtemp(prefix="execution-", dir=self._work))
@@ -186,20 +215,71 @@ class Workbench:
 
     def create_input(self, project_id, delivery, workdir):
         from .storage import receive
-        self._get("project", project_id)
         workdir = self._owned_workdir(workdir)
         record = None
         try:
-            record = receive(project_id, delivery, workdir, self._packages)
-            return self._put("package", record)
-        except (OSError, sqlite3.Error) as exc:
-            raise HostError(f"Could not receive input: {exc}") from exc
-        except HostError:
+            with self._project_operation([project_id], mutable=[project_id]):
+                record = receive(project_id, delivery, workdir, self._packages)
+                return self._put("package", record)
+        except BaseException:
             if record is not None:
                 shutil.rmtree(self._packages / record["id"], ignore_errors=True)
             raise
         finally:
             self._release_workdir(workdir)
+
+    def adopt(self, target_project_id, source_package_id):
+        """Copy every declared file without interpreting module-owned content."""
+        with self._project_operation([target_project_id, self._get("package", source_package_id)["project_id"]], mutable=[target_project_id]):
+            from .storage import copy_package
+            self._get("project", target_project_id)
+            source = self.package(source_package_id)
+            record = None
+            try:
+                record = copy_package(target_project_id, source, self._packages)
+                return self._put("package", record)
+            except BaseException:
+                if record is not None:
+                    shutil.rmtree(self._packages / record["id"], ignore_errors=True)
+                raise
+
+    def delete_project(self, project_id):
+        """Remove only this project's received files and records."""
+        with self._project_operation([project_id], mutable=[project_id]):
+            self._get("project", project_id)
+            packages = self.list_packages(project_id)
+            runs = self.list_runs(project_id)
+            trash = Path(tempfile.mkdtemp(prefix="deleting-", dir=self._work))
+            moved = []
+            committed = False
+            try:
+                for record in packages:
+                    source = self._packages / record["id"]
+                    destination = trash / record["id"]
+                    source.rename(destination)
+                    moved.append((source, destination))
+                with self._connect() as connection:
+                    for kind, records in (("package", packages), ("run", runs), ("project", [{"id": project_id}])):
+                        connection.executemany("DELETE FROM records WHERE kind=? AND id=?", [(kind, record["id"]) for record in records])
+                committed = True
+            except BaseException:
+                for source, destination in reversed(moved):
+                    destination.rename(source)
+                raise
+            finally:
+                if committed or not moved:
+                    try:
+                        shutil.rmtree(trash)
+                    except OSError as exc:
+                        raise HostError(f"Project records removed but owned file cleanup failed: {exc}") from exc
+                elif trash.exists() and not any(trash.iterdir()):
+                    trash.rmdir()
+
+    def export_package(self, package_id):
+        """Materialize a closed ZIP; the caller owns removal after delivery."""
+        with self._project_operation([self._get("package", package_id)["project_id"]]):
+            from .storage import export_package
+            return export_package(self.package(package_id), self._work)
 
     def package(self, package_id):
         from .storage import StoredPackage
@@ -211,8 +291,9 @@ class Workbench:
         return [record for record in self._records("package") if record["project_id"] == project_id]
 
     def start(self, project_id):
-        from .execution import execute
-        return execute(self, project_id)
+        with self._project_lock(project_id, running=True):
+            from .execution import execute
+            return execute(self, project_id)
 
     def get_run(self, run_id):
         return self._get("run", run_id)
