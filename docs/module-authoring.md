@@ -107,7 +107,7 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 模块在 `Module.interactions` 中声明 `Interaction(id, execute, inputs, parameters)`。处理函数接收公开的 `Call` 和 `Runtime`，返回 `InteractionResult(data=小型展示数据, outputs={名称: Delivery(...)})`。载体核对输入格式及基数，提供明确包、所属模块设置、只读文件访问、工作目录和取消信号；调用不创建运行。返回前关闭文件并放弃写权，工作目录由载体保留到结束或接收完成。
 
-`context.host.preview(id, inputs, parameters, {signal})` 返回 `{id, data, outputs}`；`inputs` 是端口到明确包 ID 列表的映射，取消信号可省略。`host.readPreviewFile(id, output, key)` 读取命名输出的临时文件，对应 `GET /api/interactions/{id}/file?output=...&key=...`；文件键只在该输出交付清单内解析。调用 `cancelPreview(id)` 结束预览并释放文件，释放等待已开始的读取结束或中断。确认采用也等待活动读取结束，并在文件接收完成后释放来源。取消正在执行的处理函数时先传递取消信号，待函数返回后才删除工作目录；迟到结果不能再被采用。
+`context.host.preview(id, inputs, parameters, {signal})` 返回 `{id, data, outputs}`；`inputs` 是端口到明确包 ID 列表的映射，取消信号可省略。`host.readPreviewFile(id, output, key, {signal})` 读取命名输出的临时文件，可省略取消信号，对应 `GET /api/interactions/{id}/file?output=...&key=...`；文件键只在该输出交付清单内解析。取消时同时中止文件读取并调用 `cancelPreview(id)` 结束预览，释放等待已开始的读取结束或中断。确认采用也等待活动读取结束，并在文件接收完成后释放来源。取消正在执行的处理函数时先传递取消信号，待函数返回后才删除工作目录；迟到结果不能再被采用。
 
 `context.update({parameters})` 更新当前节点参数草稿。`context.update({delivery: {interaction: 预览ID, output: 输出名, port: 输入端口}, replaceConnections: [输入端口]})` 先完整接收该预览的实际文件，再把输入绑定与明确替换的连线一次更新。也可传入 `delivery: {input: {format, entry, files}, port}` 接收界面生成的文件。直接修改绑定使用 `inputs`；恢复或调整输入连接时，`connections` 提供指向当前节点且属于 `replaceConnections` 端口的完整替代连线。载体按公开端口声明核对连接、格式和基数。
 

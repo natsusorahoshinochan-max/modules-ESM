@@ -1,10 +1,23 @@
 export const runtime = { react: 19 }
 export function register({React}) {
   const h = React.createElement
+  const project = xyz => [xyz[0]+.3*xyz[2],-xyz[1]-.2*xyz[2]]
+  function fit(points) {
+    const projected = points.map(project)
+    if (!projected.length) return {scale:10,x:210,y:150}
+    let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity
+    for (const [x,y] of projected) {left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y)}
+    const scale=Math.min(10,372/Math.max(1,right-left),252/Math.max(1,bottom-top))
+    return {scale,x:210-(left+right)/2*scale,y:150-(top+bottom)/2*scale}
+  }
+  function pointer(event, inverse) {
+    return [inverse.a*event.clientX+inverse.c*event.clientY+inverse.e,inverse.b*event.clientX+inverse.d*event.clientY+inverse.f]
+  }
   function Editor({context, parameters, readOnly}) {
     const [document, setDocument] = React.useState(null)
     const [preview, setPreview] = React.useState(null)
     const [geometry, setGeometry] = React.useState([]), [structureObject, setStructureObject] = React.useState('')
+    const [structureRecord, setStructureRecord] = React.useState('')
     const [mapping, setMapping] = React.useState({}), [tracks, setTracks] = React.useState(['coordinates'])
     const [drag, setDrag] = React.useState(null), dragRef = React.useRef(null)
     const [undo, setUndo] = React.useState([])
@@ -16,15 +29,24 @@ export function register({React}) {
     const [requesting,setRequesting] = React.useState(false)
     const [object, setObject] = React.useState(''), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('')
     const expectedRevision = React.useRef(null), scope = `${context.projectId}:${context.nodeId}`, seenScope = React.useRef(scope), seenRevision = React.useRef(context.revision)
-    const controller = React.useRef(null)
-    const epoch = React.useRef(0), mounted = React.useRef(true), tokens = React.useRef(new Set()), latestContext = React.useRef(context)
-    latestContext.current = context
+    const pending = React.useRef(null)
+    const epoch = React.useRef(0), mounted = React.useRef(true), tokens = React.useRef(new Map())
+    function releaseToken(id) {
+      const origin = tokens.current.get(id)
+      if (!origin) return Promise.resolve()
+      tokens.current.delete(id)
+      return origin.host.cancelPreview(id).catch(()=>{})
+    }
+    function stopRequests() {
+      const owner = pending.current
+      pending.current = null
+      owner?.controller.abort()
+      for (const id of tokens.current.keys()) void releaseToken(id)
+    }
     React.useEffect(() => {
       mounted.current = true
       return () => {
-        mounted.current = false; epoch.current++; controller.current?.abort()
-        for (const token of tokens.current) void latestContext.current.host.cancelPreview(token).catch(() => {})
-        tokens.current.clear()
+        mounted.current = false; epoch.current++; stopRequests()
       }
     }, [])
     React.useEffect(() => {
@@ -32,55 +54,66 @@ export function register({React}) {
       const sameScope = seenScope.current === scope
       seenScope.current = scope; seenRevision.current = context.revision
       if (sameScope && expectedRevision.current === context.revision) { expectedRevision.current = null; return }
-      epoch.current++; controller.current?.abort()
-      for (const token of tokens.current) void context.host.cancelPreview(token).catch(() => {})
-      tokens.current.clear(); setDocument(null); setPreview(null); setGeometry([]); setDrag(null); dragRef.current=null; setUndo([]); setSelected([]); setBusy(false); setRequesting(false)
+      epoch.current++; stopRequests()
+      setDocument(null); setPreview(null); setGeometry([]); setStructureRecord(''); setMapping({}); setDrag(null); dragRef.current=null; setUndo([]); setSelected([]); setBusy(false); setRequesting(false)
       setSequence(context.parameters.sequence ?? ''); setError('Node draft changed; load the current input again')
     }, [scope, context.revision])
     async function cancel() {
-      epoch.current++; controller.current?.abort(); setDrag(null); dragRef.current=null; setBusy(false); setRequesting(false); setError('')
-      if (preview) { tokens.current.delete(preview.id); await context.host.cancelPreview(preview.id).catch(() => {}); setPreview(null) }
+      epoch.current++; stopRequests(); setDrag(null); dragRef.current=null; setBusy(false); setRequesting(false); setError(''); setPreview(null)
     }
     async function request(operation, load = false, structural = false) {
-      controller.current?.abort(); controller.current = new AbortController()
-      const current = ++epoch.current, origin = context
-      setBusy(true); setRequesting(true); setError('')
+      stopRequests()
+      const current = ++epoch.current, origin = context, owner = {controller:new AbortController(),origin,token:null,ready:false}
+      pending.current = owner
+      const live = () => mounted.current && current === epoch.current && pending.current === owner
+      setBusy(true); setRequesting(true); setError(''); setPreview(null)
       const inputs = Object.fromEntries(Object.entries(origin.inputs).map(([port,input]) => [port,input.packages.map(pkg => pkg.id)]))
       try {
-        if (preview) { tokens.current.delete(preview.id); await origin.host.cancelPreview(preview.id).catch(() => {}); setPreview(null) }
-        const parameters = document ? {document, ...(structural ? {object:structureObject} : {}), ...(operation ? {operation} : {})} : {sequence, ...(object ? {object} : {}), ...(operation ? {operation} : {})}
-        const result = await origin.host.preview(structural ? 'workbench.sequence_structure' : 'workbench.sequence_edit', inputs, parameters, {signal:controller.current.signal})
-        if (!mounted.current || current !== epoch.current) { await origin.host.cancelPreview(result.id); return }
-        tokens.current.add(result.id)
+        const accepted = origin.inputs.source?.packages.some(pkg=>pkg.format === 'workbench.sequence_conditions')
+        if (!accepted && document && (document.structures?.length || document.positions.some(row=>row.coordinates !== null))) throw new Error('Select the accepted editing package before changing coordinate conditions')
+        const parameters = accepted ? {} : document ? {document} : {sequence, ...(object ? {object} : {})}
+        if (structural && (!operation || operation.kind === 'adopt_structure')) {
+          parameters.structure = structureRecord ? {retained:structureRecord} : {input:'structures',object:structureObject}
+          if (structureRecord) delete inputs.structures
+        } else delete inputs.structures
+        if (operation) parameters.operation = operation
+        const result = await origin.host.preview(structural ? 'workbench.sequence_structure' : 'workbench.sequence_edit', inputs, parameters, {signal:owner.controller.signal})
+        owner.token = result.id; tokens.current.set(result.id,origin)
+        if (!live()) return
         if (result.data.document_file) {
-          try {
-            const blob = await origin.host.readPreviewFile(result.id,'edited',result.data.document_file)
-            const actual = JSON.parse(await blob.text())
-            const view = result.data.view_file ? JSON.parse(await (await origin.host.readPreviewFile(result.id,'edited',result.data.view_file)).text()) : []
-            if (!mounted.current || current !== epoch.current) { tokens.current.delete(result.id); await origin.host.cancelPreview(result.id); return }
-            result.data = {...result.data,document:actual}
-            if (view.length) setGeometry(view)
-          } catch (error) { tokens.current.delete(result.id); await origin.host.cancelPreview(result.id).catch(()=>{}); throw error }
+          const blob = await origin.host.readPreviewFile(result.id,'edited',result.data.document_file,{signal:owner.controller.signal})
+          if (!live()) return
+          const actual = JSON.parse(await blob.text())
+          if (!live()) return
+          const view = result.data.view_file ? JSON.parse(await (await origin.host.readPreviewFile(result.id,'edited',result.data.view_file,{signal:owner.controller.signal})).text()) : []
+          if (!live()) return
+          result.data = {...result.data,document:actual}
+          if (view.length) setGeometry(view)
         }
         setDrag(null); dragRef.current=null
         if (load) {
           setDocument(result.data.document); setEnd(String(result.data.document.positions.length)); setSelected([])
-          tokens.current.delete(result.id); await origin.host.cancelPreview(result.id)
-        } else setPreview({...result, origin})
-      } catch(error) { if (mounted.current && current === epoch.current) {setDrag(null);dragRef.current=null;setError(error.message)} }
-      finally { if (mounted.current && current === epoch.current) {setBusy(false);setRequesting(false)} }
+        } else { owner.ready=true; setPreview({...result, origin}) }
+      } catch(error) { if (live()) {setDrag(null);dragRef.current=null;setError(error.message)} }
+      finally {
+        if (!owner.ready && owner.token) void releaseToken(owner.token)
+        if (live()) {pending.current=null;setBusy(false);setRequesting(false)}
+      }
     }
     async function confirm() {
       if (!preview) return
       setBusy(true); setError('')
-      const before = {document, parameters: preview.origin.parameters, bindings: preview.origin.bindings,
+      const before = {document, geometry, structureRecord, parameters: preview.origin.parameters, bindings: preview.origin.bindings,
         connections: preview.origin.edges.filter(edge => edge.target === preview.origin.nodeId)}
       try {
         expectedRevision.current = preview.origin.revision + 1
-        await preview.origin.update({parameters: {}, delivery: {interaction:preview.id,output:'edited',port:'source'}, replaceConnections:['source']})
+        // The admitted context transaction now owns reception of these files.
         tokens.current.delete(preview.id)
+        await preview.origin.update({parameters: {}, delivery: {interaction:preview.id,output:'edited',port:'source'}, replaceConnections:['source']})
         if (!mounted.current) return
         setUndo(previous => [...previous,before]); setDocument(preview.data.document); setPreview(null); setSelected([])
+        const added = (preview.data.document.structures ?? []).filter(record=>!document.structures?.some(old=>old.id === record.id))
+        if (added.length === 1) setStructureRecord(added[0].id)
       } catch(error) { tokens.current.delete(preview.id); await preview.origin.host.cancelPreview(preview.id).catch(()=>{}); if (mounted.current) { expectedRevision.current=null; setError(error.message); setPreview(null) } }
       finally { if (mounted.current) setBusy(false) }
     }
@@ -91,7 +124,7 @@ export function register({React}) {
       try {
         expectedRevision.current = context.revision + 1
         await context.update({parameters:previous.parameters,inputs:{...previous.bindings,source:previous.bindings.source ?? []},replaceConnections:['source'],connections:previous.connections})
-        setDocument(previous.document); setUndo(undo.slice(0,-1)); setSelected([])
+        setDocument(previous.document); setGeometry(previous.geometry); setStructureRecord(previous.structureRecord); setUndo(undo.slice(0,-1)); setSelected([])
       } catch(error) { setError(error.message) }
       finally { if (mounted.current) setBusy(false) }
     }
@@ -102,17 +135,19 @@ export function register({React}) {
     const sourcePositions = [...new Map(geometry.map(atom=>[JSON.stringify([atom.model,atom.chain,atom.author_number,atom.insertion_code,atom.residue_name]),atom])).entries()]
     function move(event) {
       const current = dragRef.current
-      if (!current) return
-      const translation = [(event.clientX-current.x)/10, -(event.clientY-current.y)/10, 0]
-      const next = structuredClone(document)
-      for (const row of next.positions) if (selected.includes(row.id) && row.coordinates) {
+      if (!current || current.pointerId !== event.pointerId || readOnly || busy || preview) return
+      const [x,y] = pointer(event,current.inverse)
+      const translation = [(x-current.x)/current.frame.scale, -(y-current.y)/current.frame.scale, 0]
+      const next = structuredClone(current.base)
+      for (const row of next.positions) if (current.selected.includes(row.id) && row.coordinates) {
         row.coordinates = Object.fromEntries(Object.entries(row.coordinates).map(([name,xyz])=>[name,xyz.map((value,i)=>value+translation[i])]))
       }
       const value = {...current,translation,document:next}
       dragRef.current=value;setDrag(value)
     }
     const points = rows.flatMap(row=>Object.entries(row.coordinates ?? {}).map(([name,xyz])=>({row:row.id,name,xyz})))
-    const projected = xyz => [160+xyz[0]*10+xyz[2]*3,150-xyz[1]*10-xyz[2]*2]
+    const frame = drag?.frame ?? fit([...points.map(point=>point.xyz),...geometry.map(atom=>atom.position)])
+    const projected = xyz => {const [x,y]=project(xyz);return [frame.x+x*frame.scale,frame.y+y*frame.scale]}
 
     const disabled = readOnly || busy || !!preview || !document
     return h('section',{'aria-label':'Sequence and condition editor'},
@@ -128,17 +163,34 @@ export function register({React}) {
             h('td',null,h('input',{type:'checkbox','aria-label':`Select position ${i+1}`,disabled:disabled,checked:selected.includes(row.id),onChange:event=>setSelected(event.target.checked ? [...selected,row.id] : selected.filter(id=>id!==row.id))})),
             h('td',null,i+1),h('td',null,row.residue),h('td',null,row.prompt),h('td',null,String(row.fixed)),h('td',null,JSON.stringify(row.coordinates)),h('td',null,JSON.stringify(row.source ?? null)))))),
         h('section',{'aria-label':'Structure conditions'},
-          field('Structure object ID',structureObject,setStructureObject),
+          h('label',null,'Full structure source',h('select',{'aria-label':'Full structure source',value:structureRecord,disabled:busy || !!preview,onChange:event=>{setStructureRecord(event.target.value);setGeometry([]);setMapping({})}},
+            h('option',{value:''},'Explicit structure input'),...(document.structures ?? []).map((record,i)=>h('option',{key:record.id,value:record.id},`Retained full structure ${i+1}`)))),
+          !structureRecord && field('Structure object ID',structureObject,setStructureObject),
           h('button',{disabled:busy || !!preview,onClick:()=>request(null,true,true)},'Read selected structure'),
           ...['coordinates','residue','fixed'].map(track=>h('label',{key:track},h('input',{type:'checkbox',checked:tracks.includes(track),disabled,onChange:event=>setTracks(event.target.checked?[...tracks,track]:tracks.filter(value=>value!==track))}),`Adopt ${track} track`)),
           ...selected.map(id=>h('label',{key:id},`Source for edit position ${document.positions.findIndex(row=>row.id===id)+1}`,h('select',{value:mapping[id] ?? '',disabled,onChange:event=>setMapping({...mapping,[id]:event.target.value})},h('option',{value:''},'Choose actual structure position'),...sourcePositions.map(([key,atom])=>h('option',{key,value:key},`${atom.chain}:${atom.author_number}${atom.insertion_code} ${atom.residue_name} (model ${atom.model})`))))),
           h('button',{disabled:disabled || !selected.length || !tracks.length || selected.some(id=>!mapping[id]),onClick:()=>request({kind:'adopt_structure',tracks,mapping:selected.map(id=>{const [model,chain,author_number,insertion_code,residue_name]=JSON.parse(mapping[id]);return{edit_position:id,position:{model,chain,author_number,insertion_code,residue_name}}})},false,true)},'Preview local structure adoption'),
           h('p',null,'Drag selected coordinate conditions in the XY plane. Depth is projected diagonally; full source components remain visible in gray.'),
           h('svg',{'aria-label':'Structure condition geometry',width:420,height:300,viewBox:'0 0 420 300',style:{border:'1px solid #778',touchAction:'none',background:'#101b30'},
-            onPointerDown:event=>{if(disabled || !selected.length || !selected.some(id=>document.positions.some(row=>row.id===id && row.coordinates)))return;event.currentTarget.setPointerCapture?.(event.pointerId);dragRef.current={x:event.clientX,y:event.clientY,document};setDrag(dragRef.current)},
+            onPointerDown:event=>{
+              if(disabled || !selected.length || !selected.some(id=>document.positions.some(row=>row.id===id && row.coordinates)))return
+              const matrix=event.currentTarget.getScreenCTM?.()
+              if(!matrix){setError('The coordinate viewport is not visible');return}
+              const inverse=matrix.inverse(),[x,y]=pointer(event,inverse)
+              if(!Number.isFinite(x)||!Number.isFinite(y))return
+              event.currentTarget.setPointerCapture?.(event.pointerId)
+              dragRef.current={x,y,pointerId:event.pointerId,inverse,frame,base:document,selected:[...selected],document}
+              setDrag(dragRef.current)
+            },
             onPointerMove:move,
             onPointerCancel:()=>{dragRef.current=null;setDrag(null)},
-            onPointerUp:event=>{if(!dragRef.current)return;move(event);const value=dragRef.current;if(value.translation?.some(number=>number!==0))void request({kind:'transform_coordinates',positions:selected,rotation:[[1,0,0],[0,1,0],[0,0,1]],translation:value.translation},false,true);else{dragRef.current=null;setDrag(null)}}},
+            onPointerUp:event=>{
+              if(!dragRef.current || dragRef.current.pointerId!==event.pointerId)return
+              move(event);const value=dragRef.current;dragRef.current=null
+              event.currentTarget.releasePointerCapture?.(event.pointerId)
+              if(!readOnly && !busy && !preview && value.translation?.some(number=>number!==0))void request({kind:'transform_coordinates',positions:value.selected,rotation:[[1,0,0],[0,1,0],[0,0,1]],translation:value.translation},false,true)
+              else setDrag(null)
+            }},
             ...geometry.map(atom=>{const [cx,cy]=projected(atom.position);return h('circle',{key:'source'+atom.index,cx,cy,r:3,fill:'#7c8599'})}),
             ...points.map(point=>{const [cx,cy]=projected(point.xyz);return h('circle',{key:point.row+point.name,'data-condition-atom':point.row+':'+point.name,cx,cy,r:6,fill:selected.includes(point.row)?'#ffb347':'#50d9fa'},h('title',null,`${point.name}: ${point.xyz.join(', ')}`))})),
           h('button',{disabled:disabled || !selected.length,onClick:()=>request({kind:'update',positions:selected,changes:{coordinates:null}})},'Preview clear coordinates')),

@@ -52,16 +52,25 @@ def interaction(call, runtime):
     kind = operation.get('kind')
     view = []
     if kind in (None, 'adopt_structure'):
+        selection = call.parameters.get('structure')
+        if not isinstance(selection, dict):
+            raise ValueError('Select an explicit input structure object or retained structure record')
         sources = call.inputs.get('structures', ())
-        if sources:
+        record = None
+        if set(selection) == {'input', 'object'} and selection['input'] == 'structures' and isinstance(selection['object'], str) and selection['object'] and len(sources) == 1:
             source = sources[0]
-        else:
-            matches = [record for record in document.get('structures', []) if record['object'] == call.parameters.get('object')]
+            object_id = selection['object']
+        elif set(selection) == {'retained'} and isinstance(selection['retained'], str) and selection['retained'] and not sources:
+            matches = [item for item in document.get('structures', []) if item['id'] == selection['retained']]
             current = call.inputs.get('source', ())
             if len(matches) != 1 or not current or current[0].format != 'workbench.sequence_conditions':
-                raise ValueError('Select one explicitly delivered structure package or one retained structure object')
-            source = RetainedStructure(current[0], matches[0])
-        structure = read_structure(source, call.parameters.get('object'))
+                raise ValueError('Selected retained structure record is unavailable or ambiguous')
+            record = matches[0]
+            source = RetainedStructure(current[0], record)
+            object_id = record['object']
+        else:
+            raise ValueError('Select one explicit input structure object or retained record, with matching inputs')
+        structure = read_structure(source, object_id)
         actual = positions(structure)
         view = atoms(structure)
         if kind == 'adopt_structure':
@@ -73,7 +82,7 @@ def interaction(call, runtime):
                 raise ValueError('Select an explicit region mapping to current edit positions')
             by_id = {row['id']:row for row in document['positions']}
             used = set()
-            record_id = uuid4().hex
+            record_id = record['id'] if record else uuid4().hex
             for item in mapping:
                 identity = item.get('edit_position')
                 selected = item.get('position')
@@ -107,15 +116,16 @@ def interaction(call, runtime):
                 row['prompt'] = row['residue'] if row['fixed'] else '_'
                 row['structure_position'] = {'structure':record_id, 'position':{key:position[key] for key in ('model','chain','author_number','insertion_code','residue_name')}}
                 used.add(identity)
-            retained = {}
-            for key in source.files:
-                name = uuid4().hex
-                destination = record_id + '/' + key
-                with source.open(key) as reader, (runtime.workdir / name).open('wb') as writer:
-                    copyfileobj(reader, writer)
-                files[destination] = name
-                retained[key] = destination
-            document.setdefault('structures', []).append({'id':record_id,'object':call.parameters.get('object'), 'format':source.format,'entry':retained[source.entry],'files':retained})
+            if record is None:
+                retained = {}
+                for key in source.files:
+                    name = uuid4().hex
+                    destination = record_id + '/' + key
+                    with source.open(key) as reader, (runtime.workdir / name).open('wb') as writer:
+                        copyfileobj(reader, writer)
+                    files[destination] = name
+                    retained[key] = destination
+                document.setdefault('structures', []).append({'id':record_id,'object':object_id, 'format':source.format,'entry':retained[source.entry],'files':retained})
     elif kind == 'transform_coordinates':
         selected = operation.get('positions')
         rows = {row['id']:row for row in document['positions']}

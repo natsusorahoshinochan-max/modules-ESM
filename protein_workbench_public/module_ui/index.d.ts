@@ -30,7 +30,7 @@ export interface ModuleHost {
   connect(edge: Edge): Promise<void>
   preview(interaction: string, inputs: Record<string, string[]>, parameters: Record<string, unknown>, options?: {signal?: AbortSignal}): Promise<InteractionPreview>
   cancelPreview(id: string): Promise<void>
-  readPreviewFile(id: string, output: string, key: string): Promise<Blob>
+  readPreviewFile(id: string, output: string, key: string, options?: {signal?: AbortSignal}): Promise<Blob>
   readFile(packageId: string, key: string): Promise<Blob>
 }
 export interface ModuleActionProps { host: ModuleHost }

@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises'
 const comparisonSource = await readFile(new URL('../../modules/structure_comparison/ui.js', import.meta.url), 'utf8')
 const { register: registerComparison } = await import(`data:text/javascript;base64,${Buffer.from(comparisonSource).toString('base64')}`)
+const sequenceSource = await readFile(new URL('../../modules/sequence_edit/ui.js', import.meta.url), 'utf8')
+const { register: registerSequence } = await import(`data:text/javascript;base64,${Buffer.from(sequenceSource).toString('base64')}`)
 export const runtime = { react: 19 }
 export function register({ React }) {
   const ComparisonEditor = registerComparison({ React }).editors[0].component
-  return { editors: [{ node: 'test.region', component: function RegionEditor(props) {
+  return { editors: [{ node: 'test.sequence', component: registerSequence({React}).editors[0].component }, { node: 'test.region', component: function RegionEditor(props) {
     return React.createElement('div', null, React.createElement(ComparisonEditor, props),
       React.createElement('button', { onClick: () => props.onChange({ subject_selection: { chains: ['Q'] } }) }, 'Replace accepted region'))
   } }, { node: 'test.editor', component: function Editor({context, parameters, onChange}) {

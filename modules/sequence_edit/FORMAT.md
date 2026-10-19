@@ -25,7 +25,7 @@ Example:
 
 ## Interaction and confirmation
 
-The interaction accepts an optional `source` package of either format. Multiple sequence objects require the explicit `object` parameter. With no package, `sequence` supplies explicit initial content. The `document` parameter supplies the complete current editing draft for subsequent operations. `operation.kind` is `insert`, `delete`, `update`, `reorder` or `random_insert`; positions are selected by their editing IDs. Invalid or unavailable inputs fail with a specific reason.
+The interaction accepts an optional `source` package of either format. Multiple sequence objects require the explicit `object` parameter. With no package, `sequence` supplies explicit initial content. An accepted `workbench.sequence_conditions` source is the sole current scientific base: subsequent requests send that package and only the next `operation`. Its coordinates and retained files are read from the package, without uploading the complete document again. Before the first editing-package acceptance, `document` may carry a coordinate-free initial draft to preserve its loaded position IDs. Inline documents containing coordinates or retained structures, or supplied alongside an accepted editing source, are rejected. `operation.kind` is `insert`, `delete`, `update`, `reorder` or `random_insert`; positions are selected by their editing IDs. Invalid or unavailable inputs fail with a specific reason.
 
 The editor loads current content, previews an operation and displays actual positions and conditions. Confirmation receives the exact preview delivery and updates the existing node's `source` binding; an existing source connection is explicitly replaced in the same draft change. Cancel discards the preview. Undo restores the prior document, parameters, input bindings and incoming connection without invoking the random operation again. Confirmation and undo mark the project unsaved; the user saves workflow and layout with the host's save control.
 
@@ -39,11 +39,14 @@ dependency. Structure processing has no editing dependency.
 
 The optional `structures` input accepts `workbench.structure_set` or
 `workbench.prediction`. `workbench.sequence_structure` reads this explicitly
-selected package and the current `document` (or `source` editing package).
-`object` selects one structure object. With no operation it returns the current
-edit document and full atom view through temporary files. If `structures` is
-unbound, `object` may select one unambiguous retained structure inside the
-explicit `source` editing package.
+selected package and the current editing base. `structure` selects exactly one
+source: `{input: "structures", object: "actual-object-id"}` addresses the explicitly
+bound structure package; `{retained: "actual-record-id"}` addresses one record in
+the accepted editing source, with `structures` omitted from that request. The
+retained record supplies its own package object ID. With no operation the
+interaction returns the current edit document and full atom view through
+temporary files. Duplicate object IDs in different retained records remain
+independently selectable by record identity.
 
 `operation.kind: "adopt_structure"` requires a nonempty `mapping` array of
 `{edit_position, position}`. `edit_position` is a current editing position ID;
@@ -59,12 +62,14 @@ structure preparation is required otherwise.
 Accepted documents optionally contain `structures`, each with an independent
 `id`, selected `object`, original package `format`, retained `entry` key, and
 `files` mapping original package keys to retained editing-package keys. Every
-original package file is independently copied, including the complete structure,
+external original package file is independently copied, including the complete structure,
 components and source research files. Position `structure_position` records the
 retained structure ID and complete actual component position. Ordinary sequence
 edits retain these files; insertion, deletion and reordering preserve current
 position identities and their attached conditions. Source structures remain
-independent of adopted coordinates.
+independent of adopted coordinates. Every explicit external adoption creates its
+own record. Adopting from an explicitly selected retained record reuses that
+same record and file map; position links name the record actually selected.
 
 `operation.kind: "transform_coordinates"` takes explicit current `positions`,
 proper 3×3 `rotation`, and three-value Å `translation`. It transforms current
@@ -75,11 +80,19 @@ history is stored or replayed. Clearing uses the ordinary position update with
 Structure interactions return `{document_file, view_file, position_count}` with
 output `edited`. Ordinary editing also returns `document_file` when coordinates
 or retained structures are present. Read files through
-`host.readPreviewFile(preview.id, "edited", key)` before ending the preview.
+`host.readPreviewFile(preview.id, "edited", key, {signal})` before ending the preview.
+One request owns its token and cancellation signal throughout execution and file
+reading. Cancel aborts the download and immediately ends the known preview;
+confirmation transfers the ready token to the existing guarded file-receipt
+transaction. Active backend readers finish or disconnect before their files are
+released.
 The UI shows full source atoms separately from current condition coordinates.
 Select editing positions and explicit source positions/tracks for local adoption.
-Dragging selected coordinates translates them in the displayed XY plane, with
-Z projected diagonally. Geometry changes during pointer movement; pointer release
+The viewport fits current conditions and full source geometry without changing
+scientific coordinates. Dragging selected coordinates translates them in the
+displayed XY plane, with Z projected diagonally. A gesture retains its fitted
+frame and uses the actual SVG screen transform, including CSS scaling and
+letterboxing. Geometry changes during pointer movement; pointer release
 requests the exact backend preview. Confirm receives that preview; cancel restores
 accepted coordinates. Undo restores the prior document and input bindings.
 Read-only input inspection remains available during a project run.
