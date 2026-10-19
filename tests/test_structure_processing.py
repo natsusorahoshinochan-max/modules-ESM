@@ -2,6 +2,7 @@
 import json
 
 import gemmi
+import pytest
 from fastapi.testclient import TestClient
 from protein_workbench_public.bootstrap import create_application
 from tests.test_sequence_io import upload
@@ -72,6 +73,170 @@ def test_public_operations_resolve_altloc_components_and_leave_input_unchanged()
     assert atoms(moved)[0]['position'] == [1, 6, 3]
     assert atoms(fragment)[0]['position'] == [2, 2, 3]
     assert atoms(structure)[5]['position'] == [2, 2, 3]
+
+
+def test_selected_rigid_transform_rotates_anisotropic_displacement_with_coordinates(tmp_path):
+    from modules.structure_io import encode, parse, transform
+
+    raw = gemmi.read_pdb_string(research())
+    del raw[1]
+    for chain in raw[0]:
+        chain[0][0].aniso = gemmi.SMat33f(.01, .02, .03, .004, .005, .006)
+    original = raw.make_mmcif_document().as_string().encode()
+    source_file = tmp_path / 'source.cif'
+    source_file.write_bytes(original)
+    source = parse(source_file.read_bytes(), 'mmcif')
+    rotation = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
+    moved = transform(source, rotation, [10, 20, 30], {'chains': ['X']})
+    def tensor(atom):
+        return list(atom.aniso.elements_pdb())
+    for encoding in ('mmcif', 'pdb'):
+        actual = parse(encode(moved, encoding), encoding)
+        assert list(actual[0]['X'][0][0].pos) == [8, 21, 33]
+        assert tensor(actual[0]['X'][0][0]) == pytest.approx([.02, .01, .03, -.004, -.006, .005], abs=1e-7)
+        assert list(actual[0]['M'][0][0].pos) == [7, 8, 9]
+        assert tensor(actual[0]['M'][0][0]) == pytest.approx([.01, .02, .03, .004, .005, .006], abs=1e-7)
+    translated = transform(source, [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [3, 2, 1], {'chains': ['X']})
+    assert tensor(translated[0]['X'][0][0]) == tensor(source[0]['X'][0][0])
+    assert list(source[0]['X'][0][0].pos) == [1, 2, 3]
+    assert tensor(source[0]['X'][0][0]) == pytest.approx([.01, .02, .03, .004, .005, .006])
+    assert source_file.read_bytes() == original
+
+
+def test_extracted_polymer_declares_only_selected_positions_for_independent_comparison(tmp_path):
+    from tests.test_comparison import pdb
+
+    original = b'SEQRES   1 X    5  ALA ALA ALA ALA ALA\n' + pdb()
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Fragment sequence'}).json()['id']
+        raw = upload(client, project, 'workbench.structure_file', {
+            'manifest.json': json.dumps({'name': 'source.pdb', 'file': 'raw', 'format': 'pdb'}).encode(), 'raw': original,
+        })
+        imported_result = run(client, project, 'workbench.import_structure', {'file': [raw['id']]}, {'models': 1})
+        source = imported_result['outputs']['structures'][0]
+        obj = client.get(f'/api/packages/{source}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        fragment = run(client, project, 'workbench.extract_structure', {'structures': [source]}, {
+            'object': obj['id'], 'format': 'mmcif', 'selection': {'atoms': [0, 2, 4]},
+        })
+        assert fragment['status'] == 'succeeded', fragment
+        package = fragment['outputs']['structures'][0]
+        result = client.get(f'/api/packages/{package}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        content = client.get(f'/api/packages/{package}/file', params={'key': result['structure']['file']}).content
+        actual = gemmi.make_structure_from_block(gemmi.cif.read_string(content.decode()).sole_block())
+        assert [list(entity.full_sequence) for entity in actual.entities] == [['ALA', 'ALA', 'ALA']]
+        assert [str(residue.seqid) for residue in actual[0]['X']] == ['12', '14', '20']
+        assert [residue.label_seq for residue in actual[0]['X']] == [1, 2, 3]
+        compared = run(client, project, 'workbench.compare', {'subject': [package], 'reference': [package]}, {})
+        assert compared['status'] == 'succeeded', compared
+        assert client.get(f'/api/packages/{package}/file', params={'key': 'original.pdb'}).content == original
+        converted = run(client, project, 'workbench.export_structure', {'structures': [source]}, {'object': obj['id'], 'format': 'mmcif'})
+        output = converted['outputs']['structures'][0]
+        full = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        content = client.get(f'/api/packages/{output}/file', params={'key': full['structure']['file']}).content
+        full_structure = gemmi.make_structure_from_block(gemmi.cif.read_string(content.decode()).sole_block())
+        assert [list(entity.full_sequence) for entity in full_structure.entities] == [['ALA'] * 5]
+
+
+def test_selected_export_splits_shared_polymer_entities_and_preserves_other_components(tmp_path):
+    from tests.test_comparison import pdb
+
+    structure = gemmi.read_pdb_string(pdb())
+    other = structure[0]['X'].clone()
+    other.name = 'Y'
+    structure[0].add_chain(other)
+    polymer = gemmi.Entity('shared')
+    polymer.entity_type = gemmi.EntityType.Polymer
+    polymer.polymer_type = gemmi.PolymerType.PeptideL
+    polymer.subchains = ['Xp', 'Yp']
+    polymer.full_sequence = ['ALA'] * 5
+    structure.entities.append(polymer)
+    for chain_name in ('X', 'Y'):
+        for index, residue in enumerate(structure[0][chain_name], 1):
+            residue.subchain = chain_name + 'p'
+            residue.entity_id = 'shared'
+            residue.entity_type = gemmi.EntityType.Polymer
+            residue.label_seq = index
+    water = gemmi.Entity('water')
+    water.entity_type = gemmi.EntityType.Water
+    water.subchains = ['Ww']
+    structure.entities.append(water)
+    structure[0]['W'][0].subchain = 'Ww'
+    structure[0]['W'][0].entity_id = 'water'
+    structure[0]['W'][0].entity_type = gemmi.EntityType.Water
+    original = structure.make_mmcif_document().as_string().encode()
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Shared entity fragments'}).json()['id']
+        raw = upload(client, project, 'workbench.structure_file', {
+            'manifest.json': json.dumps({'name': 'shared.cif', 'file': 'raw', 'format': 'mmcif'}).encode(), 'raw': original,
+        })
+        result = run(client, project, 'workbench.import_structure', {'file': [raw['id']]}, {'models': 1})
+        source = result['outputs']['structures'][0]
+        obj = client.get(f'/api/packages/{source}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        for encoding in ('mmcif', 'pdb'):
+            exported = run(client, project, 'workbench.export_structure', {'structures': [source]}, {
+                'object': obj['id'], 'format': encoding, 'atoms': [0, 2, 4, 5, 6, 7],
+            })
+            assert exported['status'] == 'succeeded', exported
+            output = exported['outputs']['structures'][0]
+            selected = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+            content = client.get(f'/api/packages/{output}/file', params={'key': selected['structure']['file']}).content
+            actual = gemmi.read_pdb_string(content) if encoding == 'pdb' else gemmi.make_structure_from_block(gemmi.cif.read_string(content.decode()).sole_block())
+            polymers = [entity for entity in actual.entities if entity.entity_type == gemmi.EntityType.Polymer]
+            assert sorted(len(entity.full_sequence) for entity in polymers) == [2, 3]
+            assert [str(residue.seqid) for residue in actual[0]['X']] == ['12', '14', '20']
+            assert [str(residue.seqid) for residue in actual[0]['Y']] == ['12', '12A']
+            assert actual[0]['W'][0].name == 'HOH' and actual[0].count_atom_sites() == 6
+            if encoding == 'mmcif':
+                assert [residue.label_seq for residue in actual[0]['X']] == [1, 2, 3]
+                assert [residue.label_seq for residue in actual[0]['Y']] == [1, 2]
+                assert actual[0]['X'][0].entity_id != actual[0]['Y'][0].entity_id
+                assert actual[0]['W'][0].entity_type == gemmi.EntityType.Water
+            assert client.get(f'/api/packages/{output}/file', params={'key': 'original.cif'}).content == original
+    assert list(structure.entities[0].full_sequence) == ['ALA'] * 5
+    assert [residue.label_seq for residue in structure[0]['X']] == [1, 2, 3, 4, 5]
+
+
+def test_fragment_keeps_microheterogeneous_components_at_one_local_sequence_position():
+    from modules.structure_io import encode, extract, parse
+
+    source = parse(research(), 'pdb')
+    del source[1]
+    first = source[0]['X'][0]
+    first.entity_type = gemmi.EntityType.Polymer
+    first.entity_id = 'polymer'
+    first.subchain = 'Xp'
+    first.label_seq = 4
+    first[0].altloc = 'A'
+    alternative = first.clone()
+    alternative.name = 'SER'
+    alternative[0].altloc = 'B'
+    source[0]['X'].add_residue(alternative)
+    entity = gemmi.Entity('polymer')
+    entity.entity_type = gemmi.EntityType.Polymer
+    entity.polymer_type = gemmi.PolymerType.PeptideL
+    entity.subchains = ['Xp']
+    entity.full_sequence = ['GLY', 'GLY', 'GLY', 'ALA,SER']
+    source.entities.append(entity)
+    fragment = extract(source, {'chains': ['X']})
+    actual = parse(encode(fragment, 'mmcif'), 'mmcif')
+    assert list(actual.entities[0].full_sequence) == ['ALA,SER']
+    assert [(residue.name, str(residue.seqid), residue.label_seq, residue[0].altloc) for residue in actual[0]['X']] == [
+        ('ALA', '12A', 1, 'A'), ('SER', '12A', 1, 'B'),
+    ]
+    assert list(source.entities[0].full_sequence) == ['GLY', 'GLY', 'GLY', 'ALA,SER']
+    assert source[0]['X'][0].label_seq == 4
+
+
+def test_extract_rejects_unbound_mmcif_polymer_declaration_without_guessing_membership():
+    from modules.structure_io import extract, parse
+    from tests.test_comparison import pdb
+
+    source = gemmi.read_pdb_string(b'SEQRES   1 X    5  ALA ALA ALA ALA ALA\n' + pdb())
+    source.entities[0].name = 'unbound'
+    actual = parse(source.make_mmcif_document().as_string().encode(), 'mmcif')
+    with pytest.raises(ValueError, match='cannot associate an unbound polymer entity'):
+        extract(actual, {'atoms': [0, 1, 2]})
+    assert list(actual.entities[0].full_sequence) == ['ALA'] * 5
 
 
 def test_invalid_selections_and_nonrigid_transforms_fail_with_source_available(tmp_path):

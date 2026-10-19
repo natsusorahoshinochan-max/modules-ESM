@@ -87,9 +87,16 @@ The public Python entry `modules.structure_io` exports:
   exactly one actual component. All its atoms and alternate locations are
   selected. Missing or ambiguous selections fail in full.
 - `extract(structure, selection)` returns a clone containing only selected atoms.
+  Its current polymer entities describe the retained residue groups, with local
+  sequence labels; separate subchains can retain different fragments of a shared
+  source entity. Alternate components at one residue position share one label.
+  Ambiguous polymer membership or different retained groups for the same
+  subchain across models fail with a specific explanation.
 - `transform(structure, rotation, translation, selection=None)` returns a clone
   retaining every atom. Selected atoms receive `rotation @ xyz + translation`;
-  all others retain their coordinates. The finite 3×3 matrix is a proper
+  their anisotropic displacement tensors receive `rotation @ U @ rotation.T`.
+  Translation leaves these tensors unchanged; unselected atoms retain both
+  coordinates and tensors. The finite 3×3 matrix is a proper
   orthonormal rotation (tolerance 1e-6), applied about the coordinate origin;
   translation is three finite values in Å. Reflections, scale and shear fail.
   Omitting the selection selects all atoms.
