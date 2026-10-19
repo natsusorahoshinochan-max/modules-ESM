@@ -53,6 +53,39 @@ def provider_settings(tmp_path):
     return {'protein_sol_source': str(root), 'bash': '/bin/bash', 'perl': '/usr/bin/perl'}
 
 
+def test_protein_sol_cli_accepts_http_data_root_with_spaces(tmp_path):
+    settings = provider_settings(tmp_path)
+    # Keep the official shell's unquoted input expansion at the actual CLI seam;
+    # isolate only its scientific calculation with a lightweight process provider.
+    from pathlib import Path
+    (Path(settings['protein_sol_source']) / 'multiple_prediction_wrapper_export.sh').write_text('''FASTA_in=$1
+cp $FASTA_in reformat.in
+test "$(cat reformat.in)" = "$(printf '>item0\\nACDEFGHIKLMNPQRSTVWYA')"
+test "$MEMBRANE_EXCLUDE" = YES
+test "$his_charged" = yes
+printf 'SEQUENCE PREDICTIONS,>item0,52.5,.438,.446,5.7\\n' > seq_prediction.txt
+''')
+    source = {'id': 'actual / research identity', 'sequence': 'ACDEFGHIKLMNPQRSTVWYA', 'source': {'name': 'research.fa'}}
+    data_root = tmp_path / 'application data root'
+    with TestClient(create_application(data_root=data_root)) as client:
+        client.put('/api/modules/workbench.solubility/settings', json={'settings': settings}).raise_for_status()
+        project = client.post('/api/projects', json={'name': 'Spaced data root'}).json()['id']
+        package = upload(client, project, 'workbench.sequence', {'manifest.json': json.dumps({'objects': [source]}).encode()})
+        flow = {'nodes': [{'id': 'e', 'type': 'workbench.evaluate_solubility', 'inputs': {'sequence': [package['id']]},
+            'tools': {'evaluator': 'workbench.protein_sol'}, 'tool_parameters': {'evaluator': {'membrane_exclude': True, 'histidine_charged': True}}}], 'edges': []}
+        client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {}}).raise_for_status()
+        run = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        assert run['status'] == 'succeeded', run
+        output = run['nodes']['e']['outputs']['evaluation'][0]
+    with TestClient(create_application(data_root=data_root)) as client:
+        document = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()
+        assert document['objects'] == [source]
+        assert document['evaluations'][0]['object_id'] == source['id']
+        assert document['evaluations'][0]['values']['percent_solubility']['value'] == 52.5
+        assert document['tool']['parameters'] == {'membrane_exclude': True, 'histidine_charged': True}
+        assert client.get(f'/api/packages/{output}/file', params={'key': 'tool-output.txt'}).content == b'SEQUENCE PREDICTIONS,>item0,52.5,.438,.446,5.7\n'
+
+
 def test_public_evaluation_reader_rejects_missing_tool_description_and_output(tmp_path):
     import pytest
     from modules.solubility.formats import read_evaluations
