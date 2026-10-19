@@ -124,3 +124,5 @@ workbench_note_consumer:module
 独立结构比较入口为 `modules.structure_comparison:module`；参考输入、结果包和明确复用接口见 [比较格式](../modules/structure_comparison/FORMAT.md)。该消费者直接读取预测格式，查看叠合只需要结果包内的双方完整结构、对齐和全部原子坐标。
 
 完整实例为 `modules.folding:module`：调用约定见 [预测工具插槽](../modules/folding/TOOL.md)，独立数据读取说明与样例见 [预测格式](../modules/folding/FORMAT.md)。
+
+显式转换及独立目标格式消费者见 `modules.structure_conversion:module` 的 [格式与接入说明](../modules/structure_conversion/FORMAT.md)，其比较执行明确依赖 `protein-workbench` 分发包提供的比较公共入口。
