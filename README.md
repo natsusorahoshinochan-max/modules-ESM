@@ -66,10 +66,4 @@ Python 源码包和 wheel：
 npm --prefix webui test
 ```
 
-界面事件与公共模块操作的回归测试使用 Node.js 22.15 及以上：
-
-```bash
-npm --prefix webui test
-```
-
 真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
