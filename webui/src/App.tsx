@@ -62,11 +62,13 @@ export default function App() {
     try { setExtensions(await loadExtensions(next.modules)) } catch (failure) { setExtensions({}); fail(failure) }
     setProjects(await client.projects())
   }
-  useEffect(() => { refresh().then(() => openTutorial()).catch(fail) }, [])
+  useEffect(() => { refresh().then(() => openTutorial(true)).catch(fail) }, [])
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyNow.current) { event.preventDefault(); event.returnValue = '' } }
+    const pageHide = (event: PageTransitionEvent) => { if (!event.persisted) void discardDraftInputs() }
     window.addEventListener('beforeunload', beforeUnload)
-    return () => window.removeEventListener('beforeunload', beforeUnload)
+    window.addEventListener('pagehide', pageHide)
+    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('pagehide', pageHide); void discardDraftInputs() }
   }, [])
   function change(update: (current: Project) => Project) {
     if (runningNow.current || deletingProject.current === currentProject.current?.id) throw new Error('Project is running or being deleted')
@@ -74,8 +76,10 @@ export default function App() {
     currentProject.current = update(currentProject.current)
     setProject(currentProject.current); markDirty(true); setNotice('')
   }
-  async function openTutorial() {
+  async function openTutorial(automatic = false) {
+    const request = opening.current
     const example = await client.tutorial()
+    if (automatic && (request !== opening.current || currentProject.current)) return
     await open(example.id)
   }
   async function open(id: string, approvedRevision?: number) {
@@ -89,6 +93,7 @@ export default function App() {
     projectSession.current += 1; currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
     setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); setError('')
+    return true
   }
   async function createProject() {
     if (dirtyNow.current && !window.confirm('Discard unsaved changes and create a project?')) return
@@ -135,15 +140,17 @@ export default function App() {
       const copied = await client.copy(snapshot, projectName)
       setProjects(items => [...items, copied])
       if (session !== projectSession.current || draftRevision.current !== revision) return
-      await open(copied.id, revision)
-      setNotice('Project copied with independent inputs and no runs')
-    } finally { savingNow.current = false; setSaving(false) }
+      if (await open(copied.id, revision)) setNotice('Project copied with independent inputs and no runs')
+    } catch (failure) { if (session === projectSession.current) throw failure }
+    finally { savingNow.current = false; setSaving(false) }
   }
   async function run() {
     if (!project) return
+    const session = projectSession.current
     if (dirtyNow.current || currentProject.current?.tutorial) {
       if (!window.confirm('Save changes and run?')) return
       const saved = await save()
+      if (!saved && session !== projectSession.current) return
       if (!saved) throw new Error('Project changed while saving; save again before running')
     }
     const runProject = currentProject.current

@@ -5,8 +5,8 @@ export interface ToolDeclaration { id: string; name: string; module_id: string; 
 export interface ModuleRecord { available?: boolean; load_error?: string; id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }
 export interface Catalog { nodes: NodeDeclaration[]; modules: ModuleRecord[]; tools?: ToolDeclaration[] }
 export interface Run { id: string; status: string; diagnostics: string[]; nodes: Record<string, { status: string; outputs: Record<string, string[]>; diagnostics: string[] }> }
-async function json<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
-  const response = await fetch('/api' + path, { method, headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+async function json<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', keepalive = false): Promise<T> {
+  const response = await fetch('/api' + path, { method, keepalive, headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
   const result = await response.json()
   if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : JSON.stringify(result.detail))
   return result as T
@@ -14,7 +14,7 @@ async function json<T>(path: string, body?: unknown, method = body === undefined
 export const client = {
   tutorial: () => json<Project>('/tutorial'),
   copy: (project: Project, name: string) => json<Project>(`/projects/${project.id}/copies`, { name, flow: project.flow, layout: project.layout }),
-  discardDraftInput: (id: string) => json(`/draft-inputs/${encodeURIComponent(id)}`, undefined, 'DELETE'),
+  discardDraftInput: (id: string) => json(`/draft-inputs/${encodeURIComponent(id)}`, undefined, 'DELETE', true),
   catalog: () => json<Catalog>('/catalog'),
   projects: () => json<Project[]>('/projects'),
   createProject: (name: string) => json<Project>('/projects', { name }),

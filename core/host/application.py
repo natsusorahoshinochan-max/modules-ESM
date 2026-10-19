@@ -373,7 +373,7 @@ class Workbench:
 
     def adopt(self, target_project_id, source_package_id):
         """Copy every declared file without interpreting module-owned content."""
-        with self._project_operation([target_project_id, self._get("package", source_package_id)["project_id"]], mutable=[target_project_id]):
+        with self._project_operation([target_project_id, self.package(source_package_id).metadata()["project_id"]], mutable=[target_project_id]), self._draft_lock:
             from .storage import copy_package
             self._get("project", target_project_id)
             source = self.package(source_package_id)
@@ -420,7 +420,7 @@ class Workbench:
 
     def export_package(self, package_id):
         """Materialize a closed ZIP; the caller owns removal after delivery."""
-        with self._project_operation([self._get("package", package_id)["project_id"]]):
+        with self._project_operation([self.package(package_id).metadata()["project_id"]]), self._draft_lock:
             from .storage import export_package
             return export_package(self.package(package_id), self._work)
 

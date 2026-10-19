@@ -1,5 +1,10 @@
 """Tutorial drafts and copied projects own independent inputs through public HTTP."""
 from copy import deepcopy
+import sqlite3
+
+import pytest
+
+from tests.run_helpers import wait_response
 
 from fastapi.testclient import TestClient
 
@@ -78,16 +83,20 @@ def test_copy_reopens_with_adopted_and_selected_result_inputs_after_sources_dele
         flow = {'nodes': [node], 'edges': []}
         layout = {'encode': {'x': 12, 'y': 87}}
         client.put(f'/api/projects/{source}', json={'flow': flow, 'layout': layout})
-        result = client.post(f'/api/projects/{source}/runs', json={}).json()
+        result = wait_response(client, client.post(f'/api/projects/{source}/runs', json={})).json()
         selected = result['nodes']['encode']['outputs']['result'][0]
+        wait_response(client, client.post(f'/api/projects/{source}/runs', json={}))
+        assert len(client.get(f'/api/projects/{source}/packages').json()) == 3
         node.update(tools={'slot': 'chosen.tool'}, tool_parameters={'slot': {'seed': 0}})
         # The selected historical result is now an explicit input; other output is excluded.
         flow['nodes'].append({'id': 'later', 'type': 'missing.consumer', 'parameters': {}, 'inputs': {'items': [selected, adopted]}})
+        flow['edges'] = [{'source': 'encode', 'source_port': 'result', 'target': 'later', 'target_port': 'items'}]
         client.put(f'/api/projects/{source}', json={'flow': flow, 'layout': layout})
         response = client.post(f'/api/projects/{source}/copies', json={'name': 'Independent copy'})
         assert response.status_code == 200, response.text
         copied = response.json()
         assert copied['layout'] == layout
+        assert copied['flow']['edges'] == flow['edges']
         assert copied['flow']['nodes'][0]['parameters'] == {'suffix': '!'}
         assert copied['flow']['nodes'][0]['tools'] == {'slot': 'chosen.tool'}
         assert copied['flow']['nodes'][0]['tool_parameters'] == {'slot': {'seed': 0}}
@@ -102,10 +111,6 @@ def test_copy_reopens_with_adopted_and_selected_result_inputs_after_sources_dele
         assert len(reopened.get(f"/api/projects/{copied['id']}/packages").json()) == 2
         assert reopened.get(f"/api/packages/{bound[0]['inputs']['source'][0]}/file", params={'key': 'request'}).content == b'research input'
         assert reopened.get(f"/api/packages/{bound[1]['inputs']['items'][0]}/file", params={'key': 'entry.bin'}).content == b'research input!'
-
-
-import sqlite3
-import pytest
 
 
 @pytest.mark.parametrize('failure', ['write', 'commit', 'file'])
@@ -155,3 +160,24 @@ def test_tutorial_original_rejects_mutation_and_retains_template_without_modules
         copied = client.post('/api/projects/tutorial/copies', json={'name': 'Continue offline'})
         assert copied.status_code == 200
         assert copied.json()['missing_modules'] == ['workbench.predict']
+
+
+def test_temporary_teaching_input_can_be_viewed_exported_and_adopted_before_save(tmp_path):
+    import io
+    import json
+    import zipfile
+
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        client.get('/api/tutorial')
+        temporary = _input(client, 'tutorial', b'temporary research')
+        archive = client.get(f'/api/packages/{temporary}/export.zip')
+        assert archive.status_code == 200, archive.text
+        with zipfile.ZipFile(io.BytesIO(archive.content)) as zipped:
+            manifest = json.loads(zipped.read('package.json'))
+            assert manifest['format'] == 'independent.request'
+            assert zipped.read(manifest['files'][0]['member']) == b'temporary research'
+        target = client.post('/api/projects', json={'name': 'Explicit adoption'}).json()['id']
+        adopted = client.post(f'/api/projects/{target}/adoptions', json={'package_id': temporary})
+        assert adopted.status_code == 200, adopted.text
+        client.delete(f'/api/draft-inputs/{temporary}')
+        assert client.get(f"/api/packages/{adopted.json()['id']}/file", params={'key': 'request'}).content == b'temporary research'
