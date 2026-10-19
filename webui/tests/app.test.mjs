@@ -896,3 +896,33 @@ test('a rejected poll from before start cannot replace the current run with an e
   assert.equal(container.querySelector('[role=alert]'), null)
   assert.equal(button('Save project').disabled, true)
 })
+
+test('cancellation waits until a lost-response run is identified by the current poll', async () => {
+  const previousFetch = globalThis.fetch
+  const identify = deferred()
+  const run = { id: 'lost-response-run', status: 'running', nodes: {}, diagnostics: [] }
+  const cancellations = []
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path === '/api/projects/a/runs') {
+      if (options.method === 'POST') throw new Error('accepted start response lost')
+      await identify.promise
+      return Response.json([run])
+    }
+    if (path.endsWith('/cancel')) { cancellations.push(path); return Response.json(run) }
+    return previousFetch(url, options)
+  }
+  await click('Run')
+  assert.equal(button('Save project').disabled, true)
+  assert.equal(button('Cancel run').disabled, true)
+  await click('Cancel run')
+  assert.deepEqual(cancellations, [])
+  assert.doesNotMatch(container.querySelector('[role=status]').textContent, /Cancellation requested/)
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  await act(async () => identify.resolve())
+  assert.equal(button('Cancel run').disabled, false)
+  await click('Cancel run')
+  assert.deepEqual(cancellations, ['/api/runs/lost-response-run/cancel'])
+  assert.match(container.querySelector('[role=status]').textContent, /Cancellation requested/)
+  assert.equal(button('Save project').disabled, true)
+})
