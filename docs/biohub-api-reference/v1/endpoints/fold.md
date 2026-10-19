@@ -3,19 +3,11 @@
 > `POST /api/v1/fold`
 
 - 来源：[Biohub API Reference](https://biohub.ai/api-reference/fold)
-- 抓取时间：`2026-07-16T03:56:50.184Z`
-- 页面发布标识：`sha-7062746`
-- 鉴权：`Authorization: Bearer <API_KEY>`
-- 请求媒体类型：`application/json`
-- 来源定义 SHA-256：`3db2562edf1ae9ab0ab4722bbf58b16fbae50f5632faada757e39bb1428f540e`
+- 快照信息及共用约定见[快照入口](../README.md)。
 
 ## 用途
 
 (ESM3, ESMFold2) Folds proteins. Defaults to esmfold2-fast-2026-05 if no model is given
-
-## 请求头
-
-_来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KEY>` 仍然适用。_
 
 ## JSON 请求体
 
@@ -44,9 +36,3 @@ _来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KE
 - MSA、循环次数、扩散采样步数、LM dropout/masking 与额外输出开关均标为 ESMFold2 相关。
 - `lm_mask_pct` 的表格默认值为 `0`，说明文字则写明 FAST 模型缺省为 `0.1`、非 FAST ESMFold2 为 `0.0`。来源页两处说明不一致。
 - `include_distogram`、`include_pae`、`include_pair_chains_iptm` 与 `include_embeddings` 控制相应内容是否返回。
-
-公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
-
-## 响应
-
-抓取时，来源页尚未公布响应状态码、媒体类型或响应 body schema。对应记录为 `documented: false`、`schema: null`。

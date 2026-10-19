@@ -3,19 +3,11 @@
 > `POST /api/v1/generate_tensor`
 
 - 来源：[Biohub API Reference](https://biohub.ai/api-reference/generate_tensor)
-- 抓取时间：`2026-07-16T03:56:50.184Z`
-- 页面发布标识：`sha-7062746`
-- 鉴权：`Authorization: Bearer <API_KEY>`
-- 请求媒体类型：`application/json`
-- 来源定义 SHA-256：`6be7397d84b760be1c1aff281a4d6341dd03f24e4d21140ab2382168687708fc`
+- 快照信息及共用约定见[快照入口](../README.md)。
 
 ## 用途
 
 (ESM3) Generates an output track conditioned on inputs. Accepts and returns raw tokens.
-
-## 请求头
-
-_来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KEY>` 仍然适用。_
 
 ## JSON 请求体
 
@@ -45,10 +37,3 @@ _来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KE
 
 - 该端点与 `generate` 的生成控制相近，但输入与输出使用 raw token。
 - `track` 的页面候选为 `sequence`、`structure`、`secondary_structure`、`sasa`、`function`；来源数据未将它编码成机器枚举。
-- `strategy`、`num_steps`、`temperature`、`temperature_annealing` 的当前默认值由页面标注为 2025-02-14 更新后的值。
-
-公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
-
-## 响应
-
-抓取时，来源页尚未公布响应状态码、媒体类型或响应 body schema。对应记录为 `documented: false`、`schema: null`。

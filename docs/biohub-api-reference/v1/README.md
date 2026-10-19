@@ -1,7 +1,16 @@
 # Biohub 官方接口快照
 
-核对 Biohub 请求字段时，查 [api-reference.json](api-reference.json)。[manifest.json](manifest.json) 保存来源链接、抓取信息和字段定义摘要；`endpoints/` 是各端点的固定接口资料。
+- 请求字段、类型、默认值及约束：[api-reference.json](api-reference.json)。
+- 来源链接、抓取时间、页面发布标识及定义摘要：[manifest.json](manifest.json)。
+- 各端点说明：`endpoints/`。
 
-快照抓取于 `2026-07-16T03:56:50.184Z`，页面发布标识为 `sha-7062746`。其中的 HTTP 路径、请求字段、类型、默认值与约束只说明该次官方资料，不表示当前账户支持全部模型。
+## 共用约定
 
-来源未公布的响应 schema 与服务 base URL 不能从空字段推断。`response.schema: null` 表示未公开 schema。部分默认值说明与字段表有差异，须回到所列官方来源核对。`fold_all_atom` 联合类型中的展示标签是否为请求字段尚未确认，不能直接当作 JSON 键使用。
+- 鉴权：`Authorization: Bearer <API_KEY>`。
+- 请求媒体类型：`application/json`。
+- 模型访问权限按账户授权配置。
+- 来源未公开响应状态码、响应媒体类型、响应 body schema 和服务 base URL。
+- `response.schema: null` 表示来源未公开响应 schema。
+
+部分默认值的说明文字与字段表有差异，使用相关参数时核对所列来源。
+`fold_all_atom` 联合类型的展示标签尚未确认为请求字段。

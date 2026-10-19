@@ -3,11 +3,7 @@
 > `POST /api/v1/logits`
 
 - 来源：[Biohub API Reference](https://biohub.ai/api-reference/logits)
-- 抓取时间：`2026-07-16T03:56:50.184Z`
-- 页面发布标识：`sha-7062746`
-- 鉴权：`Authorization: Bearer <API_KEY>`
-- 请求媒体类型：`application/json`
-- 来源定义 SHA-256：`6da5dc2e1778fe43dd77543bbcf168d1fbc08a8a71839dd1a0f047250dd678cc`
+- 快照信息及共用约定见[快照入口](../README.md)。
 
 ## 用途
 
@@ -56,9 +52,3 @@
 - `return_hidden_states=true` 时，全部层与单层的张量形状分别记录为 `[n_layers + 1, B, L, D]` 与 `[1, B, L, D]`；ESM3 要求指定 `ith_hidden_layer`。
 - `ith_hidden_layer=-1` 表示全部层，但页面说明 ESMC 6B 与所有 ESM3 模型不支持该值。页面内层数表使用的部分模型名与公开 `model` 枚举并不完全一致，使用时应保留这一来源差异。
 - `sae_config` 仅用于 ESMC 的稀疏自编码器特征。
-
-公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
-
-## 响应
-
-抓取时，来源页尚未公布响应状态码、媒体类型或响应 body schema。对应记录为 `documented: false`、`schema: null`。
