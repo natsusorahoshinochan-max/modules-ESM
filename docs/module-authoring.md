@@ -64,7 +64,7 @@ def module():
 
 运行记录的 `groups` 保存连通组成员及配置诊断。`configuration_blocked` 表示组内公开配置不完整或连接不合格；`failed` 表示节点执行或文件交付失败；`blocked` 表示依赖未成功而未执行。`Outcome` 的部分输出在接收成功后仍可查看，失败节点的输出不驱动下游。节点状态、输出包与续算内容在同一次提交后可见。查询发现运行租约已结束而终态未提交时，报告失败并保留已持久接收内容。
 
-`Workbench.continue_run(run_id, node_id)` 与无正文、无 query 参数的 `POST /api/runs/{run_id}/nodes/{node_id}/continue` 继续指定的失败或取消调用。调用的实际包 ID、节点参数、工具参数和工具选择保存在运行记录 `calls` 中。模块获得的 `Call.previous` 为 `Previous(outputs, continuation)`：`outputs` 按端口提供上次接收的只读包，`continuation` 原样提供模块私有 JSON。没有已提交续算内容时为 `None`，模块从尚未交付的任务开始。模块返回累计完整 `Outcome.outputs`，载体沿用普通文件接收和共同提交入口。`runtime.progress` 收集的消息随本次接收结果保存在节点记录 `progress` 中。
+`Workbench.continue_run(run_id, node_id)` 与无正文、无 query 参数的 `POST /api/runs/{run_id}/nodes/{node_id}/continue` 继续指定的失败或取消调用。调用的实际包 ID、节点参数、工具参数和工具选择保存在运行记录 `calls` 中。模块获得的 `Call.previous` 为 `Previous(outputs, continuation)`：`outputs` 按端口提供上次接收的只读包，`continuation` 原样提供可选模块私有 JSON；即使 `continuation=None`，已接收输出仍会提供。没有已接收输出映射且私有续算内容为 `None` 时，`Call.previous` 为 `None`，模块从尚未交付的任务开始。模块返回累计完整 `Outcome.outputs`，载体沿用普通文件接收和共同提交入口。`runtime.progress` 收集的消息随本次接收结果保存在节点记录 `progress` 中。
 
 继续操作返回同一运行 ID 的状态；目标成功接收后，原流程中等待该依赖的后继继续调度。已成功节点和其他已经调用的失败、取消节点保持原状态；取消前尚未调用的目标后继可以恢复执行。缺失原节点或所选工具时，安装并启用对应模块后再继续。更改部署路径或凭据使用模块设置，计算参数的修改通过新启动执行。
 

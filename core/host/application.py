@@ -493,6 +493,11 @@ class Workbench:
             self._run_errors[run_id] = f"{detail}; failure state could not be committed: {commit_error}"
             logging.getLogger(__name__).exception("Could not commit failed backend run %s", run_id)
 
+    def _interrupted_run(self, run):
+        # The caller owns this run's exclusive lease across the record reread.
+        detail = self._run_errors.get(run["id"], "Run lease ended without a committed terminal state")
+        return self._failed_run(run, detail)
+
     def start(self, project_id):
         return self._launch(project_id)
 
@@ -513,6 +518,8 @@ class Workbench:
             leases.enter_context(self._run_lease(project_id, run_id))
             if continuing:
                 original = self._get("run", run_id)
+                if original["status"] == "running":
+                    original = self._interrupted_run(original)
                 prepared = prepare_continuation(self, original, continuing[1])
                 run = original
                 run["status"] = "running"
@@ -562,8 +569,7 @@ class Workbench:
             # Keep an idle probe locked across the re-read and failure projection.
             run = self._get("run", run_id)
             if idle and run["status"] == "running":
-                detail = self._run_errors.get(run_id, "Run lease ended without a committed terminal state")
-                return self._failed_run(run, detail)
+                return self._interrupted_run(run)
             return run
 
     def list_runs(self, project_id):
