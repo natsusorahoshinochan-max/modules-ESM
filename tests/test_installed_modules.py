@@ -88,7 +88,8 @@ assert Path(workbench_notes.__file__).is_relative_to(sys.prefix)
 with TestClient(create_application(data_root=root)) as client:
     project = client.post("/api/projects", json={"name": "Independent data"}).json()["id"]
     assert client.post("/api/modules", json={"entry_point": "workbench_notes:module"}).status_code == 200
-    assert client.get("/api/modules/example.notes/ui.js").status_code == 200
+    record = next(item for item in client.get("/api/modules").json() if item["id"] == "example.notes")
+    assert client.get(record["ui_url"]).status_code == 200
     assert client.put("/api/modules/example.notes/settings", json={"settings": {"prefix": "note: "}}).status_code == 200
     token = client.post(f"/api/projects/{project}/uploads").json()["upload_id"]
     upload = f"/api/projects/{project}/uploads/{token}"

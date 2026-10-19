@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, beforeEach, test } from 'node:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -19,6 +19,8 @@ await build({ entryPoints: ['src/App.tsx'], bundle: true, packages: 'external', 
 const { default: App } = await import(pathToFileURL(output).href)
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('/api/modules/test.delayed/ui.js')) return { url: pathToFileURL(join(directory, 'delayed-ui.mjs')).href + new URL(specifier, 'http://localhost').search, shortCircuit: true }
+    if (specifier.startsWith('/api/modules/test.reinstall/ui.js')) return { url: pathToFileURL(join(directory, 'reinstall-ui.mjs')).href + new URL(specifier, 'http://localhost').search, shortCircuit: true }
     if (specifier === '/api/modules/test.broken/ui.js') return { url: new URL('./module-broken-viewer.mjs', import.meta.url).href, shortCircuit: true }
     if (specifier === '/api/modules/test.viewers/ui.js') return { url: new URL('./module-viewers.mjs', import.meta.url).href, shortCircuit: true }
     if (specifier === '/api/modules/test.actions/ui.js') return { url: new URL('./module-actions.mjs', import.meta.url).href, shortCircuit: true }
@@ -50,7 +52,7 @@ beforeEach(async () => {
     const path = String(url)
     let result
     if (path.startsWith('/api/draft-inputs/')) { discardedDraftInputs.push(path.split('/').at(-1)); result = {} }
-    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }] }
+    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
     else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
@@ -469,10 +471,11 @@ test('module deployment fields save credentials and locations independently of n
 test('a chosen wheel is uploaded with its entry and module controls refresh the canvas without editing its draft', async () => {
   const previousFetch = globalThis.fetch
   let enabled = true, installed = true, uploaded, receivedEntry
-  const module = { id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }
+  const module = { id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }
   globalThis.fetch = async (url, options) => {
     const path = String(url)
     if (path.startsWith('/api/module-packages?')) {
+      assert.equal(options.headers['Content-Type'], 'application/octet-stream'); assert.equal(options.headers['X-Workbench-Module-Package'], 'wheel')
       uploaded = options.body; receivedEntry = new URL(path, 'http://localhost').searchParams.get('entry_point'); installed = true; enabled = true
       return Response.json(module)
     }
@@ -507,7 +510,7 @@ test('multiple viewers use a stable ID default and switching leaves packages and
   const previousFetch = globalThis.fetch
   globalThis.fetch = async (url, options) => {
     if (String(url) === '/api/modules') return Response.json({})
-    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [{ id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', settings: {}, settings_schema: {} }] })
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [{ id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.viewers/ui.js', settings: {}, settings_schema: {} }] })
     return previousFetch(url, options)
   }
   await click('Register module')
@@ -533,8 +536,8 @@ test('disabling a failed viewer restores the stable available default', async ()
   globalThis.fetch = async (url, options) => {
     if (String(url) === '/api/modules') return Response.json({})
     if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [
-      { id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', settings: {}, settings_schema: {} },
-      { id: 'test.broken', name: 'Broken viewer', enabled: brokenEnabled, ui: 'fixture.js', settings: {}, settings_schema: {} },
+      { id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.viewers/ui.js', settings: {}, settings_schema: {} },
+      { id: 'test.broken', name: 'Broken viewer', enabled: brokenEnabled, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.broken/ui.js', settings: {}, settings_schema: {} },
     ] })
     return previousFetch(url, options)
   }
@@ -714,6 +717,156 @@ test('discarding invalid JSON and reopening the same project restores its saved 
 })
 
 
+test('reinstall executes new UI bytes through the real ESM cache', async () => {
+  const previousFetch = globalThis.fetch
+  let installed = true, identity = 'first'
+  const writeEntry = label => writeFile(join(directory, 'reinstall-ui.mjs'), `export const runtime = {react:19}; export function register({React}) { return {actions:[{id:'reinstall.action',name:'Action',component:()=>React.createElement('p',{'data-testid':'reinstalled-ui'},'${label}')}]} }`)
+  await writeEntry('old installation')
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') { installed = true; return Response.json({}) }
+    if (String(url) === '/api/modules/test.reinstall' && options.method === 'DELETE') { installed = false; return Response.json({}) }
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: installed ? [{id:'test.reinstall',installation_id:identity,name:'Reinstall',enabled:true,ui:'fixture.js',ui_url:'/api/modules/test.reinstall/ui.js?installation_id='+identity,settings:{},settings_schema:{}}] : [] })
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  assert.equal(container.querySelector('[data-testid=reinstalled-ui]').textContent, 'old installation')
+  await click('Uninstall')
+  await writeEntry('new installation'); identity = 'second'
+  await click('Register module')
+  assert.equal(container.querySelector('[data-testid=reinstalled-ui]').textContent, 'new installation')
+})
+
+test('all module mutations share a pending guard including same-event registration', async () => {
+  const previousFetch = globalThis.fetch
+  const gate = deferred()
+  let registrations = 0
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') { registrations += 1; await gate.promise; return Response.json({}) }
+    return previousFetch(url, options)
+  }
+  await act(async () => { button('Register module').click(); button('Register module').click() })
+  assert.equal(registrations, 1)
+  assert.equal(button('Register module').disabled, true)
+  assert.equal(button('Disable').matches(':disabled'), true)
+  await act(async () => gate.resolve())
+  assert.equal(button('Register module').disabled, false)
+})
+
+for (const stage of ['catalog', 'projects']) for (const rejects of [false, true]) {
+  test(`stale ${stage} ${rejects ? 'error' : 'snapshot'} cannot undo a newer module change`, async () => {
+    const previousFetch = globalThis.fetch, gate = deferred()
+    let enabled = true, held = false
+    globalThis.fetch = async (url, options = {}) => {
+      const path = String(url)
+      if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json({}) }
+      if (path === '/api/catalog') {
+        const snapshot = { nodes: enabled ? [declaration('test.one')] : [], modules: [{ id:'test.actions',installation_id:'fixture',name:'Test module',enabled,settings:{},settings_schema:{},ui:'fixture.js',ui_url:'/api/modules/test.actions/ui.js' }] }
+        if (stage === 'catalog' && !held) { held = true; await gate.promise; if (rejects) throw new Error('Obsolete refresh failed') }
+        return Response.json(snapshot)
+      }
+      if (path === '/api/projects' && options.method !== 'POST' && stage === 'projects' && !held) {
+        held = true
+        const stale = [...clone(records), {id:'stale',name:'Stale project',flow:{nodes:[],edges:[]},layout:{}}]
+        await gate.promise
+        if (rejects) throw new Error('Obsolete refresh failed')
+        return Response.json(stale)
+      }
+      return previousFetch(url, options)
+    }
+    await click('Create project')
+    assert.equal(held, true)
+    await click('Disable')
+    assert.ok(button('Enable'))
+    await act(async () => gate.resolve())
+    assert.ok(button('Enable'))
+    assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+    assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Stale project'), false)
+    assert.equal(container.querySelector('[role=alert]'), null)
+  })
+}
+
+
+test('a stale failing UI import cannot restore extensions or report an obsolete error', async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  globalThis.refreshImportGate = gate
+  await writeFile(join(directory, 'delayed-ui.mjs'), "await globalThis.refreshImportGate.promise; export const runtime={react:19}; export function register(){return {}}")
+  let enabled = true
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/modules/test.actions/enabled') { enabled = false; return Response.json({}) }
+    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[{id:'test.actions',installation_id:'delayed',name:'Test module',enabled,settings:{},settings_schema:{},ui:'fixture.js',ui_url:'/api/modules/test.delayed/ui.js?installation_id=delayed'}]})
+    return previousFetch(url, options)
+  }
+  await click('Create project')
+  await click('Disable')
+  await act(async () => gate.reject(new Error('Obsolete import failure')))
+  assert.ok(button('Enable'))
+  assert.equal(container.querySelector('[role=alert]'), null)
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+  delete globalThis.refreshImportGate
+})
+
+test('catalog, extensions and projects commit together after the current refresh finishes', async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[]})
+    if (String(url) === '/api/projects' && options.method !== 'POST') { await gate.promise; return Response.json(records) }
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  assert.ok(button('Disable'))
+  assert.ok(button('Add connected pair'))
+  await act(async () => gate.resolve())
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Disable'), false)
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+})
+
+test('a current UI import error commits new declarations and clears old extensions', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[{id:'test.actions',installation_id:'broken',name:'Test module',enabled:true,settings:{},settings_schema:{},ui:'missing.js',ui_url:'/api/modules/missing/ui.js?installation_id=broken'}]})
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  assert.ok(container.querySelector('[role=alert]'))
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+  const add = [...container.querySelectorAll('label')].find(item => item.textContent.startsWith('Add node')).querySelector('select')
+  assert.deepEqual([...add.options].map(item => item.value), [''])
+})
+
+test('starting a mutation immediately invalidates an earlier refresh before the mutation completes', async () => {
+  const previousFetch = globalThis.fetch, projectsGate = deferred(), mutationGate = deferred()
+  let held = false
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/modules') { await mutationGate.promise; return Response.json({}) }
+    if (String(url) === '/api/projects' && options.method !== 'POST' && !held) {
+      held = true
+      await projectsGate.promise
+      throw new Error('Obsolete failure during mutation')
+    }
+    return previousFetch(url, options)
+  }
+  await click('Create project')
+  await click('Register module')
+  await act(async () => projectsGate.resolve())
+  assert.equal(container.querySelector('[role=alert]'), null)
+  await act(async () => mutationGate.resolve())
+  assert.equal(container.querySelector('[role=alert]'), null)
+})
+
+test('a current project-list failure clears old extensions and reports refresh failure', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[]})
+    if (String(url) === '/api/projects' && options.method !== 'POST') throw new Error('Project list unavailable')
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  assert.match(container.querySelector('[role=alert]').textContent, /Project list unavailable/)
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+})
 test('teaching edits stay in memory until first manual save creates a user project', async () => {
   await click('Teaching example')
   assert.equal(title(), 'Teaching example')
@@ -801,6 +954,19 @@ test('application startup opens the editable teaching example by default', async
   assert.equal(records.length, 2)
 })
 
+test('opening the teaching example at startup preserves the current module import error', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[{id:'missing',installation_id:'startup',name:'Missing UI',enabled:true,settings:{},settings_schema:{},ui:'missing.js',ui_url:'/api/modules/startup-missing/ui.js?installation_id=startup'}]})
+    return previousFetch(url, options)
+  }
+  await act(async () => root.unmount())
+  root = createRoot(container)
+  await act(async () => root.render(createElement(App)))
+  assert.equal(title(), 'Teaching example')
+  assert.ok(container.querySelector('[role=alert]'))
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+})
 test('a poll begun before start cannot unlock the accepted running project', async () => {
   const previousFetch = globalThis.fetch
   const stalePoll = deferred()
