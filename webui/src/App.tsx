@@ -9,8 +9,8 @@ class ExtensionBoundary extends Component<{ children: ReactNode }, { error: stri
   render() { return this.state.error ? <p role="alert">Module interface failed: {this.state.error}</p> : this.props.children }
 }
 
-function JsonEditor({ value, disabled, onChange }: { value: Record<string, unknown>; disabled: boolean; onChange(value: Record<string, unknown>): void }) {
-  return <textarea key={JSON.stringify(value)} defaultValue={JSON.stringify(value, null, 2)} disabled={disabled} onBlur={event => {
+function JsonEditor({ value, disabled, onChange, onDraftChange }: { value: Record<string, unknown>; disabled: boolean; onChange(value: Record<string, unknown>): void; onDraftChange?(): void }) {
+  return <textarea key={JSON.stringify(value)} defaultValue={JSON.stringify(value, null, 2)} disabled={disabled} onInput={onDraftChange} onBlur={event => {
     try {
       const parsed = JSON.parse(event.target.value)
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('Enter a JSON object')
@@ -39,6 +39,10 @@ export default function App() {
   const opening = useRef(0)
   const runningNow = useRef(false)
   const [dirty, setDirty] = useState(false)
+  const dirtyNow = useRef(false)
+  const draftRevision = useRef(0)
+  function markDirty(value: boolean) { if (value) draftRevision.current += 1; dirtyNow.current = value; setDirty(value) }
+  const canvas = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const savingNow = useRef(false)
   const [running, setRunning] = useState(false)
@@ -64,43 +68,60 @@ export default function App() {
   }
   useEffect(() => { refresh().catch(fail) }, [])
   useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = '' } }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyNow.current) { event.preventDefault(); event.returnValue = '' } }
     window.addEventListener('beforeunload', beforeUnload)
     return () => window.removeEventListener('beforeunload', beforeUnload)
-  }, [dirty])
+  }, [])
   function change(update: (current: Project) => Project) {
     if (runningNow.current || deletingProject.current === currentProject.current?.id) throw new Error('Project is running or being deleted')
     if (!currentProject.current) throw new Error('Open a project first')
     currentProject.current = update(currentProject.current)
-    setProject(currentProject.current); setDirty(true); setNotice('')
+    setProject(currentProject.current); markDirty(true); setNotice('')
   }
-  async function open(id: string) {
-    if (runningNow.current || (dirty && !window.confirm('Discard unsaved changes and open this project?'))) return
+  async function open(id: string, approvedRevision?: number) {
+    if (runningNow.current || (dirtyNow.current && draftRevision.current !== approvedRevision && !window.confirm('Discard unsaved changes and open this project?'))) return
+    const leavingRevision = draftRevision.current
     const request = ++opening.current
     const [next, files, history] = await Promise.all([client.project(id), client.packages(id), client.runs(id)])
     if (request !== opening.current) return
-    projectSession.current += 1; currentProject.current = next; setProject(next); setDirty(false); setNotice('')
+    if (dirtyNow.current && draftRevision.current !== leavingRevision && !window.confirm('Discard unsaved changes and open this project?')) return
+    projectSession.current += 1; currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); setError('')
   }
   async function createProject() {
-    if (dirty && !window.confirm('Discard unsaved changes and create a project?')) return
-    const next = await client.createProject(projectName); await refresh(); await open(next.id)
+    if (dirtyNow.current && !window.confirm('Discard unsaved changes and create a project?')) return
+    const approvedRevision = draftRevision.current
+    const next = await client.createProject(projectName); await refresh(); await open(next.id, approvedRevision)
   }
   async function save() {
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); throw new Error('Enter valid parameter JSON before saving') }
     const snapshot = currentProject.current
     if (!snapshot) throw new Error('Open a project first')
     if (savingNow.current) throw new Error('Project save is already in progress')
-    savingNow.current = true; setSaving(true)
+    const session = projectSession.current
+    const revision = draftRevision.current
+    savingNow.current = true; setSaving(true); setError('')
     try {
       const saved = await client.save(snapshot)
-      if (currentProject.current !== snapshot) return false
-      currentProject.current = saved; setProject(saved); setDirty(false); setNotice('Project and layout saved')
+      if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
+      currentProject.current = saved; setProject(saved); markDirty(false); setNotice('Project and layout saved')
       return true
+    } catch (failure) {
+      if (session !== projectSession.current) return false
+      throw failure
     } finally { savingNow.current = false; setSaving(false) }
   }
   async function run() {
     if (!project) return
-    if (dirty) { if (!window.confirm('Save changes and run?')) return; if (!await save()) throw new Error('Project changed while saving; save again before running') }
+    const session = projectSession.current
+    if (dirtyNow.current) {
+      if (!window.confirm('Save changes and run?')) return
+      const saved = await save()
+      if (session !== projectSession.current) return
+      if (!saved) throw new Error('Project changed while saving; save again before running')
+    }
     opening.current += 1; runningNow.current = true; setRunning(true); setError(''); setNotice('Running on the backend…')
     try {
       const result = await client.run(project.id)
@@ -123,7 +144,7 @@ export default function App() {
       setProjects(items => items.filter(item => item.id !== current.id))
       if (session !== projectSession.current) return
       projectSession.current += 1; currentProject.current = null
-      setProject(null); setDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
+      setProject(null); markDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
       setConnection({ source: '', source_port: '', target: '', target_port: '' })
       setNotice(`Project "${current.name}" deleted`)
     } catch (failure) { if (session === projectSession.current) fail(failure) }
@@ -197,13 +218,13 @@ export default function App() {
     <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button><button disabled={!project || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
-        <section className="canvas" aria-label="Workflow canvas"><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
+        <section className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
           {project.flow.nodes.map((node, index) => {
             const declaration = catalog.nodes.find(item => item.id === node.type)
             const Editor = extensions.editors?.find(item => item.node === node.type)?.component
             return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
-              {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
+              {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
                 const available = (catalog.tools ?? []).filter(tool => tool.slot === contract.id)
                 const selectedId = node.tools?.[slot] ?? ''
@@ -215,7 +236,7 @@ export default function App() {
                   })}><option value="">Choose tool</option>{selectedId && !tool && <option value={selectedId}>Missing tool: {selectedId}</option>}{available.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                   {tool && <><p>Capabilities</p><pre>{JSON.stringify(tool.capabilities, null, 2)}</pre>
                     <details><summary>Tool parameter schema and defaults</summary><pre>{JSON.stringify(tool.parameters, null, 2)}</pre></details>
-                    <label>Tool parameters (JSON)<JsonEditor value={node.tool_parameters?.[slot] ?? {}} disabled={locked} onChange={parameters => updateNode(node.id, { tool_parameters: { ...node.tool_parameters, [slot]: parameters } })} /></label></>}
+                    <label>Tool parameters (JSON)<JsonEditor value={node.tool_parameters?.[slot] ?? {}} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { tool_parameters: { ...node.tool_parameters, [slot]: parameters } })} /></label></>}
                 </fieldset>
               })}
               {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={locked} value={node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: event.target.value ? [event.target.value] : [] } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select></label>)}
