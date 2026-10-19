@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort, ToolSlot
 from .contract import PredictionRequest, PredictionResult
+from .formats import read_sequences
 
 
 def _encode_result(result, source, runtime, prefix):
@@ -23,7 +24,7 @@ def _encode_result(result, source, runtime, prefix):
     relative = encoded.relative_to(runtime.workdir)
     shutil.copyfile(runtime.workdir / path, encoded / 'structure')
     files = {structure_key: str(relative / 'structure')}
-    obj = {'id': uuid4().hex, 'sequence': sequence, 'structure': {'file': structure_key, 'format': result.structure_format}}
+    obj = {'id': uuid4().hex, 'sequence': sequence, 'input': deepcopy(source), 'structure': {'file': structure_key, 'format': result.structure_format}}
     if 'label' in source:
         obj['label'] = source['label']
     confidence = {}
@@ -48,19 +49,7 @@ def _encode_result(result, source, runtime, prefix):
 
 def execute(call, runtime):
     package = call.inputs['sequence'][0]
-    with package.open(package.entry) as stream:
-        document = json.load(stream)
-    if not isinstance(document, dict) or set(document) != {'objects'} or not isinstance(document['objects'], list) or not document['objects']:
-        raise ValueError('Prediction requires a nonempty sequence object batch')
-    sources = document['objects']
-    for source in sources:
-        if not isinstance(source, dict) or set(source) - {'id', 'sequence', 'label'}:
-            raise ValueError('Prediction accepts a protein sequence only; unsupported components or conditions')
-        sequence = source.get('sequence')
-        if not isinstance(sequence, str) or not sequence or any(residue not in 'ACDEFGHIKLMNPQRSTVWY' for residue in sequence):
-            raise ValueError('Prediction requires an unmodified canonical protein sequence')
-        if not isinstance(source.get('id'), str) or not source['id']:
-            raise ValueError('Sequence object id is required')
+    sources = read_sequences(package)
     if call.parameters:
         raise ValueError('Unknown prediction node parameters; configure the selected tool')
     parameters = call.tool_parameters.get('predictor', {})
