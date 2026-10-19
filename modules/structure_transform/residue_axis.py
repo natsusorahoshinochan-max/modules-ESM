@@ -7,10 +7,6 @@ from dataclasses import dataclass
 import math
 from typing import Mapping, cast
 
-from core.operation import (
-    OperationResources,
-    OperationCall,
-)
 from datatypes.residue import (
     ModifiedResidueAtomMapping,
     ModifiedResidueNormalization,
@@ -730,23 +726,3 @@ def resolve_residue_axis(
 
 def _renumbered_atom_line(record: _AtomRecord, serial: int) -> str:
     return f"{record.line[:6]}{serial:5d}{record.line[11:]}"
-
-class ResolveResidueAxisImplementation:
-    """Resolve one admitted structure into its canonical residue axis."""
-
-    def __init__(self, run_resources: OperationResources) -> None:
-        self._run_resources = run_resources
-
-    def execute(self, call: OperationCall) -> dict[str, object]:
-        inputs = call.inputs
-        with self._run_resources.engine_invocation():
-            return {
-                "residue_axis": resolve_residue_axis(
-                    inputs["structure"].value,
-                    (
-                        inputs["modified_residue_normalizations"].value
-                        if "modified_residue_normalizations" in inputs
-                        else None
-                    ),
-                )
-            }
