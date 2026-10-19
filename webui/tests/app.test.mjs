@@ -647,3 +647,24 @@ test('beforeunload is prevented only while a project draft is unsaved', async ()
   await click('Project B')
   assert.equal(unload(), false)
 })
+
+test('discarding invalid JSON and reopening the same project restores its saved parameter editor', async () => {
+  await addNode()
+  await click('Save project')
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus(); parameters.value = '{unfinished'
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+    parameters.blur()
+  })
+  assert.equal(title(), 'Project A · unsaved')
+  window.confirm = () => true
+  await click('Project A')
+  assert.equal(title(), 'Project A')
+  const reopened = container.querySelector('.canvas textarea')
+  assert.equal(reopened.value, '{}')
+  assert.equal(reopened.validity.valid, true)
+  await click('Save project')
+  assert.equal(container.querySelector('[role=alert]')?.textContent, undefined)
+  assert.deepEqual(savedFlows[1].flow.nodes[0].parameters, {})
+})
