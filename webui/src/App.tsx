@@ -56,6 +56,7 @@ export default function App() {
   const deletingProject = useRef('')
   const locked = running || (deleting && deletingProject.current === project?.id)
   const [runs, setRuns] = useState<Run[]>([])
+  const cancellableRuns = runs.filter(item => item.status === 'running')
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
   const fail = (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure))
   async function refresh() {
@@ -181,11 +182,11 @@ export default function App() {
   }
   async function cancelRun() {
     const current = currentProject.current
-    if (!current || submittingRun.current) return
+    if (!current || submittingRun.current || !cancellableRuns.length) return
     const target = { projectId: current.id, session: projectSession.current, epoch: ++runOperationEpoch.current }
     submittingRun.current = true; runningNow.current = true; setRunning(true)
     try {
-      await Promise.all(runs.filter(item => item.status === 'running').map(item => client.cancelRun(item.id)))
+      await Promise.all(cancellableRuns.map(item => client.cancelRun(item.id)))
       if (!currentRunOperation(target)) return
       setNotice('Cancellation requested; waiting for the backend…')
     } catch (failure) { if (currentRunOperation(target)) fail(failure) }
@@ -309,7 +310,7 @@ export default function App() {
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
       <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} fail={fail} />
     </aside>
-    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button disabled={submittingRun.current} onClick={() => void cancelRun()}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
+    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button disabled={submittingRun.current || !cancellableRuns.length} onClick={() => void cancelRun()}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
         <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
