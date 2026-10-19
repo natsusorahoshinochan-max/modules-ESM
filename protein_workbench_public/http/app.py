@@ -72,6 +72,16 @@ class Adoption(BaseModel):
     package_id: str
 
 
+class InteractionCall(BaseModel):
+    interaction: str
+    inputs: dict[str, list[str]] = Field(default_factory=dict)
+    parameters: dict = Field(default_factory=dict)
+
+
+class InteractionAccept(BaseModel):
+    output: str
+
+
 class InputDescription(BaseModel):
     format: str
     entry: str
@@ -99,6 +109,7 @@ def create_http_app(host: Workbench) -> FastAPI:
             for upload in uploads.values():
                 host.discard_workdir(upload.workdir)
             uploads.clear()
+            host.interactions.close()
             host.discard_draft_inputs()
 
     app = FastAPI(title='Protein Workbench', lifespan=lifespan)
@@ -111,6 +122,23 @@ def create_http_app(host: Workbench) -> FastAPI:
     @app.exception_handler(OSError)
     async def file_error(_request: Request, error: OSError):
         return JSONResponse(status_code=400, content={'detail': f'File operation failed: {error}'})
+
+    @app.post('/api/projects/{project_id}/interactions')
+    def begin_interaction(project_id: str, body: InteractionCall):
+        return host.interactions.begin(project_id, body.interaction, body.inputs, body.parameters)
+
+    @app.post('/api/interactions/{token}/execute')
+    def execute_interaction(token: str):
+        return host.interactions.execute(token)
+
+    @app.post('/api/interactions/{token}/accept')
+    def accept_interaction(token: str, body: InteractionAccept):
+        return host.interactions.accept(token, body.output)
+
+    @app.delete('/api/interactions/{token}')
+    def cancel_interaction(token: str):
+        host.interactions.cancel(token)
+        return {'cancelled': token}
 
     @app.get('/api/catalog')
     def catalog():
