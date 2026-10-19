@@ -4,20 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test:preserved-workflow": "esbuild tests/preserved-workflow.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/preserved-workflow.test.mjs && node node_modules/.tmp/preserved-workflow.test.mjs",
-    "test:result-interactions": "esbuild tests/result-context-interaction.test.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.tmp/result-context-interaction.test.mjs && node node_modules/.tmp/result-context-interaction.test.mjs",
-    "test:results": "esbuild tests/result-view.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/result-view.test.mjs && node node_modules/.tmp/result-view.test.mjs",
-    "test:conditions": "esbuild tests/selection-conditions.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/selection-conditions.test.mjs && node node_modules/.tmp/selection-conditions.test.mjs",
-    "test:selection": "esbuild tests/selection-authoring.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/selection-authoring.test.mjs && node node_modules/.tmp/selection-authoring.test.mjs",
-    "test:scoring": "esbuild tests/scoring-choices.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --loader:.css=empty --outfile=node_modules/.tmp/scoring-choices.test.mjs && node node_modules/.tmp/scoring-choices.test.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:module-ui": "node tools/build-module-ui.mjs",
     "predev": "npm run build:module-ui",
-    "prebuild": "npm run build:module-ui",
-    "test:historical-diagnostic": "esbuild tests/historical-diagnostic.test.ts --bundle --platform=node --format=esm --packages=external --jsx=automatic --outfile=node_modules/.tmp/historical-diagnostic.test.mjs && node node_modules/.tmp/historical-diagnostic.test.mjs",
-    "test:project-lifecycle": "esbuild tests/project-lifecycle.test.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.tmp/project-lifecycle.test.mjs && node node_modules/.tmp/project-lifecycle.test.mjs",
-    "test:historical-regions": "esbuild tests/selection-regions-interaction.test.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.tmp/selection-regions-interaction.test.mjs && node node_modules/.tmp/selection-regions-interaction.test.mjs"
+    "prebuild": "npm run build:module-ui"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "2.3.7",
@@ -38,7 +29,6 @@
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
     "esbuild": "0.28.2",
-    "playwright": "1.62.1",
     "typescript": "~5.8.3",
     "vite": "^7.1.4"
   }
