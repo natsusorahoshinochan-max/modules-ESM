@@ -31,4 +31,4 @@
 
 按 Ctrl+C 或向入口发送 SIGINT、SIGTERM、SIGHUP 可取消等待或运行。运行取消、命令失败或正常结束都会清理整个进程组；进程收到 SIGTERM 一秒后仍未退出时发送 SIGKILL，确认进程退出后才释放锁。取消返回 `128 + 信号编号`，命令无法启动返回 126 并报告原因。请保留入口进程至清理结束，避免用 SIGKILL 强制终止入口。该入口使用 POSIX 文件锁与 `ps`，适用于 macOS、Linux；验证机制本身的测试无需加载模型。
 
-预测节点的应用内配置、独立本地与远端默认值及可执行验证命令见 [预测工具插槽](../modules/folding/TOOL.md)。本地预测 Adapter 自行持有上述资源锁，其 `modules.folding.verify` 命令直接运行，避免嵌套获取同一把锁。
+预测节点的应用内配置、独立本地与远端默认值及可执行验证命令见 [预测工具插槽](../modules/folding/TOOL.md)。ESMFold2 与 [SimpleFold](../modules/simplefold/TOOL.md) 的本地预测 Adapter 自行持有上述资源锁，其 `modules.folding.verify` 命令直接运行，避免嵌套获取同一把锁。
