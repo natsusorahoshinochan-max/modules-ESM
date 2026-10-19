@@ -13,7 +13,7 @@
 
 后续开发按确认需求与公共接口开展 TDD。
 
-外部模块的声明、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
+模块包安装、环境设置、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
 
 ## 安装
 
@@ -75,5 +75,7 @@ npm --prefix webui test
 比较时使用“Compare with an independent reference”入口导入一个 PDB 或 mmCIF，将预测输出连接至比较节点的 subject 端口。结果提供可重新打开的完整叠合；支持范围、数值含义和独立消费接口见 [比较格式](modules/structure_comparison/FORMAT.md)。
 
 显式转换路径使用“Compare through explicit structure conversion”入口，导入参考后连接预测输出至转换节点的 prediction 端口。该入口插入转换及只接受目标格式的比较节点，操作与目标格式见 [转换模块说明](modules/structure_conversion/FORMAT.md)。
+
+使用“Save project”手动保存流程与布局；缺少输入、工具或模块的未完成流程也可保存后重开。编辑过程中不自动保存。切换或创建项目时，未保存修改可选择放弃或取消；关闭与刷新页面使用浏览器原生提醒，需要浏览器已记录页面交互。有未保存修改时，“Save and run”会先要求确认，保存失败或取消时不启动。输入文件和运行结果的接收单独持久保存，流程修改仍须手动保存。
 
 在结果包的“Adopt into project”中选择已创建的目标项目，点击“Adopt package”，再打开目标项目选择其包作为输入。每个包的“Download ZIP”下载完整文件及文件键索引；缺少查看器时仍可使用文件链接。项目区的“Delete project”经确认删除当前项目，已采用到其他项目的包继续保留。

@@ -19,6 +19,8 @@ await build({ entryPoints: ['src/App.tsx'], bundle: true, packages: 'external', 
 const { default: App } = await import(pathToFileURL(output).href)
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === '/api/modules/test.broken/ui.js') return { url: new URL('./module-broken-viewer.mjs', import.meta.url).href, shortCircuit: true }
+    if (specifier === '/api/modules/test.viewers/ui.js') return { url: new URL('./module-viewers.mjs', import.meta.url).href, shortCircuit: true }
     if (specifier === '/api/modules/test.actions/ui.js') return { url: new URL('./module-actions.mjs', import.meta.url).href, shortCircuit: true }
     return nextResolve(specifier, context)
   },
@@ -28,9 +30,9 @@ let root, container, records, pendingSave, packages, uploadGate, savedFlows, run
 const clone = value => structuredClone(value)
 const node = (id, type = 'test.one') => ({ id, type, parameters: {}, inputs: {} })
 function deferred() {
-  let resolve
-  const promise = new Promise(done => { resolve = done })
-  return { promise, resolve }
+  let resolve, reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 const declaration = (id, cardinality = 'one') => ({ id, module_id: 'test.actions', name: id, inputs: { input: { accepts: ['test.format'], cardinality: 'one', required: false } }, outputs: { output: { format: 'test.format', cardinality } }, parameters: {} })
 
@@ -47,6 +49,7 @@ beforeEach(async () => {
     const path = String(url)
     let result
     if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }] }
+    else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
     else {
       const [, id, suffix = ''] = path.match(/^\/api\/projects\/([^/]+)(.*)$/) ?? []
@@ -417,4 +420,282 @@ test('opening a project with an existing backend run restores the edit lock', as
   assert.equal(button('Save project').disabled, true)
   assert.equal(button('Run').disabled, true)
   assert.ok(button('Cancel run'))
+})
+
+test('module deployment fields save credentials and locations independently of node parameters', async () => {
+  let settings = {}, received
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/modules/environment/settings') {
+      received = JSON.parse(options.body).settings; settings = received
+      return Response.json({})
+    }
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [declaration('test.one')], modules: [{ id: 'environment', name: 'Environment', entry_point: 'environment:module', enabled: true, ui: null, settings, settings_schema: {
+      credential: { type: 'string', title: 'Service credential', secret: true },
+      model: 'Existing model location', service: 'Service URL', program: 'Program location',
+    } }] })
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  for (const [name, value] of Object.entries({ credential: 'chosen-token', model: '/model', service: 'http://localhost', program: '/program' })) {
+    const input = container.querySelector(`[aria-label="Environment: ${name}"]`)
+    assert.ok(input, `Missing deployment field ${name}`)
+    if (name === 'credential') assert.equal(input.type, 'password')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value)
+      input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+  }
+  await click('Save settings')
+  assert.deepEqual(received, { credential: 'chosen-token', model: '/model', service: 'http://localhost', program: '/program' })
+  await addNode()
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].parameters, {})
+})
+
+test('a chosen wheel is uploaded with its entry and module controls refresh the canvas without editing its draft', async () => {
+  const previousFetch = globalThis.fetch
+  let enabled = true, installed = true, uploaded, receivedEntry
+  const module = { id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }
+  globalThis.fetch = async (url, options) => {
+    const path = String(url)
+    if (path.startsWith('/api/module-packages?')) {
+      uploaded = options.body; receivedEntry = new URL(path, 'http://localhost').searchParams.get('entry_point'); installed = true; enabled = true
+      return Response.json(module)
+    }
+    if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json(module) }
+    if (path === '/api/modules/test.actions' && options.method === 'DELETE') { installed = false; return Response.json({}) }
+    if (path === '/api/catalog') return Response.json({ nodes: installed && enabled ? [declaration('test.one')] : [], modules: installed ? [{ ...module, enabled }] : [] })
+    return previousFetch(url, options)
+  }
+  await addNode()
+  await click('Disable')
+  assert.match(container.querySelector('.canvas').textContent, /Missing module: test.one/)
+  assert.match(container.querySelector('.canvas').textContent, /Cannot run/)
+  assert.equal(nodeCount(), 1)
+  await click('Enable')
+  assert.doesNotMatch(container.querySelector('.canvas').textContent, /Missing module/)
+  await click('Uninstall')
+  assert.equal(nodeCount(), 1)
+  const input = container.querySelector('input[type=file]')
+  const file = new window.File(['selected wheel bytes'], 'external-0.1-py3-none-any.whl')
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  await act(async () => input.dispatchEvent(new window.Event('change', { bubbles: true })))
+  await click('Install package')
+  assert.equal(uploaded, file)
+  assert.equal(receivedEntry, 'workbench_notes:module')
+  assert.doesNotMatch(container.querySelector('.canvas').textContent, /Missing module/)
+  await click('Save project')
+  assert.equal(savedFlows[0].flow.nodes.length, 1)
+})
+
+test('multiple viewers use a stable ID default and switching leaves packages and computation unchanged', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [{ id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', settings: {}, settings_schema: {} }] })
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  await click('Project B')
+  const original = clone(packages.b)
+  await choose('Data package', 'b-package')
+  const select = [...container.querySelectorAll('label')].find(label => label.textContent.startsWith('Viewer')).querySelector('select')
+  assert.deepEqual([...select.options].map(option => option.value), ['a.basic', 'z.detail'])
+  assert.equal(select.value, 'a.basic')
+  assert.equal(container.querySelector('[data-testid=viewer]').textContent, 'Basic b-package')
+  await act(async () => { select.value = 'z.detail'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  assert.equal(container.querySelector('[data-testid=viewer]').textContent, 'Detailed b-package')
+  assert.deepEqual(packages.b, original)
+  assert.deepEqual(runRequests, [])
+  assert.equal(title(), 'Project B')
+  await click('Project A'); await click('Project B'); await choose('Data package', 'b-package')
+  assert.equal(container.querySelector('[data-testid=viewer]').textContent, 'Basic b-package')
+})
+
+test('disabling a failed viewer restores the stable available default', async () => {
+  const previousFetch = globalThis.fetch
+  let brokenEnabled = true
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [
+      { id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', settings: {}, settings_schema: {} },
+      { id: 'test.broken', name: 'Broken viewer', enabled: brokenEnabled, ui: 'fixture.js', settings: {}, settings_schema: {} },
+    ] })
+    return previousFetch(url, options)
+  }
+  await click('Register module'); await click('Project B'); await choose('Data package', 'b-package')
+  const select = [...container.querySelectorAll('label')].find(label => label.textContent.startsWith('Viewer')).querySelector('select')
+  const originalError = console.error
+  console.error = () => {}
+  try {
+    await act(async () => { select.value = 'z.broken'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  } finally { console.error = originalError }
+  assert.match(container.querySelector('.package [role=alert]').textContent, /Viewer unavailable/)
+  brokenEnabled = false
+  await click('Register module')
+  assert.equal(container.querySelector('[data-testid=viewer]')?.textContent, 'Basic b-package')
+  assert.deepEqual(runRequests, [])
+})
+
+test('a failed save from a previous project cannot show an error in the current editor', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Save project')
+  await click('Project B')
+  await act(async () => pendingSave.reject(new Error('Old save failed')))
+  assert.equal(title(), 'Project B')
+  assert.equal(container.querySelector('[role=alert]')?.textContent, undefined)
+})
+
+test('typing parameter JSON immediately marks the draft unsaved and saving commits the focused editor', async () => {
+  await addNode()
+  await click('Save project')
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus()
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(parameters, '{"region":[12,17]}')
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(savedFlows.length, 1)
+  await click('Save project')
+  assert.deepEqual(savedFlows[1].flow.nodes[0].parameters, { region: [12, 17] })
+  assert.equal(title(), 'Project A')
+})
+
+
+test('creating another project asks once to discard the unchanged unsaved draft', async () => {
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return prompts.length === 1 }
+  await click('Create project')
+  assert.equal(title(), 'Research project')
+  assert.equal(prompts.length, 1)
+  assert.match(prompts[0], /discard unsaved/i)
+  assert.equal(savedFlows.length, 0)
+})
+
+test('opening another project cannot silently discard edits made while its response was pending', async () => {
+  projectGate = deferred()
+  await click('Project B')
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return false }
+  await act(async () => projectGate.resolve())
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(nodeCount(), 1)
+  assert.equal(prompts.length, 1)
+  assert.equal(savedFlows.length, 0)
+})
+
+test('a pending save cannot clear an unblurred parameter draft entered after its snapshot', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Save project')
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus()
+    parameters.value = '{"seed":9}'
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await act(async () => pendingSave.resolve())
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(parameters.value, '{"seed":9}')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].parameters, {})
+})
+
+test('canceling save and run leaves edits in memory and never starts or saves', async () => {
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return false }
+  await click('Save and run')
+  assert.match(prompts[0], /save.*run/i)
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(savedFlows.length, 0)
+  assert.deepEqual(runRequests, [])
+})
+
+test('a failed save and run preserves the draft and never starts a run', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Save and run')
+  await act(async () => pendingSave.reject(new Error('Project commit refused')))
+  assert.match(container.querySelector('[role=alert]')?.textContent ?? '', /Project commit refused/)
+  assert.equal(container.querySelector('[role=status]')?.textContent, undefined)
+  assert.equal(title(), 'Project A · unsaved')
+  assert.deepEqual(runRequests, [])
+  pendingSave = null
+  await click('Save and run')
+  assert.equal(title(), 'Project A')
+  assert.deepEqual(runRequests, ['a'])
+})
+
+test('invalid parameter text stays unsaved and cannot save or start its previous valid parameters', async () => {
+  await addNode()
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus(); parameters.value = '{unfinished'
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await click('Save and run')
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(parameters.value, '{unfinished')
+  assert.match(container.querySelector('[role=alert]')?.textContent ?? '', /valid parameter JSON/)
+  assert.equal(savedFlows.length, 0)
+  assert.deepEqual(runRequests, [])
+})
+
+test('leaving a dirty project offers discard or cancel without saving', async () => {
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return false }
+  await click('Project B')
+  assert.equal(title(), 'Project A · unsaved')
+  assert.match(prompts[0], /discard unsaved/i)
+  assert.doesNotMatch(prompts[0], /save.*(?:exit|leave)/i)
+  window.confirm = () => true
+  await click('Project B')
+  await click('Project A')
+  assert.equal(nodeCount(), 0)
+  assert.equal(savedFlows.length, 0)
+})
+
+test('beforeunload is prevented only while a project draft is unsaved', async () => {
+  const unload = () => {
+    const event = new window.Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  assert.equal(unload(), false)
+  await addNode()
+  assert.equal(unload(), true)
+  await click('Save project')
+  assert.equal(unload(), false)
+  await addNode()
+  window.confirm = () => true
+  await click('Project B')
+  assert.equal(unload(), false)
+})
+
+test('discarding invalid JSON and reopening the same project restores its saved parameter editor', async () => {
+  await addNode()
+  await click('Save project')
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus(); parameters.value = '{unfinished'
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+    parameters.blur()
+  })
+  assert.equal(title(), 'Project A · unsaved')
+  window.confirm = () => true
+  await click('Project A')
+  assert.equal(title(), 'Project A')
+  const reopened = container.querySelector('.canvas textarea')
+  assert.equal(reopened.value, '{}')
+  assert.equal(reopened.validity.valid, true)
+  await click('Save project')
+  assert.equal(container.querySelector('[role=alert]')?.textContent, undefined)
+  assert.deepEqual(savedFlows[1].flow.nodes[0].parameters, {})
 })

@@ -109,18 +109,23 @@ class Workbench:
         connection.execute("INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data", (kind, record["id"], data))
 
     def _modules(self):
-        from .registry import load
+        from .registry import load_record
         loaded = []
         for record in self._records("module"):
             if record["enabled"]:
                 try:
-                    loaded.append((record, load(record["entry_point"])))
+                    loaded.append((record, load_record(record)))
                 except HostError:
                     continue
         return loaded
 
     def install(self, entry_point):
-        from .registry import load
+        from .module_packages import mutation_lock
+        with mutation_lock(self):
+            return self._install(entry_point)
+
+    def _install(self, entry_point, *, package_path=None):
+        from .registry import load, load_record
         module = load(entry_point)
         for record in self._records("module"):
             if record["id"] == module.id:
@@ -131,7 +136,7 @@ class Workbench:
         existing_tools = set()
         for installed in self._records("module"):
             try:
-                installed_module = load(installed["entry_point"])
+                installed_module = load_record(installed)
                 existing.update(node.id for node in installed_module.nodes)
                 existing_tools.update(tool.id for tool in installed_module.tools)
             except HostError:
@@ -141,33 +146,61 @@ class Workbench:
                 raise HostError(f"Duplicate node identity: {node.id}")
         if any(tool.id in existing_tools for tool in module.tools):
             raise HostError("Duplicate tool identity")
-        return self._put("module", {"id": module.id, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
+        return self._put("module", {**({"package_path": str(package_path)} if package_path else {}), "id": module.id, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
+
+    def install_package(self, wheel, entry_point):
+        from .module_packages import install
+        return install(self, wheel, entry_point)
 
     def configure(self, module_id, settings):
-        if not isinstance(settings, dict):
-            raise HostError("Module settings must be an object")
-        record = self._get("module", module_id)
-        record["settings"] = settings
-        return self._put("module", record)
+        from .module_packages import mutation_lock
+        with mutation_lock(self):
+            if not isinstance(settings, dict):
+                raise HostError("Module settings must be an object")
+            record = self._get("module", module_id)
+            record["settings"] = settings
+            return self._put("module", record)
 
     def list_modules(self):
-        return self._records("module")
+        from .registry import load_record
+        records = self._records("module")
+        for record in records:
+            try:
+                load_record(record)
+                record["available"] = True
+            except HostError as exc:
+                record.update(available=False, load_error=str(exc))
+        return records
 
     def enable(self, module_id, enabled):
-        record = self._get("module", module_id)
-        record["enabled"] = bool(enabled)
-        return self._put("module", record)
+        from .module_packages import mutation_lock
+        with mutation_lock(self):
+            record = self._get("module", module_id)
+            if enabled:
+                from .registry import load_record
+                load_record(record)
+            record["enabled"] = bool(enabled)
+            return self._put("module", record)
 
     def uninstall(self, module_id):
-        self._get("module", module_id)
-        with self._connect() as connection:
-            connection.execute("DELETE FROM records WHERE kind='module' AND id=?", (module_id,))
+        from .module_packages import mutation_lock
+        with mutation_lock(self):
+            record = self._get("module", module_id)
+            with self._connect() as connection:
+                connection.execute("DELETE FROM records WHERE kind='module' AND id=?", (module_id,))
+            if record.get("package_path"):
+                from .module_packages import remove
+                remove(record["package_path"])
 
     def ui_entry(self, module_id):
         record = self._get("module", module_id)
         if not record["enabled"] or not record["ui"]:
             raise HostError(f"Module has no enabled UI entry: {module_id}")
-        path = Path(record["ui"])
+        from .registry import load_record
+        declaration = load_record(record)
+        if not declaration.ui:
+            raise HostError(f"Module has no UI entry: {module_id}")
+        path = Path(declaration.ui)
         if not path.is_file():
             raise HostError(f"Missing module UI entry: {path}")
         return path

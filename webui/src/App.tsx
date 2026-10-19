@@ -1,7 +1,8 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Edge, Extensions, FlowNode, ModuleHost, PackageInfo } from '@protein-workbench/module-ui'
-import { client, type Catalog, type ModuleRecord, type Project, type Run } from './host-client'
+import { client, type Catalog, type Project, type Run } from './host-client'
 import { loadExtensions } from './host-ui'
+import { ModuleManagement } from './ModuleManagement'
 
 class ExtensionBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' }
@@ -9,24 +10,14 @@ class ExtensionBoundary extends Component<{ children: ReactNode }, { error: stri
   render() { return this.state.error ? <p role="alert">Module interface failed: {this.state.error}</p> : this.props.children }
 }
 
-function JsonEditor({ value, disabled, onChange }: { value: Record<string, unknown>; disabled: boolean; onChange(value: Record<string, unknown>): void }) {
-  return <textarea key={JSON.stringify(value)} defaultValue={JSON.stringify(value, null, 2)} disabled={disabled} onBlur={event => {
+function JsonEditor({ value, disabled, onChange, onDraftChange }: { value: Record<string, unknown>; disabled: boolean; onChange(value: Record<string, unknown>): void; onDraftChange?(): void }) {
+  return <textarea key={JSON.stringify(value)} defaultValue={JSON.stringify(value, null, 2)} disabled={disabled} onInput={onDraftChange} onBlur={event => {
     try {
       const parsed = JSON.parse(event.target.value)
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('Enter a JSON object')
       event.target.setCustomValidity(''); onChange(parsed)
     } catch { event.target.setCustomValidity('Enter a valid JSON object'); event.target.reportValidity() }
   }} />
-}
-function ModuleSettings({ module, disabled, refresh, fail }: { module: ModuleRecord; disabled: boolean; refresh(): Promise<void>; fail(error: unknown): void }) {
-  const [settings, setSettings] = useState(module.settings)
-  return <details><summary>{module.name} · {module.enabled ? 'enabled' : 'disabled'}</summary>
-    <p>{module.entry_point}</p><label>Deployment settings<JsonEditor value={settings} disabled={disabled} onChange={setSettings} /></label>
-    <pre>{JSON.stringify(module.settings_schema, null, 2)}</pre>
-    <button disabled={disabled} onClick={() => client.configure(module.id, settings).then(refresh).catch(fail)}>Save settings</button>
-    <button disabled={disabled} onClick={() => client.enable(module.id, !module.enabled).then(refresh).catch(fail)}>{module.enabled ? 'Disable' : 'Enable'}</button>
-    <button disabled={disabled} onClick={() => client.uninstall(module.id).then(refresh).catch(fail)}>Unregister</button>
-  </details>
 }
 
 export default function App() {
@@ -40,12 +31,15 @@ export default function App() {
   const runningNow = useRef(false)
   const submittingRun = useRef(false)
   const [dirty, setDirty] = useState(false)
+  const dirtyNow = useRef(false)
+  const draftRevision = useRef(0)
+  function markDirty(value: boolean) { if (value) draftRevision.current += 1; dirtyNow.current = value; setDirty(value) }
+  const canvas = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const savingNow = useRef(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [entry, setEntry] = useState('workbench_notes:module')
   const [projectName, setProjectName] = useState('Research project')
   const [packages, setPackages] = useState<PackageInfo[]>([])
   const [selectedPackage, setSelectedPackage] = useState('')
@@ -65,44 +59,61 @@ export default function App() {
   }
   useEffect(() => { refresh().catch(fail) }, [])
   useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = '' } }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyNow.current) { event.preventDefault(); event.returnValue = '' } }
     window.addEventListener('beforeunload', beforeUnload)
     return () => window.removeEventListener('beforeunload', beforeUnload)
-  }, [dirty])
+  }, [])
   function change(update: (current: Project) => Project) {
     if (runningNow.current || deletingProject.current === currentProject.current?.id) throw new Error('Project is running or being deleted')
     if (!currentProject.current) throw new Error('Open a project first')
     currentProject.current = update(currentProject.current)
-    setProject(currentProject.current); setDirty(true); setNotice('')
+    setProject(currentProject.current); markDirty(true); setNotice('')
   }
-  async function open(id: string) {
-    if (runningNow.current || (dirty && !window.confirm('Discard unsaved changes and open this project?'))) return
+  async function open(id: string, approvedRevision?: number) {
+    if (runningNow.current || (dirtyNow.current && draftRevision.current !== approvedRevision && !window.confirm('Discard unsaved changes and open this project?'))) return
+    const leavingRevision = draftRevision.current
     const request = ++opening.current
     const [next, files, history] = await Promise.all([client.project(id), client.packages(id), client.runs(id)])
     if (request !== opening.current) return
-    projectSession.current += 1; currentProject.current = next; setProject(next); setDirty(false); setNotice('')
+    if (dirtyNow.current && draftRevision.current !== leavingRevision && !window.confirm('Discard unsaved changes and open this project?')) return
+    projectSession.current += 1; currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
     setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); setError('')
   }
   async function createProject() {
-    if (dirty && !window.confirm('Discard unsaved changes and create a project?')) return
-    const next = await client.createProject(projectName); await refresh(); await open(next.id)
+    if (dirtyNow.current && !window.confirm('Discard unsaved changes and create a project?')) return
+    const approvedRevision = draftRevision.current
+    const next = await client.createProject(projectName); await refresh(); await open(next.id, approvedRevision)
   }
   async function save() {
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); throw new Error('Enter valid parameter JSON before saving') }
     const snapshot = currentProject.current
     if (!snapshot) throw new Error('Open a project first')
     if (savingNow.current) throw new Error('Project save is already in progress')
-    savingNow.current = true; setSaving(true)
+    const session = projectSession.current
+    const revision = draftRevision.current
+    savingNow.current = true; setSaving(true); setError('')
     try {
       const saved = await client.save(snapshot)
-      if (currentProject.current !== snapshot) return false
-      currentProject.current = saved; setProject(saved); setDirty(false); setNotice('Project and layout saved')
+      if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
+      currentProject.current = saved; setProject(saved); markDirty(false); setNotice('Project and layout saved')
       return true
+    } catch (failure) {
+      if (session !== projectSession.current) return false
+      throw failure
     } finally { savingNow.current = false; setSaving(false) }
   }
   async function run() {
     if (!project) return
-    if (dirty) { if (!window.confirm('Save changes and run?')) return; if (!await save()) throw new Error('Project changed while saving; save again before running') }
+    const session = projectSession.current
+    if (dirtyNow.current) {
+      if (!window.confirm('Save changes and run?')) return
+      const saved = await save()
+      if (session !== projectSession.current) return
+      if (!saved) throw new Error('Project changed while saving; save again before running')
+    }
     opening.current += 1; runningNow.current = true; setRunning(true); setError(''); setNotice('Running on the backend…')
     try {
       submittingRun.current = true
@@ -155,7 +166,7 @@ export default function App() {
       setProjects(items => items.filter(item => item.id !== current.id))
       if (session !== projectSession.current) return
       projectSession.current += 1; currentProject.current = null
-      setProject(null); setDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
+      setProject(null); markDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
       setConnection({ source: '', source_port: '', target: '', target_port: '' })
       setNotice(`Project "${current.name}" deleted`)
     } catch (failure) { if (session === projectSession.current) fail(failure) }
@@ -209,7 +220,8 @@ export default function App() {
   }, [project, locked, catalog])
   const selected = packages.find(item => item.id === selectedPackage)
   const viewers = extensions.viewers?.filter(item => item.formats.includes(selected?.format ?? '')) ?? []
-  const Viewer = viewers.find(item => item.id === viewer)?.component ?? viewers[0]?.component
+  const activeViewer = viewers.find(item => item.id === viewer) ?? viewers[0]
+  const Viewer = activeViewer?.component
   const source = project?.flow.nodes.find(node => node.id === connection.source)
   const target = project?.flow.nodes.find(node => node.id === connection.target)
   const sourcePorts = catalog.nodes.find(node => node.id === source?.type)?.outputs ?? {}
@@ -221,21 +233,18 @@ export default function App() {
     {notice && <p role="status">{notice}</p>}
     <aside><h2>Projects</h2><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={locked} onClick={() => createProject().catch(fail)}>Create project</button>
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
-      <h2>Modules</h2><p>Install a Python package in the server environment, then register its public factory.</p><label>Entry point<input value={entry} onChange={event => setEntry(event.target.value)} /></label>
-      <button disabled={locked} onClick={() => client.install(entry).then(refresh).catch(fail)}>Register module</button>
-      {catalog.modules.map(module => <ModuleSettings key={module.id} module={module} disabled={locked} refresh={refresh} fail={fail} />)}
-      {!catalog.modules.length && <p>No modules enabled. Projects and canvas are available.</p>}
+      <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} fail={fail} />
     </aside>
     <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button>{running && <button onClick={() => Promise.all(runs.filter(item => item.status === 'running').map(item => client.cancelRun(item.id))).then(() => setNotice('Cancellation requested; waiting for the backend…')).catch(fail)}>Cancel run</button>}<button disabled={!project || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
-        <section className="canvas" aria-label="Workflow canvas"><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
+        <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
           {project.flow.nodes.map((node, index) => {
             const declaration = catalog.nodes.find(item => item.id === node.type)
             const Editor = extensions.editors?.find(item => item.node === node.type)?.component
-            return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>
+            return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
-              {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
+              {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
                 const available = (catalog.tools ?? []).filter(tool => tool.slot === contract.id)
                 const selectedId = node.tools?.[slot] ?? ''
@@ -247,7 +256,7 @@ export default function App() {
                   })}><option value="">Choose tool</option>{selectedId && !tool && <option value={selectedId}>Missing tool: {selectedId}</option>}{available.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                   {tool && <><p>Capabilities</p><pre>{JSON.stringify(tool.capabilities, null, 2)}</pre>
                     <details><summary>Tool parameter schema and defaults</summary><pre>{JSON.stringify(tool.parameters, null, 2)}</pre></details>
-                    <label>Tool parameters (JSON)<JsonEditor value={node.tool_parameters?.[slot] ?? {}} disabled={locked} onChange={parameters => updateNode(node.id, { tool_parameters: { ...node.tool_parameters, [slot]: parameters } })} /></label></>}
+                    <label>Tool parameters (JSON)<JsonEditor value={node.tool_parameters?.[slot] ?? {}} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { tool_parameters: { ...node.tool_parameters, [slot]: parameters } })} /></label></>}
                 </fieldset>
               })}
               {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={locked} value={node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: event.target.value ? [event.target.value] : [] } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select></label>)}
@@ -260,7 +269,7 @@ export default function App() {
         <fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
         <h3>Runs</h3>{runs.map(run => <details key={run.id}><summary>{run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.entries(run.nodes).map(([id, result]) => <p key={id}>{id}: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed: dependency failed' : result.status} {result.diagnostics?.join('; ')}</p>)}</details>)}
         <h3>Data packages</h3><select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select>
-        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={viewers.find(item => item.id === viewer)?.id ?? viewers[0].id} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + viewer}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
+        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
       </>}
     </main></div>
 }

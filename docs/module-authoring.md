@@ -4,7 +4,11 @@
 
 ## Python 声明
 
-模块提供一个无参数工厂，返回 `Module`。用户安装 Python 包后，通过应用登记 `包名.模块名:工厂名`。工厂声明节点、配置字段和可选的浏览器入口；配置保存在应用数据目录中，与节点计算参数分开。
+模块提供一个无参数工厂，返回 `Module`。工厂声明节点、配置字段和可选的浏览器入口；配置保存在应用数据目录中，与节点计算参数分开。一个模块的 `nodes` 可声明多个节点。
+
+用户在应用中选择 wheel 文件并填写 `包名.模块名:工厂名`，点击 `Install package`。应用使用后端 Python 将所选 wheel 离线安装到数据目录的独立包目录，只安装该包；其 `Requires-Dist` 中的依赖须已由部署者装入后端环境。已有环境包可用 `Register module` 登记同一公共工厂。安装成功后默认启用。禁用保留设置；卸载删除登记及应用拥有的包目录。随载体发行的官方模块可重新登记其公开入口。安装失败清理本次目录并报告具体原因。
+
+模块声明的环境字段是凭据、已有模型路径、服务地址或程序位置等字符串。`Module.settings` 以字段名映射说明文字，或映射 `{ "type": "string", "title": "显示名称", "secret": true }`；`secret` 字段在界面中遮蔽显示。载体按声明展示并保存用户值，通过 `Call.settings` 及工具的构造入口提供给所属模块。
 
 ```python
 from shutil import copyfileobj
@@ -85,7 +89,7 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 载体传入自己安装的 React 19 实例。模块使用这个实例创建元素和调用 hooks；构建模块时将 React 作为共享依赖，产物只保留传入的运行时引用。其他浏览器依赖由模块打包进自己的入口文件。
 
-操作入口通过 `host.createInput` 上传文件并创建输入包，使用 `host.addNode` 和 `host.connect` 编辑流程。查看器通过 `host.readFile` 读取包内文件。编辑器接收节点参数及 `onChange`；界面遵守 `readOnly` 状态。各接口的参数以公共类型声明为准。
+操作入口通过 `host.createInput` 上传文件并创建输入包，使用 `host.addNode` 和 `host.connect` 编辑流程。查看器通过 `host.readFile` 读取包内文件。同一格式可声明多个具有唯一 `id` 的查看器；载体按查看器 ID 排序，默认使用第一项，用户可手动切换。打开另一包时恢复默认；当前查看器被禁用或卸载时使用剩余默认项，切换只影响展示。编辑器接收节点参数及 `onChange`；界面遵守 `readOnly` 状态。各接口的参数以公共类型声明为准。
 
 操作绑定发起时的项目会话；切换项目后，旧操作的编辑请求会拒绝。`await host.addNode(...)` 完成后，后续 `addNode` 或 `connect` 调用可立即使用已添加的节点。
 

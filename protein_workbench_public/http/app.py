@@ -1,5 +1,6 @@
 """Unversioned HTTP application around the public module host."""
 from pathlib import Path
+import tempfile
 from dataclasses import dataclass, field
 from threading import Lock
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from core.host import HostError, Workbench
 from protein_workbench_public.module_api import Delivery
@@ -98,6 +100,17 @@ def create_http_app(host: Workbench) -> FastAPI:
     @app.post('/api/modules')
     def install(body: InstallModule):
         return host.install(body.entry_point)
+
+    @app.post('/api/module-packages')
+    async def install_package(request: Request, filename: str, entry_point: str):
+        if Path(filename).name != filename or "\\" in filename or not filename.endswith('.whl'):
+            raise HostError('Select a wheel filename without a directory')
+        with tempfile.TemporaryDirectory(prefix='module-upload-', dir=host.root) as directory:
+            wheel = Path(directory) / filename
+            with wheel.open('wb') as output:
+                async for chunk in request.stream():
+                    output.write(chunk)
+            return await run_in_threadpool(host.install_package, wheel, entry_point)
 
     @app.put('/api/modules/{module_id}/settings')
     def configure(module_id: str, body: ModuleConfiguration):
