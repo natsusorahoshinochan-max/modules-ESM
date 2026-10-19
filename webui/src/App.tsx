@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Edge, Extensions, FlowNode, ModuleHost, PackageInfo } from '@protein-workbench/module-ui'
+import type { Edge, FlowNode, ModuleHost, PackageInfo } from '@protein-workbench/module-ui'
 import { client, type Catalog, type Project, type Run } from './host-client'
-import { loadExtensions } from './host-ui'
+import { loadExtensions, type LoadedExtensions } from './host-ui'
 import { ModuleManagement } from './ModuleManagement'
 
 class ExtensionBoundary extends Component<{ children: ReactNode }, { error: string }> {
@@ -21,9 +21,9 @@ function JsonEditor({ value, disabled, onChange, onDraftChange }: { value: Recor
 }
 
 export default function App() {
-  const [catalog, setCatalog] = useState<Catalog>({ nodes: [], modules: [] })
-  const [extensions, setExtensions] = useState<Extensions>({})
-  const [projects, setProjects] = useState<Project[]>([])
+  const [{ catalog, extensions, projects }, setSnapshot] = useState<{ catalog: Catalog; extensions: LoadedExtensions; projects: Project[] }>({ catalog: { nodes: [], modules: [] }, extensions: {}, projects: [] })
+  const refreshGeneration = useRef(0)
+  const invalidateRefresh = () => { refreshGeneration.current += 1 }
   const [project, setProject] = useState<Project | null>(null)
   const currentProject = useRef<Project | null>(null)
   const projectSession = useRef(0)
@@ -53,9 +53,24 @@ export default function App() {
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
   const fail = (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure))
   async function refresh() {
-    const next = await client.catalog(); setCatalog(next)
-    try { setExtensions(await loadExtensions(next.modules)) } catch (failure) { setExtensions({}); fail(failure) }
-    setProjects(await client.projects())
+    const request = ++refreshGeneration.current
+    const current = () => request === refreshGeneration.current
+    let next: Catalog | undefined
+    try {
+      next = await client.catalog()
+      if (!current()) return
+      let nextExtensions: LoadedExtensions = {}, extensionError: unknown
+      try { nextExtensions = await loadExtensions(next.modules) } catch (failure) { extensionError = failure }
+      if (!current()) return
+      const nextProjects = await client.projects()
+      if (!current()) return
+      setSnapshot({ catalog: next, extensions: nextExtensions, projects: nextProjects })
+      if (extensionError) fail(extensionError)
+    } catch (failure) {
+      if (!current()) return
+      setSnapshot(previous => ({ catalog: next ?? previous.catalog, extensions: {}, projects: previous.projects }))
+      fail(failure)
+    }
   }
   useEffect(() => { refresh().catch(fail) }, [])
   useEffect(() => {
@@ -163,7 +178,7 @@ export default function App() {
     opening.current += 1
     try {
       await client.deleteProject(current.id)
-      setProjects(items => items.filter(item => item.id !== current.id))
+      setSnapshot(previous => ({ ...previous, projects: previous.projects.filter(item => item.id !== current.id) }))
       if (session !== projectSession.current) return
       projectSession.current += 1; currentProject.current = null
       setProject(null); markDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
@@ -233,18 +248,19 @@ export default function App() {
     {notice && <p role="status">{notice}</p>}
     <aside><h2>Projects</h2><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={locked} onClick={() => createProject().catch(fail)}>Create project</button>
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
-      <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} fail={fail} />
+      <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} invalidateRefresh={invalidateRefresh} fail={fail} />
     </aside>
     <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button>{running && <button onClick={() => Promise.all(runs.filter(item => item.status === 'running').map(item => client.cancelRun(item.id))).then(() => setNotice('Cancellation requested; waiting for the backend…')).catch(fail)}>Cancel run</button>}<button disabled={!project || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
-      {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
+      {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id + action.installation_id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
         <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
           {project.flow.nodes.map((node, index) => {
             const declaration = catalog.nodes.find(item => item.id === node.type)
-            const Editor = extensions.editors?.find(item => item.node === node.type)?.component
+            const editor = extensions.editors?.find(item => item.node === node.type)
+            const Editor = editor?.component
             return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
-              {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
+              {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
                 const available = (catalog.tools ?? []).filter(tool => tool.slot === contract.id)
                 const selectedId = node.tools?.[slot] ?? ''
@@ -269,7 +285,7 @@ export default function App() {
         <fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
         <h3>Runs</h3>{runs.map(run => <details key={run.id}><summary>{run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.entries(run.nodes).map(([id, result]) => <p key={id}>{id}: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed: dependency failed' : result.status} {result.diagnostics?.join('; ')}</p>)}</details>)}
         <h3>Data packages</h3><select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select>
-        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
+        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id + activeViewer?.installation_id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
       </>}
     </main></div>
 }

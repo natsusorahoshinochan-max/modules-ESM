@@ -31,8 +31,9 @@ def prepare_group(app, flow, project_id):
         raise HostError("Flow nodes and edges must be lists")
     if any(not isinstance(item, dict) for item in flow.get("nodes", []) + flow.get("edges", [])):
         raise HostError("Flow nodes and edges must contain objects")
-    available = {node.id: (record, node) for record, module in app._modules() for node in module.nodes}
-    tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
+    modules = app._modules()
+    available = {node.id: (record, node) for record, module in modules for node in module.nodes}
+    tools = {tool.id: (record, tool) for record, module in modules for tool in module.tools}
     nodes = flow.get("nodes", [])
     edges = flow.get("edges", [])
     by_id = {}
@@ -208,7 +209,7 @@ def create_run(app, project_id):
                 states[identifier].update(status="configuration_blocked", diagnostics=group["diagnostics"])
     run = {"id": uuid4().hex, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"]}
     app._put("run", run)
-    tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
+    tools = {tool.id: (record, tool) for record, module in modules for tool in module.tools}
     return run, (by_id, selected, edges, ordered, tools)
 
 
