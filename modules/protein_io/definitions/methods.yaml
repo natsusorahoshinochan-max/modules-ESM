@@ -23,35 +23,10 @@
     kind: canonical-protein-io
   scale_contract:
     kind: identity
-- method_id: protein_io.import_structure.method
-  algorithm_identity:
-    name: import_structure
-    format_contract: 4.0.0
-    models: explicit-single-selection
-    formats: [pdb, mmcif]
-    authored_identity: preserved
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: canonical-protein-io
-  scale_contract:
-    kind: identity
 - method_id: protein_io.export_sequence.method
   algorithm_identity:
     name: export_sequence
     format_contract: 2.1.0
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: canonical-protein-io
-  scale_contract:
-    kind: identity
-- method_id: protein_io.export_structure.method
-  algorithm_identity:
-    name: export_structure
-    format_contract: 3.0.0
-    formats: [pdb, mmcif]
-    representation: original-declared-format
   model_identity:
     kind: none
   featurization_identity:
@@ -65,17 +40,5 @@
     kind: none
   featurization_identity:
     kind: unchanged
-  scale_contract:
-    kind: identity
-- method_id: protein_io.import_structures.method
-  algorithm_identity:
-    name: import_selected_structure_models
-    formats: [pdb, mmcif]
-    model_order: explicit-selection-order
-    authored_identity: preserved
-  model_identity:
-    kind: none
-  featurization_identity:
-    kind: canonical-protein-io
   scale_contract:
     kind: identity

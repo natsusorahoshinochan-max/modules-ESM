@@ -8,7 +8,7 @@ from pathlib import Path
 from shutil import copyfileobj
 
 from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort
-from modules.structure_comparison.api import StructureInput, compare, read_reference
+from modules.structure_comparison.api import StructureInput, compare, read_comparison_input
 
 
 def _structure(value):
@@ -78,7 +78,7 @@ def compare_structure(call, runtime):
         content = stream.read()
     subject = StructureInput(structure['id'], content, structure['format'], structure['sequence'],
                              structure.get('label'), generation)
-    return compare(subject, read_reference(call.inputs['reference'][0]), runtime)
+    return compare(subject, read_comparison_input(call.inputs['reference'][0]), runtime)
 
 
 def module():
@@ -89,7 +89,7 @@ def module():
                  inputs={'prediction': InputPort(('workbench.prediction',))},
                  outputs={'structure': OutputPort('workbench.structure')}),
             Node(id='workbench.compare_structure', name='Compare converted structure', execute=compare_structure,
-                 inputs={'subject': InputPort(('workbench.structure',)), 'reference': InputPort(('workbench.reference',))},
+                 inputs={'subject': InputPort(('workbench.structure',)), 'reference': InputPort(('workbench.reference', 'workbench.structure_set'))},
                  outputs={'comparison': OutputPort('workbench.comparison')}),
         ), ui=str(Path(__file__).with_name('ui.js').resolve()),
     )

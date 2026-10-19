@@ -64,6 +64,32 @@ def read_reference(package):
     return _read(package, prediction=False)
 
 
+def read_structure_set(package):
+    """Independently read the documented workbench.structure_set file contract."""
+    if package.format != 'workbench.structure_set':
+        raise ValueError('Expected workbench.structure_set input')
+    with package.open(package.entry) as stream:
+        document = json.load(stream)
+    objects = document.get('objects') if isinstance(document, dict) else None
+    if not isinstance(objects, list) or len(objects) != 1:
+        raise ValueError('Comparison requires one candidate; select one conformation during import or export')
+    obj = objects[0]
+    structure = obj.get('structure')
+    if not isinstance(obj.get('id'), str) or not obj['id'] or not isinstance(structure, dict) or structure.get('format') not in ('pdb', 'mmcif'):
+        raise ValueError('Structure object requires id and a PDB or mmCIF file')
+    with package.open(structure['file']) as stream:
+        content = stream.read()
+    return StructureInput(obj['id'], content, structure['format'], label=obj.get('label'))
+
+
+def read_comparison_input(package):
+    if package.format == 'workbench.structure_set':
+        return read_structure_set(package)
+    if package.format == 'workbench.prediction':
+        return read_prediction(package)
+    return read_reference(package)
+
+
 _AMINO = {'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C', 'GLN': 'Q', 'GLU': 'E',
           'GLY': 'G', 'HIS': 'H', 'ILE': 'I', 'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F',
           'PRO': 'P', 'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'}

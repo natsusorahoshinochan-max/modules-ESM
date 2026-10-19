@@ -1,6 +1,6 @@
 # Independent structure comparison
 
-Factory: `modules.structure_comparison:module`. The `workbench.compare` node reads one `workbench.prediction` subject and one independently selected `workbench.reference`. It reads the [prediction file format](../folding/FORMAT.md) directly; the prediction producer need not be installed or registered. A reference has no required generation relationship to the subject.
+Factory: `modules.structure_comparison:module`. The `workbench.compare` node reads one `workbench.prediction` or `workbench.structure_set` subject and one independently selected `workbench.reference` or `workbench.structure_set`. Imported structure sets follow the [complete structure format](../structure_io/FORMAT.md); each input must contain exactly one selected candidate. It reads the [prediction file format](../folding/FORMAT.md) directly; the prediction producer need not be installed or registered. A reference has no required generation relationship to the subject.
 
 ## Reference input: workbench.reference
 
@@ -36,6 +36,6 @@ The viewer uses only these delivered files and its supplied React runtime. Its o
 
 ## Public execution reuse
 
-`modules.structure_comparison.api` provides `StructureInput(object_id, content, format, sequence=None, label=None, generation=None)`, `read_prediction(package)`, `read_reference(package)` and `compare(subject, reference, runtime)`. `StructureInput` is frozen; `content` is the complete original bytes. Supplying `sequence` requests exact sequence/residue validation. `compare` returns a public `Outcome` on port `comparison`, writing all delivered files inside `runtime.workdir`. Cancellation is checked before parsing and after the synchronous lightweight TM-align call. Errors stop the operation with a specific exception; input bytes remain unchanged.
+`modules.structure_comparison.api` provides `StructureInput(object_id, content, format, sequence=None, label=None, generation=None)`, `read_prediction(package)`, `read_reference(package)`, `read_structure_set(package)`, `read_comparison_input(package)` and `compare(subject, reference, runtime)`. `StructureInput` is frozen; `content` is the complete original bytes. Supplying `sequence` requests exact sequence/residue validation. `compare` returns a public `Outcome` on port `comparison`, writing all delivered files inside `runtime.workdir`. Cancellation is checked before parsing and after the synchronous lightweight TM-align call. Errors stop the operation with a specific exception; input bytes remain unchanged.
 
 A converted-format consumer may independently parse its own format into `StructureInput` and call `compare`. That consumer must declare installation of this comparison module's distribution (`protein-workbench` in this repository) as a dependency. Reuse creates a dependency on comparison execution, while reading the prediction format creates no dependency on the producer. No host scientific registry participates.

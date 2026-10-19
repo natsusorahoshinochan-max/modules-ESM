@@ -1,6 +1,6 @@
 # Explicit prediction to structure conversion
 
-Factory: `modules.structure_conversion:module`. This module supplies `workbench.prediction_to_structure`, accepting only `workbench.prediction` and delivering `workbench.structure` on `structure`, and `workbench.compare_structure`, accepting only `workbench.structure` on `subject` and `workbench.reference` on `reference`.
+Factory: `modules.structure_conversion:module`. This module supplies `workbench.prediction_to_structure`, accepting only `workbench.prediction` and delivering `workbench.structure` on `structure`, and `workbench.compare_structure`, accepting only `workbench.structure` on `subject` and `workbench.reference` or a single-candidate `workbench.structure_set` on `reference`.
 
 ## Target format: workbench.structure
 
@@ -12,7 +12,7 @@ The converter independently reads the [published prediction format](../folding/F
 
 ## Comparison execution and installation dependency
 
-The C-only consumer reads this structure record independently and constructs `StructureInput`, reads its independent reference with `read_reference`, then calls `compare` from `modules.structure_comparison.api`. It requires the comparison module installed from the `protein-workbench` distribution, which also ships this conversion module in this repository. It imports no prediction producer code. A separately distributed consumer reusing these APIs must declare `protein-workbench` as an installation dependency.
+The C-only consumer reads this structure record independently and constructs `StructureInput`, reads its independent reference with `read_comparison_input`, then calls `compare` from `modules.structure_comparison.api`. It requires the comparison module installed from the `protein-workbench` distribution, which also ships this conversion module in this repository. It imports no prediction producer code. A separately distributed consumer reusing these APIs must declare `protein-workbench` as an installation dependency.
 
 The consumer uses the complete-protein TM-align operation and delivers `workbench.comparison`. Method limits, output files, metric meanings and result viewer are maintained in the [comparison format](../structure_comparison/FORMAT.md).
 
