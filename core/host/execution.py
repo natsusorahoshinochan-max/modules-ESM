@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 import shutil
 
 from protein_workbench_public.module_api import Call, Delivery, Outcome
@@ -20,6 +21,12 @@ class ExecutionRuntime:
 
 
 def prepare(app, flow):
+    if not isinstance(flow, dict):
+        raise HostError("Flow must be an object containing nodes and edges")
+    if not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
+        raise HostError("Flow nodes and edges must be lists")
+    if any(not isinstance(item, dict) for item in flow.get("nodes", []) + flow.get("edges", [])):
+        raise HostError("Flow nodes and edges must contain objects")
     available = {node.id: (record, node) for record, module in app._modules() for node in module.nodes}
     nodes = flow.get("nodes", [])
     edges = flow.get("edges", [])
@@ -30,10 +37,10 @@ def prepare(app, flow):
         if not isinstance(identifier, str) or not identifier or identifier in by_id:
             raise HostError(f"Invalid or duplicate flow node identity: {identifier!r}")
         by_id[identifier] = instance
-        if instance.get("type") not in available:
+        if not isinstance(instance.get("type"), str) or instance["type"] not in available:
             raise HostError(f"Missing module node: {instance.get('type')}")
         selected[identifier] = available[instance["type"]]
-        if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict):
+        if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict) or not isinstance(instance.get("tool_parameters", {}), dict):
             raise HostError(f"Invalid parameters or inputs for node {identifier}")
     connections = set()
     for edge in edges:
@@ -85,7 +92,7 @@ def prepare(app, flow):
 def accept(app, run, identifier, declaration, outcome, workdir):
     if not isinstance(outcome, Outcome) or outcome.status not in ("succeeded", "failed", "cancelled"):
         raise HostError("Node must return a public Outcome with a valid terminal status")
-    if not isinstance(outcome.outputs, dict) or set(outcome.outputs) - set(declaration.outputs):
+    if not isinstance(outcome.outputs, Mapping) or set(outcome.outputs) - set(declaration.outputs):
         raise HostError("Node returned undeclared output ports")
     if any(not isinstance(message, str) for message in outcome.diagnostics):
         raise HostError("Outcome diagnostics must be strings")
@@ -116,7 +123,6 @@ def accept(app, run, identifier, declaration, outcome, workdir):
             for package in packages:
                 app._write(connection, "package", package)
             app._write(connection, "run", replacement)
-            connection.commit()
         run.update(replacement)
     except BaseException:
         for package in packages:
@@ -150,7 +156,7 @@ def execute(app, project_id):
                     raise HostError(f"Required input is missing: {identifier}.{name}")
                 if port.cardinality == "one" and count > 1:
                     raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
-            call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=instance.get("parameters", {}), settings=record["settings"], tool_parameters=instance.get("tool_parameters", {}))
+            call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(instance.get("parameters", {}))), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(instance.get("tool_parameters", {}))))
             outcome = declaration.execute(call, ExecutionRuntime(workdir))
             accept(app, run, identifier, declaration, outcome, workdir)
         except Exception as exc:

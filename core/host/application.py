@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 import shutil
@@ -26,8 +27,24 @@ class Workbench:
         with self._connect() as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, data TEXT NOT NULL, PRIMARY KEY(kind,id))")
 
+    @contextmanager
     def _connect(self):
-        return sqlite3.connect(self._database)
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database)
+            yield connection
+            connection.commit()
+        except (sqlite3.Error, OSError) as exc:
+            if connection is not None:
+                connection.rollback()
+            raise HostError(f"Database read, write or commit failed: {exc}") from exc
+        except BaseException:
+            if connection is not None:
+                connection.rollback()
+            raise
+        finally:
+            if connection is not None:
+                connection.close()
 
     def _records(self, kind):
         with self._connect() as connection:
@@ -71,7 +88,12 @@ class Workbench:
                 if record["entry_point"] != entry_point:
                     raise HostError(f"Duplicate module identity: {module.id}")
                 return record
-        existing = {node["id"] for node in self.catalog()["nodes"]}
+        existing = set()
+        for installed in self._records("module"):
+            try:
+                existing.update(node.id for node in load(installed["entry_point"]).nodes)
+            except HostError:
+                continue
         for node in module.nodes:
             if node.id in existing:
                 raise HostError(f"Duplicate node identity: {node.id}")
@@ -119,7 +141,11 @@ class Workbench:
     def get_project(self, project_id):
         project = self._get("project", project_id)
         available = {node["id"] for node in self.catalog()["nodes"]}
-        project["missing_modules"] = sorted({node.get("type", "") for node in project["flow"].get("nodes", [])} - available)
+        flow = project["flow"]
+        nodes = flow.get("nodes", []) if isinstance(flow, dict) else []
+        nodes = nodes if isinstance(nodes, list) else []
+        requested = {node["type"] for node in nodes if isinstance(node, dict) and isinstance(node.get("type"), str)}
+        project["missing_modules"] = sorted(requested - available)
         return project
 
     def save_project(self, project_id, flow, layout):

@@ -88,3 +88,25 @@ def test_logical_file_key_is_opaque_and_never_used_as_filesystem_location(tmp_pa
     result = app.create_input(project["id"], Delivery("custom", key, {key: "actual"}), workdir)
     with app.package(result["id"]).open(key) as stream:
         assert stream.read() == b"opaque"
+
+
+def test_node_parameter_mutation_does_not_change_recorded_invocation(tmp_path):
+    app = Workbench(tmp_path)
+    app.install("tests.fixtures.host_module:mutating_module")
+    app.configure("mutating", {"nested": {"value": "original setting"}})
+    project = app.create_project("Fixed call")
+    app.save_project(project["id"], {"nodes": [{"id": "mutate", "type": "mutating.node", "parameters": {"nested": {"value": "original parameter"}}}], "edges": []}, {})
+    run = app.start(project["id"])
+    assert run["flow"]["nodes"][0]["parameters"] == {"nested": {"value": "original parameter"}}
+    assert app.get_project(project["id"])["flow"]["nodes"][0]["parameters"] == {"nested": {"value": "original parameter"}}
+    assert app.list_modules()[0]["settings"] == {"nested": {"value": "original setting"}}
+
+
+def test_malformed_saved_flow_has_a_concrete_start_error(tmp_path):
+    import pytest
+    from core.host import HostError
+    app = Workbench(tmp_path)
+    project = app.create_project("Unfinished document")
+    app.save_project(project["id"], "unfinished", {})
+    with pytest.raises(HostError, match="Flow must be an object"):
+        app.start(project["id"])
