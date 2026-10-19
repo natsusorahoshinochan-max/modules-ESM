@@ -1,7 +1,8 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Edge, Extensions, FlowNode, ModuleHost, PackageInfo } from '@protein-workbench/module-ui'
-import { client, type Catalog, type ModuleRecord, type Project, type Run } from './host-client'
+import { client, type Catalog, type Project, type Run } from './host-client'
 import { loadExtensions } from './host-ui'
+import { ModuleManagement } from './ModuleManagement'
 
 class ExtensionBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' }
@@ -17,16 +18,6 @@ function JsonEditor({ value, disabled, onChange }: { value: Record<string, unkno
       event.target.setCustomValidity(''); onChange(parsed)
     } catch { event.target.setCustomValidity('Enter a valid JSON object'); event.target.reportValidity() }
   }} />
-}
-function ModuleSettings({ module, disabled, refresh, fail }: { module: ModuleRecord; disabled: boolean; refresh(): Promise<void>; fail(error: unknown): void }) {
-  const [settings, setSettings] = useState(module.settings)
-  return <details><summary>{module.name} · {module.enabled ? 'enabled' : 'disabled'}</summary>
-    <p>{module.entry_point}</p><label>Deployment settings<JsonEditor value={settings} disabled={disabled} onChange={setSettings} /></label>
-    <pre>{JSON.stringify(module.settings_schema, null, 2)}</pre>
-    <button disabled={disabled} onClick={() => client.configure(module.id, settings).then(refresh).catch(fail)}>Save settings</button>
-    <button disabled={disabled} onClick={() => client.enable(module.id, !module.enabled).then(refresh).catch(fail)}>{module.enabled ? 'Disable' : 'Enable'}</button>
-    <button disabled={disabled} onClick={() => client.uninstall(module.id).then(refresh).catch(fail)}>Unregister</button>
-  </details>
 }
 
 export default function App() {
@@ -44,7 +35,6 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [entry, setEntry] = useState('workbench_notes:module')
   const [projectName, setProjectName] = useState('Research project')
   const [packages, setPackages] = useState<PackageInfo[]>([])
   const [selectedPackage, setSelectedPackage] = useState('')
@@ -177,7 +167,8 @@ export default function App() {
   }, [project, locked, catalog])
   const selected = packages.find(item => item.id === selectedPackage)
   const viewers = extensions.viewers?.filter(item => item.formats.includes(selected?.format ?? '')) ?? []
-  const Viewer = viewers.find(item => item.id === viewer)?.component ?? viewers[0]?.component
+  const activeViewer = viewers.find(item => item.id === viewer) ?? viewers[0]
+  const Viewer = activeViewer?.component
   const source = project?.flow.nodes.find(node => node.id === connection.source)
   const target = project?.flow.nodes.find(node => node.id === connection.target)
   const sourcePorts = catalog.nodes.find(node => node.id === source?.type)?.outputs ?? {}
@@ -189,10 +180,7 @@ export default function App() {
     {notice && <p role="status">{notice}</p>}
     <aside><h2>Projects</h2><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={locked} onClick={() => createProject().catch(fail)}>Create project</button>
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
-      <h2>Modules</h2><p>Install a Python package in the server environment, then register its public factory.</p><label>Entry point<input value={entry} onChange={event => setEntry(event.target.value)} /></label>
-      <button disabled={locked} onClick={() => client.install(entry).then(refresh).catch(fail)}>Register module</button>
-      {catalog.modules.map(module => <ModuleSettings key={module.id} module={module} disabled={locked} refresh={refresh} fail={fail} />)}
-      {!catalog.modules.length && <p>No modules enabled. Projects and canvas are available.</p>}
+      <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} fail={fail} />
     </aside>
     <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button><button disabled={!project || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
@@ -201,7 +189,7 @@ export default function App() {
           {project.flow.nodes.map((node, index) => {
             const declaration = catalog.nodes.find(item => item.id === node.type)
             const Editor = extensions.editors?.find(item => item.node === node.type)?.component
-            return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>
+            return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
               {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
@@ -228,7 +216,7 @@ export default function App() {
         <fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
         <h3>Runs</h3>{runs.map(run => <details key={run.id}><summary>{run.status} · {run.id}</summary>{Object.entries(run.nodes).map(([id, result]) => <p key={id}>{id}: {result.status} {result.diagnostics?.join('; ')}</p>)}</details>)}
         <h3>Data packages</h3><select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select>
-        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={viewers.find(item => item.id === viewer)?.id ?? viewers[0].id} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + viewer}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
+        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
       </>}
     </main></div>
 }

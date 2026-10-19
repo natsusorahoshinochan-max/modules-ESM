@@ -19,6 +19,13 @@ def load(entry_point):
         raise HostError(f"Could not load module entry {entry_point!r}: {exc}") from exc
 
 
+def load_record(record):
+    if record.get("package_path"):
+        from .module_packages import activate
+        activate(record["package_path"])
+    return load(record["entry_point"])
+
+
 def validate(module):
     from .application import _json_text
     if not isinstance(module, Module):

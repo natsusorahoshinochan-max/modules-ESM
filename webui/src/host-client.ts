@@ -2,7 +2,7 @@ import type { Edge, FlowNode, PackageInfo } from '@protein-workbench/module-ui'
 export interface Project { id: string; name: string; flow: { nodes: FlowNode[]; edges: Edge[] }; layout: Record<string, { x: number; y: number }>; missing_modules?: string[] }
 export interface NodeDeclaration { id: string; module_id: string; name: string; inputs: Record<string, { accepts: string[]; cardinality: string; required: boolean }>; outputs: Record<string, { format: string; cardinality: string }>; parameters: Record<string, unknown>; tools?: Record<string, { id: string; name: string }> }
 export interface ToolDeclaration { id: string; name: string; module_id: string; slot: string; parameters: Record<string, unknown>; capabilities: Record<string, unknown> }
-export interface ModuleRecord { id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }
+export interface ModuleRecord { available?: boolean; load_error?: string; id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }
 export interface Catalog { nodes: NodeDeclaration[]; modules: ModuleRecord[]; tools?: ToolDeclaration[] }
 export interface Run { id: string; status: string; diagnostics: string[]; nodes: Record<string, { status: string; outputs: Record<string, string[]>; diagnostics: string[] }> }
 async function json<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
@@ -17,6 +17,13 @@ export const client = {
   createProject: (name: string) => json<Project>('/projects', { name }),
   project: (id: string) => json<Project>(`/projects/${id}`),
   save: (project: Project) => json<Project>(`/projects/${project.id}`, { flow: project.flow, layout: project.layout }, 'PUT'),
+  installPackage: async (file: File, entry_point: string) => {
+    const query = new URLSearchParams({ filename: file.name, entry_point })
+    const response = await fetch('/api/module-packages?' + query, { method: 'POST', body: file })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.detail)
+    return result as ModuleRecord
+  },
   install: (entry_point: string) => json<ModuleRecord>('/modules', { entry_point }),
   configure: (id: string, settings: Record<string, unknown>) => json<ModuleRecord>(`/modules/${encodeURIComponent(id)}/settings`, { settings }, 'PUT'),
   enable: (id: string, enabled: boolean) => json<ModuleRecord>(`/modules/${encodeURIComponent(id)}/enabled`, { enabled }, 'PUT'),
