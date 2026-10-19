@@ -1,4 +1,4 @@
-"""Independent SimpleFold implementation of the public prediction slot."""
+"""Public SimpleFold implementations for prediction and existing-geometry confidence."""
 import json
 import math
 from pathlib import Path
@@ -63,4 +63,6 @@ def create(settings):
 
 
 def module():
-    return Module(id='workbench.simplefold', name='SimpleFold', tools=(Tool('workbench.simplefold.local', 'SimpleFold · local torch', 'workbench.predict.structure', create, parameters={'defaults': DEFAULTS, 'simplefold_model': MODELS, 'num_steps': 'positive integer', 'tau': 'nonnegative noise scale', 'seed': '0–4294967295', 'output_format': ['pdb', 'mmcif']}, capabilities={'input': 'one canonical protein chain; one structure per request', 'backend': 'torch CPU or CUDA selected by upstream availability', 'confidence': 'optional native pLDDT (requires 1.6B latent model and confidence head); no pTM', 'conditioning': False}),), settings={'python': 'Existing Python with pinned SimpleFold dependencies', 'model_path': 'Existing SimpleFold checkpoint directory', 'esm2_source': 'Existing Facebook ESM source root', 'esm2_checkpoint': 'Existing ESM2-3B checkpoint (adjacent contact-regression file required)', 'ccd_path': 'Existing CCD pickle file'})
+    from .confidence import create as create_confidence
+    from modules.structure_confidence.contract import SLOT
+    return Module(id='workbench.simplefold', name='SimpleFold', tools=(Tool('workbench.simplefold.local', 'SimpleFold · local torch', 'workbench.predict.structure', create, parameters={'defaults': DEFAULTS, 'simplefold_model': MODELS, 'num_steps': 'positive integer', 'tau': 'nonnegative noise scale', 'seed': '0–4294967295', 'output_format': ['pdb', 'mmcif']}, capabilities={'input': 'one canonical protein chain; one structure per request', 'backend': 'torch CPU or CUDA selected by upstream availability', 'confidence': 'optional native pLDDT (requires 1.6B latent model and confidence head); no pTM', 'conditioning': False}), Tool('workbench.simplefold.confidence', 'SimpleFold · given geometry pLDDT', SLOT, create_confidence, capabilities={'input': 'Canonical protein heavy atoms with complete exact correspondence; no alternate conformations or other components', 'method': 'Original coordinates / 16, t=1, 1.6B latent, pLDDT head; no sampling', 'scale': 'fraction (0–1)'})), settings={'python': 'Existing Python with pinned SimpleFold dependencies', 'model_path': 'Existing SimpleFold checkpoint directory', 'esm2_source': 'Existing Facebook ESM source root', 'esm2_checkpoint': 'Existing ESM2-3B checkpoint (adjacent contact-regression file required)', 'ccd_path': 'Existing CCD pickle file'})

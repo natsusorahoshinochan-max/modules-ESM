@@ -418,11 +418,14 @@ def _process(call, runtime, operation):
         with source.open(key) as reader, destination.open('wb') as writer:
             copyfileobj(reader, writer)
         files[key] = str(destination.relative_to(runtime.workdir))
+    source_manifest_key = 'source-manifest-' + uuid4().hex + '.json'
+    files[source_manifest_key] = files[source.entry]
     prefix = 'export-' + uuid4().hex
     key = prefix + ('.pdb' if encoding == 'pdb' else '.cif')
     view = prefix + '.atoms.json'
     exported = {name: obj[name] for name in ('label', 'source') if name in obj}
-    exported.update({'id': uuid4().hex, 'structure': {'file': key, 'format': encoding}, 'atoms': view})
+    exported.update({'id': uuid4().hex, 'structure': {'file': key, 'format': encoding}, 'atoms': view,
+                     'source_manifest': {'file': source_manifest_key, 'format': source.format}})
     if operation == 'export':
         exported['selection'] = {'source_object': obj['id'], 'atoms': selection if selection is not None else 'all'}
     else:
@@ -453,6 +456,6 @@ def module():
              parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'selection': {'description': 'Optional chains, actual positions or atom indices'},
                          'rotation': {'description': '3x3 proper rotation applied about coordinate origin'}, 'translation': {'description': 'Three-coordinate translation in angstroms'}}),
         Node(id='workbench.export_structure', name='Export selected structure components', execute=export_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction'))}, outputs={'structures': OutputPort('workbench.structure_set')},
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'))}, outputs={'structures': OutputPort('workbench.structure_set')},
              parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'atoms': {'description': 'Optional actual atom indices'}}),
     ), ui=str(Path(__file__).with_name('ui.js').resolve()))

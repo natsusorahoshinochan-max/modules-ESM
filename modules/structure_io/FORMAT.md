@@ -28,13 +28,15 @@ conditions. Multi-candidate packages require an explicit one-candidate export
 before comparison.
 
 `workbench.export_structure` accepts structure sets or existing
-`workbench.prediction` packages. Parameters select `object` by its existing ID,
+`workbench.prediction` and `workbench.structure_confidence` packages. Parameters select `object` by its existing ID,
 `format` (`pdb` or `mmcif`), and optionally `atoms` (unique nonempty zero-based
 indices in the selected file's hierarchy). Omitting `atoms` exports the complete
 candidate. Outputs retain source files and existing parameter records, add the
 selected coordinate file and atom view file, and record `selection:
 {source_object, atoms}` (`atoms: "all"` for full export) plus `source_object`
-containing the selected source description. `export-notes.txt` explains that
+containing the selected source description. `source_manifest: {file, format}` points
+to the preserved source entry under its own package file key, retaining existing
+evaluation methods, regions, values and calculation parameters. `export-notes.txt` explains that
 existing calculation parameters describe the source calculation and that export
 does not recalculate the selected component. Original input and calculated
 results acquire no invented prediction relationship.
@@ -103,8 +105,8 @@ The input to these operations remains unchanged. Selection retains original
 model, author numbering, insertion codes, component names and alternate locations.
 Extraction does not fill missing atoms, complete residues or expand the selection.
 
-`workbench.extract_structure` and `workbench.transform_structure` accept the same
-input/output formats as export. Both take `object`, `format` and `selection` in
+`workbench.extract_structure` and `workbench.transform_structure` accept
+`workbench.structure_set` and `workbench.prediction` and deliver `workbench.structure_set`. Both take `object`, `format` and `selection` in
 the public form above; extraction requires selection, transformation permits it
 to be omitted and additionally requires `rotation` and `translation`. The output
 object records `operation: {kind, selection}` (plus rotation and translation for
