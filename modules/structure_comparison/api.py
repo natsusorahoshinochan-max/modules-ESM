@@ -47,7 +47,7 @@ def _read(package, *, prediction):
     with package.open(structure['file']) as stream:
         content = stream.read()
     return StructureInput(obj['id'], content, structure['format'], sequence if prediction else None,
-                          obj.get('label'), {'tool': document['tool']} if prediction else None)
+                          obj.get('label'), {'tool': document['tool'], **({'input': obj['input']} if 'input' in obj else {})} if prediction else None)
 
 
 def read_prediction(package):

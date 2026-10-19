@@ -51,7 +51,7 @@ def convert_prediction(call, runtime):
         raise ValueError('Prediction structure file is empty')
     # C carries the complete structure and original sequence, not prediction confidence.
     converted = {'structure': {name: structure[name] for name in ('id', 'sequence', 'format')},
-                 'generation': {'tool': tool}}
+                 'generation': {'tool': tool, **({'input': obj['input']} if 'input' in obj else {})}}
     converted['structure']['file'] = key
     if 'label' in structure:
         converted['structure']['label'] = structure['label']
