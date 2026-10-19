@@ -1,0 +1,80 @@
+# 模块接入与文件交付
+
+行为范围见 [需求](requirements.md)，职责与文件交接见 [架构](architecture.md)。Python 作者入口为 `protein_workbench_public.module_api`，该入口只依赖标准库。
+
+## Python 声明
+
+模块提供一个无参数工厂，返回 `Module`。用户安装 Python 包后，通过应用登记 `包名.模块名:工厂名`。工厂声明节点、配置字段和可选的浏览器入口；配置保存在应用数据目录中，与节点计算参数分开。
+
+```python
+from shutil import copyfileobj
+
+from protein_workbench_public.module_api import (
+    Delivery, InputPort, Module, Node, Outcome, OutputPort,
+)
+
+
+def execute(call, runtime):
+    source = call.inputs["source"][0]
+    output = runtime.workdir / "output.bin"
+    with source.open(source.entry) as reader, output.open("wb") as writer:
+        copyfileobj(reader, writer, length=1024 * 1024)
+    return Outcome(outputs={
+        "result": [Delivery(
+            format="my_lab.binary",
+            entry="data",
+            files={"data": "output.bin"},
+        )],
+    })
+
+
+def module():
+    return Module(
+        id="my_lab.copy",
+        name="Binary copy",
+        nodes=(Node(
+            id="my_lab.copy_file",
+            name="Copy file",
+            execute=execute,
+            inputs={"source": InputPort(accepts=("my_lab.binary",))},
+            outputs={"result": OutputPort(format="my_lab.binary")},
+        ),),
+    )
+```
+
+`Call.inputs` 按端口提供有序数据包，`parameters` 提供节点参数，`settings` 提供模块部署配置。输入包通过 `format`、`entry`、`files` 描述内容，用 `open(文件键)` 获取只读二进制流。模块在自己的公开格式文档中说明文件内容、对应关系与样例，独立消费者据此读取。
+
+## 交付文件
+
+将输出写入 `runtime.workdir`，完成写入并关闭后返回 `Outcome`。`Delivery.files` 的键供包内读取使用，值为该工作目录内的相对来源路径；`entry` 选择其中一个键，可以指向二进制文件。返回后由载体接收文件，模块放弃写权。
+
+大文件使用流读取和写入。浏览器上传实际文件后提交交付描述，下载通过文件入口；文件内容不嵌入计算请求或结果 JSON。
+
+操作不能完成时，返回 `failed` 和具体 `diagnostics`，或者抛出包含具体原因的异常。已接收的数据包通过应用的包入口重新读取，接收者只使用包内键。
+
+## React 界面
+
+公共类型声明随 Python 包发布，位置为 `protein_workbench_public/react-api.ts`。`Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
+
+载体传入自己安装的 React 19 实例。模块使用这个实例创建元素和调用 hooks；构建模块时将 React 作为共享依赖，产物只保留传入的运行时引用。其他浏览器依赖由模块打包进自己的入口文件。
+
+操作入口通过 `host.createInput` 上传文件并创建输入包，使用 `host.addNode` 和 `host.connect` 编辑流程。查看器通过 `host.readFile` 读取包内文件。编辑器接收节点参数及 `onChange`；界面遵守 `readOnly` 状态。各接口的参数以公共类型声明为准。
+
+## 安装并运行外部样例
+
+在已安装本项目的 Python 3.12 环境中，从仓库根目录执行：
+
+```bash
+.venv/bin/python -m pip install --no-build-isolation --no-deps ./examples/external_module
+```
+
+按 [README](../README.md) 启动后端和前端。创建项目，在模块管理中分别登记：
+
+```text
+workbench_notes:module
+workbench_notes.receiver:module
+```
+
+样例提供自定义文本输入、节点参数编辑器和结果查看器。其独立接收节点依据公开格式读取生产节点的数据包。格式说明与样例位于 `examples/external_module/src/workbench_notes/FORMAT.md` 和同目录的 `sample/`。
+
+模块包使用标准 Python 构建配置将工厂代码、浏览器入口及格式资源一并安装。登记和设置保存在应用数据目录，重启应用后继续读取。

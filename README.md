@@ -11,6 +11,8 @@
 
 后续开发按确认需求与公共接口开展 TDD。
 
+外部模块的声明、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
+
 ## 安装
 
 需要 Python 3.12、uv、Node.js 和 npm。以下命令在仓库根目录执行。
@@ -27,7 +29,8 @@ PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" uv sync --locked --extra dev --extra
 后端：
 
 ```bash
-.venv/bin/protein-workbench-server --host 127.0.0.1 --port 8000
+PROTEIN_WORKBENCH_DATA_ROOT="$HOME/.local/share/protein-workbench" \
+  .venv/bin/protein-workbench-server --host 127.0.0.1 --port 8000
 ```
 
 另开终端启动前端：
@@ -53,3 +56,13 @@ PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" .venv/bin/python -m build --no-isola
 ```
 
 产物分别位于 `webui/dist/` 和 `dist/`。
+
+## 验证
+
+公共应用、HTTP 文件交付及轻量模型资源锁测试：
+
+```bash
+.venv/bin/python -m pytest tests -q
+```
+
+真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
