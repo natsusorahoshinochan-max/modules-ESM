@@ -15,16 +15,8 @@ from datatypes.candidate import (
     CandidateCollection,
 )
 from datatypes.sequence import ProteinSequence
-from datatypes.structure import ProteinStructure
 
 from .fasta import admit_fasta_record, parse_fasta_entries, parse_fasta_sequence
-from .inspection import read_structure_input
-from .conformers import select_model
-from .structure_export import convert_structure
-
-
-def _native_structure_bytes(structure: ProteinStructure) -> bytes:
-    return structure.text.encode("utf-8")
 
 
 class SequenceImportImplementation:
@@ -102,70 +94,6 @@ class SequenceBatchImportImplementation:
         }
 
 
-class StructureImportImplementation:
-    """Parse one immutable Project-scoped PDB or mmCIF value."""
-
-    def __init__(self, run_resources: OperationResources) -> None:
-        self._run_resources = run_resources
-
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        node_parameters = call.node_parameters
-        reference = node_parameters["project_input_ref"]
-        descriptor, payload = self._run_resources.read_project_input(reference)
-        with self._run_resources.engine_invocation(
-            invocation_provenance=EngineInvocationProvenance(
-                project_input_filename=descriptor.filename
-            )
-        ):
-            structure, model = select_model(read_structure_input(payload), node_parameters["model_index"])
-        return {
-            "structure": structure,
-            "structure_candidates": CandidateCollection(
-                collection_id="imported-structure-reference",
-                item_type="protein.structure",
-                items=[
-                    Candidate(
-                        candidate_id="imported-structure",
-                        data=structure,
-                        parent_ids=[],
-                        metadata={
-                            "input_role": "reference",
-                            "source_filename": descriptor.filename,
-                            "source_model_index": model["model_index"],
-                            "source_model_id": model["model_id"],
-                        },
-                    )
-                ],
-            ),
-        }
-
-
-class StructureBatchImportImplementation:
-    """Publish explicitly selected source models as separate Candidates."""
-
-    def __init__(self, run_resources: OperationResources) -> None:
-        self._run_resources = run_resources
-
-    def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
-        descriptor, payload = self._run_resources.read_project_input(call.node_parameters["project_input_ref"])
-        with self._run_resources.engine_invocation(
-            invocation_provenance=EngineInvocationProvenance(project_input_filename=descriptor.filename)
-        ):
-            source = read_structure_input(payload)
-            candidates = []
-            for index in call.node_parameters["model_indices"]:
-                structure, model = select_model(source, index)
-                candidates.append(Candidate(
-                    candidate_id=f"imported-model-{index}", data=structure, parent_ids=[],
-                    metadata={"source_filename": descriptor.filename,
-                              "source_model_index": model["model_index"],
-                              "source_model_id": model["model_id"]},
-                ))
-        return {"structure_candidates": CandidateCollection(
-            collection_id="imported-structure-models", item_type="protein.structure", items=candidates,
-        )}
-
-
 class SequenceExportImplementation:
     """Serialize one validated ProteinSequence without exposing a path."""
 
@@ -191,45 +119,5 @@ class SequenceExportImplementation:
                 body=body,
                 media_type="text/x-fasta",
                 filename="sequence.fasta",
-            )
-        }
-
-
-class StructureExportImplementation:
-    """Serialize structures in the selected target format."""
-
-    def __init__(self, run_resources: OperationResources) -> None:
-        self._run_resources = run_resources
-
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        inputs = call.inputs
-        if "structures" in inputs:
-            structures = inputs["structures"].value
-            with self._run_resources.engine_invocation():
-                artifacts: dict[str, list[ArtifactPayload]] = {}
-                for index, candidate in enumerate(structures.items):
-                    converted = convert_structure(candidate.data, call.node_parameters["format"])
-                    body = _native_structure_bytes(converted)
-                    is_mmcif = converted.format == "mmcif"
-                    port = "candidate_mmcif_artifacts" if is_mmcif else "candidate_artifacts"
-                    artifacts.setdefault(port, []).append(
-                        ArtifactPayload(
-                            body=body,
-                            media_type="chemical/x-mmcif" if is_mmcif else "chemical/x-pdb",
-                            filename=f"structure-{index:04d}.{'cif' if is_mmcif else 'pdb'}",
-                            candidate_id=candidate.candidate_id,
-                        )
-                    )
-            return artifacts
-        structure = inputs["structure"].value
-        with self._run_resources.engine_invocation():
-            converted = convert_structure(structure, call.node_parameters["format"])
-            body = _native_structure_bytes(converted)
-        is_mmcif = converted.format == "mmcif"
-        return {
-            "standalone_mmcif_artifact" if is_mmcif else "standalone_artifact": ArtifactPayload(
-                body=body,
-                media_type="chemical/x-mmcif" if is_mmcif else "chemical/x-pdb",
-                filename="structure.cif" if is_mmcif else "structure.pdb",
             )
         }

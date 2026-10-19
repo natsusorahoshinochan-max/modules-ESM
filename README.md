@@ -78,6 +78,8 @@ npm --prefix webui test
 
 首次启动附带并启用结构预测、SimpleFold 工具、结构比较和显式结构转换模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
 
+完整结构使用“Import PDB or mmCIF structure”逐文件导入，选择实际构象编号或全部独立候选。运行导入节点后可查看、旋转及选择完整组分，再指定 PDB/mmCIF 导出为 ZIP；格式与操作见 [完整结构说明](modules/structure_io/FORMAT.md)。
+
 比较时使用“Compare with an independent reference”入口导入一个 PDB 或 mmCIF，将预测输出连接至比较节点的 subject 端口。结果提供可重新打开的完整叠合；支持范围、数值含义和独立消费接口见 [比较格式](modules/structure_comparison/FORMAT.md)。
 
 序列入口提供单条序列/FASTA、批量 FASTA 和含显式位置对应的序列 JSON。“Import existing prediction results”按清单文件键逐项绑定已有结果文件，导入后可在画布输入选择器中使用。格式、来源与位置表达及参数保留见[预测模块格式](modules/folding/FORMAT.md)。

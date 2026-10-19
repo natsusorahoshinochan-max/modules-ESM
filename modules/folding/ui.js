@@ -209,6 +209,8 @@ export function register({ React }) {
     const [manifest, setManifest] = React.useState(null);
     const [confidence, setConfidence] = React.useState(null);
     const [fileKey, setFileKey] = React.useState(pkg.entry);
+    const [exportObject, setExportObject] = React.useState('');
+    const [exportFormat, setExportFormat] = React.useState('mmcif');
     const [fileText, setFileText] = React.useState('Loading…');
     const [error, setError] = React.useState('');
     React.useEffect(() => {
@@ -218,6 +220,7 @@ export function register({ React }) {
         const value = JSON.parse(await (await host.readFile(pkg.id, pkg.entry)).text());
         if (!active) return;
         setManifest(value);
+        setExportObject(value.objects?.[0]?.id || '');
         const object = value.objects?.[0];
         if (object?.structure?.file) setFileKey(object.structure.file);
         if (object?.confidence?.plddt?.file) {
@@ -236,6 +239,10 @@ export function register({ React }) {
     return h('section', null,
       error && h('p', { role: 'alert' }, error),
       manifest && h('div', null, h('h4', null, 'Sequence and result manifest'), h('pre', null, JSON.stringify(manifest, null, 2))),
+      pkg.format !== 'workbench.sequence' && manifest?.objects?.some(o => o.structure) && h('div', null,
+        h('select', { 'aria-label': 'Export prediction object', value: exportObject, onChange: e => setExportObject(e.target.value) }, manifest.objects.map(o => h('option', { key: o.id, value: o.id }, o.label || o.id))),
+        h('select', { 'aria-label': 'Export prediction format', value: exportFormat, onChange: e => setExportFormat(e.target.value) }, h('option', { value: 'mmcif' }, 'mmCIF'), h('option', { value: 'pdb' }, 'PDB')),
+        h('button', { disabled: host.readOnly, onClick: async () => { try { await host.addNode({ type: 'workbench.export_structure', inputs: { structures: [pkg.id] }, parameters: { object: exportObject, format: exportFormat } }); } catch (failure) { setError(String(failure)); } } }, 'Add structure export node')),
       confidence && h('div', null, h('h4', null, 'Confidence'), h('pre', null, JSON.stringify(confidence, null, 2))),
       h('label', null, 'Package file', h('select', { value: fileKey, onChange: event => setFileKey(event.target.value) }, pkg.files.map(key => h('option', { key, value: key }, key)))),
       h('pre', { 'aria-label': 'Package file contents' }, fileText));

@@ -312,3 +312,18 @@ test('sequence admission completes its original host chain after host rebuild', 
     assert.deepEqual(nodes[0].inputs, { sequence: ['accepted'] })
   } finally { await React.act(async () => root.unmount()); container.remove() }
 })
+
+test('prediction viewer adds an explicit selected-format export preserving the existing result package', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container), calls = []
+  const pkg = { id: 'existing-prediction', entry: 'manifest.json', files: ['manifest.json', 'structure.pdb'] }
+  const host = { readOnly: false, async readFile(id,key) { return new Blob([key === 'manifest.json' ? JSON.stringify({objects:[{id:'actual-object',structure:{file:'structure.pdb',format:'pdb'}}],tool:{id:'actual-tool',parameters:{seed:0}}}) : 'actual structure']) }, async addNode(node) { calls.push(node) } }
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.viewers[0].component, { package: pkg, host })))
+    await React.act(async () => { await new Promise(resolve => setTimeout(resolve,20)) })
+    const button = [...container.querySelectorAll('button')].find(b => b.textContent.includes('export node'))
+    assert.ok(button, 'prediction result offers selected-format export')
+    await React.act(async () => button.click())
+    assert.deepEqual(calls[0], {type:'workbench.export_structure',inputs:{structures:['existing-prediction']},parameters:{object:'actual-object',format:'mmcif'}})
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})
