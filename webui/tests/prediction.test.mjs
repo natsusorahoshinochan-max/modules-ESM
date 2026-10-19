@@ -192,3 +192,123 @@ test('prediction import rejects a contradictory supplied input sequence instead 
   const manifest = { objects: [{ id: 'prediction', sequence: 'ACD', input: { id: 'input', sequence: 'AAA' }, structure: { file: 'model', format: 'pdb' } }], tool: { id: 'tool', parameters: {} } }
   await assert.rejects(predictionInput(JSON.stringify(manifest), { model: new Blob(['structure']) }), /input sequence.*prediction sequence/)
 })
+
+test('sequence file reading yields to later manual edits and keeps their source', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const inputs = []
+  const host = { readOnly: false, async createInput(input) { inputs.push(input); return { id: 'edited' } }, async addNode() {} }
+  let finish
+  const pending = new Promise(resolve => { finish = resolve })
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.actions[0].component, { host })))
+    const file = container.querySelector('input[type=file]')
+    Object.defineProperty(file, 'files', { value: [{ name: 'old.fa', text: () => pending }] })
+    await React.act(async () => file.dispatchEvent(new window.Event('change', { bubbles: true })))
+    const textarea = container.querySelector('textarea')
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, 'DEF')
+      textarea.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await React.act(async () => finish('>old\nACD'))
+    await React.act(async () => container.querySelector('button').click())
+    const actual = JSON.parse(await inputs[0].files['manifest.json'].text()).objects[0]
+    assert.equal(actual.sequence, 'DEF')
+    assert.equal(actual.source.text, 'DEF')
+    assert.equal(actual.source.name, undefined)
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})
+
+test('sequence file reads lose ownership when input mode or host changes', async t => {
+  for (const change of ['batch', 'format', 'host']) await t.test(change, async () => {
+    const container = document.createElement('div'); document.body.append(container)
+    const root = createRoot(container)
+    const host = { readOnly: false, async createInput() { throw new Error('No upload expected') }, async addNode() {} }
+    let finish
+    const pending = new Promise(resolve => { finish = resolve })
+    try {
+      await React.act(async () => root.render(React.createElement(React.StrictMode, null, React.createElement(extensions.actions[0].component, { host }))))
+      const file = container.querySelector('input[type=file]')
+      Object.defineProperty(file, 'files', { value: [{ name: 'old.fa', text: () => pending }] })
+      await React.act(async () => file.dispatchEvent(new window.Event('change', { bubbles: true })))
+      assert.equal(container.querySelector('button').disabled, true)
+      assert.equal(container.querySelector('textarea').disabled, false)
+      await React.act(async () => {
+        if (change === 'batch') container.querySelector('[aria-label="Batch FASTA import"]').click()
+        if (change === 'format') {
+          const format = container.querySelector('select')
+          format.value = 'json'; format.dispatchEvent(new window.Event('change', { bubbles: true }))
+        }
+        if (change === 'host') root.render(React.createElement(React.StrictMode, null, React.createElement(extensions.actions[0].component, { host: { ...host } })))
+      })
+      assert.equal(container.querySelector('button').disabled, false)
+      await React.act(async () => finish('>old\nACD'))
+      assert.equal(container.querySelector('textarea').value, '')
+      assert.equal(container.querySelector('[role=alert]'), null)
+    } finally { await React.act(async () => root.unmount()); container.remove() }
+  })
+})
+
+test('latest sequence file owns pending status, errors and accepted source', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const inputs = []
+  const host = { readOnly: false, async createInput(input) { inputs.push(input); return { id: 'file' } }, async addNode() {} }
+  async function select(file) {
+    const control = container.querySelector('input[type=file]')
+    Object.defineProperty(control, 'files', { configurable: true, value: file ? [file] : [] })
+    await React.act(async () => control.dispatchEvent(new window.Event('change', { bubbles: true })))
+  }
+  let rejectOld, finishNew, finishCancelled
+  const old = new Promise((resolve, reject) => { rejectOld = reject })
+  const newer = new Promise(resolve => { finishNew = resolve })
+  const cancelled = new Promise(resolve => { finishCancelled = resolve })
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.actions[0].component, { host })))
+    await select({ name: 'old.fa', text: () => old })
+    await select({ name: 'new.fa', text: () => newer })
+    await React.act(async () => rejectOld(new Error('obsolete read failed')))
+    assert.equal(container.querySelector('button').disabled, true)
+    assert.equal(container.querySelector('[role=alert]'), null)
+    await React.act(async () => finishNew('>new\nDEF'))
+    assert.equal(container.querySelector('textarea').value, '>new\nDEF')
+    assert.equal(container.querySelector('button').disabled, false)
+    await select({ name: 'failed.fa', async text() { throw new Error('current read failed') } })
+    assert.match(container.querySelector('[role=alert]').textContent, /current read failed/)
+    assert.equal(container.querySelector('textarea').value, '>new\nDEF')
+    await select({ name: 'cancelled.fa', text: () => cancelled })
+    await select(null)
+    assert.equal(container.querySelector('button').disabled, false)
+    await React.act(async () => finishCancelled('>cancelled\nACD'))
+    await React.act(async () => container.querySelector('button').click())
+    const actual = JSON.parse(await inputs[0].files['manifest.json'].text()).objects[0]
+    assert.equal(actual.sequence, 'DEF')
+    assert.equal(actual.source.name, 'new.fa')
+    assert.equal(actual.source.text, '>new\nDEF')
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})
+
+test('sequence admission completes its original host chain after host rebuild', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const nodes = []
+  const replacement = { readOnly: false, async createInput() { throw new Error('Unexpected replacement upload') }, async addNode() { throw new Error('Unexpected replacement node') } }
+  const host = { readOnly: false,
+    async createInput() {
+      root.render(React.createElement(extensions.actions[0].component, { host: replacement }))
+      return { id: 'accepted' }
+    },
+    async addNode(node) { nodes.push(node) },
+  }
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.actions[0].component, { host })))
+    const textarea = container.querySelector('textarea')
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, 'DEF')
+      textarea.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await React.act(async () => container.querySelector('button').click())
+    assert.equal(nodes.length, 1)
+    assert.deepEqual(nodes[0].inputs, { sequence: ['accepted'] })
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})

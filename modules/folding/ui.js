@@ -112,13 +112,45 @@ export async function predictionInput(text, bindings) {
 export function register({ React }) {
   const h = React.createElement;
   function SequenceInput({ host }) {
-    const [text, setText] = React.useState('');
+    const [{ text, name }, setDraft] = React.useState({ text: '', name: '' });
     const [batch, setBatch] = React.useState(false);
     const [json, setJson] = React.useState(false);
-    const [name, setName] = React.useState('');
     const [error, setError] = React.useState('');
     const [busy, setBusy] = React.useState(false);
+    const [reading, setReading] = React.useState(false);
+    const pendingRead = React.useRef(null);
+    const latestHost = React.useRef(host);
+    latestHost.current = host;
+    function invalidateRead() {
+      pendingRead.current = null;
+      setReading(false);
+    }
+    React.useEffect(() => {
+      invalidateRead();
+      return () => { pendingRead.current = null; };
+    }, [host]);
+    function currentRead(request) {
+      return pendingRead.current === request && latestHost.current === request.host && !request.host.readOnly;
+    }
+    async function select(event) {
+      invalidateRead();
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const request = { host };
+      pendingRead.current = request;
+      setReading(true); setError('');
+      try {
+        const value = await file.text();
+        if (!currentRead(request)) return;
+        setDraft({ text: value, name: file.name }); setError('');
+      } catch (failure) {
+        if (currentRead(request)) setError(String(failure));
+      } finally {
+        if (currentRead(request)) invalidateRead();
+      }
+    }
     async function add() {
+      if (pendingRead.current || host.readOnly || busy) return;
       setBusy(true); setError('');
       try {
         const pkg = await host.createInput(sequenceInput(text, { batch, name, json }));
@@ -127,16 +159,12 @@ export function register({ React }) {
       finally { setBusy(false); }
     }
     return h('section', null, h('h3', null, 'Predict a protein structure'),
-      h('label', null, 'Input format', h('select', { 'aria-label': 'Sequence input format', value: json ? 'json' : 'fasta', disabled: host.readOnly || busy, onChange: event => setJson(event.target.value === 'json') }, h('option', { value: 'fasta' }, 'Sequence or FASTA'), h('option', { value: 'json' }, 'Sequence JSON with explicit correspondence'))),
-      !json && h('label', null, h('input', { type: 'checkbox', 'aria-label': 'Batch FASTA import', checked: batch, disabled: host.readOnly || busy, onChange: event => setBatch(event.target.checked) }), 'Batch FASTA import'),
-      h('label', null, json ? 'Sequence JSON' : batch ? 'Batch FASTA records' : 'Single sequence or FASTA', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => { setText(event.target.value); setName(''); } })),
+      h('label', null, 'Input format', h('select', { 'aria-label': 'Sequence input format', value: json ? 'json' : 'fasta', disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setJson(event.target.value === 'json'); setError(''); } }, h('option', { value: 'fasta' }, 'Sequence or FASTA'), h('option', { value: 'json' }, 'Sequence JSON with explicit correspondence'))),
+      !json && h('label', null, h('input', { type: 'checkbox', 'aria-label': 'Batch FASTA import', checked: batch, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setBatch(event.target.checked); setError(''); } }), 'Batch FASTA import'),
+      h('label', null, json ? 'Sequence JSON' : batch ? 'Batch FASTA records' : 'Single sequence or FASTA', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setDraft({ text: event.target.value, name: '' }); setError(''); } })),
       h('label', null, 'Import sequence file', h('input', { type: 'file', accept: json ? '.json' : '.fasta,.fa,.faa,.txt', disabled: host.readOnly || busy,
-        onChange: async event => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          try { setText(await file.text()); setName(file.name); setError(''); } catch (failure) { setError(String(failure)); }
-        } })),
-      h('button', { disabled: host.readOnly || busy, onClick: add }, busy ? 'Adding…' : 'Add sequence and prediction node'),
+        onChange: select })),
+      h('button', { disabled: host.readOnly || busy || reading, onClick: add }, busy ? 'Adding…' : 'Add sequence and prediction node'),
       h('p', null, 'Choose a prediction tool and its parameters on the node.'),
       error && h('p', { role: 'alert' }, error));
   }
