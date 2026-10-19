@@ -5,10 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "build:module-ui": "node tools/build-module-ui.mjs",
-    "predev": "npm run build:module-ui",
-    "prebuild": "npm run build:module-ui"
+    "build": "tsc -b && vite build"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "2.3.7",
