@@ -28,6 +28,7 @@ dev = [
     "build==1.5.0",
     "esm @ git+https://github.com/Biohub/esm.git@43b4548b86762edfa747b07d5f440aad3c33acee",
     "httpx>=0.27,<1",
+    "pytest>=9.1.1",
     "setuptools>=80,<82",
     "torch>=2.2,<3",
     "transformers @ git+https://github.com/Biohub/transformers.git@ef32577f55da19a4989cd7b22e004dc43a4998cb",
