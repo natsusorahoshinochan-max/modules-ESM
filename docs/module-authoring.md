@@ -103,6 +103,8 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 `EditorProps.context` 提供当前 `projectId`、`nodeId`、`parameters`、直接 `bindings`、相关 `edges`，以及按端口排列的 `inputs`。`parameters` 是独立、递归只读的已接受参数快照；参数未替换时，同一对象及嵌套引用保持稳定。模块通过 `onChange` 或 `context.update` 提交独立的新参数，载体在接收时复制，异步更新在首次等待前固定参数内容。每个输入含明确绑定的 `packages`；未选择已交付包、绑定包缺失或只有计算连线时，`unavailable` 给出原因。载体不自动查找上游结果或执行上游。
 
+编辑器保留尚未接受的本地文本时，可调用 `onDraftChange()` 标记未保存编辑而保持已接受参数。无效 JSON 控件须通过 `setCustomValidity` 阻止保存，修正或收到实际新值后清除有效性错误；有效输入只调用 `onChange` 提交参数。同一次输入事件不要先通知草稿变更再提交参数，以免使用已经过期的编辑上下文。
+
 模块在 `Module.interactions` 中声明 `Interaction(id, execute, inputs, parameters)`。处理函数接收公开的 `Call` 和 `Runtime`，返回 `InteractionResult(data=小型展示数据, outputs={名称: Delivery(...)})`。载体核对输入格式及基数，提供明确包、所属模块设置、只读文件访问、工作目录和取消信号；调用不创建运行。返回前关闭文件并放弃写权，工作目录由载体保留到结束或接收完成。
 
 `context.host.preview(id, inputs, parameters, {signal})` 返回 `{id, data, outputs}`；`inputs` 是端口到明确包 ID 列表的映射，取消信号可省略。`host.readPreviewFile(id, output, key)` 读取命名输出的临时文件，对应 `GET /api/interactions/{id}/file?output=...&key=...`；文件键只在该输出交付清单内解析。调用 `cancelPreview(id)` 结束预览并释放文件，释放等待已开始的读取结束或中断。确认采用也等待活动读取结束，并在文件接收完成后释放来源。取消正在执行的处理函数时先传递取消信号，待函数返回后才删除工作目录；迟到结果不能再被采用。

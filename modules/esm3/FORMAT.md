@@ -2,6 +2,8 @@
 
 Install `modules.esm3:module`. **Complete or generate a conditioned sequence** reads either canonical `workbench.sequence` objects or the current [sequence editing document](../sequence_edit/FORMAT.md). Use the editor to create masks, fix residues and adopt coordinate conditions. The task submits the current ordered Prompt: fixed positions contain their residues and variable positions contain `_`. Coordinates use the same current position order, including inserted positions. Extra supported conditions are configured in the node's `conditions` object: aligned `secondary_structure`, aligned `sasa`, inclusive one-based `function_annotations`, and the Biohub `potential_sequence_of_concern` disclosure flag. No earlier editing operation is replayed.
 
+Invalid conditions JSON remains an unsaved local draft and blocks saving and running until corrected. Polling and unrelated parameter edits preserve that text; leaving the project follows the ordinary discard confirmation.
+
 `samples` is the positive number of independent requests per source, in source order then sample order. Tool computation controls and local seed belong to the selected tool; see [TOOL.md](TOOL.md). A failed exhausted request stops requests that have not started. Successful prefixes remain viewable and exportable. Continue uses the original input, tool and parameters, skips accepted successful requests and returns cumulative results. A failed file reception leaves the previous accepted progress intact.
 
 ## workbench.esm3_generation

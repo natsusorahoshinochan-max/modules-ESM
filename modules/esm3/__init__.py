@@ -196,5 +196,5 @@ def module():
         Node('workbench.esm3_sequence', 'Use a generated chain as sequence', sequence,
              inputs={'generated': InputPort((FORMAT,))}, outputs={'sequence': OutputPort('workbench.sequence')},
              parameters={'chain_index': {'description': 'Explicit zero-based chain index; required for multiple chains'}})),
-        tools=tools(), settings={'token': 'Biohub credential', 'service_url': 'Biohub service URL', 'model_path': 'Existing esm3-sm-open-v1 snapshot directory', 'device': 'cpu, cuda or mps', 'python': 'Existing Python executable with pinned esm and torch'},
+        tools=tools(), settings={'token': {'type': 'string', 'title': 'Biohub credential', 'secret': True}, 'service_url': 'Biohub service URL', 'model_path': 'Existing esm3-sm-open-v1 snapshot directory', 'device': 'cpu, cuda or mps', 'python': 'Existing Python executable with pinned esm and torch'},
         ui=str(Path(__file__).with_name('ui.js').resolve()))

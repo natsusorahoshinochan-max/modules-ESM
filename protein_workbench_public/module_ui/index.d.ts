@@ -34,7 +34,7 @@ export interface ModuleHost {
   readFile(packageId: string, key: string): Promise<Blob>
 }
 export interface ModuleActionProps { host: ModuleHost }
-export interface EditorProps { context: EditorContext; parameters: Record<string, unknown>; onChange(parameters: Record<string, unknown>): void; readOnly: boolean }
+export interface EditorProps { context: EditorContext; parameters: Record<string, unknown>; onChange(parameters: Record<string, unknown>): void; onDraftChange?(): void; readOnly: boolean }
 export interface ViewerProps { package: PackageInfo; host: ModuleHost }
 export interface Extensions {
   actions?: { id: string; name: string; component: React.ComponentType<ModuleActionProps> }[]
