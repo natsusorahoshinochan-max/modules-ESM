@@ -76,3 +76,15 @@ def test_required_many_input_is_checked_after_upstream_returns_empty_batch(tmp_p
     run = app.start(project["id"])
     assert run["nodes"]["receiver"]["status"] == "failed"
     assert "Required input is missing: receiver.source" in run["nodes"]["receiver"]["diagnostics"][0]
+
+
+def test_logical_file_key_is_opaque_and_never_used_as_filesystem_location(tmp_path):
+    from protein_workbench_public.module_api import Delivery
+    app = Workbench(tmp_path)
+    project = app.create_project("Opaque key")
+    workdir = app.new_workdir()
+    (workdir / "actual").write_bytes(b"opaque")
+    key = "logical/../binary ? #"
+    result = app.create_input(project["id"], Delivery("custom", key, {key: "actual"}), workdir)
+    with app.package(result["id"]).open(key) as stream:
+        assert stream.read() == b"opaque"

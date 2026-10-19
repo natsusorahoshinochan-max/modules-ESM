@@ -32,10 +32,10 @@ def receive(project_id, delivery, workdir, destination):
         raise _error("Invalid Delivery: declared files must be a nonempty mapping")
     entries = list(delivery.files.items())
     keys = [key for key, _ in entries]
+    if any(not isinstance(key, str) or not key for key in keys):
+        raise _error("Invalid Delivery: file keys must be nonempty strings")
     if len(set(keys)) != len(keys):
         raise _error("Invalid Delivery: duplicate file keys")
-    for key in keys:
-        _relative(key, "file key")
     if delivery.entry not in keys:
         raise _error(f"Delivery entry {delivery.entry!r} is absent from declared files")
     package_id = uuid4().hex
