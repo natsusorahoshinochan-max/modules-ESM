@@ -19,7 +19,7 @@
 
 ```bash
 npm ci --prefix webui
-PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" uv sync --locked --extra dev --extra providers
+uv sync --locked --extra dev --extra providers
 ```
 
 本地模型位置见 [本地模型路径](docs/local-models.md)。
@@ -52,7 +52,7 @@ npm --prefix webui run build
 Python 源码包和 wheel：
 
 ```bash
-PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" .venv/bin/python -m build --no-isolation
+.venv/bin/python -m build --no-isolation
 ```
 
 产物分别位于 `webui/dist/` 和 `dist/`。
