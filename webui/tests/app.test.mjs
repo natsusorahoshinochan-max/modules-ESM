@@ -760,39 +760,33 @@ test('all module mutations share a pending guard including same-event registrati
   assert.equal(button('Register module').disabled, false)
 })
 
-for (const stage of ['catalog', 'projects']) for (const rejects of [false, true]) {
-  test(`stale ${stage} ${rejects ? 'error' : 'snapshot'} cannot undo a newer module change`, async () => {
-    const previousFetch = globalThis.fetch, gate = deferred()
-    let enabled = true, held = false
-    globalThis.fetch = async (url, options = {}) => {
-      const path = String(url)
-      if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json({}) }
-      if (path === '/api/catalog') {
-        const snapshot = { nodes: enabled ? [declaration('test.one')] : [], modules: [{ id:'test.actions',installation_id:'fixture',name:'Test module',enabled,settings:{},settings_schema:{},ui:'fixture.js',ui_url:'/api/modules/test.actions/ui.js' }] }
-        if (stage === 'catalog' && !held) { held = true; await gate.promise; if (rejects) throw new Error('Obsolete refresh failed') }
-        return Response.json(snapshot)
-      }
-      if (path === '/api/projects' && options.method !== 'POST' && stage === 'projects' && !held) {
-        held = true
-        const stale = [...clone(records), {id:'stale',name:'Stale project',flow:{nodes:[],edges:[]},layout:{}}]
-        await gate.promise
-        if (rejects) throw new Error('Obsolete refresh failed')
-        return Response.json(stale)
-      }
-      return previousFetch(url, options)
-    }
-    await click('Create project')
-    assert.equal(held, true)
-    await click('Disable')
-    assert.ok(button('Enable'))
-    await act(async () => gate.resolve())
-    assert.ok(button('Enable'))
-    assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
-    assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Stale project'), false)
-    assert.equal(container.querySelector('[role=alert]'), null)
-  })
+async function remountApp() {
+  await act(async () => root.unmount())
+  root = createRoot(container)
+  await act(async () => root.render(createElement(App)))
 }
 
+for (const rejects of [false, true]) test(`stale catalog ${rejects ? 'error' : 'snapshot'} cannot undo a newer module change`, async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  let enabled = true, held = false
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path === '/api/modules') { enabled = false; return Response.json({}) }
+    if (path === '/api/catalog') {
+      const snapshot = { nodes: enabled ? [declaration('test.one')] : [], modules: [{ id:'test.actions',installation_id:'fixture',name:'Test module',enabled,settings:{},settings_schema:{},ui:'fixture.js',ui_url:'/api/modules/test.actions/ui.js' }] }
+      if (!held) { held = true; await gate.promise; if (rejects) throw new Error('Obsolete refresh failed') }
+      return Response.json(snapshot)
+    }
+    return previousFetch(url, options)
+  }
+  await remountApp()
+  await click('Register module')
+  assert.ok(button('Enable'))
+  await act(async () => gate.resolve())
+  assert.ok(button('Enable'))
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+  assert.equal(container.querySelector('[role=alert]'), null)
+})
 
 test('a stale failing UI import cannot restore extensions or report an obsolete error', async () => {
   const previousFetch = globalThis.fetch, gate = deferred()
@@ -800,20 +794,19 @@ test('a stale failing UI import cannot restore extensions or report an obsolete 
   await writeFile(join(directory, 'delayed-ui.mjs'), "await globalThis.refreshImportGate.promise; export const runtime={react:19}; export function register(){return {}}")
   let enabled = true
   globalThis.fetch = async (url, options = {}) => {
-    if (String(url) === '/api/modules/test.actions/enabled') { enabled = false; return Response.json({}) }
+    if (String(url) === '/api/modules') { enabled = false; return Response.json({}) }
     if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[{id:'test.actions',installation_id:'delayed',name:'Test module',enabled,settings:{},settings_schema:{},ui:'fixture.js',ui_url:'/api/modules/test.delayed/ui.js?installation_id=delayed'}]})
     return previousFetch(url, options)
   }
-  await click('Create project')
-  await click('Disable')
+  await remountApp()
+  await click('Register module')
   await act(async () => gate.reject(new Error('Obsolete import failure')))
   assert.ok(button('Enable'))
   assert.equal(container.querySelector('[role=alert]'), null)
-  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
   delete globalThis.refreshImportGate
 })
 
-test('catalog, extensions and projects commit together after the current refresh finishes', async () => {
+test('catalog and extensions commit together without waiting for the project list', async () => {
   const previousFetch = globalThis.fetch, gate = deferred()
   globalThis.fetch = async (url, options = {}) => {
     if (String(url) === '/api/modules') return Response.json({})
@@ -822,11 +815,12 @@ test('catalog, extensions and projects commit together after the current refresh
     return previousFetch(url, options)
   }
   await click('Register module')
-  assert.ok(button('Disable'))
-  assert.ok(button('Add connected pair'))
-  await act(async () => gate.resolve())
+  assert.equal(button('Register module').disabled, false)
   assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Disable'), false)
   assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+  assert.ok(button('Project A'))
+  await act(async () => gate.resolve())
+  assert.ok(button('Project B'))
 })
 
 test('a current UI import error commits new declarations and clears old extensions', async () => {
@@ -843,19 +837,19 @@ test('a current UI import error commits new declarations and clears old extensio
   assert.deepEqual([...add.options].map(item => item.value), [''])
 })
 
-test('starting a mutation immediately invalidates an earlier refresh before the mutation completes', async () => {
+test('starting a mutation immediately invalidates an earlier module read before the mutation completes', async () => {
   const previousFetch = globalThis.fetch, projectsGate = deferred(), mutationGate = deferred()
   let held = false
   globalThis.fetch = async (url, options = {}) => {
     if (String(url) === '/api/modules') { await mutationGate.promise; return Response.json({}) }
-    if (String(url) === '/api/projects' && options.method !== 'POST' && !held) {
+    if (String(url) === '/api/catalog' && !held) {
       held = true
       await projectsGate.promise
       throw new Error('Obsolete failure during mutation')
     }
     return previousFetch(url, options)
   }
-  await click('Create project')
+  await remountApp()
   await click('Register module')
   await act(async () => projectsGate.resolve())
   assert.equal(container.querySelector('[role=alert]'), null)
@@ -863,17 +857,18 @@ test('starting a mutation immediately invalidates an earlier refresh before the 
   assert.equal(container.querySelector('[role=alert]'), null)
 })
 
-test('a current project-list failure clears old extensions and reports refresh failure', async () => {
+test('a current project-list failure retains valid module extensions and known projects', async () => {
   const previousFetch = globalThis.fetch
   globalThis.fetch = async (url, options = {}) => {
     if (String(url) === '/api/modules') return Response.json({})
-    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[]})
     if (String(url) === '/api/projects' && options.method !== 'POST') throw new Error('Project list unavailable')
     return previousFetch(url, options)
   }
   await click('Register module')
   assert.match(container.querySelector('[role=alert]').textContent, /Project list unavailable/)
-  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+  assert.ok(button('Add connected pair'))
+  assert.ok(button('Project A'))
+  assert.ok(button('Project B'))
 })
 test('teaching edits stay in memory until first manual save creates a user project', async () => {
   await click('Teaching example')
@@ -1285,4 +1280,156 @@ test('a teaching-save package refresh cannot overwrite inputs received by a late
   assert.equal(title(), 'Research project · unsaved')
   await act(async () => refresh.resolve())
   assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), ['', 'a-input'])
+})
+
+for (const rejects of [false, true]) test(`confirmed copy survives an obsolete project list ${rejects ? 'failure' : 'success'} without blocking module management`, async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  let reads = 0
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path === '/api/modules') return Response.json({})
+    if (path === '/api/projects' && options.method !== 'POST') {
+      reads += 1
+      if (reads === 1) {
+        const snapshot = clone(records)
+        await gate.promise
+        if (rejects) throw new Error('obsolete project list failed')
+        return Response.json(snapshot)
+      }
+    }
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  await click('Copy project')
+  assert.equal(title(), 'Research project')
+  assert.equal(reads, 2, 'confirmed copy starts a fresh list without waiting for the old response')
+  assert.equal(button('Register module').disabled, false)
+  await act(async () => gate.resolve())
+  assert.ok([...container.querySelectorAll('aside li button')].some(item => item.textContent === 'Research project'))
+  assert.ok(button('Add connected pair'))
+  assert.equal(container.querySelector('[role=alert]'), null)
+})
+
+for (const operation of ['create', 'save', 'teaching save', 'delete']) test(`confirmed ${operation} updates the sidebar while an older list is pending`, async () => {
+  if (operation === 'teaching save') await click('Teaching example')
+  const previousFetch = globalThis.fetch, gate = deferred()
+  let reads = 0
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path === '/api/modules') return Response.json({})
+    if (path === '/api/projects' && options.method !== 'POST' && ++reads === 1) {
+      const snapshot = clone(records)
+      await gate.promise
+      return Response.json(snapshot)
+    }
+    const response = await previousFetch(url, options)
+    if (operation === 'save' && path === '/api/projects/a' && options.method === 'PUT') {
+      const saved = { ...await response.json(), name: 'Confirmed saved name' }
+      records = records.map(item => item.id === 'a' ? saved : item)
+      return Response.json(saved)
+    }
+    return response
+  }
+  await click('Register module')
+  await click({ create: 'Create project', save: 'Save project', 'teaching save': 'Save project', delete: 'Delete project' }[operation])
+  const names = () => [...container.querySelectorAll('aside li button')].map(item => item.textContent)
+  const expected = operation === 'save' ? 'Confirmed saved name' : 'Research project'
+  if (operation === 'delete') assert.ok(!names().includes('Project A'))
+  else assert.ok(names().includes(expected))
+  assert.equal(reads, 2)
+  await act(async () => gate.resolve())
+  if (operation === 'delete') assert.ok(!names().includes('Project A'))
+  else assert.ok(names().includes(expected))
+  assert.ok(names().includes('Project B'))
+})
+
+test('a copied project remains confirmed if its replacement list fails without retrying', async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  let reads = 0
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url)
+    if (path === '/api/modules') return Response.json({})
+    if (path === '/api/projects' && options.method !== 'POST') {
+      if (++reads === 1) { await gate.promise; throw new Error('obsolete read') }
+      throw new Error('current list unavailable')
+    }
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  await click('Copy project')
+  assert.equal(title(), 'Research project')
+  assert.ok(button('Research project'))
+  assert.ok(button('Add connected pair'))
+  assert.match(container.querySelector('[role=alert]').textContent, /current list unavailable/)
+  await click('Project B')
+  assert.match(container.querySelector('[role=alert]').textContent, /current list unavailable/)
+  await act(async () => gate.resolve())
+  assert.equal(reads, 2)
+  assert.doesNotMatch(container.querySelector('[role=alert]').textContent, /obsolete read/)
+})
+
+test('a teaching save during the initial list read recovers existing projects before the old read settles', async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  let reads = 0
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects' && options.method !== 'POST' && ++reads === 1) {
+      const snapshot = clone(records)
+      await gate.promise
+      return Response.json(snapshot)
+    }
+    return previousFetch(url, options)
+  }
+  await remountApp()
+  assert.equal(title(), 'Teaching example')
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.ok(button('Project A'))
+  assert.ok(button('Project B'))
+  assert.ok(button('Research project'))
+  assert.equal(reads, 2)
+  await act(async () => gate.resolve())
+  assert.ok(button('Research project'))
+})
+
+test('copying during a module import keeps the new catalog and interface together', async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  globalThis.snapshotImportGate = gate
+  await writeFile(join(directory, 'delayed-ui.mjs'), "await globalThis.snapshotImportGate.promise; export const runtime={react:19}; export function register({React}){return {actions:[{id:'new.action',name:'New action',component:()=>React.createElement('p',null,'New interface ready')}]}}")
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({nodes:[declaration('new.node')],modules:[{id:'test.delayed',name:'New module',installation_id:'copy-import',enabled:true,settings:{},settings_schema:{},ui:'fixture.js',ui_url:'/api/modules/test.delayed/ui.js?installation_id=copy-import'}]})
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  assert.equal(button('Register module').disabled, true)
+  await click('Copy project')
+  assert.equal(title(), 'Research project')
+  await act(async () => gate.resolve())
+  assert.match(container.textContent, /New interface ready/)
+  assert.ok([...container.querySelectorAll('option')].some(item => item.value === 'new.node'))
+  assert.ok(button('Research project'))
+  assert.equal(button('Register module').disabled, false)
+  delete globalThis.snapshotImportGate
+})
+
+test('copy confirmed after leaving its editor still appears in the sidebar', async () => {
+  pendingSave = deferred()
+  await click('Copy project')
+  await click('Project B')
+  await act(async () => pendingSave.resolve())
+  assert.equal(title(), 'Project B')
+  assert.ok(button('Research project'))
+})
+
+test('create confirmed after navigation updates the sidebar without replacing the current editor', async () => {
+  const previousFetch = globalThis.fetch, gate = deferred()
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects' && options.method === 'POST') await gate.promise
+    return previousFetch(url, options)
+  }
+  await click('Create project')
+  await click('Project B')
+  await act(async () => gate.resolve())
+  assert.equal(title(), 'Project B')
+  assert.ok(button('Research project'))
 })

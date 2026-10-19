@@ -22,8 +22,11 @@ function JsonEditor({ value, disabled, onChange, onDraftChange }: { value: Recor
 
 export default function App() {
   const [{ catalog, extensions, projects }, setSnapshot] = useState<{ catalog: Catalog; extensions: LoadedExtensions; projects: Project[] }>({ catalog: { nodes: [], modules: [] }, extensions: {}, projects: [] })
-  const refreshGeneration = useRef(0)
-  const invalidateRefresh = () => { refreshGeneration.current += 1 }
+  const moduleEpoch = useRef(0)
+  const projectEpoch = useRef(0)
+  const projectRead = useRef<object | null>(null)
+  const projectReadQueued = useRef(false)
+  const invalidateRefresh = () => { moduleEpoch.current += 1 }
   const [project, setProject] = useState<Project | null>(null)
   const currentProject = useRef<Project | null>(null)
   const liveProject = useRef(true)
@@ -41,6 +44,8 @@ export default function App() {
   const savingNow = useRef(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
+  const [moduleError, setModuleError] = useState('')
+  const [projectListError, setProjectListError] = useState('')
   const [notice, setNotice] = useState('')
   const [projectName, setProjectName] = useState('Research project')
   const draftInputs = useRef<PackageInfo[]>([])
@@ -67,24 +72,60 @@ export default function App() {
   const cancellableRuns = runs.filter(item => item.status === 'running')
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
   const fail = (failure: unknown) => { if (liveProject.current) setError(failure instanceof Error ? failure.message : String(failure)) }
+  const errorText = (failure: unknown) => failure instanceof Error ? failure.message : String(failure)
+  async function refreshProjects() {
+    const epoch = ++projectEpoch.current
+    const current = () => liveProject.current && epoch === projectEpoch.current
+    const read = {}
+    projectRead.current = read
+    try {
+      const nextProjects = await client.projects()
+      if (!current()) return
+      setSnapshot(previous => current() ? { ...previous, projects: nextProjects } : previous)
+      setProjectListError('')
+    } catch (failure) { if (current()) setProjectListError(`Project list refresh failed: ${errorText(failure)}`) }
+    finally { if (projectRead.current === read) projectRead.current = null }
+  }
+  function projectChanged() {
+    projectEpoch.current += 1
+    if (!projectRead.current) return
+    // A confirmed write supersedes this read immediately, even if it never settles.
+    projectRead.current = null
+    if (projectReadQueued.current) return
+    projectReadQueued.current = true
+    queueMicrotask(() => {
+      projectReadQueued.current = false
+      if (liveProject.current && !projectRead.current) void refreshProjects()
+    })
+  }
+  function commitProject(saved: Project) {
+    if (!liveProject.current) return
+    projectChanged()
+    setSnapshot(previous => ({ ...previous, projects: previous.projects.some(item => item.id === saved.id) ? previous.projects.map(item => item.id === saved.id ? saved : item) : [...previous.projects, saved] }))
+  }
+  function removeProject(id: string) {
+    if (!liveProject.current) return
+    projectChanged()
+    setSnapshot(previous => ({ ...previous, projects: previous.projects.filter(item => item.id !== id) }))
+  }
   async function refresh() {
-    const request = ++refreshGeneration.current
-    const current = () => request === refreshGeneration.current
+    void refreshProjects()
+    const request = ++moduleEpoch.current
+    const current = () => liveProject.current && request === moduleEpoch.current
     let next: Catalog | undefined
     try {
       next = await client.catalog()
       if (!current()) return
-      let nextExtensions: LoadedExtensions = {}, extensionError: unknown, extensionFailed = false
-      try { nextExtensions = await loadExtensions(next.modules) } catch (failure) { extensionError = failure; extensionFailed = true }
+      const nextExtensions = await loadExtensions(next.modules)
       if (!current()) return
-      const nextProjects = await client.projects()
-      if (!current()) return
-      setSnapshot({ catalog: next, extensions: nextExtensions, projects: nextProjects })
-      if (extensionFailed) fail(extensionError)
+      const loaded = next
+      setSnapshot(previous => current() ? { ...previous, catalog: loaded, extensions: nextExtensions } : previous)
+      setModuleError('')
     } catch (failure) {
       if (!current()) return
-      setSnapshot(previous => ({ catalog: next ?? previous.catalog, extensions: {}, projects: previous.projects }))
-      fail(failure)
+      const loaded = next
+      setSnapshot(previous => current() ? { ...previous, catalog: loaded ?? previous.catalog, extensions: {} } : previous)
+      setModuleError(`Module refresh failed: ${errorText(failure)}`)
     }
   }
   useEffect(() => { refresh().then(() => openTutorial(true)).catch(fail) }, [])
@@ -134,8 +175,11 @@ export default function App() {
   async function createProject() {
     if (dirtyNow.current && !window.confirm('Discard unsaved changes and create a project?')) return
     const approvedRevision = draftRevision.current
+    const session = projectSession.current, openedAt = opening.current
     setError('')
-    const next = await client.createProject(projectName); await refresh(); await open(next.id, approvedRevision, true)
+    const next = await client.createProject(projectName)
+    commitProject(next)
+    if (session === projectSession.current && openedAt === opening.current) await open(next.id, approvedRevision, true)
   }
   async function save() {
     if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
@@ -151,7 +195,7 @@ export default function App() {
     try {
       const saved = snapshot.tutorial ? await client.copy(snapshot, projectName) : await client.save(snapshot)
       if (!liveProject.current) return false
-      if (snapshot.tutorial) setSnapshot(previous => ({ ...previous, projects: [...previous.projects, saved] }))
+      commitProject(saved)
       if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
       if (snapshot.tutorial) {
         projectSession.current += 1; setPackages([]); setRuns([]); setSelectedPackage(''); setViewer('')
@@ -185,7 +229,7 @@ export default function App() {
     try {
       const copied = await client.copy(snapshot, projectName)
       if (!liveProject.current) return
-      setSnapshot(previous => ({ ...previous, projects: [...previous.projects, copied] }))
+      commitProject(copied)
       if (session !== projectSession.current || draftRevision.current !== revision) return
       if (await open(copied.id, revision)) setNotice('Project copied with independent inputs and no runs')
     } catch (failure) { if (session === projectSession.current) throw failure }
@@ -279,7 +323,7 @@ export default function App() {
     opening.current += 1
     try {
       await client.deleteProject(current.id)
-      setSnapshot(previous => ({ ...previous, projects: previous.projects.filter(item => item.id !== current.id) }))
+      removeProject(current.id)
       if (session !== projectSession.current) return
       projectSession.current += 1; currentProject.current = null
       setProject(null); markDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
@@ -359,7 +403,7 @@ export default function App() {
   function updateNode(id: string, update: Partial<FlowNode>) { change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.map(node => node.id === id ? { ...node, ...update } : node) } })) }
 
   return <div className="workbench"><header><h1>Protein Workbench</h1><span>Public module host</span></header>
-    {error && <div role="alert" className="error">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
+    {([{ message: error, dismiss: setError }, { message: moduleError, dismiss: setModuleError }, { message: projectListError, dismiss: setProjectListError }]).map(({ message, dismiss }, index) => message && <div key={index} role="alert" className="error">{message}<button onClick={() => dismiss('')}>Dismiss</button></div>)}
     {notice && <p role="status">{notice}</p>}
     <aside><h2>Projects</h2><button disabled={projectBusy} onClick={() => openTutorial().catch(fail)}>Teaching example</button><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={projectBusy} onClick={() => createProject().catch(fail)}>Create project</button>
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
