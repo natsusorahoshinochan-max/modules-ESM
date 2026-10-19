@@ -144,6 +144,12 @@ def execute(app, project_id):
             inputs[edge["target_port"]].extend(run["nodes"][edge["source"]]["outputs"][edge["source_port"]])
         workdir = app.new_workdir()
         try:
+            for name, port in declaration.inputs.items():
+                count = len(inputs[name])
+                if port.required and not count:
+                    raise HostError(f"Required input is missing: {identifier}.{name}")
+                if port.cardinality == "one" and count > 1:
+                    raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
             call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=instance.get("parameters", {}), settings=record["settings"], tool_parameters=instance.get("tool_parameters", {}))
             outcome = declaration.execute(call, ExecutionRuntime(workdir))
             accept(app, run, identifier, declaration, outcome, workdir)

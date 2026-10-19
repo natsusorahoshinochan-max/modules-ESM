@@ -66,3 +66,13 @@ def test_abandoned_upload_workdir_can_be_discarded(tmp_path):
     (workdir / "unfinished").write_bytes(b"partial")
     app.discard_workdir(workdir)
     assert not workdir.exists()
+
+
+def test_required_many_input_is_checked_after_upstream_returns_empty_batch(tmp_path):
+    app = Workbench(tmp_path)
+    app.install("tests.fixtures.host_module:empty_module")
+    project = app.create_project("Empty batch")
+    app.save_project(project["id"], {"nodes": [{"id": "source", "type": "empty.source"}, {"id": "receiver", "type": "empty.receive"}], "edges": [{"source": "source", "source_port": "result", "target": "receiver", "target_port": "source"}]}, {})
+    run = app.start(project["id"])
+    assert run["nodes"]["receiver"]["status"] == "failed"
+    assert "Required input is missing: receiver.source" in run["nodes"]["receiver"]["diagnostics"][0]

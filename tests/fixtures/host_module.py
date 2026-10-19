@@ -21,3 +21,15 @@ def receive(call, runtime):
 
 def module():
     return Module(id="independent", name="Independent module", settings={"label": {"type": "string"}}, nodes=(Node(id="independent.encode", name="Encode", execute=encode, inputs={"source": InputPort(("independent.request",))}, outputs={"result": OutputPort("independent.binary")}), Node(id="independent.receive", name="Receive", execute=receive, inputs={"source": InputPort(("independent.binary",))}, outputs={"result": OutputPort("independent.received")})))
+
+
+def empty_batch(call, runtime):
+    return Outcome(outputs={"result": []})
+
+
+def should_not_receive_empty(call, runtime):
+    raise AssertionError("receiver was executed with missing required input")
+
+
+def empty_module():
+    return Module(id="empty", name="Empty batch", nodes=(Node("empty.source", "Empty source", empty_batch, outputs={"result": OutputPort("batch", "many")}), Node("empty.receive", "Required receiver", should_not_receive_empty, inputs={"source": InputPort(("batch",), "many")})))
