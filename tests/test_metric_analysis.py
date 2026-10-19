@@ -31,6 +31,111 @@ def run_analysis(client, project, package, selections):
     return wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
 
 
+def inspect(client, project, package):
+    started = client.post(f'/api/projects/{project}/interactions', json={
+        'interaction': 'workbench.inspect_metrics', 'inputs': {'metrics': [package['id']]}, 'parameters': {}})
+    started.raise_for_status()
+    token = started.json()['id']
+    response = client.post(f'/api/interactions/{token}/execute')
+    if response.is_success:
+        client.delete(f'/api/interactions/{token}').raise_for_status()
+    return response
+
+
+def test_inspection_keeps_valid_scalar_and_explains_unavailable_positional_candidate(tmp_path):
+    from modules.metric_analysis.formats import read_analysis
+    app = create_application(data_root=tmp_path / 'store')
+    files = confidence_files([.2])
+    with TestClient(app) as client:
+        project = client.post('/api/projects', json={'name': 'Independent candidates'}).json()['id']
+        package = upload(client, project, 'workbench.structure_confidence', files)
+        response = inspect(client, project, package)
+        assert response.status_code == 200, response.text
+        candidates = response.json()['data']['choices']
+        assert len(candidates) == 2
+        scalar = next(item for item in candidates if item['selector']['metric'] == 'mean_plddt')
+        positional = next(item for item in candidates if item['selector']['metric'] == 'plddt')
+        assert not scalar.get('unavailable')
+        assert 'correspondence' in positional['unavailable']
+        result = run_analysis(client, project, package, [scalar['selector']])
+        assert result['status'] == 'succeeded', result
+        output = app.state.workbench.package(result['nodes']['analyze']['outputs']['analysis'][0])
+        saved = read_analysis(output)
+        assert saved['analyses'][0]['input_values'] == [.5]
+        for key, content in files.items():
+            with output.open(saved['sources'][0]['files'][key]) as reader:
+                assert reader.read() == content
+        failed = run_analysis(client, project, package, [positional['selector']])
+        assert failed['status'] == 'failed' and not failed['nodes']['analyze'].get('outputs'), failed
+
+
+def backbone_files(region, mask):
+    from tests.test_comparison import pdb
+    from modules.structure_io import parse
+    structure = parse(pdb(), 'pdb')
+    axis = [{'chain': 'X', 'author_number': residue.seqid.num, 'insertion_code': residue.seqid.icode.strip(), 'tool_position': index}
+            for index, residue in enumerate(structure[0]['X'], 1)]
+    actual = [{key: row[key] for key in ('chain', 'author_number', 'insertion_code')} for row in axis]
+    sample = {'chains': {'X': 'AAAAA'}, 'score': 3., 'global_score': 3., 'region_nll': 8.75,
+        'residue_nll': {'X': [1., 2., 3., 4., 5.]}, 'design_mask': {'X': [1.] * 5},
+        'coordinate_mask': {'X': [1.] * 5}, 'region_mask': mask}
+    evaluation = {'origin': 'independent_sequence_backbone', 'object_ids': ['sequence'],
+        'reference': {'id': 'reference', 'structure': {'file': 'reference.pdb', 'format': 'pdb'}},
+        'reference_manifest': {'file': 'reference.json', 'files': {'manifest.json': 'reference.json', 'reference.pdb': 'reference.pdb'}},
+        'positions': axis, 'region': region, 'method': 'ProteinMPNN score_only',
+        'bindings': [{'reference_chain': 'X', 'object': 'sequence', 'positions': [dict(row, sequence_index=index) for index, row in enumerate(actual, 1)]}],
+        'unit': 'negative log likelihood (natural logarithm)', 'actual_seed': 17, 'parameters': {'seed': 17}, 'samples': [sample]}
+    return {'manifest.json': json.dumps({'objects': [{'id': 'sequence', 'sequence': 'AAAAA'}], 'evaluations': [evaluation]}).encode(),
+        'reference.pdb': pdb(), 'reference.json': b'{"objects":[{"id":"reference","structure":{"file":"reference.pdb","format":"pdb"}}]}'}, actual
+
+
+def test_region_nll_requires_its_exact_scope_while_unrelated_scalar_stays_usable(tmp_path):
+    from modules.metric_analysis.formats import read_analysis
+    files, axis = backbone_files(None, {'X': [1.] * 5})
+    selector = {'input': 0, 'objects': ['sequence'], 'origin': 'sequence_backbone', 'evaluation': 0, 'sample': 0, 'metric': 'region_nll'}
+    app = create_application(data_root=tmp_path / 'store')
+    with TestClient(app) as client:
+        project = client.post('/api/projects', json={'name': 'Exact native scope'}).json()['id']
+        invalid = [
+            ([axis[-1]], {'X': [1., 1., 0., 0., 0.]}),
+            ([axis[0]], {'X': [1., 0., 0., 0., 1.]}),
+            ([axis[0]], {'other': [1., 0., 0., 0., 0.]}),
+            ([axis[0]], {'X': [1.]}),
+            ([{**axis[0], 'author_number': 12.0}], {'X': [1., 0., 0., 0., 0.]}),
+            ([axis[0], axis[0]], {'X': [1., 0., 0., 0., 0.]}),
+            ([{**axis[0], 'author_number': 99}], {'X': [1., 0., 0., 0., 0.]}),
+            ([], {'X': [1.] * 5}),
+            (None, {'X': [1., 1., 1., 1., 0.]}),
+        ]
+        for region, mask in invalid:
+            source_files, _ = backbone_files(region, mask)
+            package = upload(client, project, 'workbench.sequence_backbone_evaluation', source_files)
+            failed = run_analysis(client, project, package, [selector])
+            assert failed['status'] == 'failed' and not failed['nodes']['analyze'].get('outputs'), (region, mask, failed)
+            inspected = inspect(client, project, package)
+            assert inspected.status_code == 200, inspected.text
+            candidates = inspected.json()['data']['choices']
+            assert next(item for item in candidates if item['selector']['metric'] == 'region_nll')['unavailable']
+            global_choice = next(item for item in candidates if item['selector']['metric'] == 'global_score')
+            assert not global_choice.get('unavailable')
+            succeeded = run_analysis(client, project, package, [global_choice['selector']])
+            assert succeeded['status'] == 'succeeded', succeeded
+        proper_region = [axis[0], axis[2], axis[-1]]
+        proper_files, _ = backbone_files(proper_region, {'X': [1., 0., 1., 0., 1.]})
+        package = upload(client, project, 'workbench.sequence_backbone_evaluation', proper_files)
+        result = run_analysis(client, project, package, [selector])
+        assert result['status'] == 'succeeded', result
+        output = app.state.workbench.package(result['nodes']['analyze']['outputs']['analysis'][0])
+        saved = read_analysis(output)
+        analysis = saved['analyses'][0]
+        assert analysis['region'] == proper_region and analysis['source_region'] == proper_region
+        assert analysis['input_values'] == [8.75] and analysis['statistics']['mean'] == 8.75
+        assert analysis['context']['region_mask'] == {'X': [1., 0., 1., 0., 1.]}
+        for key, content in proper_files.items():
+            with output.open(saved['sources'][0]['files'][key]) as reader:
+                assert reader.read() == content
+
+
 def test_existing_discontinuous_values_survive_adoption_without_producer(tmp_path):
     storage = tmp_path / 'store'
     files = confidence_files()
