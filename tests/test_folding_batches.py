@@ -252,3 +252,23 @@ def test_continue_cancelled_partial_resumes_unstarted_dependents_without_indepen
     assert final['nodes']['independent'] == cancelled['nodes']['independent']
     assert 'independent' not in final['calls']
     assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'DEF', 'GHI']
+
+
+def test_continuation_rejects_reinstalled_tool_that_no_longer_implements_original_slot(tmp_path, monkeypatch):
+    from dataclasses import replace
+    import pytest
+    from core.host import HostError
+    import tests.fixtures.prediction_tool as provider
+    app, project, _, calls, failing = batch_app(tmp_path, monkeypatch)
+    first = wait_run(app, app.start(project['id']))
+    original = provider.module
+    def changed_module():
+        declaration = original()
+        return replace(declaration, tools=tuple(replace(tool, slot='other.contract') for tool in declaration.tools))
+    monkeypatch.setattr(provider, 'module', changed_module)
+    app.install('tests.fixtures.prediction_tool:module')
+    failing['sequence'] = None
+    with pytest.raises(HostError, match='does not implement'):
+        app.continue_run(first['id'], 'predict')
+    assert app.get_run(first['id']) == first
+    assert len(calls) == 2

@@ -241,9 +241,15 @@ def prepare_continuation(app, run, target):
         if instance["type"] not in available:
             raise HostError(f"Missing module node: {instance['type']}")
         selected[identifier] = available[instance["type"]]
-        for choice in run["calls"].get(identifier, instance).get("tools", {}).values():
+        choices = run["calls"].get(identifier, instance).get("tools", {})
+        declaration = selected[identifier][1]
+        if set(choices) != set(declaration.tools):
+            raise HostError(f"Original tool slots no longer match node {identifier}")
+        for name, choice in choices.items():
             if choice not in tools:
                 raise HostError(f"Selected tool is unavailable: {choice}")
+            if tools[choice][1].slot != declaration.tools[name].id:
+                raise HostError(f"Selected tool does not implement {declaration.tools[name].id}: {choice}")
     ordered = []
     while candidates:
         ready = [identifier for identifier in by_id if identifier in candidates and all(edge["source"] not in candidates for edge in edges if edge["target"] == identifier)]
