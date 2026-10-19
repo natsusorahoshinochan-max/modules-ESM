@@ -6,11 +6,11 @@ export function register({React}) {
   const positionName=p=>`${p.chain}:${p.author_number}${p.insertion_code}`
   const methodName=value=>typeof value==='string'?value:JSON.stringify(value)
   function Editor({context,parameters,readOnly}) {
-    const [choices,setChoices]=React.useState([]),[selected,setSelected]=React.useState(parameters.selections??[])
+    const [choices,setChoices]=React.useState([]),[selected,setSelected]=React.useState(parameters.selections??[]),[inspected,setInspected]=React.useState(false)
     const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[chains,setChains]=React.useState({})
     const epoch=React.useRef(0),abort=React.useRef(null),origin=React.useRef(null)
     React.useEffect(()=>{
-      epoch.current++;abort.current?.abort();setChoices([]);setSelected(parameters.selections??[]);setBusy(false);setError('')
+      epoch.current++;abort.current?.abort();setChoices([]);setSelected(parameters.selections??[]);setInspected(false);setBusy(false);setError('')
       return()=>{epoch.current++;abort.current?.abort()}
     },[context.projectId,context.nodeId,context.revision])
     async function inspect() {
@@ -19,16 +19,18 @@ export function register({React}) {
       try {
         const inputs=Object.fromEntries(Object.entries(source.inputs).map(([port,input])=>[port,input.packages.map(pkg=>pkg.id)]))
         const response=await source.host.preview('workbench.inspect_metrics',inputs,{}, {signal:abort.current.signal})
-        try {if(current===epoch.current){setChoices(response.data.choices);origin.current=source}}
+        try {if(current===epoch.current){setChoices(response.data.choices);setInspected(true);origin.current=source}}
         finally {await source.host.cancelPreview(response.id)}
       }catch(error){if(current===epoch.current)setError(error.message)}
       finally{if(current===epoch.current)setBusy(false)}
     }
     function change(choice,region,enabled=true) {
+      if(enabled&&choice.unavailable)return
       const rest=selected.filter(item=>!same(item,choice.selector))
       setSelected(enabled?[...rest,{...choice.selector,...(region===undefined?{}:{region})}]:rest)
     }
     async function apply() {
+      if(selected.some(item=>!choices.some(choice=>same(item,choice.selector)&&!choice.unavailable)))return
       setBusy(true);setError('')
       try{await origin.current.update({parameters:{...parameters,selections:selected}})}
       catch(error){setError(error.message)}
@@ -37,6 +39,10 @@ export function register({React}) {
     return h('section',{'aria-label':'Existing metric selections'},
       ...Object.values(context.inputs).map((input,i)=>input.unavailable&&h('p',{key:i},input.unavailable)),
       h('button',{onClick:inspect,disabled:busy},'Inspect existing metrics'),error&&h('p',{role:'alert'},error),
+      inspected&&selected.map((selection,index)=>!choices.some(choice=>same(selection,choice.selector))&&h('fieldset',{key:`saved-${index}`,disabled:readOnly||busy},
+        h('legend',null,`Saved metric selection ${index+1} · Input ${selection.input+1} · ${selection.metric}`),
+        h('p',null,'This saved metric selection is not available in the current inspected inputs. Remove it or inspect the intended input again.'),
+        h('button',{'aria-label':`Remove saved metric selection ${index+1}`,onClick:()=>setSelected(items=>items.filter((_,offset)=>offset!==index))},'Remove saved metric selection'))),
       ...choices.map((choice,index)=>{
         const selection=selected.find(item=>same(item,choice.selector)),number=index+1
         const region=selection?.region
@@ -45,15 +51,16 @@ export function register({React}) {
           h('legend',null,`Input ${choice.selector.input+1} · ${choice.object_label} · ${choice.reference_label} · ${choice.selector.metric}`),
           h('p',null,`${choice.selector.origin==='generation'?'Generation confidence':`Evaluation ${choice.selector.evaluation===undefined?'':choice.selector.evaluation+1}`}${choice.selector.sample===undefined?'':` · Sample ${choice.selector.sample+1}`} · ${methodName(choice.source_method)} · ${choice.unit} · ${choice.meaning}`),
           h('p',null,'Original scope: ',JSON.stringify(choice.source_region)),
-          h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'Use existing metric'),
-          choice.positions&&selection&&h(React.Fragment,null,
+          choice.unavailable&&h('p',null,'Unavailable: ',choice.unavailable),
+          h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,disabled:!!choice.unavailable&&!selection,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'Use existing metric'),
+          !choice.unavailable&&choice.positions&&selection&&h(React.Fragment,null,
             h('label',null,h('input',{type:'checkbox','aria-label':`Select individual positions ${number}`,checked:Array.isArray(region),onChange:event=>change(choice,event.target.checked?[]:undefined)}),'Select individual positions'),
             Array.isArray(region)&&h(React.Fragment,null,
               h('label',null,'Chain',h('select',{'aria-label':`Metric ${number} chain`,value:chains[index]??'',onChange:event=>setChains({...chains,[index]:event.target.value})},
                 h('option',{value:''},'All available chains'),...[...new Set(choice.positions.map(p=>p.chain))].map(chain=>h('option',{key:chain,value:chain},chain||'(blank chain)')))),
               ...visible.map(p=>h('label',{key:positionName(p)},h('input',{type:'checkbox','aria-label':`Metric ${number} position ${positionName(p)}`,checked:region.some(item=>same(item,p)),onChange:event=>change(choice,event.target.checked?[...region,p]:region.filter(item=>!same(item,p)))}),positionName(p))))),
-          !choice.positions&&h('p',null,'Scalar value: analysis retains the original evaluation scope.'))
-      }),h('button',{onClick:apply,disabled:readOnly||busy||!choices.length||!selected.length||selected.some(item=>Array.isArray(item.region)&&!item.region.length)},'Apply metric selections'))
+          !choice.unavailable&&!choice.positions&&h('p',null,'Scalar value: analysis retains the original evaluation scope.'))
+      }),h('button',{onClick:apply,disabled:readOnly||busy||!choices.length||!selected.length||selected.some(item=>!choices.some(choice=>same(item,choice.selector)&&!choice.unavailable)||(Array.isArray(item.region)&&!item.region.length))},'Apply metric selections'))
   }
   function Action({host}) {
     const [error,setError]=React.useState('')

@@ -105,3 +105,43 @@ test('StrictMode sequence editor loads its live draft and releases a late unmoun
   assert.equal(container.textContent,'')
  }finally{if(!unmounted)await React.act(async()=>root.unmount());container.remove()}
 })
+
+test('pointer drag updates visible projected coordinate geometry before backend resolution and cancel restores it',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ let resolve;const cancelled=[],updates=[]
+ const context={projectId:'p',nodeId:'n',revision:0,parameters:{sequence:'AC'},bindings:{},edges:[],inputs:{},host:{
+  async preview(id,inputs,parameters){if(!parameters.operation)return{id:'load',data:{document:base},outputs:['edited']};return new Promise(done=>{resolve=done})},async cancelPreview(id){cancelled.push(id)}},async update(value){updates.push(value)}}
+ const click=async text=>React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent===text).click())
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters:context.parameters,readOnly:false})))
+  await click('Load current sequence')
+  await React.act(async()=>container.querySelector('[aria-label="Select position 2"]').click())
+  const svg=container.querySelector('[aria-label="Structure condition geometry"]');assert.ok(svg)
+  const before=Number(svg.querySelector('[data-condition-atom]').getAttribute('cx'))
+  const pointer=async(type,x,y)=>React.act(async()=>{const event=new window.Event(type,{bubbles:true});Object.assign(event,{clientX:x,clientY:y,pointerId:1});svg.dispatchEvent(event)})
+  await pointer('pointerdown',100,100);await pointer('pointermove',140,100)
+  assert.equal(Number(svg.querySelector('[data-condition-atom]').getAttribute('cx')),before+40)
+  await pointer('pointerup',140,100)
+  const changed=structuredClone(base);changed.positions[1].coordinates.CA=[5,2,3]
+  await React.act(async()=>resolve({id:'moved',data:{document:changed},outputs:['edited']}))
+  await click('Cancel preview')
+  assert.equal(Number(svg.querySelector('[data-condition-atom]').getAttribute('cx')),before)
+  assert.equal(updates.length,0);assert.ok(cancelled.includes('moved'))
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})
+
+test('a project switch during temporary file reading cannot display the prior project draft',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ let resolve;const cancelled=[]
+ const context={projectId:'old',nodeId:'n',revision:0,parameters:{sequence:'AC'},bindings:{},edges:[],inputs:{},host:{
+  async preview(){return{id:'file-preview',data:{document_file:'edited.json'},outputs:['edited']}},
+  readPreviewFile(){return new Promise(done=>{resolve=done})},async cancelPreview(id){cancelled.push(id)}},async update(){assert.fail('Stale project update')}}
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters:context.parameters,readOnly:false})))
+  await React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='Load current sequence').click())
+  await React.act(async()=>root.render(React.createElement(Editor,{context:{...context,projectId:'new'},parameters:context.parameters,readOnly:false})))
+  await React.act(async()=>resolve(new Blob([JSON.stringify(base)])))
+  assert.doesNotMatch(container.textContent,/Sequence: AC/)
+  assert.ok(cancelled.includes('file-preview'))
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})

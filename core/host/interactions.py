@@ -1,6 +1,11 @@
 """Owned temporary module calls with explicit inputs and file receipt."""
 from dataclasses import dataclass, field
-from threading import Event, RLock
+from threading import Condition, Event, RLock
+from contextlib import contextmanager
+import os
+import stat
+
+from .storage import _relative
 from uuid import uuid4
 
 from protein_workbench_public.module_api import Call, InteractionResult
@@ -18,6 +23,8 @@ class Session:
     lock: RLock = field(default_factory=RLock)
     state: str = 'ready'
     result: InteractionResult | None = None
+    readers: int = 0
+    reading: Condition = field(default_factory=Condition)
 
 
 class Interactions:
@@ -83,6 +90,46 @@ class Interactions:
                 self._end(token, session)
                 raise HostError(f'Interaction failed: {exc}') from exc
 
+    @contextmanager
+    def open_file(self, token, output, key):
+        session = self.get(token)
+        with session.lock:
+            if session.state != 'preview' or session.cancel.is_set():
+                raise HostError('Interaction has no available preview')
+            delivery = session.result.outputs.get(output)
+            if delivery is None or key not in delivery.files:
+                raise HostError('Unknown temporary output file')
+            parts = _relative(delivery.files[key], 'temporary file source')
+            directory = os.open(session.runtime.workdir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                for part in parts[:-1]:
+                    next_directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                    os.close(directory)
+                    directory = next_directory
+                descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o444:
+                    os.close(descriptor)
+                    raise HostError('Temporary output must be a readable regular file')
+                stream = os.fdopen(descriptor, 'rb')
+            finally:
+                os.close(directory)
+            with session.reading:
+                session.readers += 1
+        try:
+            yield stream
+        finally:
+            try:
+                stream.close()
+            finally:
+                with session.reading:
+                    session.readers -= 1
+                    session.reading.notify_all()
+
+    def _wait_readers(self, session):
+        with session.reading:
+            session.reading.wait_for(lambda: session.readers == 0)
+
     def accept(self, token, output):
         session = self.get(token)
         with session.lock:
@@ -90,7 +137,10 @@ class Interactions:
                 raise HostError('Interaction has no available preview')
             if output not in session.result.outputs:
                 raise HostError(f'Unknown interaction output: {output}')
+            self._wait_readers(session)
             try:
+                if session.cancel.is_set():
+                    raise HostError('Interaction cancelled')
                 receive = self.host.create_draft_input if self.host.get_project(session.project).get('tutorial') else self.host.create_input
                 return receive(session.project, session.result.outputs[output], session.runtime.workdir)
             finally:
@@ -104,6 +154,7 @@ class Interactions:
             self._end(token, session)
 
     def _end(self, token, session):
+        self._wait_readers(session)
         with self.lock:
             self.sessions.pop(token, None)
         if session.runtime.workdir in self.host._workdirs:
