@@ -46,11 +46,31 @@ def prediction_positions(package, obj):
     return axis
 
 
+def _add_choice(result, common, selector, selected, resolve):
+    if selected is not None and (set(selector) != set(selected) or any(type(selector[key]) is not type(value) or selector[key] != value for key, value in selected.items())):
+        return
+    choice = common | {'selector': selector, 'metric': selector['metric'], 'positions': None}
+    try:
+        choice.update(resolve())
+        if (not choice['input_values'] or not all(finite(value) for value in choice['input_values'])
+                or not isinstance(choice.get('unit'), str) or not choice['unit']
+                or not isinstance(choice.get('source_method'), (str, dict)) or not choice['source_method']
+                or not isinstance(choice.get('meaning'), str) or not choice['meaning']):
+            raise ValueError('Selected metric requires finite existing values, actual method, unit and meaning')
+    except (ValueError, OSError, UnicodeError) as error:
+        if selected is not None:
+            raise
+        choice = common | {'selector': selector, 'metric': selector['metric'], 'positions': None, 'unavailable': str(error)}
+    result.append(choice)
+
+
 def choices(package, selected=None):
     document = read_json(package, package.entry)
+    if not isinstance(document, dict):
+        raise ValueError('Metric input requires an object entry')
     if package.format == 'workbench.sequence_backbone_evaluation':
         from .backbone import backbone_choices
-        return backbone_choices(document, package)
+        return backbone_choices(document, package, selected)
     if package.format == 'workbench.comparison':
         subject, reference = document.get('subject'), document.get('reference')
         for obj in (subject, reference):
@@ -60,12 +80,15 @@ def choices(package, selected=None):
                 raise ValueError('Comparison requires both complete original structure files')
         result = []
         for metric, descriptor in document.get('metrics', {}).items():
-            result.append({'selector': {'object': subject['id'], 'origin': 'comparison', 'metric': metric},
-                'object': subject, 'reference': reference, 'source_region': document.get('region'),
-                'source_method': document.get('method'), 'metric': metric, 'unit': descriptor.get('unit'),
-                'meaning': descriptor.get('normalization') or descriptor.get('scope'),
-                'input_values': [descriptor.get('value')], 'positions': None})
-        if not result:
+            common = {'object': subject, 'reference': reference, 'source_region': document.get('region'), 'source_method': document.get('method'),
+                'unit': descriptor.get('unit') if isinstance(descriptor, dict) else None,
+                'meaning': (descriptor.get('normalization') or descriptor.get('scope')) if isinstance(descriptor, dict) else None}
+            def resolve():
+                if not isinstance(descriptor, dict):
+                    raise ValueError('Comparison metric requires its numeric descriptor')
+                return {'unit': descriptor.get('unit'), 'meaning': descriptor.get('normalization') or descriptor.get('scope'), 'input_values': [descriptor.get('value')]}
+            _add_choice(result, common, {'object': subject['id'], 'origin': 'comparison', 'metric': metric}, selected, resolve)
+        if not result and selected is None:
             raise ValueError('Comparison contains no existing numeric metrics')
         return result
     objects = document.get('objects', [])
@@ -83,29 +106,32 @@ def choices(package, selected=None):
         if not isinstance(tool, dict) or not isinstance(tool.get('id'), str) or not tool['id'] or not isinstance(tool.get('parameters'), dict):
             raise ValueError('Natural confidence requires its actual source tool and parameters')
         for obj in objects:
-            if selected is not None and obj['id'] != selected.get('object'):
-                continue
-            common = {'object': obj, 'reference': None, 'source_region': None,
-                'source_method': document.get('tool'), 'unit': 'fraction (0–1)'}
+            common = {'object': obj, 'reference': None, 'source_region': None, 'source_method': tool, 'unit': 'fraction (0–1)'}
             confidence = obj.get('confidence', {})
-            if 'plddt' in confidence and (selected is None or selected.get('metric') == 'plddt'):
-                descriptor = confidence['plddt']
-                if descriptor.get('scale') != '0-1':
-                    raise ValueError('Natural confidence requires its explicit 0–1 scale')
-                scores = read_json(package, descriptor.get('file')).get('plddt')
-                axis = prediction_positions(package, obj)
-                if not isinstance(scores, list) or len(scores) != len(axis) or any(not finite(v) or not 0 <= v <= 1 for v in scores):
-                    raise ValueError('Natural confidence correspondence must cover every finite 0–1 value')
-                result.append(common | {'selector': {'object': obj['id'], 'origin': 'generation', 'metric': 'plddt'},
-                    'metric': 'plddt', 'meaning': 'Source prediction local confidence', 'input_values': scores, 'positions': axis})
-            if 'ptm' in confidence and (selected is None or selected.get('metric') == 'ptm'):
-                value = confidence['ptm']
-                if not finite(value) or not 0 <= value <= 1:
-                    raise ValueError('Natural pTM requires a finite 0–1 value')
-                result.append(common | {'selector': {'object': obj['id'], 'origin': 'generation', 'metric': 'ptm'},
-                    'metric': 'ptm', 'meaning': 'Source whole-prediction pTM', 'input_values': [value], 'positions': None})
+            for metric in ('plddt', 'ptm'):
+                if metric not in confidence:
+                    continue
+                def resolve():
+                    if metric == 'ptm':
+                        value = confidence[metric]
+                        if not finite(value) or not 0 <= value <= 1:
+                            raise ValueError('Natural pTM requires a finite 0–1 value')
+                        return {'meaning': 'Source whole-prediction pTM', 'input_values': [value]}
+                    descriptor = confidence[metric]
+                    if not isinstance(descriptor, dict) or descriptor.get('scale') != '0-1':
+                        raise ValueError('Natural confidence requires its explicit 0–1 scale')
+                    saved = read_json(package, descriptor.get('file'))
+                    if not isinstance(saved, dict):
+                        raise ValueError('Natural confidence requires its value object')
+                    scores = saved.get('plddt')
+                    axis = prediction_positions(package, obj)
+                    if not isinstance(scores, list) or len(scores) != len(axis) or any(not finite(v) or not 0 <= v <= 1 for v in scores):
+                        raise ValueError('Natural confidence correspondence must cover every finite 0–1 value')
+                    return {'meaning': 'Source prediction local confidence', 'input_values': scores, 'positions': axis}
+                _add_choice(result, common | {'meaning': 'Source whole-prediction pTM' if metric == 'ptm' else 'Source prediction local confidence'},
+                    {'object': obj['id'], 'origin': 'generation', 'metric': metric}, selected, resolve)
     for index, evaluation in enumerate(document.get('evaluations', [])):
-        if selected is not None and selected.get('evaluation') != index:
+        if selected is not None and (type(selected.get('evaluation')) is not int or selected['evaluation'] != index):
             continue
         if not isinstance(evaluation, dict) or 'reference' not in evaluation or 'region' not in evaluation:
             raise ValueError('Metric evaluation requires explicit attribution and original region')
@@ -115,31 +141,36 @@ def choices(package, selected=None):
         obj = matches[0]
         if package.format == 'workbench.structure_confidence' and (evaluation.get('origin') != 'independent_existing_geometry' or evaluation['reference'] is not None):
             raise ValueError('Confidence requires its independent existing-geometry attribution')
-        for metric, value in evaluation.get('values', {}).items():
-            if package.format == 'workbench.structure_confidence' and (selected is None or selected.get('metric') == metric):
-                number = value.get('value')
-                if value.get('unit') != 'fraction (0–1)' or not finite(number) or not 0 <= number <= 1:
+        common = {'object': obj, 'reference': evaluation['reference'], 'source_region': evaluation['region'], 'source_method': evaluation.get('method')}
+        for metric, descriptor in evaluation.get('values', {}).items():
+            def resolve():
+                if not isinstance(descriptor, dict):
+                    raise ValueError('Metric scalar requires its numeric descriptor')
+                number = descriptor.get('value')
+                if package.format == 'workbench.structure_confidence' and (descriptor.get('unit') != 'fraction (0–1)' or not finite(number) or not 0 <= number <= 1):
                     raise ValueError('Confidence scalar requires an existing finite fraction (0–1)')
-            result.append({'selector': {'object': obj['id'], 'origin': 'evaluation', 'evaluation': index, 'metric': metric},
-                'object': obj, 'reference': evaluation.get('reference'), 'source_region': evaluation.get('region'),
-                'source_method': evaluation.get('method'), 'metric': metric, 'unit': value.get('unit'),
-                'meaning': value.get('meaning'), 'input_values': [value.get('value')], 'positions': None})
-        if 'per_position' in evaluation and (selected is None or selected.get('metric') == 'plddt'):
+                return {'unit': descriptor.get('unit'), 'meaning': descriptor.get('meaning'), 'input_values': [number]}
+            metadata = {'unit': descriptor.get('unit'), 'meaning': descriptor.get('meaning')} if isinstance(descriptor, dict) else {}
+            _add_choice(result, common | metadata, {'object': obj['id'], 'origin': 'evaluation', 'evaluation': index, 'metric': metric}, selected, resolve)
+        if 'per_position' in evaluation:
+            def resolve():
+                descriptor = evaluation['per_position']
+                if not isinstance(descriptor, dict) or descriptor.get('unit') != 'fraction (0–1)':
+                    raise ValueError('Confidence requires its explicit fraction (0–1) unit')
+                scores = read_json(package, descriptor.get('file'))
+                if not isinstance(scores, dict):
+                    raise ValueError('Confidence requires its position/value object')
+                axis, values = scores.get('positions'), scores.get('plddt')
+                keys = positions(axis)
+                if not isinstance(values, list) or len(keys) != len(values) or any(not finite(v) or not 0 <= v <= 1 for v in values):
+                    raise ValueError('Confidence position correspondence must cover every finite 0–1 value')
+                if evaluation['region'] is not None and evaluation['region'] != axis:
+                    raise ValueError('Confidence region differs from its position correspondence')
+                return {'unit': descriptor.get('unit'), 'meaning': descriptor.get('meaning'), 'input_values': values, 'positions': axis}
             descriptor = evaluation['per_position']
-            if descriptor.get('unit') != 'fraction (0–1)':
-                raise ValueError('Confidence requires its explicit fraction (0–1) unit')
-            scores = read_json(package, descriptor.get('file'))
-            axis, values = scores.get('positions'), scores.get('plddt')
-            keys = positions(axis)
-            if not isinstance(values, list) or len(keys) != len(values) or any(not finite(v) or not 0 <= v <= 1 for v in values):
-                raise ValueError('Confidence position correspondence must cover every finite 0–1 value')
-            if evaluation.get('region') is not None and evaluation['region'] != axis:
-                raise ValueError('Confidence region differs from its position correspondence')
-            result.append({'selector': {'object': obj['id'], 'origin': 'evaluation', 'evaluation': index, 'metric': 'plddt'},
-                'object': obj, 'reference': evaluation.get('reference'), 'source_region': evaluation.get('region'),
-                'source_method': evaluation.get('method'), 'metric': 'plddt', 'unit': descriptor.get('unit'),
-                'meaning': descriptor.get('meaning'), 'input_values': values, 'positions': axis})
-    if not result:
+            metadata = {'unit': descriptor.get('unit'), 'meaning': descriptor.get('meaning')} if isinstance(descriptor, dict) else {}
+            _add_choice(result, common | metadata, {'object': obj['id'], 'origin': 'evaluation', 'evaluation': index, 'metric': 'plddt'}, selected, resolve)
+    if not result and selected is None:
         raise ValueError('Input contains no supported existing metrics')
     return result
 
@@ -223,7 +254,8 @@ def inspect_metrics(call, runtime):
                 'object_label': choice['object'].get('label') or object_labels[identity],
                 'reference_label': (reference.get('label') or 'Selected reference') if isinstance(reference, dict) else 'No reference',
                 'source_region': choice['source_region'], 'source_method': choice['source_method'],
-                'positions': choice['positions'], 'unit': choice['unit'], 'meaning': choice['meaning']})
+                'positions': choice['positions'], 'unit': choice.get('unit'), 'meaning': choice.get('meaning'),
+                **({'unavailable': choice['unavailable']} if 'unavailable' in choice else {})})
     return InteractionResult(data={'choices': display})
 
 
