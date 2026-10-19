@@ -213,10 +213,14 @@ def inspect_metrics(call, runtime):
     for index, package in enumerate(call.inputs.get('metrics', ())):
         if runtime.cancelled:
             raise ValueError('Metric inspection cancelled')
-        for ordinal, choice in enumerate(choices(package)):
+        object_labels = {}
+        for choice in choices(package):
+            identity = json.dumps(choice['selector'].get('object', choice['selector'].get('objects')))
+            if identity not in object_labels:
+                object_labels[identity] = f'Object {len(object_labels) + 1}'
             reference = choice['reference']
             display.append({'selector': {'input': index, **choice['selector']},
-                'object_label': choice['object'].get('label') or f'Object {ordinal + 1}',
+                'object_label': choice['object'].get('label') or object_labels[identity],
                 'reference_label': (reference.get('label') or 'Selected reference') if isinstance(reference, dict) else 'No reference',
                 'source_region': choice['source_region'], 'source_method': choice['source_method'],
                 'positions': choice['positions'], 'unit': choice['unit'], 'meaning': choice['meaning']})

@@ -42,7 +42,7 @@ export function register({React}) {
         const region=selection?.region
         const visible=(choice.positions??[]).filter(p=>!chains[index]||p.chain===chains[index])
         return h('fieldset',{key:JSON.stringify(choice.selector),disabled:readOnly||busy},
-          h('legend',null,`${choice.object_label} · ${choice.reference_label} · ${choice.selector.metric}`),
+          h('legend',null,`Input ${choice.selector.input+1} · ${choice.object_label} · ${choice.reference_label} · ${choice.selector.metric}`),
           h('p',null,`${choice.selector.origin==='generation'?'Generation confidence':`Evaluation ${choice.selector.evaluation===undefined?'':choice.selector.evaluation+1}`}${choice.selector.sample===undefined?'':` · Sample ${choice.selector.sample+1}`} · ${methodName(choice.source_method)} · ${choice.unit} · ${choice.meaning}`),
           h('p',null,'Original scope: ',JSON.stringify(choice.source_region)),
           h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'Use existing metric'),
