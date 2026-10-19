@@ -5,7 +5,9 @@ from `workbench.structure_set`, `workbench.prediction`, `workbench.confidence_in
 or `workbench.structure_confidence`. Set `object` to that supplied identity.
 Optional `region` is a nonempty array of unique actual positions:
 `{"chain":"Z","author_number":12,"insertion_code":"A"}`. Omit it or use null
-for the whole structure. The complete selected structure goes to the tool;
+for the whole structure. Each position has exactly these three keys, string
+`chain` and `insertion_code`, and an integer `author_number`; floats and booleans
+fail before evaluation. The complete selected structure goes to the tool;
 region selection selects reported values and their mean. Unsupported components
 or incomplete correspondence stop the selected tool with a concrete error.
 
