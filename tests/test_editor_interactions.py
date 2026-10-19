@@ -47,23 +47,27 @@ def test_position_edits_keep_conditions_and_source_mapping_and_never_replay_rand
         token, conditioned = preview(client, project, {'document': first, 'operation': {
             'kind': 'update', 'positions': [ids[1]], 'changes': {
                 'prompt': '_', 'fixed': False, 'coordinates': {'CA': [1, 2, 3]}}}})
-        token, random = preview(client, project, {'document': conditioned, 'operation': {
-            'kind': 'random_insert', 'seed': 0, 'count': 2, 'start': 0, 'end': 3}})
+        accepted = client.post(f'/api/interactions/{token}/accept', json={'output':'edited'}).json()
+        token, random = preview(client, project, {'operation': {
+            'kind': 'random_insert', 'seed': 0, 'count': 2, 'start': 0, 'end': 3}}, {'source':[accepted['id']]})
         assert random['sequence'] == 'A_CD_'
-        token, reordered = preview(client, project, {'document': random, 'operation': {
-            'kind': 'reorder', 'positions': [row['id'] for row in reversed(random['positions'])]}})
+        accepted = client.post(f'/api/interactions/{token}/accept', json={'output':'edited'}).json()
+        token, reordered = preview(client, project, {'operation': {
+            'kind': 'reorder', 'positions': [row['id'] for row in reversed(random['positions'])]}}, {'source':[accepted['id']]})
         c = next(row for row in reordered['positions'] if row['id'] == ids[1])
         assert c['coordinates'] == {'CA': [1, 2, 3]} and c['prompt'] == '_' and c['fixed'] is False
         random_ids = [item['position'] for item in random['random_operations'][0]['actual']]
-        token, deleted = preview(client, project, {'document': reordered, 'operation': {'kind': 'delete', 'positions': random_ids}})
+        accepted = client.post(f'/api/interactions/{token}/accept', json={'output':'edited'}).json()
+        token, deleted = preview(client, project, {'operation': {'kind': 'delete', 'positions': random_ids}}, {'source':[accepted['id']]})
         assert deleted['sequence'] == 'DCA'
         assert deleted['random_operations'] == random['random_operations']
-        token, again = preview(client, project, {'document': deleted, 'operation': {
-            'kind': 'random_insert', 'seed': 0, 'count': 1, 'start': 0, 'end': 0}})
+        accepted = client.post(f'/api/interactions/{token}/accept', json={'output':'edited'}).json()
+        token, again = preview(client, project, {'operation': {
+            'kind': 'random_insert', 'seed': 0, 'count': 1, 'start': 0, 'end': 0}}, {'source':[accepted['id']]})
         assert again['sequence'] == '_DCA'
         assert len(again['random_operations']) == 2
         client.delete(f'/api/interactions/{token}').raise_for_status()
-        assert client.get(f'/api/projects/{project}/packages').json() == []
+        assert len(client.get(f'/api/projects/{project}/packages').json()) == 4
 
 
 def test_edited_input_survives_source_removal_and_runs_without_reapplying_random(tmp_path):

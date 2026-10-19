@@ -68,7 +68,7 @@ beforeEach(async () => {
       if (draftDiscardFailure) return Response.json({ detail: 'temporary cleanup refused' }, { status: 400 })
       result = {}
     }
-    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many'), declaration('test.editor'), declaration('test.region')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
+    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many'), declaration('test.editor'), declaration('test.region'), {...declaration('test.sequence'),inputs:{source:{accepts:['workbench.sequence_conditions'],cardinality:'one',required:false}}}], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
     else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
@@ -131,6 +131,55 @@ async function addNode(type = 'test.one') {
 }
 const title = () => container.querySelector('.toolbar h2').textContent
 const nodeCount = () => container.querySelectorAll('.canvas article').length
+
+test('accepted coordinate editing sends only explicit package and small deltas through App client', async () => {
+  const current = {id:'document',sequence:'A',positions:[{id:'a',residue:'A',prompt:'A',fixed:true,coordinates:{CA:[100,20,30]}}],random_operations:[]}
+  records[0].flow.nodes = [{id:'edit',type:'test.sequence',parameters:{},inputs:{source:['accepted-coordinate-input']}}]
+  packages.a.push({id:'accepted-coordinate-input',project_id:'a',format:'workbench.sequence_conditions',entry:'edited.json',files:['edited.json']})
+  const fetch = globalThis.fetch, requests = []
+  globalThis.fetch = async (url, options={}) => {
+    if(url === '/api/projects/a/interactions') requests.push(JSON.parse(options.body))
+    if(url === '/api/interactions/preview/execute') return Response.json({id:'preview',data:{document_file:'edited.json'},outputs:['edited']})
+    if(String(url).startsWith('/api/interactions/preview/file?')) return Response.json(current)
+    return fetch(url,options)
+  }
+  await click('Project A')
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
+  await click('Load current sequence')
+  await act(async()=>container.querySelector('[aria-label="Select position 1"]').click())
+  await click('Preview clear coordinates')
+  assert.equal(requests.length,2)
+  assert.deepEqual(requests[1].parameters,{operation:{kind:'update',positions:['a'],changes:{coordinates:null}}})
+  assert.deepEqual(requests[0].parameters,{})
+  assert.deepEqual(requests[1].inputs,{source:['accepted-coordinate-input']})
+  assert.equal(JSON.stringify(requests).includes('100,20,30'),false)
+})
+
+test('App preview file body receives cancellation signal and notifies backend before it finishes', async () => {
+  records[0].flow.nodes = [{id:'edit',type:'test.sequence',parameters:{sequence:'A'},inputs:{}}]
+  const fetch = globalThis.fetch
+  let signal, cancelled=false, bodyAborted=false
+  globalThis.fetch = async (url,options={}) => {
+    if(url === '/api/interactions/preview/execute') return Response.json({id:'preview',data:{document_file:'edited.json'},outputs:['edited']})
+    if(String(url).startsWith('/api/interactions/preview/file?')) {
+      signal=options.signal
+      return new Response(new ReadableStream({start(controller){
+        signal?.addEventListener('abort',()=>{bodyAborted=true;controller.error(new DOMException('Aborted','AbortError'))},{once:true})
+      }}))
+    }
+    if(url === '/api/interactions/preview' && options.method === 'DELETE') cancelled=true
+    return fetch(url,options)
+  }
+  await click('Project A')
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,100))})
+  await click('Load current sequence')
+  assert.ok(signal,'public reader signal must reach actual client fetch')
+  await click('Cancel pending preview')
+  assert.equal(signal.aborted,true)
+  assert.equal(bodyAborted,true)
+  assert.equal(cancelled,true)
+  assert.equal(container.querySelector('.canvas [role=alert]'),null)
+})
 
 test('ordinary App polling preserves unapplied comparison regions and accepted changes still synchronize', async () => {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)) })

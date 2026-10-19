@@ -22,7 +22,7 @@ Object.defineProperty(globalThis,'navigator',{configurable:true,value:dom.window
 const {createRoot}=await import('react-dom/client')
 const Editor=register({React}).editors[0].component
 after(()=>dom.window.close())
-const base={id:'edited-object',sequence:'AC',positions:[{id:'a',residue:'A',prompt:'A',fixed:true,coordinates:null},{id:'c',residue:'C',prompt:'_',fixed:false,coordinates:{CA:[1,2,3]}}],random_operations:[]}
+const base={id:'edited-object',sequence:'AC',positions:[{id:'a',residue:'A',prompt:'A',fixed:true,coordinates:null},{id:'c',residue:'C',prompt:'_',fixed:false,coordinates:null}],random_operations:[]}
 const random={...base,sequence:'A_C',positions:[base.positions[0],{id:'inserted',residue:'_',prompt:'_',fixed:false,coordinates:null},base.positions[1]],random_operations:[{seed:0,count:1,start:0,end:0,actual:[{position:'inserted',residue:'_',index:1,gap:1}]}]}
 
 test('real module UI confirms actual preview once, cancels fully and undoes through public target update',async()=>{
@@ -106,30 +106,6 @@ test('StrictMode sequence editor loads its live draft and releases a late unmoun
  }finally{if(!unmounted)await React.act(async()=>root.unmount());container.remove()}
 })
 
-test('pointer drag updates visible projected coordinate geometry before backend resolution and cancel restores it',async()=>{
- const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
- let resolve;const cancelled=[],updates=[]
- const context={projectId:'p',nodeId:'n',revision:0,parameters:{sequence:'AC'},bindings:{},edges:[],inputs:{},host:{
-  async preview(id,inputs,parameters){if(!parameters.operation)return{id:'load',data:{document:base},outputs:['edited']};return new Promise(done=>{resolve=done})},async cancelPreview(id){cancelled.push(id)}},async update(value){updates.push(value)}}
- const click=async text=>React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent===text).click())
- try{
-  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters:context.parameters,readOnly:false})))
-  await click('Load current sequence')
-  await React.act(async()=>container.querySelector('[aria-label="Select position 2"]').click())
-  const svg=container.querySelector('[aria-label="Structure condition geometry"]');assert.ok(svg)
-  const before=Number(svg.querySelector('[data-condition-atom]').getAttribute('cx'))
-  const pointer=async(type,x,y)=>React.act(async()=>{const event=new window.Event(type,{bubbles:true});Object.assign(event,{clientX:x,clientY:y,pointerId:1});svg.dispatchEvent(event)})
-  await pointer('pointerdown',100,100);await pointer('pointermove',140,100)
-  assert.equal(Number(svg.querySelector('[data-condition-atom]').getAttribute('cx')),before+40)
-  await pointer('pointerup',140,100)
-  const changed=structuredClone(base);changed.positions[1].coordinates.CA=[5,2,3]
-  await React.act(async()=>resolve({id:'moved',data:{document:changed},outputs:['edited']}))
-  await click('Cancel preview')
-  assert.equal(Number(svg.querySelector('[data-condition-atom]').getAttribute('cx')),before)
-  assert.equal(updates.length,0);assert.ok(cancelled.includes('moved'))
- }finally{await React.act(async()=>root.unmount());container.remove()}
-})
-
 test('a project switch during temporary file reading cannot display the prior project draft',async()=>{
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
  let resolve;const cancelled=[]
@@ -143,5 +119,62 @@ test('a project switch during temporary file reading cannot display the prior pr
   await React.act(async()=>resolve(new Blob([JSON.stringify(base)])))
   assert.doesNotMatch(container.textContent,/Sequence: AC/)
   assert.ok(cancelled.includes('file-preview'))
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})
+
+test('cancel owns the preview token and aborts its file phase before download completion',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ let finish,signal;const cancelled=[]
+ const context={projectId:'p',nodeId:'n',revision:0,parameters:{sequence:'A'},bindings:{},edges:[],inputs:{},host:{
+  async preview(){return{id:'file-token',data:{document_file:'edited.json'},outputs:['edited']}},
+  readPreviewFile(id,output,key,options){signal=options?.signal;return new Promise(resolve=>{finish=resolve})},
+  async cancelPreview(id){cancelled.push(id)}},async update(){assert.fail('Cancelled files cannot be accepted')}}
+ const click=async name=>React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent===name).click())
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters:context.parameters,readOnly:false})))
+  await click('Load current sequence');await click('Cancel pending preview')
+  assert.deepEqual(cancelled,['file-token'])
+  assert.equal(signal.aborted,true)
+  await React.act(async()=>finish(new Blob([JSON.stringify(base)])))
+  assert.deepEqual(cancelled,['file-token'])
+  assert.doesNotMatch(container.textContent,/Sequence: AC/)
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})
+
+test('global coordinate frame fits full geometry and CSS-scaled dragging keeps a fixed inverse',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ const documentValue={...base,positions:[{...base.positions[0],coordinates:{CA:[100,20,30]}},{...base.positions[1],coordinates:{CA:[110,23,33]}}]}
+ const geometry=[{index:0,model:1,chain:'Z',author_number:1,insertion_code:'',residue_name:'ZN',position:[95,18,28]}]
+ const calls=[];let finish
+ const context={projectId:'p',nodeId:'n',revision:0,parameters:{},bindings:{source:['accepted']},edges:[],inputs:{source:{packages:[{id:'accepted',format:'workbench.sequence_conditions'}]}},host:{
+  async preview(id,inputs,parameters){calls.push({id,inputs,parameters});if(parameters.operation)return new Promise(resolve=>{finish=resolve});return{id:'load',data:{document_file:'edited.json',view_file:'view.json'},outputs:['edited']}},
+  async readPreviewFile(id,output,key){return new Blob([JSON.stringify(key==='view.json'?geometry:documentValue)])},async cancelPreview(){}},async update(){}}
+ const click=async text=>React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent===text).click())
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters:context.parameters,readOnly:false})))
+  await click('Load current sequence')
+  let svg=container.querySelector('svg')
+  for(const circle of svg.querySelectorAll('circle')){
+   const x=Number(circle.getAttribute('cx')),y=Number(circle.getAttribute('cy'))
+   assert.ok(x>=0&&x<=420&&y>=0&&y<=300,`visible geometry: ${x},${y}`)
+  }
+  // The supplied matrix is the public SVG layout boundary; a real-browser check
+  // additionally verifies its native CSS/viewBox matrix rather than this fixture.
+  await React.act(async()=>container.querySelector('[aria-label="Select position 1"]').click())
+  svg=container.querySelector('svg')
+  svg.getScreenCTM=()=>({inverse:()=>({a:.5,b:0,c:0,d:.5,e:-10,f:-20})})
+  const atom=()=>svg.querySelector('[data-condition-atom="a:CA"]')
+  const before=Number(atom().getAttribute('cx')),sourceBefore=svg.querySelector('circle').getAttribute('cx')
+  const pointer=async(type,x,y)=>React.act(async()=>{const event=new window.Event(type,{bubbles:true});Object.assign(event,{clientX:x,clientY:y,pointerId:1});svg.dispatchEvent(event)})
+  await pointer('pointerdown',100,100)
+  assert.equal(container.querySelector('[role=alert]'),null,container.textContent)
+  await pointer('pointermove',180,100)
+  assert.equal(Number(atom().getAttribute('cx')),before+40)
+  assert.equal(svg.querySelector('circle').getAttribute('cx'),sourceBefore)
+  await pointer('pointerup',180,100)
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].parameters)),{operation:{kind:'transform_coordinates',positions:['a'],rotation:[[1,0,0],[0,1,0],[0,0,1]],translation:[4,0,0]}})
+  await click('Cancel pending preview')
+  assert.equal(Number(atom().getAttribute('cx')),before)
+  await React.act(async()=>finish({id:'stale-drag',data:{document:documentValue},outputs:['edited']}))
  }finally{await React.act(async()=>root.unmount());container.remove()}
 })

@@ -14,9 +14,9 @@ async function json<T>(path: string, body?: unknown, method = body === undefined
 export const client = {
   beginInteraction: (project: string, interaction: string, inputs: Record<string, string[]>, parameters: Record<string, unknown>) => json<{id:string}>(`/projects/${encodeURIComponent(project)}/interactions`, {interaction, inputs, parameters}),
   executeInteraction: (id: string) => json<InteractionPreview>(`/interactions/${encodeURIComponent(id)}/execute`, {}),
-  readPreviewFile: async (id: string, output: string, key: string) => {
+  readPreviewFile: async (id: string, output: string, key: string, options?: {signal?: AbortSignal}) => {
     const query = new URLSearchParams({output, key})
-    const response = await fetch(`/api/interactions/${encodeURIComponent(id)}/file?${query}`)
+    const response = await fetch(`/api/interactions/${encodeURIComponent(id)}/file?${query}`, {signal:options?.signal})
     if (!response.ok) throw new Error((await response.json()).detail)
     return response.blob()
   },

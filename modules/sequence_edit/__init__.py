@@ -53,9 +53,14 @@ def _validate(document):
 
 
 def _initial(call):
-    if 'document' in call.parameters:
-        return _validate(deepcopy(call.parameters['document']))
     packages = call.inputs.get('source', ())
+    if 'document' in call.parameters:
+        if packages and packages[0].format == FORMAT:
+            raise ValueError('Use the accepted source package without an inline document')
+        document = _validate(deepcopy(call.parameters['document']))
+        if document.get('structures') or any(row['coordinates'] is not None for row in document['positions']):
+            raise ValueError('Coordinate and retained structure documents require a file-backed source package')
+        return document
     if packages:
         package = packages[0]
         with package.open(package.entry) as reader:
