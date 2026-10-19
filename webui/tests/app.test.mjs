@@ -44,18 +44,24 @@ beforeEach(async () => {
   window.confirm = () => true
   adoptionGate = null; deleteGate = null; adoptionFailure = null
   pendingSave = null; uploadGate = null; savedFlows = []; runRequests = []; projectGate = null; runGate = null
-  packages = { a: [], b: [{ id: 'b-package', project_id: 'b', format: 'other', entry: 'data', files: ['data'] }] }
+  packages = { tutorial: [], a: [], b: [{ id: 'b-package', project_id: 'b', format: 'other', entry: 'data', files: ['data'] }] }
   globalThis.fetch = async (url, options = {}) => {
     const path = String(url)
     let result
     if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }] }
+    else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
     else {
       const [, id, suffix = ''] = path.match(/^\/api\/projects\/([^/]+)(.*)$/) ?? []
-      const record = records.find(item => item.id === id)
+      const record = id === 'tutorial' ? { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} } : records.find(item => item.id === id)
       assert.ok(record, `Unexpected request ${path}`)
-      if (suffix === '/adoptions') {
+      if (suffix === '/copies') {
+        if (pendingSave) await pendingSave.promise
+        const body = JSON.parse(options.body)
+        result = { id: 'copied', name: body.name, flow: body.flow ?? clone(record.flow), layout: body.layout ?? clone(record.layout) }
+        records.push(clone(result)); packages.copied = []
+      } else if (suffix === '/adoptions') {
         if (adoptionGate) await adoptionGate.promise
         if (adoptionFailure) return Response.json({ detail: adoptionFailure }, { status: 409 })
         const source = Object.values(packages).flat().find(item => item.id === JSON.parse(options.body).package_id)
@@ -667,4 +673,32 @@ test('discarding invalid JSON and reopening the same project restores its saved 
   await click('Save project')
   assert.equal(container.querySelector('[role=alert]')?.textContent, undefined)
   assert.deepEqual(savedFlows[1].flow.nodes[0].parameters, {})
+})
+
+
+test('teaching edits stay in memory until first manual save creates a user project', async () => {
+  await click('Teaching example')
+  assert.equal(title(), 'Teaching example')
+  await addNode()
+  assert.equal(title(), 'Teaching example · unsaved')
+  assert.equal(records.length, 2)
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(nodeCount(), 2)
+  assert.equal(records.find(item => item.id === 'copied').flow.nodes.length, 2)
+  await click('Teaching example')
+  assert.equal(nodeCount(), 1)
+})
+
+test('failed teaching first save preserves its draft and never reports completion', async () => {
+  await click('Teaching example')
+  await addNode()
+  pendingSave = deferred()
+  await click('Save project')
+  await act(async () => pendingSave.reject(new Error('commit refused')))
+  assert.equal(title(), 'Teaching example · unsaved')
+  assert.equal(nodeCount(), 2)
+  assert.match(container.querySelector('[role=alert]').textContent, /commit refused/)
+  assert.equal(container.querySelector('[role=status]'), null)
+  assert.equal(records.length, 2)
 })

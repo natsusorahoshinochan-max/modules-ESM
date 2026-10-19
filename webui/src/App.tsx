@@ -40,6 +40,11 @@ export default function App() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [projectName, setProjectName] = useState('Research project')
+  const draftInputs = useRef<PackageInfo[]>([])
+  async function discardDraftInputs() {
+    const inputs = draftInputs.current; draftInputs.current = []
+    await Promise.all(inputs.map(input => client.discardDraftInput(input.id).catch(fail)))
+  }
   const [packages, setPackages] = useState<PackageInfo[]>([])
   const [selectedPackage, setSelectedPackage] = useState('')
   const [viewer, setViewer] = useState('')
@@ -56,7 +61,7 @@ export default function App() {
     try { setExtensions(await loadExtensions(next.modules)) } catch (failure) { setExtensions({}); fail(failure) }
     setProjects(await client.projects())
   }
-  useEffect(() => { refresh().catch(fail) }, [])
+  useEffect(() => { refresh().then(() => openTutorial()).catch(fail) }, [])
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyNow.current) { event.preventDefault(); event.returnValue = '' } }
     window.addEventListener('beforeunload', beforeUnload)
@@ -68,6 +73,10 @@ export default function App() {
     currentProject.current = update(currentProject.current)
     setProject(currentProject.current); markDirty(true); setNotice('')
   }
+  async function openTutorial() {
+    const example = await client.tutorial()
+    await open(example.id)
+  }
   async function open(id: string, approvedRevision?: number) {
     if (runningNow.current || (dirtyNow.current && draftRevision.current !== approvedRevision && !window.confirm('Discard unsaved changes and open this project?'))) return
     const leavingRevision = draftRevision.current
@@ -75,6 +84,7 @@ export default function App() {
     const [next, files, history] = await Promise.all([client.project(id), client.packages(id), client.runs(id)])
     if (request !== opening.current) return
     if (dirtyNow.current && draftRevision.current !== leavingRevision && !window.confirm('Discard unsaved changes and open this project?')) return
+    void discardDraftInputs()
     projectSession.current += 1; currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); setError('')
   }
@@ -94,13 +104,37 @@ export default function App() {
     const revision = draftRevision.current
     savingNow.current = true; setSaving(true); setError('')
     try {
-      const saved = await client.save(snapshot)
+      const saved = snapshot.tutorial ? await client.copy(snapshot, projectName) : await client.save(snapshot)
+      if (snapshot.tutorial) setProjects(items => [...items, saved])
       if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
+      if (snapshot.tutorial) {
+        const files = await client.packages(saved.id)
+        if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
+        projectSession.current += 1; setPackages(files); setRuns([]); setSelectedPackage(''); setViewer('')
+        void discardDraftInputs()
+      }
       currentProject.current = saved; setProject(saved); markDirty(false); setNotice('Project and layout saved')
       return true
     } catch (failure) {
       if (session !== projectSession.current) return false
       throw failure
+    } finally { savingNow.current = false; setSaving(false) }
+  }
+  async function copyProject() {
+    if (savingNow.current || runningNow.current || !currentProject.current) return
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); throw new Error('Enter valid parameter JSON before copying') }
+    const snapshot = currentProject.current
+    const session = projectSession.current
+    const revision = draftRevision.current
+    savingNow.current = true; setSaving(true); setError('')
+    try {
+      const copied = await client.copy(snapshot, projectName)
+      setProjects(items => [...items, copied])
+      if (session !== projectSession.current || draftRevision.current !== revision) return
+      await open(copied.id, revision)
+      setNotice('Project copied with independent inputs and no runs')
     } finally { savingNow.current = false; setSaving(false) }
   }
   async function run() {
@@ -164,9 +198,13 @@ export default function App() {
       async createInput(input) {
         const current = activeProject()
         const result = await client.createInput(current.id, input)
+        if (current.tutorial) {
+          try { activeProject() } catch (failure) { await client.discardDraftInput(result.id); throw failure }
+          draftInputs.current.push(result)
+        }
         activeProject()
         const files = await client.packages(current.id)
-        activeProject(); setPackages(files); return result
+        activeProject(); setPackages([...files, ...draftInputs.current]); return result
       },
       async addNode(node) {
         activeProject()
@@ -199,11 +237,11 @@ export default function App() {
   return <div className="workbench"><header><h1>Protein Workbench</h1><span>Public module host</span></header>
     {error && <div role="alert" className="error">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     {notice && <p role="status">{notice}</p>}
-    <aside><h2>Projects</h2><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={locked} onClick={() => createProject().catch(fail)}>Create project</button>
+    <aside><h2>Projects</h2><button disabled={locked} onClick={() => openTutorial().catch(fail)}>Teaching example</button><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={locked} onClick={() => createProject().catch(fail)}>Create project</button>
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
       <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} fail={fail} />
     </aside>
-    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button><button disabled={!project || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
+    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button><button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
         <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}

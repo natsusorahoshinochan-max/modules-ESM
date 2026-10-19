@@ -1,0 +1,9 @@
+{
+  "name": "Teaching example: structure prediction",
+  "flow": {
+    "nodes": [{"id": "predict", "type": "workbench.predict", "parameters": {}, "inputs": {"sequence": ["sequence"]}, "tools": {"predictor": "workbench.esmfold2.local"}, "tool_parameters": {"predictor": {"seed": 0}}}],
+    "edges": []
+  },
+  "layout": {"predict": {"x": 24, "y": 32}},
+  "inputs": {"sequence": {"format": "workbench.sequence", "entry": "sequence.json", "files": {"sequence.json": "sequence.json"}}}
+}
