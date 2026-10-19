@@ -89,6 +89,57 @@ def test_mmcif_chain_limit_and_invalid_model_fail_without_modifying_original(tmp
         assert client.get(f"/api/packages/{raw['id']}/file", params={'key': 'raw'}).content == cif.encode()
 
 
+def test_structure_encoding_never_changes_case_distinct_alternate_locations(tmp_path):
+    structure = gemmi.read_pdb_string(research())
+    for model in structure:
+        residue = model[0][0]
+        residue[0].altloc = 'a'
+        alternate = residue[0].clone()
+        alternate.altloc = 'A'
+        residue.add_atom(alternate)
+    original = structure.make_mmcif_document().as_string().encode()
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Exact alternate locations'}).json()['id']
+        raw = upload(client, project, 'workbench.structure_file', {'manifest.json': json.dumps({'name': 'alternates.cif', 'file': 'raw', 'format': 'mmcif'}).encode(), 'raw': original})
+        imported = run(client, project, 'workbench.import_structure', {'file': [raw['id']]}, {'models': 7})
+        assert imported['status'] == 'succeeded', imported
+        package = imported['outputs']['structures'][0]
+        obj = client.get(f'/api/packages/{package}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        failed = run(client, project, 'workbench.export_structure', {'structures': [package]}, {'object': obj['id'], 'format': 'pdb'})
+        assert failed['status'] == 'failed', failed
+        assert not failed.get('outputs'), failed
+        diagnostic = str(failed['diagnostics'])
+        assert 'PDB writer cannot preserve alternate-location' in diagnostic and "'a'" in diagnostic and 'mmCIF' in diagnostic
+        assert client.get(f'/api/packages/{package}/file', params={'key': 'original.cif'}).content == original
+        assert client.get(f"/api/packages/{raw['id']}/file", params={'key': 'raw'}).content == original
+        assert [atom['altloc'] for atom in client.get(f'/api/packages/{package}/file', params={'key': obj['atoms']}).json()][:2] == ['a', 'A']
+
+        exported = run(client, project, 'workbench.export_structure', {'structures': [package]}, {'object': obj['id'], 'format': 'mmcif'})
+        assert exported['status'] == 'succeeded', exported
+        output = exported['outputs']['structures'][0]
+        selected = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        content = client.get(f'/api/packages/{output}/file', params={'key': selected['structure']['file']}).content
+        actual = gemmi.make_structure_from_block(gemmi.cif.read_string(content.decode()).sole_block())
+        assert [atom.altloc for atom in actual[0][0][0]] == ['a', 'A']
+        assert actual[0].num == 7 and actual[0][0].name == 'X' and str(actual[0][0][0].seqid) == '12A'
+        assert [residue.name for chain in actual[0] for residue in chain] == ['ALA', 'LIG', 'ZN', 'HOH', 'DA']
+
+        selected_pdb = run(client, project, 'workbench.export_structure', {'structures': [package]}, {'object': obj['id'], 'format': 'pdb', 'atoms': [1, 2, 3, 4, 5]})
+        assert selected_pdb['status'] == 'succeeded', selected_pdb
+        output = selected_pdb['outputs']['structures'][0]
+        selected = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()['objects'][0]
+        content = client.get(f'/api/packages/{output}/file', params={'key': selected['structure']['file']}).content
+        actual = gemmi.read_pdb_string(content)
+        assert actual[0][0][0][0].altloc == 'A' and actual[0].count_atom_sites() == 5
+
+        lowercase_pdb = b'\n'.join(line[:16] + b'a' + line[17:] if line.startswith(b'ATOM  ') else line for line in research().split(b'\n'))
+        raw_pdb = upload(client, project, 'workbench.structure_file', {'manifest.json': json.dumps({'name': 'lowercase.pdb', 'file': 'raw', 'format': 'pdb'}).encode(), 'raw': lowercase_pdb})
+        failed_import = run(client, project, 'workbench.import_structure', {'file': [raw_pdb['id']]}, {'models': 7})
+        assert failed_import['status'] == 'failed' and not failed_import.get('outputs'), failed_import
+        assert 'PDB writer cannot preserve alternate-location' in str(failed_import['diagnostics'])
+        assert client.get(f"/api/packages/{raw_pdb['id']}/file", params={'key': 'raw'}).content == lowercase_pdb
+
+
 def test_imported_structure_is_independently_compared_without_prediction_history(tmp_path):
     from tests.test_comparison import pdb
     with TestClient(create_application(data_root=tmp_path)) as client:

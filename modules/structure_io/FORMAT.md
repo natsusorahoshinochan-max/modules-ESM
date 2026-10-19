@@ -43,7 +43,10 @@ PDB export rejects chain names longer than one ASCII character, model/serial,
 residue, component-name, atom-name, coordinate, formal-charge, occupancy or B-factor fields that
 exceed PDB widths. Choose mmCIF for those structures. PDB coordinates use its
 specified three-decimal representation. Export preserves all selected atoms and
-never renumbers residue identities to fit a format.
+never renumbers residue identities to fit a format. The current PDB writer cannot
+preserve lowercase alternate-location identifiers exactly; PDB export and PDB
+import candidate creation reject those selected atoms with a specific error.
+Use mmCIF to retain those identifiers.
 
 Use the public `workbench.structure_io` React action to select one file and its
 model policy, then run the import node. The viewer selects candidates, rotates

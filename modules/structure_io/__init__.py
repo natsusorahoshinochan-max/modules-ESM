@@ -84,6 +84,8 @@ def encode(structure, encoding):
                 for atom in residue:
                     if len(atom.name) > 4 or not atom.name.isascii() or not atom.altloc.isascii() or any(len(f'{x:.3f}') > 8 for x in (atom.pos.x, atom.pos.y, atom.pos.z)):
                         raise ValueError('PDB cannot represent this atom name or coordinate; choose mmCIF')
+                    if 'a' <= atom.altloc <= 'z':
+                        raise ValueError(f'PDB writer cannot preserve alternate-location identifier {atom.altloc!r} exactly at model {model.num}, chain {chain.name!r}, residue {residue.seqid}, atom {atom.name!r}; choose mmCIF')
                     if not -9 <= atom.charge <= 9:
                         raise ValueError('PDB cannot represent this formal charge; choose mmCIF')
                     if any(len(f'{x:.2f}') > 6 for x in (atom.occ, atom.b_iso)):
