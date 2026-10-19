@@ -14,6 +14,8 @@ def create_application(*, data_root: Path | None = None) -> FastAPI:
     if not host._records('application'):
         host.install('modules.folding:module')
         host.install('modules.structure_io:module')
+        host.install('modules.esmc:module')
+        host.install('modules.solubility:module')
         host.install('modules.simplefold:module')
         host.install('modules.structure_comparison:module')
         host.install('modules.structure_conversion:module')
