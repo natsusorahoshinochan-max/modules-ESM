@@ -148,3 +148,47 @@ def test_terminal_commit_failure_is_reported_instead_of_leaving_a_phantom_runnin
     assert terminal['nodes']['source']['status'] == 'failed'
     assert app.list_packages(project['id']) == []
     assert Workbench(tmp_path).get_run(run['id'])['diagnostics'] == ['Run lease ended without a committed terminal state']
+    monkeypatch.setattr(sqlite3, 'connect', connect)
+    app.install('tests.fixtures.host_module:held_module')
+    app.save_project(project['id'], {'nodes': [{'id': 'held', 'type': 'held.node'}]}, {})
+    host_module.entered.clear(); host_module.release.clear()
+    newer = app.start(project['id'])
+    try:
+        assert host_module.entered.wait(1)
+        for observer in (app, Workbench(tmp_path)):
+            assert observer.get_run(run['id'])['status'] == 'failed'
+            assert observer.get_run(newer['id'])['status'] == 'running'
+        app.cancel_run(run['id'])
+        assert app.get_run(newer['id'])['status'] == 'running'
+    finally:
+        host_module.release.set()
+        wait_run(app, newer)
+
+
+def test_workdir_allocation_failure_only_stops_the_node_and_its_dependents(tmp_path, monkeypatch):
+    import tempfile
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.http.app import create_http_app
+    from tests.run_helpers import wait_response
+    app = Workbench(tmp_path)
+    app.install('tests.fixtures.host_module:branch_module')
+    project = app.create_project('Allocation failure')
+    flow = {'nodes': [{'id': name, 'type': 'branch.node'} for name in ('one', 'dependent', 'isolated')], 'edges': [{'source': 'one', 'source_port': 'result', 'target': 'dependent', 'target_port': 'source'}]}
+    app.save_project(project['id'], flow, {})
+    allocate = tempfile.mkdtemp
+    failed = False
+    def once(*args, **kwargs):
+        nonlocal failed
+        if kwargs.get('prefix') == 'execution-' and not failed:
+            failed = True
+            raise OSError('one execution directory allocation refused')
+        return allocate(*args, **kwargs)
+    monkeypatch.setattr(tempfile, 'mkdtemp', once)
+    with TestClient(create_http_app(app)) as client:
+        run = wait_response(client, client.post(f"/api/projects/{project['id']}/runs")).json()
+        assert run['status'] == 'failed'
+        assert {key: value['status'] for key, value in run['nodes'].items()} == {'one': 'failed', 'dependent': 'blocked', 'isolated': 'succeeded'}
+        assert 'allocation refused' in str(run['nodes']['one']['diagnostics'])
+        output = run['nodes']['isolated']['outputs']['result'][0]
+        assert client.get(f'/api/packages/{output}/file', params={'key': 'data'}).content == b'complete result'
+        assert not client.get(f"/api/projects/{project['id']}").json()['running']
