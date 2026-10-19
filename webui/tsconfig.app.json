@@ -45,8 +45,10 @@
     }
   },
   "include": [
-    "src",
-    "../modules/*/ui/**/*.ts",
-    "../modules/*/ui/**/*.tsx"
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/host-client.ts",
+    "src/host-ui.ts",
+    "../protein_workbench_public/react-api.ts"
   ]
 }
