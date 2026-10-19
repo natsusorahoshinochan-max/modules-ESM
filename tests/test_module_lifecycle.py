@@ -22,7 +22,12 @@ def execute(call, runtime):
     return Outcome(outputs={'result': [Delivery('example.environment', 'data', {'data': 'result'})]})
 
 def module():
-    return Module(id='lifecycle.example', name='Lifecycle example', nodes=(Node('lifecycle.first', 'First', execute, outputs={'result': OutputPort('example.environment')}), Node('lifecycle.second', 'Second', execute, inputs={'source': InputPort(('example.environment',))}, outputs={'result': OutputPort('example.environment')})), settings={name: {'type': 'string', 'title': name, 'secret': name == 'credential'} for name in ('credential', 'model', 'service', 'program')})
+    return Module(id='lifecycle.example', name='Lifecycle example', nodes=(Node('lifecycle.first', 'First', execute, outputs={'result': OutputPort('example.environment')}), Node('lifecycle.second', 'Second', execute, inputs={'source': InputPort(('example.environment',))}, outputs={'result': OutputPort('example.environment')})), settings={name: {'type': 'string', 'title': name, 'secret': name == 'credential'} for name in ('credential', 'model', 'service', 'program')}, ui=str(Path(__file__).with_name('ui.js')))
+''')
+        archive.writestr('lifecycle_example/ui.js', '''export const runtime = { react: 19 }
+export function register({ React }) {
+  return { viewers: [{ id: 'lifecycle.viewer', name: 'Environment result', formats: ['example.environment'], component: ({ package: pkg }) => React.createElement('p', null, pkg.format) }] }
+}
 ''')
         archive.writestr('lifecycle_example-0.1.dist-info/METADATA', 'Metadata-Version: 2.1\nName: lifecycle-example\nVersion: 0.1\n')
         archive.writestr('lifecycle_example-0.1.dist-info/WHEEL', 'Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n')
@@ -49,6 +54,9 @@ def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_pa
         assert response.status_code == 200, response.text
         module = response.json()
         assert module['enabled'] and module['settings'] == {}
+        ui = client.get('/api/modules/lifecycle.example/ui.js')
+        assert ui.status_code == 200
+        assert 'register({ React })' in ui.text
         assert client.put('/api/modules/lifecycle.example/settings', json={'settings': settings}).status_code == 200
         project = client.post('/api/projects', json={'name': 'Kept workflow'}).json()['id']
         assert client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {'one': {'x': 11, 'y': 2}}}).status_code == 200
@@ -57,6 +65,7 @@ def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_pa
         package = result['nodes']['one']['outputs']['result'][0]
         assert client.get(f'/api/packages/{package}/file', params={'key': 'data'}).content == b'chosen-token|/existing/model|http://localhost:9000|/existing/program'
         assert client.put('/api/modules/lifecycle.example/enabled', json={'enabled': False}).status_code == 200
+        assert client.get('/api/modules/lifecycle.example/ui.js').status_code == 400
         unavailable = client.get(f'/api/projects/{project}').json()
         assert unavailable['flow'] == flow
         assert unavailable['layout'] == {'one': {'x': 11, 'y': 2}}
