@@ -1,6 +1,13 @@
+import { readFile } from 'node:fs/promises'
+const comparisonSource = await readFile(new URL('../../modules/structure_comparison/ui.js', import.meta.url), 'utf8')
+const { register: registerComparison } = await import(`data:text/javascript;base64,${Buffer.from(comparisonSource).toString('base64')}`)
 export const runtime = { react: 19 }
 export function register({ React }) {
-  return { editors: [{ node: 'test.editor', component: function Editor({context}) {
+  const ComparisonEditor = registerComparison({ React }).editors[0].component
+  return { editors: [{ node: 'test.region', component: function RegionEditor(props) {
+    return React.createElement('div', null, React.createElement(ComparisonEditor, props),
+      React.createElement('button', { onClick: () => props.onChange({ subject_selection: { chains: ['Q'] } }) }, 'Replace accepted region'))
+  } }, { node: 'test.editor', component: function Editor({context, parameters, onChange}) {
     const [message, setMessage] = React.useState('')
     const saved = React.useRef(null)
     const abort = React.useRef(null)
@@ -9,6 +16,23 @@ export function register({ React }) {
     const apply = async () => { try { await context.update({ parameters: { edited: true }, inputs: { input: ['edited'] }, replaceConnections: ['input'] }); setMessage('Editor accepted') } catch (error) { setMessage(error.message) } }
     return React.createElement('div', null,
       React.createElement('pre', { 'data-editor-context': context?.nodeId }, JSON.stringify(context)),
+      React.createElement('button', { onClick: () => {
+        const submitted = { nested: { value: 'submitted' } }
+        onChange(submitted); submitted.nested.value = 'changed by module'
+        setMessage('Caller submission remains editable')
+      } }, 'Submit owned parameters'),
+      React.createElement('button', { onClick: async () => { try {
+        const submitted = { nested: { value: 'async submitted' } }
+        const accepted = context.update({ parameters: submitted })
+        submitted.nested.value = 'changed before await'
+        await accepted; submitted.nested.value = 'changed after await'
+        setMessage('Async caller submission remains editable')
+      } catch (error) { setMessage(error.message) } } }, 'Submit async owned parameters'),
+      React.createElement('button', { onClick: () => { try {
+        parameters.nested.value = 'changed snapshot'
+        setMessage('Snapshot mutation succeeded')
+      } catch { setMessage('Parameter snapshot is read only') } } }, 'Mutate parameter snapshot'),
+      React.createElement('button', { onClick: () => setMessage(JSON.stringify(saved.current.parameters)) }, 'Show remembered parameters'),
       React.createElement('button', {onClick: apply}, 'Accept editor draft'),
       React.createElement('button', {onClick: receive}, 'Receive editor file'),
       React.createElement('button', {onClick:async()=>{abort.current=new AbortController();try{await context.host.preview('test.preview',{}, {}, {signal:abort.current.signal});setMessage('Preview returned')}catch(error){setMessage(error.message)}}}, 'Begin cancellable preview'),
@@ -24,6 +48,11 @@ export function register({ React }) {
       try { await operation(); setResult('Completed') } catch (error) { setResult(error.message) }
     }
     return React.createElement('div', null,
+      React.createElement('button', { onClick: () => perform(async () => {
+        const parameters = { subject_selection: { chains: ['X'] } }
+        await host.addNode({ type: 'test.region', parameters, inputs: {} })
+        parameters.subject_selection.chains[0] = 'changed after node creation'
+      }) }, 'Add region editor'),
       React.createElement('button', { onClick: () => perform(async () => {
         const source = await host.addNode({ type: 'test.one', parameters: {}, inputs: {} })
         const target = await host.addNode({ type: 'test.one', parameters: {}, inputs: {} })

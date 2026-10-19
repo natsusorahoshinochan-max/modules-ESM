@@ -68,7 +68,7 @@ beforeEach(async () => {
       if (draftDiscardFailure) return Response.json({ detail: 'temporary cleanup refused' }, { status: 400 })
       result = {}
     }
-    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many'), declaration('test.editor')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
+    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many'), declaration('test.editor'), declaration('test.region')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
     else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
@@ -131,6 +131,26 @@ async function addNode(type = 'test.one') {
 }
 const title = () => container.querySelector('.toolbar h2').textContent
 const nodeCount = () => container.querySelectorAll('.canvas article').length
+
+test('ordinary App polling preserves unapplied comparison regions and accepted changes still synchronize', async () => {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)) })
+  await click('Add region editor')
+  const input = container.querySelector('[aria-label="Subject chain"]')
+  assert.equal(input.value, 'X')
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'R')
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 650)) })
+  assert.equal(input.value, 'R', 'ordinary polling must preserve the unapplied region')
+  await click('Apply Subject region')
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].parameters.subject_selection, { chains: ['R'] })
+  await click('Replace accepted region')
+  assert.equal(input.value, 'Q', 'a genuinely replaced accepted selection must synchronize')
+  await click('Save project')
+  assert.deepEqual(savedFlows[1].flow.nodes[0].parameters.subject_selection, { chains: ['Q'] })
+})
 
 test('a delayed save preserves edits made after its submitted snapshot', async () => {
   await addNode()
@@ -1529,6 +1549,32 @@ async function connectedEditor() {
 async function editorButton(text, index=0) {
   await act(async () => [...container.querySelectorAll('button')].filter(button => button.textContent === text)[index].click())
 }
+test('module parameter submissions cannot mutate accepted state or shared read-only snapshots', async () => {
+  await connectedEditor()
+  await editorButton('Submit owned parameters')
+  const context = () => JSON.parse(container.querySelector('[data-editor-context]').textContent)
+  assert.deepEqual(context().parameters, { nested: { value: 'submitted' } })
+  assert.match(container.textContent, /Caller submission remains editable/)
+  await editorButton('Mutate parameter snapshot')
+  assert.match(container.textContent, /Parameter snapshot is read only/)
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[1].parameters, { nested: { value: 'submitted' } })
+})
+
+test('async editor parameter acceptance captures submitted values before awaiting', async () => {
+  await connectedEditor()
+  await editorButton('Submit owned parameters')
+  await editorButton('Remember editor context')
+  await editorButton('Submit async owned parameters')
+  const context = JSON.parse(container.querySelector('[data-editor-context]').textContent)
+  assert.deepEqual(context.parameters, { nested: { value: 'async submitted' } })
+  assert.match(container.textContent, /Async caller submission remains editable/)
+  await editorButton('Show remembered parameters')
+  assert.match(container.textContent, /"value":"submitted"/)
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[1].parameters, { nested: { value: 'async submitted' } })
+})
+
 test('failed file receipt retains original node bindings and connections', async () => {
   await connectedEditor()
   interactionFailure = 'declared file could not be received'

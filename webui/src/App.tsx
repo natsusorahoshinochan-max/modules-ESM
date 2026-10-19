@@ -10,6 +10,18 @@ class ExtensionBoundary extends Component<{ children: ReactNode }, { error: stri
   render() { return this.state.error ? <p role="alert">Module interface failed: {this.state.error}</p> : this.props.children }
 }
 
+function frozenParameterCopy(parameters: Record<string, unknown>) {
+  const snapshot = structuredClone(parameters)
+  function freeze(value: unknown) {
+    if (value && typeof value === 'object') {
+      Object.values(value).forEach(freeze)
+      Object.freeze(value)
+    }
+  }
+  freeze(snapshot)
+  return snapshot
+}
+
 function JsonEditor({ value, disabled, onChange, onDraftChange }: { value: Record<string, unknown>; disabled: boolean; onChange(value: Record<string, unknown>): void; onDraftChange?(): void }) {
   return <textarea key={JSON.stringify(value)} defaultValue={JSON.stringify(value, null, 2)} disabled={disabled} onInput={onDraftChange} onBlur={event => {
     try {
@@ -38,6 +50,7 @@ export default function App() {
   const [dirty, setDirty] = useState(false)
   const dirtyNow = useRef(false)
   const draftRevision = useRef(0)
+  const parameterSnapshots = useRef(new WeakMap<Record<string, unknown>, Record<string, unknown>>())
   function markDirty(value: boolean) { if (value) draftRevision.current += 1; dirtyNow.current = value; setDirty(value) }
   const canvas = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
@@ -401,7 +414,8 @@ export default function App() {
       },
       async addNode(node) {
         activeProject()
-        const id = crypto.randomUUID(); change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...node, id }] } })); return id
+        const id = crypto.randomUUID(), parameters = structuredClone(node.parameters)
+        change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...node, parameters, id }] } })); return id
       },
       async connect(edge) {
         const current = activeProject()
@@ -448,8 +462,13 @@ export default function App() {
       return current
     }
     const edges = project!.flow.edges.filter(edge => edge.source === node.id || edge.target === node.id)
+    let parameters = parameterSnapshots.current.get(node.parameters)
+    if (!parameters) {
+      parameters = frozenParameterCopy(node.parameters)
+      parameterSnapshots.current.set(node.parameters, parameters)
+    }
     return {
-      projectId, nodeId: node.id, revision, parameters: structuredClone(node.parameters), bindings: structuredClone(node.inputs), edges: structuredClone(edges), host,
+      projectId, nodeId: node.id, revision, parameters, bindings: structuredClone(node.inputs), edges: structuredClone(edges), host,
       inputs: Object.fromEntries(Object.entries(declaration?.inputs ?? {}).map(([port, input]) => {
         const ids = node.inputs[port] ?? []
         const selected = ids.flatMap(id => packagesNow.current.filter(item => item.id === id))
@@ -459,6 +478,7 @@ export default function App() {
         return [port, {packages: structuredClone(selected), ...(unavailable ? {unavailable} : {})}]
       })),
       async update(update: EditorUpdate) {
+        const parameters = update.parameters ? structuredClone(update.parameters) : undefined
         currentTarget()
         if ((await client.project(projectId)).running) throw new Error('Project is running; wait before accepting edits')
         currentTarget()
@@ -516,7 +536,7 @@ export default function App() {
         } else validateBindings(inputs)
         currentTarget()
         change(current => ({...current, flow: {...current.flow,
-          nodes: current.flow.nodes.map(item => item.id === node.id ? {...item, ...(update.parameters ? {parameters:update.parameters} : {}), inputs} : item),
+          nodes: current.flow.nodes.map(item => item.id === node.id ? {...item, ...(parameters ? {parameters} : {}), inputs} : item),
           edges: [...current.flow.edges.filter(edge => !(edge.target === node.id && replace.includes(edge.target_port))), ...additions],
         }}))
       },
@@ -540,7 +560,10 @@ export default function App() {
   const target = project?.flow.nodes.find(node => node.id === connection.target)
   const sourcePorts = catalog.nodes.find(node => node.id === source?.type)?.outputs ?? {}
   const targetPorts = catalog.nodes.find(node => node.id === target?.type)?.inputs ?? {}
-  function updateNode(id: string, update: Partial<FlowNode>) { change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.map(node => node.id === id ? { ...node, ...update } : node) } })) }
+  function updateNode(id: string, update: Partial<FlowNode>) {
+    const ownedUpdate = update.parameters ? {...update, parameters: structuredClone(update.parameters)} : update
+    change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.map(node => node.id === id ? { ...node, ...ownedUpdate } : node) } }))
+  }
 
   return <div className="workbench"><header><h1>Protein Workbench</h1><span>Public module host</span></header>
     {([{ message: error, dismiss: setError }, { message: moduleError, dismiss: setModuleError }, { message: projectListError, dismiss: setProjectListError }]).map(({ message, dismiss }, index) => message && <div key={index} role="alert" className="error">{message}<button onClick={() => dismiss('')}>Dismiss</button></div>)}
