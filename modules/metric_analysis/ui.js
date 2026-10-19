@@ -25,10 +25,12 @@ export function register({React}) {
       finally{if(current===epoch.current)setBusy(false)}
     }
     function change(choice,region,enabled=true) {
+      if(enabled&&choice.unavailable)return
       const rest=selected.filter(item=>!same(item,choice.selector))
       setSelected(enabled?[...rest,{...choice.selector,...(region===undefined?{}:{region})}]:rest)
     }
     async function apply() {
+      if(selected.some(item=>!choices.some(choice=>same(item,choice.selector)&&!choice.unavailable)))return
       setBusy(true);setError('')
       try{await origin.current.update({parameters:{...parameters,selections:selected}})}
       catch(error){setError(error.message)}
@@ -45,15 +47,16 @@ export function register({React}) {
           h('legend',null,`Input ${choice.selector.input+1} · ${choice.object_label} · ${choice.reference_label} · ${choice.selector.metric}`),
           h('p',null,`${choice.selector.origin==='generation'?'Generation confidence':`Evaluation ${choice.selector.evaluation===undefined?'':choice.selector.evaluation+1}`}${choice.selector.sample===undefined?'':` · Sample ${choice.selector.sample+1}`} · ${methodName(choice.source_method)} · ${choice.unit} · ${choice.meaning}`),
           h('p',null,'Original scope: ',JSON.stringify(choice.source_region)),
-          h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'Use existing metric'),
-          choice.positions&&selection&&h(React.Fragment,null,
+          choice.unavailable&&h('p',null,'Unavailable: ',choice.unavailable),
+          h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,disabled:!!choice.unavailable&&!selection,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'Use existing metric'),
+          !choice.unavailable&&choice.positions&&selection&&h(React.Fragment,null,
             h('label',null,h('input',{type:'checkbox','aria-label':`Select individual positions ${number}`,checked:Array.isArray(region),onChange:event=>change(choice,event.target.checked?[]:undefined)}),'Select individual positions'),
             Array.isArray(region)&&h(React.Fragment,null,
               h('label',null,'Chain',h('select',{'aria-label':`Metric ${number} chain`,value:chains[index]??'',onChange:event=>setChains({...chains,[index]:event.target.value})},
                 h('option',{value:''},'All available chains'),...[...new Set(choice.positions.map(p=>p.chain))].map(chain=>h('option',{key:chain,value:chain},chain||'(blank chain)')))),
               ...visible.map(p=>h('label',{key:positionName(p)},h('input',{type:'checkbox','aria-label':`Metric ${number} position ${positionName(p)}`,checked:region.some(item=>same(item,p)),onChange:event=>change(choice,event.target.checked?[...region,p]:region.filter(item=>!same(item,p)))}),positionName(p))))),
-          !choice.positions&&h('p',null,'Scalar value: analysis retains the original evaluation scope.'))
-      }),h('button',{onClick:apply,disabled:readOnly||busy||!choices.length||!selected.length||selected.some(item=>Array.isArray(item.region)&&!item.region.length)},'Apply metric selections'))
+          !choice.unavailable&&!choice.positions&&h('p',null,'Scalar value: analysis retains the original evaluation scope.'))
+      }),h('button',{onClick:apply,disabled:readOnly||busy||!choices.length||!selected.length||selected.some(item=>!choices.some(choice=>same(item,choice.selector)&&!choice.unavailable)||(Array.isArray(item.region)&&!item.region.length))},'Apply metric selections'))
   }
   function Action({host}) {
     const [error,setError]=React.useState('')

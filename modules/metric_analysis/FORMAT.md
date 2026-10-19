@@ -35,6 +35,9 @@ ambiguous metric/sample selection, repeated or unavailable positions, and
 incomplete sequence/value correspondence stop the operation. Backbone residue
 analysis also requires valid coordinate-mask positions; fixed residues retain
 their recorded NLL and original design mask. Samples are selected separately.
+Backbone `region_nll` requires its sample's region mask to match the declared
+actual region exactly in each chain's tool-position order, including zeros
+outside the region. A null source region requires the complete actual axis.
 Analysis performs arithmetic mean, minimum, maximum and count; it does not invoke
 scientific tools or generate missing metric values.
 
@@ -57,7 +60,13 @@ use these concrete source-specific fields:
 The editor manages these selectors internally. It displays descriptive labels,
 actual methods, regions and sample numbers. `workbench.inspect_metrics` accepts
 only the explicitly supplied packages and returns choices with actual positions,
-unit and meaning. Inspection creates no run or saved analysis. Node/project/draft
+unit and meaning. A candidate whose necessary values or correspondence cannot be
+read remains listed with `unavailable` containing the specific reason; unrelated
+valid candidates remain selectable. Existing unavailable selections can be removed
+explicitly, and Apply requires every retained selection to be available. Analysis
+independently resolves only each selected metric's necessary dependencies.
+Unidentifiable objects or ownership fail inspection. Inspection creates no run or
+saved analysis. Node/project/draft
 changes invalidate pending displays, and temporary interaction handles are
 released after display data is read.
 
