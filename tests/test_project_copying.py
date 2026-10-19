@@ -181,3 +181,38 @@ def test_temporary_teaching_input_can_be_viewed_exported_and_adopted_before_save
         assert adopted.status_code == 200, adopted.text
         client.delete(f'/api/draft-inputs/{temporary}')
         assert client.get(f"/api/packages/{adopted.json()['id']}/file", params={'key': 'request'}).content == b'temporary research'
+
+
+def test_upload_commit_after_another_instance_deletes_project_releases_its_workdir(tmp_path):
+    with TestClient(create_application(data_root=tmp_path)) as first:
+        project = first.post('/api/projects', json={'name': 'Concurrent deletion'}).json()['id']
+        base = f'/api/projects/{project}/uploads'
+        token = first.post(base).json()['upload_id']
+        base += '/' + token
+        assert first.put(base + '/files', params={'key': 'data'}, content=b'real uploaded research input').status_code == 200
+        staged = tuple((tmp_path / 'work').glob('execution-*'))
+        assert len(staged) == 1
+        with TestClient(create_application(data_root=tmp_path)) as second:
+            assert second.delete(f'/api/projects/{project}').status_code == 200
+        response = first.post(base + '/commit', json={'format': 'custom.data', 'entry': 'data', 'files': {'data': 'data'}})
+        assert response.status_code == 400
+        assert 'Unknown project' in response.json()['detail']
+        assert not staged[0].exists()
+        assert first.delete(base).status_code == 400
+    assert not tuple((tmp_path / 'work').glob('execution-*'))
+
+
+@pytest.mark.parametrize('project_kind', ['user', 'tutorial'])
+def test_upload_receiver_failure_releases_workdir_without_persisting_input(tmp_path, project_kind):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.get('/api/tutorial').json()['id'] if project_kind == 'tutorial' else client.post('/api/projects', json={'name': 'Failed reception'}).json()['id']
+        original = client.get(f'/api/projects/{project}/packages').json()
+        base = f'/api/projects/{project}/uploads'
+        token = client.post(base).json()['upload_id']
+        base += '/' + token
+        assert client.put(base + '/files', params={'key': 'data'}, content=b'failed received bytes').status_code == 200
+        response = client.post(base + '/commit', json={'format': 'custom.data', 'entry': 'missing', 'files': {'data': 'data'}})
+        assert response.status_code == 400
+        assert 'entry' in response.json()['detail']
+        assert not tuple((tmp_path / 'work').glob('execution-*'))
+        assert client.get(f'/api/projects/{project}/packages').json() == original

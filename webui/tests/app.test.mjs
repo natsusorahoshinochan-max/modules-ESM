@@ -28,7 +28,7 @@ const hooks = registerHooks({
   },
 })
 const originalFetch = globalThis.fetch
-let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate, adoptionGate, deleteGate, adoptionFailure, discardedDraftInputs
+let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate, adoptionGate, deleteGate, adoptionFailure, discardedDraftInputs, draftDiscardFailure
 const clone = value => structuredClone(value)
 const node = (id, type = 'test.one') => ({ id, type, parameters: {}, inputs: {} })
 function deferred() {
@@ -44,14 +44,18 @@ beforeEach(async () => {
     { id: 'b', name: 'Project B', flow: { nodes: [], edges: [] }, layout: {} },
   ]
   window.confirm = () => true
-  discardedDraftInputs = [];
+  discardedDraftInputs = []; draftDiscardFailure = false;
   adoptionGate = null; deleteGate = null; adoptionFailure = null
   pendingSave = null; uploadGate = null; savedFlows = []; runRequests = []; projectGate = null; runGate = null
   packages = { tutorial: [], a: [], b: [{ id: 'b-package', project_id: 'b', format: 'other', entry: 'data', files: ['data'] }] }
   globalThis.fetch = async (url, options = {}) => {
     const path = String(url)
     let result
-    if (path.startsWith('/api/draft-inputs/')) { discardedDraftInputs.push(path.split('/').at(-1)); result = {} }
+    if (path.startsWith('/api/draft-inputs/')) {
+      discardedDraftInputs.push(path.split('/').at(-1))
+      if (draftDiscardFailure) return Response.json({ detail: 'temporary cleanup refused' }, { status: 400 })
+      result = {}
+    }
     else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
     else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
@@ -481,7 +485,11 @@ test('a chosen wheel is uploaded with its entry and module controls refresh the 
     }
     if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json(module) }
     if (path === '/api/modules/test.actions' && options.method === 'DELETE') { installed = false; return Response.json({}) }
-    if (path.startsWith('/api/draft-inputs/')) { discardedDraftInputs.push(path.split('/').at(-1)); result = {} }
+    if (path.startsWith('/api/draft-inputs/')) {
+      discardedDraftInputs.push(path.split('/').at(-1))
+      if (draftDiscardFailure) return Response.json({ detail: 'temporary cleanup refused' }, { status: 400 })
+      result = {}
+    }
     else if (path === '/api/catalog') return Response.json({ nodes: installed && enabled ? [declaration('test.one')] : [], modules: installed ? [{ ...module, enabled }] : [] })
     return previousFetch(url, options)
   }
@@ -954,6 +962,100 @@ test('application startup opens the editable teaching example by default', async
   assert.equal(records.length, 2)
 })
 
+
+test('first teaching save freezes its draft until one user project owns the saved inputs', async () => {
+  await click('Teaching example')
+  pendingSave = deferred()
+  await click('Save project')
+  assert.equal(container.querySelector('label > select').disabled, true)
+  assert.equal(container.querySelector('.canvas textarea').disabled, true)
+  assert.equal(container.querySelector('.canvas input[type=range]').disabled, true)
+  assert.equal(container.querySelector('.canvas label select').disabled, true)
+  await click('Add connected pair')
+  assert.equal(nodeCount(), 1)
+  assert.match(container.querySelector('[data-testid=action-result]').textContent, /saving/i)
+  await act(async () => pendingSave.resolve())
+  assert.equal(title(), 'Research project')
+  assert.equal(records.length, 3)
+  assert.equal(nodeCount(), 1)
+  pendingSave = null
+  await addNode()
+  await click('Save project')
+  assert.equal(records.length, 3)
+  assert.equal(records.find(item => item.id === 'copied').flow.nodes.length, 2)
+})
+
+
+test('teaching first save waits for pending input transfer before creating its user project', async () => {
+  await click('Teaching example')
+  uploadGate = deferred()
+  await act(async () => {
+    button('Upload and add node').click()
+    button('Save project').click()
+  })
+  assert.equal(records.length, 2)
+  assert.equal(button('Save project').disabled, true)
+  assert.equal(button('Copy project').disabled, true)
+  assert.equal(button('Save and run').disabled, true)
+  assert.match(container.querySelector('[role=alert]').textContent, /input.*transfer|upload/i)
+  await act(async () => uploadGate.resolve())
+  assert.equal(nodeCount(), 2)
+  assert.equal(button('Save project').disabled, false)
+  await click('Save project')
+  assert.equal(records.length, 3)
+  assert.equal(title(), 'Research project')
+  assert.deepEqual(records.find(item => item.id === 'copied').flow.nodes[1].inputs, { input: ['a-input'] })
+})
+
+
+for (const leave of ['unmount', 'pagehide']) {
+  test(`teaching input finishing after ${leave} is released instead of joining an abandoned draft`, async () => {
+    await click('Teaching example')
+    uploadGate = deferred()
+    await click('Upload and add node')
+    if (leave === 'unmount') await act(async () => root.unmount())
+    else await act(async () => window.dispatchEvent(new window.Event('pagehide')))
+    await act(async () => uploadGate.resolve())
+    assert.deepEqual(discardedDraftInputs, ['a-input'])
+  })
+}
+
+
+test('a failed late-input cleanup cannot restore a disposed teaching editor or expose its result', async () => {
+  await click('Teaching example')
+  uploadGate = deferred(); draftDiscardFailure = true
+  await click('Upload and add node')
+  await act(async () => window.dispatchEvent(new window.Event('pagehide')))
+  await act(async () => uploadGate.resolve())
+  assert.deepEqual(discardedDraftInputs, ['a-input'])
+  assert.equal(nodeCount(), 1)
+  assert.equal(Boolean(container.querySelector('[role=alert]')), false)
+  assert.match(container.querySelector('[data-testid=action-result]').textContent, /cleanup refused/)
+  await click('Add connected pair')
+  assert.equal(nodeCount(), 1)
+  assert.match(container.querySelector('[data-testid=action-result]').textContent, /project changed/i)
+})
+
+
+test('a persisted pagehide and pageshow preserve the teaching draft and its temporary inputs', async () => {
+  await click('Teaching example')
+  await click('Upload and add node')
+  for (const name of ['pagehide', 'pageshow']) {
+    const event = new window.Event(name)
+    Object.defineProperty(event, 'persisted', { value: true })
+    await act(async () => window.dispatchEvent(event))
+  }
+  assert.deepEqual(discardedDraftInputs, [])
+  assert.equal(nodeCount(), 2)
+  await addNode()
+  assert.equal(nodeCount(), 3)
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(records.length, 3)
+  assert.deepEqual(records.find(item => item.id === 'copied').flow.nodes[1].inputs, { input: ['a-input'] })
+  assert.deepEqual(discardedDraftInputs, ['a-input'])
+})
+
 test('opening the teaching example at startup preserves the current module import error', async () => {
   const previousFetch = globalThis.fetch
   globalThis.fetch = async (url, options) => {
@@ -1091,4 +1193,96 @@ test('cancellation waits until a lost-response run is identified by the current 
   assert.deepEqual(cancellations, ['/api/runs/lost-response-run/cancel'])
   assert.match(container.querySelector('[role=status]').textContent, /Cancellation requested/)
   assert.equal(button('Save project').disabled, true)
+})
+
+
+test('committed teaching first save retains its user project when package-list refresh fails', async () => {
+  await click('Teaching example')
+  await click('Upload and add node')
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages') throw new Error('package list unavailable')
+    const response = await previousFetch(url, options)
+    if (String(url) === '/api/projects/tutorial/copies') {
+      const copied = await response.json()
+      copied.flow.nodes[1].inputs = { input: ['copied-input'] }
+      records = records.map(record => record.id === copied.id ? clone(copied) : record)
+      return Response.json(copied)
+    }
+    return response
+  }
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(records.length, 3)
+  assert.match(container.querySelector('[role=status]').textContent, /saved/)
+  assert.match(container.querySelector('[role=alert]').textContent, /package.*refresh.*package list unavailable/i)
+  assert.deepEqual(discardedDraftInputs, ['a-input'])
+  await addNode()
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(records.length, 3)
+  assert.equal(savedFlows.at(-1).id, 'copied')
+  assert.deepEqual(savedFlows.at(-1).flow.nodes[1].inputs, { input: ['copied-input'] })
+})
+
+
+test('teaching save-and-run starts the saved flow while its auxiliary package refresh is pending', async () => {
+  await click('Teaching example')
+  const previousFetch = globalThis.fetch
+  const refresh = deferred()
+  let requestedRefresh = false
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages' && !requestedRefresh) {
+      requestedRefresh = true
+      await refresh.promise
+      return Response.json([{ id: 'obsolete-package', project_id: 'copied', format: 'obsolete', entry: 'data', files: ['data'] }])
+    }
+    return previousFetch(url, options)
+  }
+  await click('Save and run')
+  assert.equal(title(), 'Research project')
+  assert.deepEqual(runRequests, ['copied'])
+  assert.equal(records.length, 3)
+  await act(async () => refresh.resolve())
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), [''])
+})
+
+test('a failed teaching-save package refresh cannot report an error after navigation', async () => {
+  await click('Teaching example')
+  const previousFetch = globalThis.fetch
+  const refresh = deferred()
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages') {
+      await refresh.promise
+      throw new Error('stale package list error')
+    }
+    return previousFetch(url, options)
+  }
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  await click('Project B')
+  await act(async () => refresh.resolve())
+  assert.equal(title(), 'Project B')
+  assert.equal(Boolean(container.querySelector('[role=alert]')), false)
+})
+
+
+test('a teaching-save package refresh cannot overwrite inputs received by a later user draft', async () => {
+  await click('Teaching example')
+  const previousFetch = globalThis.fetch
+  const refresh = deferred()
+  let requestedRefresh = false
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages' && !requestedRefresh) {
+      requestedRefresh = true
+      await refresh.promise
+      return Response.json([])
+    }
+    return previousFetch(url, options)
+  }
+  await click('Save project')
+  await click('Upload and add node')
+  assert.equal(title(), 'Research project · unsaved')
+  await act(async () => refresh.resolve())
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), ['', 'a-input'])
 })
