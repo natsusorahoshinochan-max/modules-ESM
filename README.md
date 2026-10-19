@@ -76,11 +76,13 @@ npm --prefix webui test
 
 真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
 
-首次启动附带并启用结构预测、SimpleFold 工具、结构比较和显式结构转换模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
+首次启动附带并启用结构预测、SimpleFold 工具、ESMC 表征、结构比较和显式结构转换模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
 
 比较时使用“Compare with an independent reference”入口导入一个 PDB 或 mmCIF，将预测输出连接至比较节点的 subject 端口。结果提供可重新打开的完整叠合；支持范围、数值含义和独立消费接口见 [比较格式](modules/structure_comparison/FORMAT.md)。
 
 序列入口提供单条序列/FASTA、批量 FASTA 和含显式位置对应的序列 JSON。“Import existing prediction results”按清单文件键逐项绑定已有结果文件，导入后可在画布输入选择器中使用。格式、来源与位置表达及参数保留见[预测模块格式](modules/folding/FORMAT.md)。
+
+ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF 模型或 Biohub 工具，并保存所请求的实际 embedding 与 logits。数值查看器分页显示 token、来源位置和全部实际列；配置及操作见 [ESMC 工具](modules/esmc/TOOL.md)，独立读取见 [表征格式](modules/esmc/FORMAT.md)。
 
 显式转换路径使用“Compare through explicit structure conversion”入口，导入参考后连接预测输出至转换节点的 prediction 端口。该入口插入转换及只接受目标格式的比较节点，操作与目标格式见 [转换模块说明](modules/structure_conversion/FORMAT.md)。
 
