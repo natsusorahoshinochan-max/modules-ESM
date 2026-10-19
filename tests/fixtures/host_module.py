@@ -33,3 +33,13 @@ def should_not_receive_empty(call, runtime):
 
 def empty_module():
     return Module(id="empty", name="Empty batch", nodes=(Node("empty.source", "Empty source", empty_batch, outputs={"result": OutputPort("batch", "many")}), Node("empty.receive", "Required receiver", should_not_receive_empty, inputs={"source": InputPort(("batch",), "many")})))
+
+
+def mutating_node(call, runtime):
+    call.parameters["nested"]["value"] = "changed inside node"
+    call.settings["nested"]["value"] = "changed inside node"
+    return Outcome(status="failed", diagnostics=("failure after local mutation",))
+
+
+def mutating_module():
+    return Module("mutating", "Mutating", nodes=(Node("mutating.node", "Mutating node", mutating_node),))
