@@ -238,6 +238,73 @@ def resolve_selection(structure, selection=None):
     return sorted(selected)
 
 
+def _fragment_entities(structure):
+    """Project current polymer declarations from retained actual residue groups."""
+    fragments = {}
+    entities = list(structure.entities)
+    for model in structure:
+        for chain in model:
+            members = {}
+            for group in chain.whole().residue_groups():
+                assignments = []
+                for residue in group:
+                    matches = [entity for entity in entities if
+                               (residue.subchain and residue.subchain in entity.subchains)
+                               or (residue.entity_id and residue.entity_id == entity.name)]
+                    # Gemmi's PDB parser names SEQRES entities from the explicit
+                    # author-chain field, even when no TER supplies subchains.
+                    if not matches and structure.input_format == gemmi.CoorFormat.Pdb and residue.het_flag == 'A':
+                        matches = [entity for entity in entities if entity.name == chain.name and entity.entity_type == gemmi.EntityType.Polymer]
+                    if len(matches) > 1:
+                        raise ValueError(f'Ambiguous fragment entity at model {model.num}, chain {chain.name!r}, residue {residue.seqid}')
+                    entity = matches[0] if matches else None
+                    if (entity is None and structure.input_format == gemmi.CoorFormat.Mmcif
+                            and residue.entity_type == gemmi.EntityType.Unknown
+                            and any(item.entity_type == gemmi.EntityType.Polymer and not item.subchains for item in entities)):
+                        raise ValueError(f'Fragment cannot associate an unbound polymer entity with model {model.num}, chain {chain.name!r}, residue {residue.seqid}')
+                    if entity is not None and entity.entity_type == gemmi.EntityType.Polymer:
+                        assignments.append((entity.name, residue.subchain, entity))
+                    elif residue.entity_type == gemmi.EntityType.Polymer:
+                        raise ValueError(f'Fragment polymer lacks an explicit entity at model {model.num}, chain {chain.name!r}, residue {residue.seqid}')
+                if not assignments:
+                    continue
+                if len(assignments) != len(group) or len({item[:2] for item in assignments}) != 1:
+                    raise ValueError(f'Ambiguous fragment residue-group entity at chain {chain.name!r}, residue {group[0].seqid}')
+                name, subchain, entity = assignments[0]
+                members.setdefault((name, subchain), (entity, []))[1].append(list(group))
+            for (name, subchain), (source_entity, groups) in members.items():
+                key = (chain.name, name, subchain)
+                signature = [(str(group[0].seqid), tuple(residue.name for residue in group)) for group in groups]
+                if key in fragments:
+                    previous, entity = fragments[key]
+                    if signature != previous:
+                        raise ValueError(f'Models retain different fragment residue groups for chain {chain.name!r}, subchain {subchain!r}')
+                else:
+                    entity = gemmi.Entity(uuid4().hex)
+                    entity.entity_type = gemmi.EntityType.Polymer
+                    entity.polymer_type = source_entity.polymer_type
+                    entity.subchains = [subchain or uuid4().hex]
+                    entity.full_sequence = [','.join(dict.fromkeys(residue.name for residue in group)) for group in groups]
+                    fragments[key] = (signature, entity)
+                for position, group in enumerate(groups, 1):
+                    for residue in group:
+                        residue.entity_type = gemmi.EntityType.Polymer
+                        residue.entity_id = entity.name
+                        residue.subchain = entity.subchains[0]
+                        residue.label_seq = position
+    retained_subchains = {residue.subchain for model in structure for chain in model for residue in chain}
+    for index in reversed(range(len(structure.entities))):
+        entity = structure.entities[index]
+        if entity.entity_type == gemmi.EntityType.Polymer:
+            structure.entities.pop(index)
+        elif entity.subchains:
+            entity.subchains = [subchain for subchain in entity.subchains if subchain in retained_subchains]
+            if not entity.subchains:
+                structure.entities.pop(index)
+    for _, entity in fragments.values():
+        structure.entities.append(entity)
+
+
 def extract(structure, selection):
     """Clone selected atoms, preserving their model, component and atom identities."""
     selected = set(resolve_selection(structure, selection))
@@ -262,6 +329,7 @@ def extract(structure, selection):
     for mi in reversed(range(len(result))):
         if not result[mi].count_atom_sites():
             del result[mi]
+    _fragment_entities(result)
     return result
 
 
@@ -286,6 +354,8 @@ def transform(structure, rotation, translation, selection=None):
         raise ValueError('Rotation must have determinant +1')
     selected = set(resolve_selection(structure, selection))
     result = structure.clone()
+    matrix = gemmi.Mat33()
+    matrix.fromlist(rotation)
     index = 0
     for model in result:
         for chain in model:
@@ -296,7 +366,11 @@ def transform(structure, rotation, translation, selection=None):
                         point = [sum(row[k] * xyz[k] for k in range(3)) + translation[i] for i, row in enumerate(rotation)]
                         if not all(math.isfinite(v) for v in point):
                             raise ValueError('Transformed coordinates must remain finite')
+                        displacement = atom.aniso.transformed_by(matrix)
+                        if not all(math.isfinite(v) for v in displacement.elements_pdb()):
+                            raise ValueError(f'Transformed anisotropic displacement must remain finite at model {model.num}, chain {chain.name!r}, residue {residue.seqid}, atom {atom.name!r}')
                         atom.pos = gemmi.Position(*point)
+                        atom.aniso = displacement
                     index += 1
     return result
 
