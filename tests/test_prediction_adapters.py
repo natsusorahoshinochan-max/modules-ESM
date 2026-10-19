@@ -99,3 +99,21 @@ def test_local_adapter_keeps_relative_virtualenv_executable_absolute_across_work
     assert captured[0][0][4] == str(executable)
     assert captured[0][0][1:4] == ['-m', 'protein_workbench_public.model_validation', '--']
     assert result.plddt == [.8]
+
+
+def test_local_worker_failure_reports_concrete_upstream_reason(tmp_path, monkeypatch):
+    from modules.folding.adapters import create_local
+    class FailedWorker:
+        returncode = 1
+        def __init__(self, args, **kwargs):
+            stream = kwargs.get('stderr')
+            if stream is not None:
+                stream.write('RuntimeError: model weights are incomplete\n')
+                stream.write('Model processes exited; resource released\n')
+                stream.flush()
+        def poll(self):
+            return 1
+    monkeypatch.setattr('subprocess.Popen', FailedWorker)
+    with pytest.raises(ValueError, match='model weights are incomplete'):
+        create_local({'model_path': str(tmp_path), 'language_model_path': str(tmp_path)})(
+            PredictionRequest('A', 'source'), {}, SimpleNamespace(workdir=tmp_path, cancelled=False))
