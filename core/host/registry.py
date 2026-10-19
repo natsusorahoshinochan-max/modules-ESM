@@ -4,6 +4,7 @@ import sys
 from importlib.machinery import all_suffixes
 from threading import RLock
 from pathlib import Path
+from os import PathLike
 
 from protein_workbench_public.module_api import InputPort, Module, Node, OutputPort, Tool, ToolSlot
 
@@ -11,18 +12,44 @@ from protein_workbench_public.module_api import InputPort, Module, Node, OutputP
 import_lock = RLock()
 
 
+def _path(value):
+    if not isinstance(value, (str, PathLike)):
+        return None
+    try:
+        return Path(value).resolve()
+    except Exception:
+        return None
+
+
+def _module_locations(module):
+    # PEP 562 modules may manufacture attributes such as torch.classes.__path__.
+    # Import ownership only uses actual module attributes containing real paths.
+    try:
+        attributes = vars(module)
+    except TypeError:
+        return None, []
+    source = _path(attributes.get('__file__'))
+    try:
+        declared = attributes.get('__path__', ())
+        locations = [] if isinstance(declared, (str, PathLike)) else list(declared)
+    except Exception:
+        locations = []
+    return source, [path for value in locations if (path := _path(value)) is not None]
+
+
 def _locations(module):
-    source = getattr(module, "__file__", None)
-    return ([source] if source else []) + list(getattr(module, "__path__", ()))
+    source, locations = _module_locations(module)
+    return ([source] if source else []) + locations
 
 
 def discard_paths(paths):
     """Evict only objects owned by these application installation directories."""
     paths = {Path(path).resolve() for path in paths}
     def owned(value):
-        return any(Path(value).resolve().is_relative_to(path) for path in paths)
+        candidate = _path(value)
+        return candidate is not None and any(candidate.is_relative_to(path) for path in paths)
     # Namespace paths consult their parents lazily; snapshot before removing either.
-    loaded = [(name, module, getattr(module, "__file__", None), list(getattr(module, "__path__", ()))) for name, module in list(sys.modules.items())]
+    loaded = [(name, module, *_module_locations(module)) for name, module in list(sys.modules.items())]
     sys.path[:] = [value for value in sys.path if not owned(value)]
     for name, module, source, locations in loaded:
         if source and owned(source):
@@ -32,9 +59,10 @@ def discard_paths(paths):
             if not remaining:
                 sys.modules.pop(name, None)
             else:
-                module.__path__ = remaining
-                if getattr(module, "__spec__", None):
-                    module.__spec__.submodule_search_locations = remaining
+                module.__path__ = [str(path) for path in remaining]
+                spec = vars(module).get('__spec__')
+                if spec is not None:
+                    spec.submodule_search_locations = module.__path__
     importlib.invalidate_caches()
 
 
@@ -47,8 +75,8 @@ def reconcile(package_root, installed_paths):
         observed.extend(_locations(module))
     stale = set()
     for value in observed:
-        path = Path(value).resolve()
-        if path.is_relative_to(root) and path != root:
+        path = _path(value)
+        if path is not None and path.is_relative_to(root) and path != root:
             installation = root / path.relative_to(root).parts[0]
             if installation not in active:
                 stale.add(installation)
@@ -73,13 +101,18 @@ def load(entry_point, *, package_path=None, installed_paths=()):
                         prefix = installed.joinpath(*module_name.split('.')[:index])
                         files = [prefix.parent / (prefix.name + suffix) for suffix in all_suffixes()]
                         files += [prefix / ('__init__' + suffix) for suffix in all_suffixes()]
-                        if any(file.is_file() for file in files):
+                        candidate = destination.joinpath(*module_name.split('.')[:index])
+                        regular_parent = any((candidate / ('__init__' + suffix)).is_file() for suffix in all_suffixes())
+                        if any(file.is_file() for file in files) or (prefix.is_dir() and regular_parent):
                             raise ValueError(f"Python import namespace {'.'.join(module_name.split('.')[:index])!r} already belongs to another installation")
                 for index in range(1, len(module_name.split('.')) + 1):
                     name = '.'.join(module_name.split('.')[:index])
                     cached = sys.modules.get(name)
-                    source = getattr(cached, '__file__', None)
-                    if source and not Path(source).resolve().is_relative_to(destination):
+                    source, locations = _module_locations(cached)
+                    candidate = destination.joinpath(*module_name.split('.')[:index])
+                    regular_parent = any((candidate / ('__init__' + suffix)).is_file() for suffix in all_suffixes())
+                    foreign_namespace = cached is not None and not source and any(not path.is_relative_to(destination) for path in locations)
+                    if (source and not Path(source).resolve().is_relative_to(destination)) or (regular_parent and foreign_namespace):
                         raise ValueError(f"Python import namespace {name!r} already belongs to another package; entry must belong to the selected wheel")
                 if str(destination) not in sys.path:
                     sys.path.insert(0, str(destination))
@@ -88,15 +121,17 @@ def load(entry_point, *, package_path=None, installed_paths=()):
                     name = '.'.join(module_name.split('.')[:index])
                     cached = sys.modules.get(name)
                     namespace = destination.joinpath(*module_name.split('.')[:index])
-                    if cached is not None and not getattr(cached, '__file__', None) and namespace.is_dir():
-                        locations = list(cached.__path__)
-                        if str(namespace) not in locations:
-                            cached.__path__ = locations + [str(namespace)]
-                            cached.__spec__.submodule_search_locations = cached.__path__
+                    source, locations = _module_locations(cached)
+                    if cached is not None and not source and namespace.is_dir():
+                        if namespace not in locations:
+                            cached.__path__ = [str(path) for path in locations] + [str(namespace)]
+                            spec = vars(cached).get('__spec__')
+                            if spec is not None:
+                                spec.submodule_search_locations = cached.__path__
                 importlib.invalidate_caches()
             imported = importlib.import_module(module_name)
             if package_path:
-                source = getattr(imported, '__file__', None)
+                source, _ = _module_locations(imported)
                 if not source or not Path(source).resolve().is_relative_to(destination):
                     raise ValueError("Entry point must belong to the selected wheel")
             factory = getattr(imported, attribute)

@@ -6,7 +6,7 @@
 
 模块提供一个无参数工厂，返回 `Module`。工厂声明节点、配置字段和可选的浏览器入口；配置保存在应用数据目录中，与节点计算参数分开。一个模块的 `nodes` 可声明多个节点。
 
-用户在应用中选择 wheel 文件并填写 `包名.模块名:工厂名`，点击 `Install package`。应用使用后端 Python 将所选 wheel 离线安装到数据目录的独立包目录，只安装该包；其 `Requires-Dist` 中的依赖须已由部署者装入后端环境。已有环境包可用 `Register module` 登记同一公共工厂。安装成功后默认启用。禁用保留设置；卸载删除登记及应用拥有的包目录。随载体发行的官方模块可重新登记其公开入口。安装失败清理本次目录并报告具体原因。HTTP 客户端上传使用 `POST /api/module-packages?filename=所选文件名&entry_point=公开工厂`，携带 `Content-Type: application/octet-stream` 和 `X-Workbench-Module-Package: wheel`；应用界面自动填写。登记已有环境包的 `POST /api/modules` 使用 `application/json`。
+用户在应用中选择 wheel 文件并填写 `包名.模块名:工厂名`，点击 `Install package`。应用使用后端 Python 将所选 wheel 离线安装到数据目录的独立包目录，只安装该包；其 `Requires-Dist` 中的依赖须已由部署者装入后端环境。已有环境包可用 `Register module` 登记同一公共工厂。安装成功后默认启用。禁用保留设置；卸载删除登记及应用拥有的包目录。随载体发行的官方模块可重新登记其公开入口。安装失败清理本次目录并报告具体原因。 独立安装可以共享 PEP 420 namespace；已有安装占用的普通 Python 包，以及与已有 namespace 重名的候选普通父包，会在加载工厂前拒绝。HTTP 客户端上传使用 `POST /api/module-packages?filename=所选文件名&entry_point=公开工厂`，携带 `Content-Type: application/octet-stream` 和 `X-Workbench-Module-Package: wheel`；应用界面自动填写。登记已有环境包的 `POST /api/modules` 使用 `application/json`。
 
 模块声明的环境字段是凭据、已有模型路径、服务地址或程序位置等字符串。`Module.settings` 以字段名映射说明文字，或映射 `{ "type": "string", "title": "显示名称", "secret": true }`；`secret` 字段在界面中遮蔽显示。载体按声明展示并保存用户值，通过 `Call.settings` 及工具的构造入口提供给所属模块。
 
