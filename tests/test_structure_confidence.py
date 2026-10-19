@@ -227,9 +227,36 @@ def test_discontinuous_region_reads_complete_geometry_and_only_selects_reported_
         assert json.load(reader) == {'positions': region, 'plddt': [.2, .4]}
     assert len(calls[0].positions) == 3
 
+    app.install('modules.structure_io:module')
+    app.save_project(project['id'], {'nodes': [{'id': 'export', 'type': 'workbench.export_structure', 'inputs': {'structures': [output.id]}, 'parameters': {'object': 'existing', 'format': 'mmcif'}}], 'edges': []}, {})
+    exported_run = wait_run(app, app.start(project['id']))
+    assert exported_run['status'] == 'succeeded', exported_run
+    exported_package = app.package(exported_run['nodes']['export']['outputs']['structures'][0])
+    with exported_package.open(exported_package.entry) as reader:
+        exported_document = json.load(reader)
+    exported_object = exported_document['objects'][0]
+    with exported_package.open(exported_object['source_manifest']['file']) as reader:
+        source_document = json.load(reader)
+    assert source_document['evaluations'] == manifest['evaluations']
+    with exported_package.open('original.pdb') as reader:
+        assert reader.read() == complete
+    with exported_package.open(exported_object['structure']['file']) as reader:
+        assert b'_atom_site.' in reader.read()
+
+    from protein_workbench_public.http.app import create_http_app
+    import io, zipfile
+    with TestClient(create_http_app(app)) as client:
+        response = client.get(f'/api/packages/{exported_package.id}/export.zip')
+        response.raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(response.content)) as bundle:
+        index = json.loads(bundle.read('package.json'))
+        files = {file['key']: bundle.read(file['member']) for file in index['files']}
+    assert json.loads(files[exported_object['source_manifest']['file']])['evaluations'] == manifest['evaluations']
+    assert files['original.pdb'] == complete
+    assert 'not recalculated' in files['export-notes.txt'].decode()
+
     # Missing actual positions stop before another external call; the input stays intact.
-    flow = app.get_project(project['id'])['flow']
-    flow['nodes'][0]['parameters']['region'] = [{'chain': 'missing', 'author_number': 99, 'insertion_code': ''}]
+    flow = {'nodes': [{'id': 'e', 'type': 'workbench.evaluate_structure_confidence', 'inputs': {'structures': [package['id']]}, 'parameters': {'object': 'existing', 'region': [{'chain': 'missing', 'author_number': 99, 'insertion_code': ''}]}, 'tools': {'evaluator': 'test.geometry.confidence'}}], 'edges': []}
     app.save_project(project['id'], flow, {})
     failure = wait_run(app, app.start(project['id']))
     assert failure['status'] == 'failed'

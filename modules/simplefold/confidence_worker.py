@@ -28,8 +28,10 @@ def prepare_geometry(payload):
     from modules.simplefold.confidence import validate_geometry
     structure = validate_geometry(content, payload['structure_format'])
     originals = []
+    expected_chains = []
     for chain_index, chain in enumerate(structure[0]):
         chain.name = f'C{chain_index}'
+        expected_chains.append((chain.name, len(chain)))
         for index, residue in enumerate(chain):
             expected = const.ref_atoms[residue.name]
             actual = {atom.name: atom for atom in residue}
@@ -45,10 +47,11 @@ def prepare_geometry(payload):
     with Path(payload['settings']['ccd_path']).open('rb') as reader:
         components = pickle.load(reader)
     tool_structure = parse_mmcif(str(temporary), components, use_assembly=False).data
-    if len(tool_structure.residues) != len(originals) or not tool_structure.mask.all():
+    if (len(tool_structure.residues) != len(originals) or not tool_structure.mask.all()
+            or [(str(chain['name']), int(chain['res_num'])) for chain in tool_structure.chains] != expected_chains):
         raise ValueError('SimpleFold parser did not retain every original residue and chain')
     for residue, (name, original_atoms) in zip(tool_structure.residues, originals, strict=True):
-        if residue['name'] != name or not residue['is_standard']:
+        if residue['name'] != name or not residue['is_standard'] or not residue['is_present']:
             raise ValueError('SimpleFold parser changed residue correspondence')
         atom_slice = tool_structure.atoms[residue['atom_idx']:residue['atom_idx'] + residue['atom_num']]
         names = {convert_atom_name(atom): atom for atom in original_atoms}

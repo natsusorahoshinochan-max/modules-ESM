@@ -24,6 +24,7 @@ export function register({ React }) {
   function Viewer({ package: pkg, host }) {
     const [data, setData] = React.useState(null), [object, setObject] = React.useState('');
     const [positions, setPositions] = React.useState([]), [chosen, setChosen] = React.useState([]);
+    const [exportFormat, setExportFormat] = React.useState('mmcif');
     const [scores, setScores] = React.useState([]), [error, setError] = React.useState('');
     React.useEffect(() => {
       let active = true; setData(null); setScores([]); setError('');
@@ -59,6 +60,10 @@ export function register({ React }) {
           ...(!prepare ? { tools: { evaluator: 'workbench.simplefold.confidence' } } : {}) });
       } catch (failure) { setError(String(failure)); }
     }
+    async function exportStructure() {
+      try { await host.addNode({ type: 'workbench.export_structure', inputs: { structures: [pkg.id] }, parameters: { object, format: exportFormat } }); }
+      catch (failure) { setError(String(failure)); }
+    }
     const selection = h('fieldset', null, h('legend', null, 'Evaluation region (leave all unchecked for complete structure)'),
       ...positions.map((p, index) => h('label', { key: index, style: { display: 'block' } },
         h('input', { type: 'checkbox', checked: chosen.includes(index), onChange: e => setChosen(old => e.target.checked ? [...old, index].sort((a, b) => a - b) : old.filter(i => i !== index)) }), positionLabel(p))));
@@ -68,6 +73,9 @@ export function register({ React }) {
         positions.length ? selection : h('button', { onClick: () => add(true), disabled: host.readOnly || !object }, 'Prepare region selection'),
         h('p', null, 'The complete supplied structure is scored. Region selection chooses reported residues and retains the complete original file.'),
         h('button', { onClick: () => add(), disabled: host.readOnly || !object }, 'Add independent confidence evaluation'),
+        ['workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'].includes(pkg.format) && h('div', null,
+          h('select', { 'aria-label': 'Confidence structure export format', value: exportFormat, onChange: e => setExportFormat(e.target.value) }, h('option', { value: 'mmcif' }, 'mmCIF'), h('option', { value: 'pdb' }, 'PDB')),
+          h('button', { onClick: exportStructure, disabled: host.readOnly || !object }, 'Add structure format export')),
         ...scores.map((item, index) => h(Score, { key: index, item, objects: data.objects })),
         h('details', null, h('summary', null, 'Original objects and source generation confidence'), h('pre', null, JSON.stringify(data.objects, null, 2)))),
       error && h('p', { role: 'alert' }, error));

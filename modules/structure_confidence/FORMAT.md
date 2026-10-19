@@ -53,6 +53,9 @@ can reset to the complete structure.
 and adds `confidence_positions: {object_id: file}`; that file contains an ordered
 actual-position array. This lightweight preparation performs no model evaluation
 and creates no new structure. Its output is accepted by the evaluation node.
+Choose PDB or mmCIF in the confidence viewer and add a structure format export
+node when a converted coordinate file is needed. Its source-manifest pointer
+retains the existing evaluation and parameters; export performs no new scoring.
 Results can be saved, reopened, adopted across projects and exported with the
 host's ordinary package operations. All required coordinate and score files are
 part of the delivered package.

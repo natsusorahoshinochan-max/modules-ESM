@@ -57,7 +57,7 @@ def execute(call, runtime):
         with source.open(key) as reader, destination.open('wb') as writer:
             copyfileobj(reader, writer)
         files[key] = str(destination.relative_to(runtime.workdir))
-    result = call.tools['evaluator'](ConfidenceRequest(str(runtime.workdir / files[description['file']]), description['format'], tuple(positions)), deepcopy(call.tool_parameters.get('evaluator', {})), runtime)
+    result = call.tools['evaluator'](ConfidenceRequest(str(runtime.workdir / files[description['file']]), description['format'], tuple(deepcopy(positions))), deepcopy(call.tool_parameters.get('evaluator', {})), runtime)
     if runtime.cancelled:
         return Outcome(status='cancelled')
     if not isinstance(result, ConfidenceResult) or list(result.positions) != positions or len(result.plddt) != len(positions):
