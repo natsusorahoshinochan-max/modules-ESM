@@ -18,6 +18,7 @@ def create_application(*, data_root: Path | None = None) -> FastAPI:
         host.install('modules.esmc:module')
         host.install('modules.solubility:module')
         host.install('modules.proteinmpnn:module')
+        host.install('modules.sequence_backbone_evaluation:module')
         host.install('modules.simplefold:module')
         host.install('modules.structure_confidence:module')
         host.install('modules.structure_comparison:module')
