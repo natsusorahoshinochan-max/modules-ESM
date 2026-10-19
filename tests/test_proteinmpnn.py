@@ -151,7 +151,9 @@ def test_application_batch_stops_retains_partial_and_continues_fixed_call(tmp_pa
     with package.open(package.entry) as stream:
         partial = json.load(stream)
     assert len(partial['objects']) == 1
-    assert partial['objects'][0]['sequence'] == 'ACD'
+    assert partial['objects'][0]['chains'] == {'B': 'AC', 'A': 'D'}
+    assert 'sequence' not in partial['objects'][0]
+    assert set(first['nodes']['design']['outputs']) == {'design'}
     assert partial['objects'][0]['positions'][1]['insertion_code'] == 'A'
     assert partial['objects'][0]['design']['score'] == 1.5
     with package.open(partial['objects'][0]['backbone']['structure']['file']) as stream:
@@ -266,9 +268,11 @@ def test_adapter_reads_mmcif_actual_author_chain_and_refuses_truncated_insertion
         create_local({})(MPNNRequest('input.cif', 'mmcif'), {}, SimpleNamespace(workdir=tmp_path, cancelled=False))
 
 
-def test_generated_sequence_output_drives_existing_prediction_consumer(tmp_path, monkeypatch):
+def test_explicit_chain_sequence_preserves_multichain_design_and_prediction_task(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.http.app import create_http_app
     from modules.folding.contract import PredictionResult
-    from tests.run_helpers import wait_run
+    from tests.run_helpers import wait_response
     app, project, flow, calls, failure = design_app(tmp_path, monkeypatch)
     failure.clear()
     predicted = []
@@ -281,12 +285,47 @@ def test_generated_sequence_output_drives_existing_prediction_consumer(tmp_path,
     monkeypatch.setattr('tests.fixtures.prediction_tool.create', factory)
     app.install('modules.folding:module')
     app.install('tests.fixtures.prediction_tool:module')
-    flow['nodes'].append({'id': 'fold', 'type': 'workbench.predict', 'tools': {'predictor': 'lab.external'}})
-    flow['edges'].append({'source': 'design', 'source_port': 'sequence', 'target': 'fold', 'target_port': 'sequence'})
-    app.save_project(project['id'], flow, {})
-    run = wait_run(app, app.start(project['id']))
-    assert run['status'] == 'succeeded', run['nodes']
-    assert predicted == ['ACD'] * 3
+    flow['nodes'] += [
+        {'id': 'chain', 'type': 'workbench.proteinmpnn_chain_sequence'},
+        {'id': 'fold', 'type': 'workbench.predict', 'tools': {'predictor': 'lab.external'}},
+    ]
+    flow['edges'] += [
+        {'source': 'design', 'source_port': 'design', 'target': 'chain', 'target_port': 'design'},
+        {'source': 'chain', 'source_port': 'sequence', 'target': 'fold', 'target_port': 'sequence'},
+    ]
+    with TestClient(create_http_app(app)) as client:
+        client.put(f"/api/projects/{project['id']}", json={'flow': flow, 'layout': {}}).raise_for_status()
+        run = wait_response(client, client.post(f"/api/projects/{project['id']}/runs")).json()
+        assert run['nodes']['design']['status'] == 'succeeded', run
+        assert set(run['nodes']['design']['outputs']) == {'design'}
+        assert run['nodes']['chain']['status'] == 'failed'
+        assert 'explicit chain' in str(run['nodes']['chain']['diagnostics'])
+        assert run['nodes']['fold']['status'] == 'blocked'
+        assert predicted == []
+        rich_id = run['nodes']['design']['outputs']['design'][0]
+        rich = client.get(f'/api/packages/{rich_id}').json()
+        rich_doc = client.get(f'/api/packages/{rich_id}/file', params={'key': rich['entry']}).json()
+        assert rich_doc['objects'][0]['chains'] == {'B': 'AC', 'A': 'D'}
+        assert 'sequence' not in rich_doc['objects'][0]
+        assert rich_doc['objects'][0]['design']['score'] == 1.5
+        flow['nodes'][1]['parameters'] = {'chain': 'B'}
+        client.put(f"/api/projects/{project['id']}", json={'flow': flow, 'layout': {}}).raise_for_status()
+        completed = wait_response(client, client.post(f"/api/projects/{project['id']}/runs")).json()
+        assert completed['status'] == 'succeeded', completed
+        assert predicted == ['AC'] * 3
+        output = completed['nodes']['chain']['outputs']['sequence'][0]
+        converted = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()
+        design_id = completed['nodes']['design']['outputs']['design'][0]
+        metadata = client.get(f'/api/packages/{design_id}').json()
+        design = client.get(f'/api/packages/{design_id}/file', params={'key': metadata['entry']}).json()
+        for obj, original in zip(converted['objects'], design['objects'], strict=True):
+            assert obj['id'] != original['id']
+            assert set(obj) == {'id', 'sequence', 'positions'}
+            assert obj['sequence'] == 'AC'
+            assert obj['positions'] == [
+                {'sequence_index': 1, 'chain': 'B', 'author_number': 42, 'insertion_code': ''},
+                {'sequence_index': 2, 'chain': 'B', 'author_number': 42, 'insertion_code': 'A'},
+            ]
 
 
 def test_design_package_remains_independent_after_adoption_and_producer_uninstall(tmp_path, monkeypatch):
@@ -310,3 +349,117 @@ def test_design_package_remains_independent_after_adoption_and_producer_uninstal
     for key in independent.files:
         with independent.open(key) as stream:
             assert stream.read()
+
+
+def test_native_x_design_stays_successful_and_only_explicit_canonical_chain_converts(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.bootstrap import create_application
+    from tests.test_sequence_io import upload
+    from tests.run_helpers import wait_response
+    from modules.folding.contract import PredictionResult
+    canonical = 'ACDEFGHIKLMNPQRSTVWY'
+    captured, predicted = [], []
+    def worker(command, **kwargs):
+        payload = json.loads(Path(command[-1]).read_text())
+        captured.append(payload['parameters'])
+        Path(payload['output']).write_text(json.dumps({'actual_seed': 17, 'samples': [{
+            'chains': {'B': 'XX', 'A': 'D'}, 'score': 1., 'global_score': 2.,
+            'residue_nll': {'B': [1., 1.], 'A': [3.]}, 'design_mask': {'B': [1., 1.], 'A': [0.]},
+            'coordinate_mask': {'B': [1., 1.], 'A': [1.]},
+        }]}))
+    def factory(settings):
+        def predict(request, parameters, runtime):
+            predicted.append(request.sequence)
+            (runtime.workdir / 'predicted.pdb').write_text('ATOM')
+            return PredictionResult('predicted.pdb')
+        return predict
+    monkeypatch.setattr('modules.proteinmpnn.adapters.run_worker', worker)
+    monkeypatch.setattr('tests.fixtures.prediction_tool.create', factory)
+    backbone(tmp_path / 'backbone.pdb')
+    with TestClient(create_application(data_root=tmp_path / 'data')) as client:
+        client.post('/api/modules', json={'entry_point': 'tests.fixtures.prediction_tool:module'}).raise_for_status()
+        project = client.post('/api/projects', json={'name': 'Native X design'}).json()['id']
+        source = upload(client, project, 'workbench.structure_set', {
+            'manifest.json': json.dumps({'objects': [{'id': 'backbone', 'structure': {'file': 'backbone.pdb', 'format': 'pdb'}}]}).encode(),
+            'backbone.pdb': (tmp_path / 'backbone.pdb').read_bytes(),
+        })
+        flow = {'nodes': [
+            {'id': 'design', 'type': 'workbench.design_backbone', 'inputs': {'structure': [source['id']]}, 'tools': {'mpnn': 'workbench.proteinmpnn.local'},
+             'tool_parameters': {'mpnn': {'omit_AAs': canonical, 'designed_chains': ['B'], 'seed': 17}}},
+            {'id': 'chain', 'type': 'workbench.proteinmpnn_chain_sequence', 'parameters': {'chain': 'B'}},
+            {'id': 'fold', 'type': 'workbench.predict', 'tools': {'predictor': 'lab.external'}},
+        ], 'edges': [
+            {'source': 'design', 'source_port': 'design', 'target': 'chain', 'target_port': 'design'},
+            {'source': 'chain', 'source_port': 'sequence', 'target': 'fold', 'target_port': 'sequence'},
+        ]}
+        client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {}}).raise_for_status()
+        run = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        assert run['nodes']['design']['status'] == 'succeeded', run
+        assert run['nodes']['chain']['status'] == 'failed'
+        assert run['nodes']['chain']['outputs'] == {}
+        assert "chain 'B', position 1 contains 'X'" in str(run['nodes']['chain']['diagnostics'])
+        assert predicted == []
+        assert len(captured) == 1
+        assert captured[0]['omit_AAs'] == canonical and captured[0]['designed_chains'] == ['B']
+        output = run['nodes']['design']['outputs']['design'][0]
+        metadata = client.get(f'/api/packages/{output}').json()
+        document = client.get(f'/api/packages/{output}/file', params={'key': metadata['entry']}).json()
+        assert document['objects'][0]['chains'] == {'B': 'XX', 'A': 'D'}
+        assert 'sequence' not in document['objects'][0]
+        # Explicitly choosing the fixed canonical chain consumes the saved rich result.
+        flow['nodes'] = flow['nodes'][1:]
+        flow['nodes'][0].update(parameters={'chain': 'A'}, inputs={'design': [output]})
+        flow['edges'] = flow['edges'][1:]
+        client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {}}).raise_for_status()
+        converted = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        assert converted['status'] == 'succeeded', converted
+        assert predicted == ['D']
+        assert len(captured) == 1
+
+
+@pytest.mark.parametrize('case', ['single', 'missing_chain', 'missing_position', 'duplicate_position', 'different_single_chains'])
+def test_chain_conversion_default_and_complete_mapping_through_http(tmp_path, case):
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.bootstrap import create_application
+    from tests.test_sequence_io import upload
+    from tests.run_helpers import wait_response
+    from modules.folding.formats import read_sequences
+    obj = {'id': 'rich-sample', 'chains': {'B': 'AC'}, 'positions': [
+        {'chain': 'B', 'author_number': 42, 'insertion_code': '', 'tool_position': 1},
+        {'chain': 'B', 'author_number': 42, 'insertion_code': 'A', 'tool_position': 2},
+    ], 'design': {'score': 1.5, 'global_score': 2.5}}
+    objects, parameters = [obj], {}
+    if case == 'missing_chain':
+        parameters = {'chain': 'A'}
+    if case == 'missing_position':
+        obj['positions'].pop()
+    if case == 'duplicate_position':
+        obj['positions'][1]['tool_position'] = 1
+    if case == 'different_single_chains':
+        objects.append({'id': 'other-sample', 'chains': {'A': 'D'}, 'positions': [{'chain': 'A', 'author_number': 9, 'insertion_code': '', 'tool_position': 1}]})
+    application = create_application(data_root=tmp_path / 'data')
+    with TestClient(application) as client:
+        project = client.post('/api/projects', json={'name': 'Chain conversion'}).json()['id']
+        source = upload(client, project, 'workbench.proteinmpnn_design', {'manifest.json': json.dumps({'objects': objects}).encode()})
+        flow = {'nodes': [{'id': 'chain', 'type': 'workbench.proteinmpnn_chain_sequence', 'inputs': {'design': [source['id']]}, 'parameters': parameters}], 'edges': []}
+        client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': {}}).raise_for_status()
+        run = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        if case != 'single':
+            assert run['status'] == 'failed', run
+            assert run['nodes']['chain']['outputs'] == {}
+            expected = {'missing_chain': "chain 'A' is missing", 'missing_position': 'complete residue correspondence',
+                        'duplicate_position': 'complete unambiguous residue correspondence', 'different_single_chains': 'explicit chain'}
+            assert expected[case] in str(run['nodes']['chain']['diagnostics'])
+            assert len(client.get(f'/api/projects/{project}/packages').json()) == 1
+        else:
+            assert run['status'] == 'succeeded', run
+            output = run['nodes']['chain']['outputs']['sequence'][0]
+            package = application.state.workbench.package(output)
+            standard = read_sequences(package)
+            assert standard[0]['id'] != obj['id']
+            assert standard[0]['sequence'] == 'AC'
+            assert standard[0]['positions'] == [
+                {'sequence_index': 1, 'chain': 'B', 'author_number': 42, 'insertion_code': ''},
+                {'sequence_index': 2, 'chain': 'B', 'author_number': 42, 'insertion_code': 'A'},
+            ]
+            assert 'design' not in standard[0] and 'score' not in standard[0]

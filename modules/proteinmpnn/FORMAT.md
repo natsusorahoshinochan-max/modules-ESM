@@ -7,13 +7,13 @@ positions are described in [TOOL.md](TOOL.md). It processes objects in package
 order, with one complete tool request per backbone.
 
 The `design` output uses `workbench.proteinmpnn_design`. Its JSON entry
-contains `objects`; every generated object has an independently assigned `id`,
-`sequence`, optional `label`, and these additional fields:
+contains `objects`; every generated object is a complete design sample with an
+independently assigned `id`, optional `label`, and these fields:
 
-- `chains`: actual chain name to complete sequence, including fixed chains.
+- `chains`: actual chain name to complete native sequence, including fixed chains
+  and supported native X residues. Each chain remains a separate molecule.
 - `positions`: ordered `{chain, author_number, insertion_code, tool_position}`
-  records. The concatenated sequence follows this order. `tool_position` is
-  1-based within its chain; author numbering and insertion codes retain their
+  records. `tool_position` is 1-based within its chain; author numbering and insertion codes retain their
   separate actual values. Chain sequence positions are consecutive in coordinate
   file residue order. Numbering gaps do not create invented residues.
 - `backbone`: the original explicit structure object. Every original package file
@@ -48,11 +48,33 @@ only the completed backbone count and fixed random seed proposals; it is not
 needed to interpret the output. Files and progress commit together through the
 host, so failed delivery cannot advance completion.
 
-The separate `sequence` output contains the same object IDs and sequences in strict
-`workbench.sequence` format: exactly an `objects` array, each with `id`, `sequence`,
-optional `label`, and `positions` containing one-based `sequence_index`, `chain`,
-`author_number` and `insertion_code`. It is directly accepted by existing sequence
-consumers. Select `design` for natural scores, tool positions and backbone files.
+## Explicit chain sequence conversion
+
+The design node delivers only `design`. To use a generated chain with a standard
+sequence consumer, insert `workbench.proteinmpnn_chain_sequence`. Its `design`
+input accepts one `workbench.proteinmpnn_design` package, and its `sequence` output
+delivers the existing strict `workbench.sequence` format. Parameter `chain` names
+one actual chain to select from every sample. It may be omitted only when every
+sample has the same single actual chain. Multichain samples require an explicit
+choice, including when only one chain was designed and the others were fixed.
+
+Each selected sample chain becomes one new independently identified sequence
+object in sample order. Its sequence is exactly that chain's sequence. Positions
+follow the complete one-based `tool_position` mapping as `sequence_index`, retaining
+the original `chain`, `author_number` and `insertion_code`. An optional label names
+the sample and selected chain. The converter neither joins chains nor copies
+whole-design scores onto the selected chain.
+
+A missing chain, incomplete/ambiguous mapping, empty chain or selected noncanonical
+symbol such as X fails the whole conversion before output. It never drops samples,
+replaces residues, resamples or changes native tool parameters. The original rich
+design remains available with all chains, native scores and files. X in an
+unselected chain does not prevent converting a canonical selected chain.
+
+The result viewer displays actual chains separately and can add this conversion
+node bound to the explicitly viewed package. Connect its sequence output to a
+sequence consumer, then save the canvas. For a connected flow, use
+`design.design → chain.design` and `chain.sequence → prediction.sequence`.
 
 Consumers read the design entry and its declared files directly. They need neither the
 producer's Python implementation nor its original project or execution history.
