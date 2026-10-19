@@ -22,10 +22,12 @@ def test_only_explicit_converter_connects_prediction_to_structure_consumer(tmp_p
         rejected = save_run(client, project, [{'id': 'compare', 'type': 'workbench.compare_structure', 'inputs': {'subject': [subject['id']], 'reference': [reference['id']]}}])
         assert rejected.json()['status'] == 'failed'
         assert 'format is not accepted' in rejected.text.lower(), rejected.text
+        selection = {'positions': [{'chain': 'X', 'author_number': number, 'insertion_code': code} for number, code in [(12, ''), (12, 'A'), (16, '')]]}
+        parameters = {'subject_selection': selection, 'reference_selection': selection}
         result = save_run(client, project, [
             {'id': 'convert', 'type': 'workbench.prediction_to_structure', 'inputs': {'prediction': [subject['id']]}},
-            {'id': 'compare', 'type': 'workbench.compare_structure', 'inputs': {'reference': [reference['id']]}},
-            {'id': 'direct', 'type': 'workbench.compare', 'inputs': {'subject': [subject['id']], 'reference': [reference['id']]}},
+            {'id': 'compare', 'type': 'workbench.compare_structure', 'parameters': parameters, 'inputs': {'reference': [reference['id']]}},
+            {'id': 'direct', 'type': 'workbench.compare', 'parameters': parameters, 'inputs': {'subject': [subject['id']], 'reference': [reference['id']]}},
         ], [{'source': 'convert', 'source_port': 'structure', 'target': 'compare', 'target_port': 'subject'}])
         assert result.status_code == 200, result.text
         run = result.json()
@@ -44,6 +46,8 @@ def test_only_explicit_converter_connects_prediction_to_structure_consumer(tmp_p
         direct_comparison = run['nodes']['direct']['outputs']['comparison'][0]
         read = lambda identifier: client.get(f'/api/packages/{identifier}/file', params={'key': 'manifest.json'}).json()
         final = read(converted_comparison)
+        assert final['region'] == {'subject': selection, 'reference': selection}
+        assert final['metrics']['tm_subject']['normalization_length'] == 3
         assert final['metrics'] == read(direct_comparison)['metrics']
         assert final['metrics']['tm_subject']['value'] == pytest.approx(1)
         assert final['subject']['id'] == 'predicted-object'
