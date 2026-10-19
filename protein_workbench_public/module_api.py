@@ -51,12 +51,19 @@ class Runtime(Protocol):
 
 
 @dataclass(frozen=True)
+class Previous:
+    """The last accepted outputs and module-owned continuation content."""
+    outputs: Mapping[str, tuple[Package, ...]]
+    continuation: Any
+
+
+@dataclass(frozen=True)
 class Call:
     inputs: Mapping[str, tuple[Package, ...]]
     parameters: dict[str, Any]
     settings: dict[str, Any]
     tool_parameters: dict[str, Any] = field(default_factory=dict)
-    previous: Any = None
+    previous: Previous | None = None
     tools: Mapping[str, Callable] = field(default_factory=dict)
     tool_choices: Mapping[str, str] = field(default_factory=dict)
 

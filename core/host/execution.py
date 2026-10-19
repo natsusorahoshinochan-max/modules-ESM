@@ -5,7 +5,7 @@ import json
 from collections.abc import Mapping
 import shutil
 
-from protein_workbench_public.module_api import Call, Delivery, Outcome
+from protein_workbench_public.module_api import Call, Delivery, Outcome, Previous
 from .application import HostError
 from .storage import receive
 
@@ -156,7 +156,7 @@ def prepare(app, flow, project_id):
     return by_id, selected, edges, ordered, groups
 
 
-def accept(app, run, identifier, declaration, outcome, workdir):
+def accept(app, run, identifier, declaration, outcome, workdir, progress=()):
     if not isinstance(outcome, Outcome) or outcome.status not in ("succeeded", "failed", "cancelled"):
         raise HostError("Node must return a public Outcome with a valid terminal status")
     if not isinstance(outcome.outputs, Mapping) or set(outcome.outputs) - set(declaration.outputs):
@@ -183,7 +183,7 @@ def accept(app, run, identifier, declaration, outcome, workdir):
                 record = receive(run["project_id"], delivery, workdir, app._packages)
                 packages.append(record)
                 output_ids[name].append(record["id"])
-        terminal = {"status": outcome.status, "outputs": output_ids, "diagnostics": list(outcome.diagnostics), "continuation": outcome.continuation}
+        terminal = {"status": outcome.status, "outputs": output_ids, "diagnostics": list(outcome.diagnostics), "continuation": outcome.continuation, "progress": list(progress)}
         replacement = json.loads(json.dumps(run))
         replacement["nodes"][identifier] = terminal
         with app._connect() as connection:
@@ -205,15 +205,54 @@ def create_run(app, project_id, run_id):
         if group["diagnostics"]:
             for identifier in group["nodes"]:
                 states[identifier].update(status="configuration_blocked", diagnostics=group["diagnostics"])
-    run = {"id": run_id, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"]}
+    run = {"id": run_id, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"], "calls": {}}
     tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
     app._put("run", run)
     return run, (by_id, selected, edges, ordered, tools)
 
 
-def execute(app, run, prepared, cancelled):
+def prepare_continuation(app, run, target):
+    state = run["nodes"].get(target)
+    if run["status"] == "running":
+        raise HostError("Run is already executing")
+    if state is None or state["status"] not in ("failed", "cancelled") or target not in run["calls"]:
+        raise HostError("Selected node has no unfinished continuation")
+    flow = run["flow"]
+    by_id = {node["id"]: node for node in flow["nodes"]}
+    edges = flow.get("edges", [])
+    candidates = {target}
+    while True:
+        reachable = {edge["target"] for edge in edges if edge["source"] in candidates and run["nodes"][edge["target"]]["status"] == "blocked"}
+        if reachable <= candidates:
+            break
+        candidates.update(reachable)
+    available = {node.id: (record, node) for record, module in app._modules() for node in module.nodes}
+    tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
+    selected = {}
+    for identifier in candidates:
+        instance = by_id[identifier]
+        if instance["type"] not in available:
+            raise HostError(f"Missing module node: {instance['type']}")
+        selected[identifier] = available[instance["type"]]
+        for choice in run["calls"].get(identifier, instance).get("tools", {}).values():
+            if choice not in tools:
+                raise HostError(f"Selected tool is unavailable: {choice}")
+    ordered = []
+    while candidates:
+        ready = [identifier for identifier in by_id if identifier in candidates and all(edge["source"] not in candidates for edge in edges if edge["target"] == identifier)]
+        if not ready:
+            raise HostError("Original continuation flow contains a cycle")
+        ordered.extend(ready)
+        candidates.difference_update(ready)
+    return by_id, selected, edges, ordered, tools
+
+
+def execute(app, run, prepared, cancelled, retry_target=None):
     by_id, selected, edges, ordered, available_tools = prepared
     for identifier in ordered:
+        previous = json.loads(json.dumps(run["nodes"][identifier]))
+        if retry_target is not None and identifier != retry_target and previous["status"] != "blocked":
+            continue
         if cancelled():
             run["nodes"][identifier]["status"] = "cancelled"
             run["nodes"][identifier]["diagnostics"] = ["Run cancelled before this node started"]
@@ -227,13 +266,19 @@ def execute(app, run, prepared, cancelled):
             continue
         workdir = None
         try:
-            run["nodes"][identifier]["status"] = "running"
-            app._put("run", run)
             instance = by_id[identifier]
             record, declaration = selected[identifier]
             inputs = {name: list(instance.get("inputs", {}).get(name, [])) for name in declaration.inputs}
             for edge in incoming:
                 inputs[edge["target_port"]].extend(run["nodes"][edge["source"]]["outputs"][edge["source_port"]])
+            if identifier in run["calls"]:
+                inputs = run["calls"][identifier]["inputs"]
+            else:
+                run["calls"][identifier] = {"inputs": inputs, "parameters": instance.get("parameters", {}),
+                    "tool_parameters": instance.get("tool_parameters", {}), "tools": instance.get("tools", {})}
+            snapshot = run["calls"][identifier]
+            run["nodes"][identifier]["status"] = "running"
+            app._put("run", run)
             workdir = app.new_workdir()
             for name, port in declaration.inputs.items():
                 count = len(inputs[name])
@@ -241,15 +286,17 @@ def execute(app, run, prepared, cancelled):
                     raise HostError(f"Required input is missing: {identifier}.{name}")
                 if port.cardinality == "one" and count > 1:
                     raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
-            call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(instance.get("parameters", {}))), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(instance.get("tool_parameters", {}))))
+            call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(snapshot["parameters"])), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(snapshot["tool_parameters"])))
             injected = {}
-            for name, choice in instance.get("tools", {}).items():
+            for name, choice in snapshot["tools"].items():
                 owner, tool = available_tools[choice]
                 injected[name] = tool.create(json.loads(json.dumps(owner["settings"])))
                 if not callable(injected[name]):
                     raise HostError(f"Tool factory did not return a callable: {choice}")
             from dataclasses import replace
-            call = replace(call, tools=injected, tool_choices=dict(instance.get("tools", {})))
+            call = replace(call, tools=injected, tool_choices=dict(snapshot["tools"]),
+                previous=Previous(outputs={name: tuple(app.package(key) for key in keys) for name, keys in previous["outputs"].items()},
+                                  continuation=previous["continuation"]) if identifier == retry_target and previous["continuation"] is not None else None)
             runtime = ExecutionRuntime(workdir)
             runtime._cancel = cancelled
             try:
@@ -259,11 +306,11 @@ def execute(app, run, prepared, cancelled):
             if cancelled() and isinstance(outcome, Outcome) and outcome.status == "succeeded":
                 outcome = replace(outcome, status="cancelled")
             try:
-                accept(app, run, identifier, declaration, outcome, workdir)
+                accept(app, run, identifier, declaration, outcome, workdir, runtime.messages)
             except Exception as exc:
                 raise HostError(f"Output delivery failed: {exc}") from exc
         except Exception as exc:
-            run["nodes"][identifier] = {"status": "cancelled" if cancelled() else "failed", "outputs": {}, "diagnostics": [str(exc)], "continuation": None}
+            run["nodes"][identifier] = {**previous, "status": "cancelled" if cancelled() else "failed", "diagnostics": [str(exc)]}
             app._put("run", run)
         finally:
             if workdir is not None:
