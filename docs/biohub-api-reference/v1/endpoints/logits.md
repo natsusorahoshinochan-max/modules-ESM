@@ -61,4 +61,4 @@
 
 ## 响应
 
-截至本次抓取，来源页没有发布该端点的响应状态码、媒体类型或响应 body schema。因此本地机器定义将响应记录为 `documented: false` 与 `schema: null`，不从 SDK、现有项目代码或运行时样本反推。
+抓取时，来源页尚未公布响应状态码、媒体类型或响应 body schema。对应记录为 `documented: false`、`schema: null`。

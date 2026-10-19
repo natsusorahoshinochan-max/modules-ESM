@@ -42,11 +42,11 @@ _来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KE
 
 - 未提供 `model` 时，页面声明默认使用 `esmfold2-fast-2026-05`。
 - MSA、循环次数、扩散采样步数、LM dropout/masking 与额外输出开关均标为 ESMFold2 相关。
-- `lm_mask_pct` 的表格默认值显示为 `0`，但说明文字同时写明 FAST 模型缺省为 `0.1`、非 FAST ESMFold2 为 `0.0`；这是来源页自身需要在实现中显式处理的差异。
-- `include_distogram`、`include_pae`、`include_pair_chains_iptm` 与 `include_embeddings` 是响应内容开关，不等于完整响应 schema。
+- `lm_mask_pct` 的表格默认值为 `0`，说明文字则写明 FAST 模型缺省为 `0.1`、非 FAST ESMFold2 为 `0.0`。来源页两处说明不一致。
+- `include_distogram`、`include_pae`、`include_pair_chains_iptm` 与 `include_embeddings` 控制相应内容是否返回。
 
 公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
 
 ## 响应
 
-截至本次抓取，来源页没有发布该端点的响应状态码、媒体类型或响应 body schema。因此本地机器定义将响应记录为 `documented: false` 与 `schema: null`，不从 SDK、现有项目代码或运行时样本反推。
+抓取时，来源页尚未公布响应状态码、媒体类型或响应 body schema。对应记录为 `documented: false`、`schema: null`。

@@ -87,10 +87,10 @@ _来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KE
 - `all_atom_input` 支持 protein、RNA、DNA 与 ligand；一旦提供，页面说明会忽略顶层 `sequence` 与 `msa`。
 - Protein/RNA/DNA modification 的 `position` 明确为 0-based；`ccd` 是 Chemical Component Dictionary code。
 - 复合物还可提供跨链共价键、binder pocket contacts 与按 chain 指定的 distogram conditioning。
-- `include_distogram`、`include_pae`、`include_pair_chains_iptm` 与 `include_embeddings` 是响应内容开关，不等于完整响应 schema。
+- `include_distogram`、`include_pae`、`include_pair_chains_iptm` 与 `include_embeddings` 控制相应内容是否返回。
 
 公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
 
 ## 响应
 
-截至本次抓取，来源页没有发布该端点的响应状态码、媒体类型或响应 body schema。因此本地机器定义将响应记录为 `documented: false` 与 `schema: null`，不从 SDK、现有项目代码或运行时样本反推。
+抓取时，来源页尚未公布响应状态码、媒体类型或响应 body schema。对应记录为 `documented: false`、`schema: null`。
