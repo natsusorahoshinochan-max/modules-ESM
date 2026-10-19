@@ -57,6 +57,8 @@ class Call:
     settings: dict[str, Any]
     tool_parameters: dict[str, Any] = field(default_factory=dict)
     previous: Any = None
+    tools: Mapping[str, Callable] = field(default_factory=dict)
+    tool_choices: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,24 @@ class Outcome:
 
 
 @dataclass(frozen=True)
+class ToolSlot:
+    """A node author's named public calling contract."""
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class Tool:
+    """An implementation factory receiving its owning module's deployment settings."""
+    id: str
+    name: str
+    slot: str
+    create: Callable[[dict[str, Any]], Callable]
+    parameters: dict[str, Any] = field(default_factory=dict)
+    capabilities: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Node:
     id: str
     name: str
@@ -75,6 +95,7 @@ class Node:
     inputs: Mapping[str, InputPort] = field(default_factory=dict)
     outputs: Mapping[str, OutputPort] = field(default_factory=dict)
     parameters: dict[str, Any] = field(default_factory=dict)
+    tools: Mapping[str, ToolSlot] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -84,3 +105,4 @@ class Module:
     nodes: tuple[Node, ...] = ()
     settings: dict[str, Any] = field(default_factory=dict)
     ui: str | None = None
+    tools: tuple[Tool, ...] = ()

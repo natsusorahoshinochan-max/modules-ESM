@@ -241,3 +241,39 @@ test('canvas edits preserve other flow and layout fields in the saved project', 
   assert.deepEqual(savedFlows[0].flow, { nodes: [], edges: [], annotation: { title: 'Keep this note' } })
   assert.deepEqual(savedFlows[0].layout.positioned, { x: 120, y: 57, color: 'blue' })
 })
+
+
+test('tool slots filter compatible implementations and save independent tool parameters', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({
+      modules: [],
+      nodes: [{ ...declaration('test.one'), tools: { predictor: { id: 'test.predict', name: 'Structure predictor' } } }],
+      tools: [
+        { id: 'tool.local', name: 'Local predictor', module_id: 'test.tools', slot: 'test.predict', parameters: { seed: { default: 42 } }, capabilities: { protein_only: true } },
+        { id: 'tool.remote', name: 'Remote predictor', module_id: 'test.tools', slot: 'test.predict', parameters: {}, capabilities: {} },
+        { id: 'tool.other', name: 'Unrelated tool', module_id: 'test.tools', slot: 'test.other', parameters: {}, capabilities: {} },
+      ],
+    })
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  await addNode()
+  const select = container.querySelector('.node fieldset select')
+  assert.deepEqual([...select.options].map(option => option.value), ['', 'tool.local', 'tool.remote'])
+  await act(async () => { select.value = 'tool.local'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  assert.match(container.querySelector('.node fieldset').textContent, /protein_only/)
+  assert.match(container.querySelector('.node fieldset').textContent, /42/)
+  const parameters = container.querySelector('.node fieldset textarea')
+  await act(async () => {
+    parameters.value = '{"seed":7}'
+    parameters.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }))
+  })
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].tools, { predictor: 'tool.local' })
+  assert.deepEqual(savedFlows[0].flow.nodes[0].tool_parameters, { predictor: { seed: 7 } })
+  await act(async () => { select.value = 'tool.remote'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  await click('Save project')
+  assert.deepEqual(savedFlows[1].flow.nodes[0].tool_parameters, { predictor: {} })
+})

@@ -2,7 +2,7 @@
 import importlib
 from pathlib import Path
 
-from protein_workbench_public.module_api import InputPort, Module, Node, OutputPort
+from protein_workbench_public.module_api import InputPort, Module, Node, OutputPort, Tool, ToolSlot
 
 
 def load(entry_point):
@@ -30,6 +30,16 @@ def validate(module):
         raise ValueError("settings declaration must be an object")
     if module.ui is not None and (not isinstance(module.ui, str) or not Path(module.ui).is_absolute() or not Path(module.ui).is_file()):
         raise ValueError("UI entry must name an existing absolute file")
+    tool_ids = set()
+    for tool in module.tools:
+        if not isinstance(tool, Tool) or not all(isinstance(value, str) and value for value in (tool.id, tool.name, tool.slot)) or not callable(tool.create):
+            raise ValueError("tool requires id, name, slot and factory")
+        if tool.id in tool_ids:
+            raise ValueError(f"duplicate tool identity: {tool.id}")
+        tool_ids.add(tool.id)
+        if not isinstance(tool.parameters, dict) or not isinstance(tool.capabilities, dict):
+            raise ValueError("tool parameter and capability declarations must be objects")
+        _json_text(tool_record(module, tool))
     seen = set()
     for node in module.nodes:
         if not isinstance(node, Node) or not isinstance(node.id, str) or not node.id or not isinstance(node.name, str) or not node.name or not callable(node.execute):
@@ -47,8 +57,15 @@ def validate(module):
         for name, port in node.outputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, OutputPort) or not isinstance(port.format, str) or not port.format or port.cardinality not in ("one", "many"):
                 raise ValueError(f"invalid output declaration: {name}")
+        for name, slot in node.tools.items():
+            if not isinstance(name, str) or not name or not isinstance(slot, ToolSlot) or not slot.id or not slot.name:
+                raise ValueError("invalid tool slot declaration")
         _json_text(node_record(module, node))
 
 
 def node_record(module, node):
-    return {"id": node.id, "module_id": module.id, "name": node.name, "inputs": {name: {"accepts": list(port.accepts), "cardinality": port.cardinality, "required": port.required} for name, port in node.inputs.items()}, "outputs": {name: {"format": port.format, "cardinality": port.cardinality} for name, port in node.outputs.items()}, "parameters": node.parameters}
+    return {"id": node.id, "module_id": module.id, "name": node.name, "inputs": {name: {"accepts": list(port.accepts), "cardinality": port.cardinality, "required": port.required} for name, port in node.inputs.items()}, "outputs": {name: {"format": port.format, "cardinality": port.cardinality} for name, port in node.outputs.items()}, "parameters": node.parameters, "tools": {name: {"id": slot.id, "name": slot.name} for name, slot in node.tools.items()}}
+
+
+def tool_record(module, tool):
+    return {"id": tool.id, "module_id": module.id, "name": tool.name, "slot": tool.slot, "parameters": tool.parameters, "capabilities": tool.capabilities}

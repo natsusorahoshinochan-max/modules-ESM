@@ -99,14 +99,19 @@ class Workbench:
                     raise HostError(f"Duplicate module identity: {module.id}")
                 return record
         existing = set()
+        existing_tools = set()
         for installed in self._records("module"):
             try:
-                existing.update(node.id for node in load(installed["entry_point"]).nodes)
+                installed_module = load(installed["entry_point"])
+                existing.update(node.id for node in installed_module.nodes)
+                existing_tools.update(tool.id for tool in installed_module.tools)
             except HostError:
                 continue
         for node in module.nodes:
             if node.id in existing:
                 raise HostError(f"Duplicate node identity: {node.id}")
+        if any(tool.id in existing_tools for tool in module.tools):
+            raise HostError("Duplicate tool identity")
         return self._put("module", {"id": module.id, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
 
     def configure(self, module_id, settings):
@@ -139,8 +144,8 @@ class Workbench:
         return path
 
     def catalog(self):
-        from .registry import node_record
-        return {"nodes": [node_record(module, node) for _, module in self._modules() for node in module.nodes], "modules": self.list_modules()}
+        from .registry import node_record, tool_record
+        return {"nodes": [node_record(module, node) for _, module in self._modules() for node in module.nodes], "modules": self.list_modules(), "tools": [tool_record(module, tool) for _, module in self._modules() for tool in module.tools]}
 
     def create_project(self, name):
         return self._put("project", {"id": uuid4().hex, "name": name, "flow": {"nodes": [], "edges": []}, "layout": {}})

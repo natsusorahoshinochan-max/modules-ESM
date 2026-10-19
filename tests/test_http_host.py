@@ -5,6 +5,7 @@ from protein_workbench_public.bootstrap import create_application
 
 def test_empty_host_creates_saves_and_reopens_project(tmp_path):
     with TestClient(create_application(data_root=tmp_path)) as client:
+        client.put('/api/modules/workbench.prediction/enabled', json={'enabled': False})
         assert client.get('/api/catalog').json()['nodes'] == []
         project = client.post('/api/projects', json={'name': 'Empty research'}).json()
         response = client.put(f"/api/projects/{project['id']}", json={
