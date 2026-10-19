@@ -28,9 +28,9 @@ let root, container, records, pendingSave, packages, uploadGate, savedFlows, run
 const clone = value => structuredClone(value)
 const node = (id, type = 'test.one') => ({ id, type, parameters: {}, inputs: {} })
 function deferred() {
-  let resolve
-  const promise = new Promise(done => { resolve = done })
-  return { promise, resolve }
+  let resolve, reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 const declaration = (id, cardinality = 'one') => ({ id, module_id: 'test.actions', name: id, inputs: { input: { accepts: ['test.format'], cardinality: 'one', required: false } }, outputs: { output: { format: 'test.format', cardinality } }, parameters: {} })
 
@@ -47,6 +47,7 @@ beforeEach(async () => {
     const path = String(url)
     let result
     if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }] }
+    else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
     else {
       const [, id, suffix = ''] = path.match(/^\/api\/projects\/([^/]+)(.*)$/) ?? []
@@ -386,4 +387,145 @@ test('a failed deletion preserves the dirty editor and reports the reason', asyn
   assert.match(container.querySelector('[role=alert]').textContent, /Project is running/)
   assert.equal(button('Save project').disabled, false)
   assert.equal(records.length, 2)
+})
+
+
+test('a failed save from a previous project cannot show an error in the current editor', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Save project')
+  await click('Project B')
+  await act(async () => pendingSave.reject(new Error('Old save failed')))
+  assert.equal(title(), 'Project B')
+  assert.equal(container.querySelector('[role=alert]')?.textContent, undefined)
+})
+
+test('typing parameter JSON immediately marks the draft unsaved and saving commits the focused editor', async () => {
+  await addNode()
+  await click('Save project')
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus()
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(parameters, '{"region":[12,17]}')
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(savedFlows.length, 1)
+  await click('Save project')
+  assert.deepEqual(savedFlows[1].flow.nodes[0].parameters, { region: [12, 17] })
+  assert.equal(title(), 'Project A')
+})
+
+
+test('creating another project asks once to discard the unchanged unsaved draft', async () => {
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return prompts.length === 1 }
+  await click('Create project')
+  assert.equal(title(), 'Research project')
+  assert.equal(prompts.length, 1)
+  assert.match(prompts[0], /discard unsaved/i)
+  assert.equal(savedFlows.length, 0)
+})
+
+test('opening another project cannot silently discard edits made while its response was pending', async () => {
+  projectGate = deferred()
+  await click('Project B')
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return false }
+  await act(async () => projectGate.resolve())
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(nodeCount(), 1)
+  assert.equal(prompts.length, 1)
+  assert.equal(savedFlows.length, 0)
+})
+
+test('a pending save cannot clear an unblurred parameter draft entered after its snapshot', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Save project')
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus()
+    parameters.value = '{"seed":9}'
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await act(async () => pendingSave.resolve())
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(parameters.value, '{"seed":9}')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].parameters, {})
+})
+
+test('canceling save and run leaves edits in memory and never starts or saves', async () => {
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return false }
+  await click('Save and run')
+  assert.match(prompts[0], /save.*run/i)
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(savedFlows.length, 0)
+  assert.deepEqual(runRequests, [])
+})
+
+test('a failed save and run preserves the draft and never starts a run', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Save and run')
+  await act(async () => pendingSave.reject(new Error('Project commit refused')))
+  assert.match(container.querySelector('[role=alert]')?.textContent ?? '', /Project commit refused/)
+  assert.equal(container.querySelector('[role=status]')?.textContent, undefined)
+  assert.equal(title(), 'Project A · unsaved')
+  assert.deepEqual(runRequests, [])
+  pendingSave = null
+  await click('Save and run')
+  assert.equal(title(), 'Project A')
+  assert.deepEqual(runRequests, ['a'])
+})
+
+test('invalid parameter text stays unsaved and cannot save or start its previous valid parameters', async () => {
+  await addNode()
+  const parameters = container.querySelector('.canvas textarea')
+  await act(async () => {
+    parameters.focus(); parameters.value = '{unfinished'
+    parameters.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await click('Save and run')
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(parameters.value, '{unfinished')
+  assert.match(container.querySelector('[role=alert]')?.textContent ?? '', /valid parameter JSON/)
+  assert.equal(savedFlows.length, 0)
+  assert.deepEqual(runRequests, [])
+})
+
+test('leaving a dirty project offers discard or cancel without saving', async () => {
+  await addNode()
+  const prompts = []
+  window.confirm = message => { prompts.push(message); return false }
+  await click('Project B')
+  assert.equal(title(), 'Project A · unsaved')
+  assert.match(prompts[0], /discard unsaved/i)
+  assert.doesNotMatch(prompts[0], /save.*(?:exit|leave)/i)
+  window.confirm = () => true
+  await click('Project B')
+  await click('Project A')
+  assert.equal(nodeCount(), 0)
+  assert.equal(savedFlows.length, 0)
+})
+
+test('beforeunload is prevented only while a project draft is unsaved', async () => {
+  const unload = () => {
+    const event = new window.Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  assert.equal(unload(), false)
+  await addNode()
+  assert.equal(unload(), true)
+  await click('Save project')
+  assert.equal(unload(), false)
+  await addNode()
+  window.confirm = () => true
+  await click('Project B')
+  assert.equal(unload(), false)
 })
