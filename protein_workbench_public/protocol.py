@@ -64,7 +64,11 @@ def _source_bundle() -> dict[str, Any]:
 
 
 def load_bundle() -> dict[str, Any]:
-    """Return an isolated copy of the authoritative protocol definition."""
+    """Return an isolated copy of the existing runtime protocol bundle.
+
+    This bundle is pending architectural replacement. Target requirements and
+    interfaces are documented in docs/requirements.md and docs/architecture.md.
+    """
     return copy.deepcopy(_source_bundle())
 
 
