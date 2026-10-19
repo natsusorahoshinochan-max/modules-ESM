@@ -1,6 +1,8 @@
 """Sequence prediction through a public replaceable tool slot."""
 import json
 import math
+import shutil
+from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,7 +21,6 @@ def _encode_result(result, source, runtime, prefix):
     encoded = runtime.workdir / uuid4().hex
     encoded.mkdir()
     relative = encoded.relative_to(runtime.workdir)
-    import shutil
     shutil.copyfile(runtime.workdir / path, encoded / 'structure')
     files = {structure_key: str(relative / 'structure')}
     obj = {'id': uuid4().hex, 'sequence': sequence, 'structure': {'file': structure_key, 'format': result.structure_format}}
@@ -77,7 +78,6 @@ def execute(call, runtime):
                 objects = json.load(stream)['objects']
             if len(objects) != completed or completed > len(sources):
                 raise ValueError('Partial prediction count does not match continuation')
-            import shutil
             for index, key in enumerate(package.files):
                 if key == package.entry:
                     continue
@@ -92,7 +92,7 @@ def execute(call, runtime):
             break
         source = sources[index]
         try:
-            result = call.tools['predictor'](PredictionRequest(source['sequence'], source['id']), parameters, runtime)
+            result = call.tools['predictor'](PredictionRequest(source['sequence'], source['id']), deepcopy(parameters), runtime)
             if runtime.cancelled:
                 status = 'cancelled'
                 break
@@ -111,7 +111,7 @@ def execute(call, runtime):
         files['manifest.json'] = 'batch-manifest.json'
         outputs['structure'] = [Delivery('workbench.prediction', 'manifest.json', files)]
     return Outcome(status=status, outputs=outputs, diagnostics=diagnostics,
-                   continuation={'completed': len(objects)} if status != 'succeeded' else None)
+                   continuation={'completed': len(objects)})
 
 
 def module():

@@ -65,3 +65,26 @@ test('public viewer reads actual structure and confidence from declared package 
     assert.ok(reads.includes('confidence.json'))
   } finally { await React.act(async () => root.unmount()); container.remove() }
 })
+
+test('explicit batch FASTA import creates ordered sequence objects without concatenation', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const inputs = []
+  const host = { readOnly: false, async createInput(input) { inputs.push(input); return { id: 'batch' } }, async addNode() {} }
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.actions[0].component, { host })))
+    const batch = container.querySelector('[aria-label="Batch FASTA import"]')
+    assert.ok(batch)
+    await React.act(async () => batch.click())
+    const textarea = container.querySelector('textarea')
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, '>first\nACD\n>second\nEFG')
+      textarea.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await React.act(async () => container.querySelector('button').click())
+    assert.equal(inputs.length, 1)
+    const document = JSON.parse(await inputs[0].files['manifest.json'].text())
+    assert.deepEqual(document.objects.map(({ sequence, label }) => ({ sequence, label })), [{ sequence: 'ACD', label: 'first' }, { sequence: 'EFG', label: 'second' }])
+    assert.notEqual(document.objects[0].id, document.objects[1].id)
+  } finally { await React.act(async () => root.unmount()); container.remove() }
+})

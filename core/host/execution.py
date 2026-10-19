@@ -212,6 +212,11 @@ def create_run(app, project_id, run_id):
     return run, (by_id, selected, edges, ordered, tools)
 
 
+def _awaits_dependency(run, identifier):
+    status = run["nodes"][identifier]["status"]
+    return status == "blocked" or status == "cancelled" and identifier not in run["calls"]
+
+
 def prepare_continuation(app, run, target):
     state = run["nodes"].get(target)
     if run["status"] == "running":
@@ -223,7 +228,7 @@ def prepare_continuation(app, run, target):
     edges = flow.get("edges", [])
     candidates = {target}
     while True:
-        reachable = {edge["target"] for edge in edges if edge["source"] in candidates and run["nodes"][edge["target"]]["status"] == "blocked"}
+        reachable = {edge["target"] for edge in edges if edge["source"] in candidates and _awaits_dependency(run, edge["target"])}
         if reachable <= candidates:
             break
         candidates.update(reachable)
@@ -253,7 +258,7 @@ def execute(app, run, prepared, cancelled, retry_target=None):
     by_id, selected, edges, ordered, available_tools = prepared
     for identifier in ordered:
         previous = json.loads(json.dumps(run["nodes"][identifier]))
-        if retry_target is not None and identifier != retry_target and previous["status"] != "blocked":
+        if retry_target is not None and identifier != retry_target and not _awaits_dependency(run, identifier):
             continue
         if cancelled():
             run["nodes"][identifier]["status"] = "cancelled"

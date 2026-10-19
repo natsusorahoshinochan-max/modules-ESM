@@ -14,6 +14,9 @@ def batch_app(tmp_path, monkeypatch):
     def create(settings):
         def predict(request, parameters, runtime):
             calls.append((request.sequence, dict(parameters)))
+            if request.sequence == 'DEF' and failing.get('entered') is not None:
+                failing['entered'].set()
+                assert failing['release'].wait(5), 'Continuation was not released'
             if request.sequence == failing['sequence']:
                 raise ValueError('provider exhausted its attempts')
             (runtime.workdir / 'result.pdb').write_text(request.sequence)
@@ -122,3 +125,130 @@ def test_continuation_accepts_retry_after_initial_delivery_failed_without_any_pr
     final = wait_run(app, app.continue_run(failed['id'], 'predict'))
     assert final['status'] == 'succeeded'
     assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'GHI', 'ACD', 'DEF', 'GHI']
+
+
+def test_continuation_only_advances_original_blocked_dependents_after_full_delivery(tmp_path, monkeypatch):
+    app, project, flow, calls, failing = batch_app(tmp_path, monkeypatch)
+    app.install('tests.fixtures.prediction_tool:consumer_module')
+    app.install('tests.fixtures.host_module:branch_module')
+    flow['nodes'] += [
+        {'id': 'reader', 'type': 'lab.consume', 'parameters': {'note': 'original'}},
+        {'id': 'independent', 'type': 'branch.node'},
+        {'id': 'other_failure', 'type': 'branch.node', 'parameters': {'fail': True}},
+        {'id': 'invalid', 'type': 'missing.node'},
+    ]
+    flow['edges'] = [{'source': 'predict', 'source_port': 'structure', 'target': 'reader', 'target_port': 'source'}]
+    app.save_project(project['id'], flow, {})
+    first = wait_run(app, app.start(project['id']))
+    assert first['nodes']['reader']['status'] == 'blocked'
+    independent = first['nodes']['independent']
+    other_failure = first['nodes']['other_failure']
+    flow['nodes'][0]['inputs'] = {'sequence': []}
+    flow['nodes'][1]['parameters'] = {'note': 'changed canvas'}
+    app.save_project(project['id'], flow, {})
+    still_partial = wait_run(app, app.continue_run(first['id'], 'predict'))
+    assert still_partial['nodes']['reader']['status'] == 'blocked'
+    failing['sequence'] = None
+    resumed = wait_run(app, app.continue_run(first['id'], 'predict'))
+    assert resumed['status'] == 'failed'  # The unrelated failure and invalid group remain.
+    assert resumed['nodes']['predict']['status'] == 'succeeded'
+    assert resumed['nodes']['reader']['status'] == 'succeeded'
+    assert resumed['nodes']['independent'] == independent
+    assert resumed['nodes']['other_failure'] == other_failure
+    assert resumed['nodes']['invalid']['status'] == 'configuration_blocked'
+    package = app.package(resumed['nodes']['reader']['outputs']['result'][0])
+    with package.open(package.entry) as stream:
+        assert json.load(stream) == {'count': 3, 'parameters': {'note': 'original'}}
+    assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'DEF', 'DEF', 'GHI']
+
+
+def test_http_continuation_lists_one_run_and_rejects_replacement_configuration(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.http.app import create_http_app
+    from tests.run_helpers import wait_response
+    app, project, _, calls, failing = batch_app(tmp_path, monkeypatch)
+    with TestClient(create_http_app(app)) as client:
+        failed = wait_response(client, client.post(f"/api/projects/{project['id']}/runs")).json()
+        failing['sequence'] = None
+        route = f"/api/runs/{failed['id']}/nodes/predict/continue"
+        rejected = client.post(route, json={'tool_parameters': {'predictor': {'seed': 8}}})
+        assert rejected.status_code == 400
+        response = wait_response(client, client.post(route))
+        assert response.status_code == 200, response.text
+        assert response.json()['status'] == 'succeeded'
+        assert len(client.get(f"/api/projects/{project['id']}/runs").json()) == 1
+        assert client.get(f"/api/runs/{failed['id']}").json() == response.json()
+        assert calls[-1] == ('GHI', {'seed': 0})
+
+
+def test_new_starts_always_compute_and_explicit_history_is_used_as_input(tmp_path, monkeypatch):
+    app, project, flow, calls, failing = batch_app(tmp_path, monkeypatch)
+    failing['sequence'] = None
+    first = wait_run(app, app.start(project['id']))
+    second = wait_run(app, app.start(project['id']))
+    assert first['id'] != second['id']
+    assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'GHI', 'ACD', 'DEF', 'GHI']
+    first_package, _ = manifest(app, first)
+    second_package, _ = manifest(app, second)
+    assert first_package.id != second_package.id
+    app.install('tests.fixtures.prediction_tool:consumer_module')
+    app.save_project(project['id'], {'nodes': [{'id': 'reader', 'type': 'lab.consume', 'inputs': {'source': [first_package.id]}}], 'edges': []}, {})
+    history_run = wait_run(app, app.start(project['id']))
+    assert history_run['status'] == 'succeeded'
+    assert history_run['calls']['reader']['inputs'] == {'source': [first_package.id]}
+    assert len(calls) == 6
+
+
+def test_continuation_reacquires_run_lease_locks_project_and_observes_cancel(tmp_path, monkeypatch):
+    from threading import Event
+    import pytest
+    from core.host import HostError
+    app, project, flow, calls, failing = batch_app(tmp_path, monkeypatch)
+    first = wait_run(app, app.start(project['id']))
+    failing.update(sequence=None, entered=Event(), release=Event())
+    started = app.continue_run(first['id'], 'predict')
+    try:
+        assert failing['entered'].wait(5)
+        other = Workbench(tmp_path)
+        assert other.get_project(project['id'])['running'] is True
+        assert other.get_run(first['id'])['status'] == 'running'
+        with pytest.raises(HostError, match='running'):
+            other.save_project(project['id'], flow, {})
+        with pytest.raises(HostError, match='running'):
+            other.continue_run(first['id'], 'predict')
+        other.cancel_run(first['id'])
+    finally:
+        failing['release'].set()
+    cancelled = wait_run(app, started)
+    assert cancelled['nodes']['predict']['status'] == 'cancelled'
+    assert cancelled['nodes']['predict']['continuation'] == {'completed': 1}
+    assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'DEF']
+    final = wait_run(app, app.continue_run(first['id'], 'predict'))
+    assert final['status'] == 'succeeded'
+    assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'DEF', 'DEF', 'GHI']
+
+
+def test_continue_cancelled_partial_resumes_unstarted_dependents_without_independent_cancelled_branch(tmp_path, monkeypatch):
+    from threading import Event
+    app, project, flow, calls, failing = batch_app(tmp_path, monkeypatch)
+    app.install('tests.fixtures.prediction_tool:consumer_module')
+    app.install('tests.fixtures.host_module:branch_module')
+    flow['nodes'] += [{'id': 'reader', 'type': 'lab.consume'}, {'id': 'independent', 'type': 'branch.node'}]
+    flow['edges'] = [{'source': 'predict', 'source_port': 'structure', 'target': 'reader', 'target_port': 'source'}]
+    app.save_project(project['id'], flow, {})
+    failing.update(sequence=None, entered=Event(), release=Event())
+    started = app.start(project['id'])
+    try:
+        assert failing['entered'].wait(5)
+        app.cancel_run(started['id'])
+    finally:
+        failing['release'].set()
+    cancelled = wait_run(app, started)
+    assert cancelled['nodes']['predict']['continuation'] == {'completed': 1}
+    assert cancelled['nodes']['reader']['status'] == 'cancelled'
+    assert cancelled['nodes']['independent']['status'] == 'cancelled'
+    final = wait_run(app, app.continue_run(started['id'], 'predict'))
+    assert final['nodes']['reader']['status'] == 'succeeded'
+    assert final['nodes']['independent'] == cancelled['nodes']['independent']
+    assert 'independent' not in final['calls']
+    assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'DEF', 'GHI']
