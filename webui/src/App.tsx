@@ -47,11 +47,11 @@ export default function App() {
   const runningNow = useRef(false)
   const submittingRun = useRef(false)
   const runOperationEpoch = useRef(0)
-  const [dirty, setDirty] = useState(false)
+  const [{dirty}, setDirty] = useState({dirty: false, revision: 0})
   const dirtyNow = useRef(false)
   const draftRevision = useRef(0)
   const parameterSnapshots = useRef(new WeakMap<Record<string, unknown>, Record<string, unknown>>())
-  function markDirty(value: boolean) { if (value) draftRevision.current += 1; dirtyNow.current = value; setDirty(value) }
+  function markDirty(value: boolean) { if (value) draftRevision.current += 1; dirtyNow.current = value; setDirty({dirty: value, revision: draftRevision.current}) }
   const canvas = useRef<HTMLElement>(null)
   const [saving, setSaving] = useState(false)
   const savingNow = useRef(false)
@@ -583,13 +583,20 @@ export default function App() {
             const Editor = editor?.component
             const context = editorContext(node)
             const editorSession = projectSession.current
+            function currentEditorTarget() {
+              if (!liveProject.current || editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || !currentProject.current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
+              if (runningNow.current || deletingProject.current === context.projectId || (savingNow.current && currentProject.current.tutorial)) throw new Error('Project is running, saving or being deleted')
+            }
             return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
               {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
                 try {
-                  if (editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || !currentProject.current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
+                  currentEditorTarget()
                   updateNode(node.id, {parameters})
                 } catch (failure) { fail(failure) }
+              }} onDraftChange={() => {
+                try { currentEditorTarget(); markDirty(true); setNotice('') }
+                catch (failure) { fail(failure) }
               }} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
                 const available = (catalog.tools ?? []).filter(tool => tool.slot === contract.id)

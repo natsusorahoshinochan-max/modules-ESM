@@ -1,14 +1,29 @@
 export const runtime = { react: 19 };
 export function register({ React }) {
   const h = React.createElement;
-  function Editor({ parameters, onChange, readOnly }) {
-    const [text, setText] = React.useState(JSON.stringify(parameters.conditions || {}, null, 2));
+  function Editor({ parameters, onChange, onDraftChange, readOnly }) {
+    const acceptedText = JSON.stringify(parameters.conditions ?? {}, null, 2);
+    const [text, setText] = React.useState(acceptedText);
     const [error, setError] = React.useState('');
-    React.useEffect(() => setText(JSON.stringify(parameters.conditions || {}, null, 2)), [parameters.conditions]);
+    const textarea = React.useRef(null);
+    React.useEffect(() => { setText(acceptedText); setError(''); textarea.current?.setCustomValidity(''); }, [acceptedText]);
+    function changeConditions(event) {
+      const control = event.currentTarget, value = control.value;
+      setText(value);
+      let conditions;
+      try {
+        conditions = JSON.parse(value);
+        if (!conditions || typeof conditions !== 'object' || Array.isArray(conditions)) throw Error('Conditions must be an object');
+      } catch (failure) {
+        const message = String(failure);
+        control.setCustomValidity(message); setError(message); onDraftChange?.(); return;
+      }
+      control.setCustomValidity(''); setError(''); onChange({ ...parameters, conditions });
+    }
     return h('section', null,
       h('label', null, 'Samples per input', h('input', { type: 'number', min: 1, value: parameters.samples ?? 1, disabled: readOnly, onChange: event => onChange({ ...parameters, samples: Number(event.target.value) }) })),
       h('p', null, 'Fixed residues and coordinate conditions come from the selected current editing package. Each sample uses the configured local seed literally; change it to obtain a different local sample. Biohub has no seed control.'),
-      h('label', null, 'Additional aligned conditions (JSON): secondary_structure, sasa, function_annotations', h('textarea', { value: text, disabled: readOnly, onChange: event => { const value = event.target.value; setText(value); try { const conditions = JSON.parse(value); if (!conditions || typeof conditions !== 'object' || Array.isArray(conditions)) throw Error('Conditions must be an object'); onChange({ ...parameters, conditions }); setError(''); } catch (failure) { setError(String(failure)); } } })),
+      h('label', null, 'Additional aligned conditions (JSON): secondary_structure, sasa, function_annotations', h('textarea', { ref: textarea, value: text, disabled: readOnly, onChange: changeConditions })),
       error && h('p', { role: 'alert' }, error));
   }
   function Viewer({ package: pkg, host }) {
