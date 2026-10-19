@@ -61,7 +61,7 @@ export function register({ React }) {
         h('pre', null, object.sequence),
         h('details', null, h('summary', null, 'Current conditions, position correspondence and actual controls'), h('pre', null, JSON.stringify({ positions: object.positions, generation: object.generation, tool: object.tool }, null, 2))),
         values && h(React.Fragment, null, h(Coordinates, { coordinates: values.tracks.coordinates }), h('details', null, h('summary', null, 'Natural metrics with native axes and scale'), h('pre', null, JSON.stringify(values.metrics, null, 2)))),
-        h('p', null, 'Use Select a joint generation phase for explicit downstream conversion. Native extended symbols and chains are retained; canonical chain conversion is a separate node.'))));
+        h('p', null, 'Use Select a joint generation phase for explicit downstream conversion. Native extended symbols and chains are retained; canonical chain conversion is a separate node. Use Convert a canonical joint structure to coordinates with explicit chain/start numbering for the existing structure viewer and PDB/mmCIF export.'))));
   }
   return { editors: [{ node: 'workbench.joint_generation', component: Editor }], viewers: [{ id: 'workbench.joint_generation.native', name: 'Joint generation phases and native structures', formats: ['workbench.joint_generation'], component: Viewer }] };
 }

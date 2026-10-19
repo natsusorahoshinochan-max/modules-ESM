@@ -142,6 +142,87 @@ def convert_stage(call, runtime):
     return Outcome(outputs={'generated': [Delivery('workbench.esm3_generation', manifest, files)]})
 
 
+def convert_structure(call, runtime):
+    """Explicit canonical single-chain coordinate representation, without filling atoms."""
+    import gemmi
+    from modules.esm3.adapters import ATOM37
+    from modules.structure_io import atoms, encode, parse
+    if set(call.parameters) != {'chain', 'start_number'}:
+        raise ValueError('Choose chain and start_number for the generated coordinate representation')
+    chain_name, start = call.parameters['chain'], call.parameters['start_number']
+    if not isinstance(chain_name, str) or not chain_name.strip() or type(start) is not int:
+        raise ValueError('Representation requires a nonempty chain and integer start_number')
+    package = call.inputs['generated'][0]
+    with package.open(package.entry) as stream:
+        document = json.load(stream)
+    source_objects = document.get('objects')
+    if not isinstance(source_objects, list) or not source_objects:
+        raise ValueError('Coordinate conversion requires a completed structure phase')
+    if any(not isinstance(obj, dict) or not isinstance(obj.get('id'), str) or not obj['id'] for obj in source_objects) or len({obj['id'] for obj in source_objects}) != len(source_objects):
+        raise ValueError('Coordinate conversion requires distinct actual generation objects')
+    three = dict(zip('ACDEFGHIKLMNPQRSTVWY', ('ALA', 'CYS', 'ASP', 'GLU', 'PHE', 'GLY', 'HIS', 'ILE', 'LYS', 'LEU', 'MET', 'ASN', 'PRO', 'GLN', 'ARG', 'SER', 'THR', 'VAL', 'TRP', 'TYR'), strict=True))
+    files, objects = {}, []
+    for obj in source_objects:
+        if runtime.cancelled:
+            return Outcome(status='cancelled')
+        sequence = obj['sequence']
+        if not isinstance(sequence, str) or not sequence or any(letter not in three for letter in sequence):
+            raise ValueError('Coordinate conversion supports only a canonical single chain; native extended or multichain results remain available')
+        with package.open(obj['native']['file']) as stream:
+            native = json.load(stream)
+        coords = native.get('tracks', {}).get('coordinates')
+        positions = obj['positions']
+        if native.get('tracks', {}).get('sequence') != sequence or not isinstance(coords, list) or len(coords) != len(sequence) or not isinstance(positions, list) or len(positions) != len(sequence) or [row.get('sequence_index') for row in positions] != list(range(1, len(sequence) + 1)):
+            raise ValueError('Native sequence, coordinates and position correspondence must cover the same complete sequence')
+        structure = gemmi.Structure()
+        model = gemmi.Model(1)
+        chain = gemmi.Chain(chain_name)
+        mapping = []
+        for index, (letter, row) in enumerate(zip(sequence, coords, strict=True)):
+            if not isinstance(row, list) or len(row) != len(ATOM37):
+                raise ValueError('Coordinate conversion requires the documented atom37 axis')
+            residue = gemmi.Residue()
+            residue.name, residue.seqid, residue.het_flag = three[letter], gemmi.SeqId(start + index, ' '), 'A'
+            for name, point in zip(ATOM37, row, strict=True):
+                if not isinstance(point, list) or len(point) != 3:
+                    raise ValueError('Every native atom37 position requires an XYZ triple')
+                if point == [None, None, None]:
+                    continue
+                if any(type(value) not in (int, float) or not math.isfinite(value) for value in point):
+                    raise ValueError('Coordinate conversion cannot represent incomplete or nonfinite atom coordinates')
+                atom = gemmi.Atom()
+                atom.name, atom.element = name, gemmi.Element(name[0])
+                atom.pos, atom.occ, atom.b_iso = gemmi.Position(*point), 1.0, 0.0
+                residue.add_atom(atom)
+            if not len(residue):
+                raise ValueError(f'Native sequence position {index + 1} has no finite atoms; a complete residue mapping is required')
+            chain.add_residue(residue)
+            mapping.append({'sequence_index': index + 1, 'original_position': deepcopy(positions[index]),
+                            'position': {'model': 1, 'chain': chain_name, 'author_number': start + index, 'insertion_code': '', 'residue_name': three[letter]}})
+        model.add_chain(chain)
+        structure.add_model(model)
+        key, view = uuid4().hex + '.cif', uuid4().hex + '.atoms.json'
+        content = encode(structure, 'mmcif')
+        (runtime.workdir / key).write_bytes(content)
+        (runtime.workdir / view).write_text(json.dumps(atoms(parse(content, 'mmcif')), allow_nan=False))
+        files.update({key: key, view: view})
+        objects.append({'id': obj['id'], 'sequence': sequence, 'structure': {'file': key, 'format': 'mmcif'}, 'atoms': view,
+                        'source_object': deepcopy(obj), 'native_positions': mapping,
+                        'representation': {'chain': chain_name, 'start_number': start, 'occupancy': 1.0, 'b_iso': 0.0}})
+    for key in package.files:
+        path = uuid4().hex
+        with package.open(key) as reader, (runtime.workdir / path).open('wb') as writer:
+            shutil.copyfileobj(reader, writer)
+        files[key] = path
+    manifest = 'structures-' + uuid4().hex + '.json'
+    (runtime.workdir / manifest).write_text(json.dumps({'objects': objects, 'tool': document['tool'],
+        'source_manifest': {'file': package.entry, 'format': FORMAT}}, allow_nan=False))
+    files[manifest] = manifest
+    if runtime.cancelled:
+        return Outcome(status='cancelled')
+    return Outcome(outputs={'structures': [Delivery('workbench.structure_set', manifest, files)]})
+
+
 def module():
     return Module('workbench.joint_generation', 'Sequence then structure generation', nodes=(
         Node('workbench.joint_generation', 'Generate sequence then structure', execute,
@@ -152,5 +233,9 @@ def module():
              tools={'esm3': ToolSlot('workbench.esm3.generate', 'ESM3 native generate')}),
         Node('workbench.joint_to_esm3', 'Select a joint generation phase', convert_stage,
              inputs={'generated': InputPort((FORMAT,))}, outputs={'generated': OutputPort('workbench.esm3_generation')},
-             parameters={'stage': {'type': 'string', 'enum': ['sequence', 'structure'], 'description': 'Explicit phase to expose as native ESM3 results'}})),
+             parameters={'stage': {'type': 'string', 'enum': ['sequence', 'structure'], 'description': 'Explicit phase to expose as native ESM3 results'}}),
+        Node('workbench.joint_structure', 'Convert a canonical joint structure to coordinates', convert_structure,
+             inputs={'generated': InputPort((FORMAT,))}, outputs={'structures': OutputPort('workbench.structure_set')},
+             parameters={'chain': {'type': 'string', 'description': 'Explicit chain for this generated representation'},
+                         'start_number': {'type': 'integer', 'description': 'Explicit first residue number for this generated representation'}})),
         ui=str(Path(__file__).with_name('ui.js').resolve()))

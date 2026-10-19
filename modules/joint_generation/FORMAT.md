@@ -89,3 +89,39 @@ results and rejects extended symbols. Native structure and scores remain in the
 source package. Consumers of the native format can read actual scalar natural
 metrics directly; arrays keep their documented native axes and require an
 explicit appropriate analysis before use as a scalar.
+
+## Explicit coordinate representation and export
+
+**Convert a canonical joint structure to coordinates**
+(`workbench.joint_structure`) accepts complete `workbench.joint_generation`
+results and produces `workbench.structure_set`. Choose both `chain` and integer
+`start_number` explicitly for this new coordinate representation. This converter
+supports one canonical chain per object. Extended residues, chain separators,
+incomplete atom XYZ triples, missing sequence-position correspondence or a residue
+with no finite atoms fail without changing the native source result.
+
+Only finite atoms actually present on the documented atom37 axis are written.
+Missing atoms remain absent. Residue names follow the canonical sequence and
+atom elements follow their atom37 names. Model1, the selected chain, sequential
+numbers beginning at `start_number` and empty insertion codes identify this new
+representation. `native_positions` records each `sequence_index`, its complete
+`original_position` (including original source and structure correspondence) and
+its output `position`. Original correspondence remains distinct from the chosen
+representation numbering.
+
+Representation fields explicitly assign occupancy1 and B_iso0. These are file
+representation constants; natural confidence remains in the unchanged native
+metric files and retains its original scale. `representation` records the chosen
+chain/start number and these constants. Each output retains its actual generated
+object ID, complete `source_object`, all original package files, original
+`source_manifest`, and supplied tool controls. No metric is calculated during
+conversion.
+
+The initial coordinate file is mmCIF, with an atom-view file produced through the
+[public structure reader](../structure_io/FORMAT.md#public-structure-processing).
+Install `modules.structure_io:module` to view/select the complete converted atoms
+and use **Export structure** to choose PDB or mmCIF. Its ordinary format limits
+apply. The conversion voluntarily imports public structure processing functions
+from the same `protein-workbench` distribution and its declared `gemmi==0.7.3`
+dependency. Independent structure readers can read the converted file after
+adoption, source deletion and generator uninstall.

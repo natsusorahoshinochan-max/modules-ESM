@@ -232,3 +232,77 @@ def test_missing_structure_output_retains_only_successful_sequence_phase(tmp_pat
     resumed = wait_run(app, app.continue_run(first['id'], 'joint'))
     assert resumed['status'] == 'succeeded', resumed
     assert [request.track for request, _ in calls] == ['sequence', 'structure', 'structure', 'sequence', 'structure']
+
+
+def test_explicit_structure_conversion_reaches_structure_view_and_both_export_formats(tmp_path):
+    from core.host import Workbench
+    from modules.structure_io import read_structure, atoms
+    app = Workbench(tmp_path / 'data')
+    app.install('modules.joint_generation:module')
+    app.install('modules.structure_io:module')
+    project = app.create_project('Native structure conversion')
+    workdir = app.new_workdir()
+    coords = [[[None, None, None] for _ in range(37)] for _ in range(2)]
+    coords[0][1] = [1.125, 2.25, 3.5]
+    coords[1][1] = [4.125, 5.25, 6.5]
+    native = {'tracks': {'sequence': 'AC', 'coordinates': coords}, 'metrics': {'ptm': .8}}
+    original = {'id': 'actual-generated', 'sequence': 'AC', 'positions': [{'sequence_index': 1, 'edit_position': 'original-a', 'source': {'object': 'input-sequence', 'sequence_index': 4, 'position': {'chain': 'Z', 'author_number': 42, 'insertion_code': 'A'}}, 'structure_position': {'structure': 'input-structure', 'position': {'model': '1', 'chain': 'K', 'author_number': 92, 'insertion_code': 'B', 'residue_name': 'ALA'}}}, {'sequence_index': 2, 'edit_position': 'inserted-c'}], 'native': {'file': 'native.json'}, 'generation': {'input': 'editing', 'sample': 1, 'sequence_object': 'actual-sequence'}, 'tool': {'parameters': {'seed': 0}, 'actual_seed': 0}, 'sequence_stage': {'id': 'actual-sequence', 'sequence': 'AC', 'native': {'file': 'sequence.json'}}}
+    manifest = {'objects': [original], 'pending_sequence': None, 'batch': {'completed': 1, 'sequence_completed': 1, 'total': 1, 'status': 'succeeded'}, 'tool': {'id': 'workbench.esm3.local', 'parameters': {'seed': 0}, 'structure_parameters': {}}}
+    for key, value in [('input.json', manifest), ('native.json', native), ('sequence.json', {'tracks': {'sequence': 'AC'}, 'metrics': {}})]:
+        (workdir / key).write_text(json.dumps(value))
+    package = app.create_input(project['id'], Delivery('workbench.joint_generation', 'input.json', {key: key for key in ('input.json', 'native.json', 'sequence.json')}), workdir)
+    flow = {'nodes': [{'id': 'convert', 'type': 'workbench.joint_structure', 'inputs': {'generated': [package['id']]}, 'parameters': {'chain': 'Q', 'start_number': 17}}], 'edges': []}
+    app.save_project(project['id'], flow, {})
+    result = wait_run(app, app.start(project['id']))
+    assert result['status'] == 'succeeded', result
+    output = app.package(result['nodes']['convert']['outputs']['structures'][0])
+    with output.open(output.entry) as stream:
+        converted = json.load(stream)
+    obj = converted['objects'][0]
+    assert obj['id'] == original['id'] and obj['source_object'] == original
+    assert obj['native_positions'][0] == {'sequence_index': 1, 'original_position': original['positions'][0], 'position': {'model': 1, 'chain': 'Q', 'author_number': 17, 'insertion_code': '', 'residue_name': 'ALA'}}
+    structure = read_structure(output, obj['id'])
+    assert all(atom.occ == 1.0 and atom.b_iso == 0.0 for chain in structure[0] for residue in chain for atom in residue)
+    view = atoms(structure)
+    assert [(row['chain'], row['author_number'], row['atom_name']) for row in view] == [('Q', 17, 'CA'), ('Q', 18, 'CA')]
+    assert view[0]['position'] == [1.125, 2.25, 3.5]
+    assert 'confidence' not in obj
+    flow = {'nodes': [{'id': encoding, 'type': 'workbench.export_structure', 'inputs': {'structures': [output.id]}, 'parameters': {'object': obj['id'], 'format': encoding}} for encoding in ('pdb', 'mmcif')], 'edges': []}
+    app.save_project(project['id'], flow, {})
+    exported = wait_run(app, app.start(project['id']))
+    assert exported['status'] == 'succeeded', exported
+    target = app.create_project('Independent structure consumer')
+    adopted = app.adopt(target['id'], output.id)
+    app.delete_project(project['id'])
+    app.uninstall('workbench.joint_generation')
+    independent = app.package(adopted['id'])
+    assert len(atoms(read_structure(independent, obj['id']))) == 2
+    with independent.open('native.json') as stream:
+        assert json.load(stream)['metrics']['ptm'] == .8
+
+
+@pytest.mark.parametrize('sequence,missing,match', [('AX', False, 'canonical single chain'), ('AC|D', False, 'canonical single chain'), ('AC', True, 'no finite atoms')])
+def test_structure_conversion_refuses_unrepresentable_native_results_without_changing_them(tmp_path, sequence, missing, match):
+    from core.host import Workbench
+    app = Workbench(tmp_path / 'data')
+    app.install('modules.joint_generation:module')
+    project = app.create_project('Explicit conversion limits')
+    workdir = app.new_workdir()
+    coords = [[[None, None, None] for _ in range(37)] for _ in sequence]
+    for index, row in enumerate(coords):
+        if not missing or index == 0:
+            row[1] = [float(index), 2., 3.]
+    native = {'tracks': {'sequence': sequence, 'coordinates': coords}, 'metrics': {'ptm': .8}}
+    obj = {'id': 'native', 'sequence': sequence, 'positions': [{'sequence_index': index + 1} for index in range(len(sequence))], 'native': {'file': 'native.json'}}
+    manifest = {'objects': [obj], 'pending_sequence': None, 'tool': {'id': 'actual-generator', 'parameters': {}}}
+    (workdir / 'manifest.json').write_text(json.dumps(manifest))
+    (workdir / 'native.json').write_text(json.dumps(native))
+    package = app.create_input(project['id'], Delivery('workbench.joint_generation', 'manifest.json', {'manifest.json': 'manifest.json', 'native.json': 'native.json'}), workdir)
+    flow = {'nodes': [{'id': 'convert', 'type': 'workbench.joint_structure', 'inputs': {'generated': [package['id']]}, 'parameters': {'chain': 'Q', 'start_number': 17}}], 'edges': []}
+    app.save_project(project['id'], flow, {})
+    result = wait_run(app, app.start(project['id']))
+    assert result['status'] == 'failed'
+    assert match in result['nodes']['convert']['diagnostics'][0]
+    assert not any(result['nodes']['convert']['outputs'].values())
+    with app.package(package['id']).open('native.json') as stream:
+        assert json.load(stream) == native
