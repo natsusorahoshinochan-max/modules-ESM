@@ -3,7 +3,7 @@ from core.host import Workbench
 
 def test_host_without_modules_saves_and_reopens_incomplete_project(tmp_path):
     app = Workbench(tmp_path)
-    assert app.catalog() == {"nodes": [], "modules": []}
+    assert app.catalog() == {"nodes": [], "modules": [], "tools": []}
     project = app.create_project("Research")
     flow = {"nodes": [{"id": "draft", "type": "absent.edit", "parameters": {"region": [12, 17]}}], "edges": [], "custom": {"prompt": "hello"}}
     layout = {"draft": {"x": 13, "y": 29}}
@@ -118,4 +118,4 @@ def test_invalid_unicode_catalog_declaration_is_rejected_before_registration(tmp
     app = Workbench(tmp_path)
     with pytest.raises(HostError, match='UTF-8'):
         app.install('tests.fixtures.host_module:invalid_catalog_module')
-    assert Workbench(tmp_path).catalog() == {'nodes': [], 'modules': []}
+    assert Workbench(tmp_path).catalog() == {'nodes': [], 'modules': [], 'tools': []}

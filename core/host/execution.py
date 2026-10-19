@@ -28,6 +28,7 @@ def prepare(app, flow):
     if any(not isinstance(item, dict) for item in flow.get("nodes", []) + flow.get("edges", [])):
         raise HostError("Flow nodes and edges must contain objects")
     available = {node.id: (record, node) for record, module in app._modules() for node in module.nodes}
+    tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
     nodes = flow.get("nodes", [])
     edges = flow.get("edges", [])
     by_id = {}
@@ -42,6 +43,15 @@ def prepare(app, flow):
         selected[identifier] = available[instance["type"]]
         if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict) or not isinstance(instance.get("tool_parameters", {}), dict):
             raise HostError(f"Invalid parameters or inputs for node {identifier}")
+        choices = instance.get("tools", {})
+        if not isinstance(choices, dict) or set(choices) != set(selected[identifier][1].tools):
+            raise HostError(f"Select every declared tool slot on node {identifier}")
+        for name, slot in selected[identifier][1].tools.items():
+            choice = choices[name]
+            if not isinstance(choice, str) or choice not in tools or tools[choice][1].slot != slot.id:
+                raise HostError(f"Selected tool is unavailable or does not implement {slot.id}: {choice}")
+        if selected[identifier][1].tools and set(instance.get("tool_parameters", {})) - set(choices):
+            raise HostError(f"Unknown tool parameter slot on node {identifier}")
     connections = set()
     for edge in edges:
         try:
@@ -157,6 +167,15 @@ def execute(app, project_id):
                 if port.cardinality == "one" and count > 1:
                     raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
             call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(instance.get("parameters", {}))), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(instance.get("tool_parameters", {}))))
+            injected = {}
+            available_tools = {tool.id: (owner, tool) for owner, module in app._modules() for tool in module.tools}
+            for name, choice in instance.get("tools", {}).items():
+                owner, tool = available_tools[choice]
+                injected[name] = tool.create(json.loads(json.dumps(owner["settings"])))
+                if not callable(injected[name]):
+                    raise HostError(f"Tool factory did not return a callable: {choice}")
+            from dataclasses import replace
+            call = replace(call, tools=injected, tool_choices=dict(instance.get("tools", {})))
             outcome = declaration.execute(call, ExecutionRuntime(workdir))
             accept(app, run, identifier, declaration, outcome, workdir)
         except Exception as exc:

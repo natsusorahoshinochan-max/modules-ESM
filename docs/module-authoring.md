@@ -114,3 +114,11 @@ workbench_note_consumer:module
 测试需要 Python 构建工具、Node.js、npm 及依赖源访问。它在临时副本中构建载体和两个独立模块的 wheel，将正常依赖下载到 wheelhouse 后，在全新虚拟环境中离线安装，并执行 `pip check`。子进程使用 `python -I` 隔离源码导入。
 
 生产者交付数据后，测试注销并卸载生产者，删除构建源码及执行工作目录，再安装消费者，验证已有包的读取、计算、保存和重新打开。类型验证从已安装的载体 wheel 打包 npm 包，在仓库外的独立 TypeScript 作者项目中安装；删除 Python 安装环境和原始 tarball 后执行严格编译。
+
+## 工具插槽
+
+节点通过 `Node.tools={"位置名称": ToolSlot("作者定义的约定 ID", "显示名称")}` 公开调用位置。实现模块声明 `Module.tools=(Tool(id=..., name=..., slot=..., create=...),)`；`create(settings)` 接收实现所属模块的部署配置并返回可调用对象。`Tool.parameters` 和 `capabilities` 是面向用户的参数与能力声明，载体只保存和展示。
+
+流程节点的 `tools` 按位置名称保存所选实现 ID；`tool_parameters` 按相同位置保存参数字典。载体检查所选实现仍存在且声明相同约定 ID，将可调用对象注入 `Call.tools`，把选择 ID 提供给 `Call.tool_choices`。未安装或已禁用的实现不能执行；保存的选择仍保留。节点通过自己的公开约定解释请求、结果、错误及取消和续算，不枚举实现。
+
+完整实例为 `modules.folding:module`：调用约定见 [预测工具插槽](../modules/folding/TOOL.md)，独立数据读取说明与样例见 [预测格式](../modules/folding/FORMAT.md)。

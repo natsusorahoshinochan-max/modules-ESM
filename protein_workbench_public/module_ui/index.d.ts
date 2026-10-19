@@ -2,7 +2,7 @@
 import type * as React from 'react'
 
 export interface PackageInfo { id: string; project_id: string; format: string; entry: string; files: string[] }
-export interface FlowNode { id: string; type: string; parameters: Record<string, unknown>; inputs: Record<string, string[]> }
+export interface FlowNode { id: string; type: string; parameters: Record<string, unknown>; inputs: Record<string, string[]>; tools?: Record<string, string>; tool_parameters?: Record<string, Record<string, unknown>> }
 export interface Edge { source: string; source_port: string; target: string; target_port: string }
 export interface ModuleHost {
   readonly readOnly: boolean
