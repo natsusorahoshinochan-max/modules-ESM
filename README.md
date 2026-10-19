@@ -4,6 +4,8 @@
 
 项目正在进行大规模重构。已确认的需求与目标设计见下列入口，现有代码尚未完成替换。
 
+资源受限机器的模型验证范围见 [本地模型与验证](docs/local-models.md)，接口依据和实施分工见 [验证规划](docs/research/biohub-call-plan.md)。
+
 - 开发或审查前读 [AGENTS.md](AGENTS.md)。
 - 核对行为范围读 [需求](docs/requirements.md)。
 - 设计模块、数据交接和保存读 [架构](docs/architecture.md)。
