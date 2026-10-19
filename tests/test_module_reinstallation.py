@@ -183,3 +183,66 @@ def test_uninstall_evicts_nested_namespace_search_paths_before_parent_removal(tm
         assert restored.status_code == 200, restored.text
         assert_execution(client, 'reinstall.example', 'second')
         assert client.delete('/api/modules/reinstall.example').status_code == 200
+
+
+@pytest.mark.parametrize('cold', [False, True])
+def test_regular_parent_cannot_take_an_active_shared_namespace(tmp_path, cold):
+    candidate = BytesIO()
+    with ZipFile(BytesIO(package('candidate', namespace=True, python_name='beta', module_id='candidate.module', with_ui=False))) as source, ZipFile(candidate, 'w') as target:
+        for name in source.namelist():
+            target.writestr(name, source.read(name))
+        target.writestr('shared_warm/__init__.py', "raise RuntimeError('candidate parent must not execute')\n")
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        assert install(client, package('active sibling', namespace=True, python_name='alpha', with_ui=False), 'shared_warm.alpha:module').status_code == 200
+        if cold:
+            selected = tmp_path / 'candidate.whl'
+            selected.write_bytes(candidate.getvalue())
+            result = subprocess.run([sys.executable, '-c', '''from pathlib import Path
+import sys
+from fastapi.testclient import TestClient
+from protein_workbench_public.bootstrap import create_application
+from tests.test_module_reinstallation import install
+with TestClient(create_application(data_root=Path(sys.argv[1]))) as client:
+    result = install(client, Path(sys.argv[2]).read_bytes(), 'shared_warm.beta:module')
+    assert result.status_code == 400, result.text
+    assert 'namespace' in result.json()['detail'], result.text
+    assert 'candidate parent must not execute' not in result.json()['detail']
+''', str(tmp_path), str(selected)], capture_output=True, text=True, timeout=20)
+            assert result.returncode == 0, result.stderr
+        else:
+            result = install(client, candidate.getvalue(), 'shared_warm.beta:module')
+            assert result.status_code == 400, result.text
+            assert 'namespace' in result.json()['detail']
+            assert 'candidate parent must not execute' not in result.json()['detail']
+        assert [item['id'] for item in client.get('/api/modules').json() if item['id'].endswith('.module')] == []
+        assert len(list((tmp_path / 'module-packages').iterdir())) == 1
+        assert_execution(client, 'reinstall.example', 'active sibling')
+        assert client.delete('/api/modules/reinstall.example').status_code == 200
+
+
+def test_module_management_ignores_dynamic_and_invalid_external_module_paths(tmp_path):
+    from types import ModuleType
+    foreign = ModuleType('external_dynamic_paths')
+    reads = []
+
+    def dynamic(name):
+        reads.append(name)
+        raise RuntimeError('external dynamic attribute must not run')
+
+    foreign.__getattr__ = dynamic
+    malformed = ModuleType('external_invalid_paths')
+    malformed.__file__ = object()
+    malformed.__path__ = object()
+    sys.modules[foreign.__name__] = foreign
+    sys.modules[malformed.__name__] = malformed
+    try:
+        with TestClient(create_application(data_root=tmp_path)) as client:
+            response = install(client, package('available'))
+            assert response.status_code == 200, response.text
+            assert any(item['id'] == 'reinstall.example.node' for item in client.get('/api/catalog').json()['nodes'])
+            assert_execution(client, 'reinstall.example', 'available')
+            assert client.delete('/api/modules/reinstall.example').status_code == 200
+        assert reads == []
+    finally:
+        sys.modules.pop('external_dynamic_paths', None)
+        sys.modules.pop('external_invalid_paths', None)
