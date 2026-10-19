@@ -84,7 +84,7 @@ def create_protein_sol(settings):
         directory = _stage(request, runtime, 21)
         for name in ('seq_reference_data.txt', 'ss_propensities.txt'):
             shutil.copyfile(root / name, directory / name)
-        command = [str(bash), '-c', DRIVER, 'protein-sol', str(root), str(perl), str(directory / 'input.fasta'), 'YES' if effective['membrane_exclude'] else 'NO', 'yes' if effective['histidine_charged'] else 'no']
+        command = [str(bash), '-c', DRIVER, 'protein-sol', str(root), str(perl), 'input.fasta', 'YES' if effective['membrane_exclude'] else 'NO', 'yes' if effective['histidine_charged'] else 'no']
         run_worker(command, cwd=directory, log_path=directory / 'worker.log', cancelled=lambda: runtime.cancelled, label='Protein-Sol')
         rows = []
         populations = []
