@@ -37,3 +37,24 @@ def test_binary_input_is_saved_without_interpreting_its_scientific_content(tmp_p
     with reopened.open(reopened.entry) as stream:
         assert stream.read() == b"\x00not scientific JSON\xff"
     assert not workdir.exists()
+
+
+def test_external_nodes_encode_then_independently_read_committed_package(tmp_path):
+    from protein_workbench_public.module_api import Delivery
+    app = Workbench(tmp_path)
+    app.install("tests.fixtures.host_module:module")
+    app.configure("independent", {"label": "!"})
+    project = app.create_project("Pipeline")
+    workdir = app.new_workdir()
+    (workdir / "request").write_bytes(b"\x00hello")
+    request = app.create_input(project["id"], Delivery("independent.request", "request", {"request": "request"}), workdir)
+    app.save_project(project["id"], {"nodes": [{"id": "encode", "type": "independent.encode", "parameters": {"suffix": " world"}, "inputs": {"source": [request["id"]]}}, {"id": "receive", "type": "independent.receive"}], "edges": [{"source": "encode", "source_port": "result", "target": "receive", "target_port": "source"}]}, {})
+    first = app.start(project["id"])
+    second = app.start(project["id"])
+    assert first["status"] == "succeeded"
+    result_id = first["nodes"]["receive"]["outputs"]["result"][0]
+    with Workbench(tmp_path).package(result_id).open("summary") as stream:
+        assert stream.read() == b"received:\x00hello world!"
+    assert first["nodes"]["encode"]["continuation"] == {"done": 1}
+    assert first["id"] != second["id"]
+    assert result_id != second["nodes"]["receive"]["outputs"]["result"][0]

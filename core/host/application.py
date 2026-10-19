@@ -168,3 +168,14 @@ class Workbench:
     def list_packages(self, project_id):
         self._get("project", project_id)
         return [record for record in self._records("package") if record["project_id"] == project_id]
+
+    def start(self, project_id):
+        from .execution import execute
+        return execute(self, project_id)
+
+    def get_run(self, run_id):
+        return self._get("run", run_id)
+
+    def list_runs(self, project_id):
+        self._get("project", project_id)
+        return [run for run in self._records("run") if run["project_id"] == project_id]
