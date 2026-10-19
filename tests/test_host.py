@@ -58,3 +58,11 @@ def test_external_nodes_encode_then_independently_read_committed_package(tmp_pat
     assert first["nodes"]["encode"]["continuation"] == {"done": 1}
     assert first["id"] != second["id"]
     assert result_id != second["nodes"]["receive"]["outputs"]["result"][0]
+
+
+def test_abandoned_upload_workdir_can_be_discarded(tmp_path):
+    app = Workbench(tmp_path)
+    workdir = app.new_workdir()
+    (workdir / "unfinished").write_bytes(b"partial")
+    app.discard_workdir(workdir)
+    assert not workdir.exists()

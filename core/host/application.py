@@ -179,3 +179,7 @@ class Workbench:
     def list_runs(self, project_id):
         self._get("project", project_id)
         return [run for run in self._records("run") if run["project_id"] == project_id]
+
+    def discard_workdir(self, workdir):
+        """Discard a host-allocated upload whose caller has abandoned it."""
+        self._release_workdir(self._owned_workdir(workdir))
