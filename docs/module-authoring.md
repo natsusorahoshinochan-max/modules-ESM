@@ -50,6 +50,8 @@ def module():
 
 大文件使用流读取和写入。浏览器上传实际文件后提交交付描述，下载通过文件入口；文件内容不嵌入计算请求或结果 JSON。
 
+通用 HTTP 包操作为 `POST /api/projects/{target}/adoptions`，正文 `{ "package_id": "所选包 ID" }`，返回目标项目的新包记录；`GET /api/packages/{id}/export.zip` 下载完整 ZIP。归档的 `package.json` 提供 `format`、`entry` 及按包内顺序排列的 `files: [{key, member}]`，原始文件键通过该索引对应 `files/000000` 等安全成员名。所有模块格式均使用这些入口。
+
 操作不能完成时，返回 `failed` 和具体 `diagnostics`，或者抛出包含具体原因的异常。已接收的数据包通过应用的包入口重新读取，接收者只使用包内键。
 
 ## React 界面
@@ -113,7 +115,7 @@ workbench_note_consumer:module
 
 测试需要 Python 构建工具、Node.js、npm 及依赖源访问。它在临时副本中构建载体和两个独立模块的 wheel，将正常依赖下载到 wheelhouse 后，在全新虚拟环境中离线安装，并执行 `pip check`。子进程使用 `python -I` 隔离源码导入。
 
-生产者交付数据后，测试注销并卸载生产者，删除构建源码及执行工作目录，再安装消费者，验证已有包的读取、计算、保存和重新打开。类型验证从已安装的载体 wheel 打包 npm 包，在仓库外的独立 TypeScript 作者项目中安装；删除 Python 安装环境和原始 tarball 后执行严格编译。
+生产者交付数据后，测试注销并卸载生产者，删除构建源码及执行工作目录，再安装消费者，验证已有包的读取、计算、保存和重新打开。 官方预测与比较的隔离测试保留单体载体发行包，在临时安装环境中仅移除预测生产模块目录，再用全新的 `python -I` 进程检查生产模块无法导入，并验证采用、ZIP 与两种比较路径。类型验证从已安装的载体 wheel 打包 npm 包，在仓库外的独立 TypeScript 作者项目中安装；删除 Python 安装环境和原始 tarball 后执行严格编译。
 
 ## 工具插槽
 

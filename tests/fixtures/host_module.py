@@ -1,4 +1,6 @@
 """An independent module authored exclusively against the public SDK."""
+from threading import Event
+
 from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort
 
 
@@ -55,3 +57,18 @@ def malformed_module():
 
 def invalid_catalog_module():
     return Module("invalid.catalog", "Invalid catalog", nodes=(Node("invalid.catalog.node", "Bad \ud800 title", empty_batch),))
+
+
+entered = Event()
+release = Event()
+
+
+def held_node(call, runtime):
+    entered.set()
+    if not release.wait(10):
+        raise RuntimeError('Test did not release held node')
+    return Outcome()
+
+
+def held_module():
+    return Module('held', 'Held', nodes=(Node('held.node', 'Held node', held_node),))

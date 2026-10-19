@@ -24,7 +24,7 @@ const hooks = registerHooks({
   },
 })
 const originalFetch = globalThis.fetch
-let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate
+let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate, adoptionGate, deleteGate, adoptionFailure
 const clone = value => structuredClone(value)
 const node = (id, type = 'test.one') => ({ id, type, parameters: {}, inputs: {} })
 function deferred() {
@@ -39,6 +39,8 @@ beforeEach(async () => {
     { id: 'a', name: 'Project A', flow: { nodes: [], edges: [] }, layout: {} },
     { id: 'b', name: 'Project B', flow: { nodes: [], edges: [] }, layout: {} },
   ]
+  window.confirm = () => true
+  adoptionGate = null; deleteGate = null; adoptionFailure = null
   pendingSave = null; uploadGate = null; savedFlows = []; runRequests = []; projectGate = null; runGate = null
   packages = { a: [], b: [{ id: 'b-package', project_id: 'b', format: 'other', entry: 'data', files: ['data'] }] }
   globalThis.fetch = async (url, options = {}) => {
@@ -50,7 +52,16 @@ beforeEach(async () => {
       const [, id, suffix = ''] = path.match(/^\/api\/projects\/([^/]+)(.*)$/) ?? []
       const record = records.find(item => item.id === id)
       assert.ok(record, `Unexpected request ${path}`)
-      if (!suffix && options.method === 'PUT') {
+      if (suffix === '/adoptions') {
+        if (adoptionGate) await adoptionGate.promise
+        if (adoptionFailure) return Response.json({ detail: adoptionFailure }, { status: 409 })
+        const source = Object.values(packages).flat().find(item => item.id === JSON.parse(options.body).package_id)
+        assert.ok(source)
+        result = { ...source, id: 'adopted-package', project_id: id }; packages[id].push(result)
+      } else if (!suffix && options.method === 'DELETE') {
+        if (deleteGate) await deleteGate.promise
+        records = records.filter(item => item.id !== id); delete packages[id]; result = { deleted: id }
+      } else if (!suffix && options.method === 'PUT') {
         result = { ...record, ...JSON.parse(options.body) }
         savedFlows.push(clone(result))
         if (pendingSave) await pendingSave.promise
@@ -276,4 +287,103 @@ test('tool slots filter compatible implementations and save independent tool par
   await act(async () => { select.value = 'tool.remote'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
   await click('Save project')
   assert.deepEqual(savedFlows[1].flow.nodes[0].tool_parameters, { predictor: {} })
+})
+
+async function choose(label, value) {
+  const element = container.querySelector(`[aria-label="${label}"]`)
+  assert.ok(element, `Missing selector ${label}`)
+  await act(async () => { element.value = value; element.dispatchEvent(new window.Event('change', { bubbles: true })) })
+}
+
+test('a generic package can be adopted into a chosen project and downloaded as ZIP without a viewer', async () => {
+  await click('Project B')
+  await choose('Data package', 'b-package')
+  assert.match(container.querySelector('.package').textContent, /Format: other · Entry: data/)
+  assert.equal(container.querySelector('.package a[download]').getAttribute('href'), '/api/packages/b-package/export.zip')
+  await choose('Adoption target', 'a')
+  await click('Adopt package')
+  await click('Project A')
+  await choose('Data package', 'adopted-package')
+  assert.match(container.querySelector('.package').textContent, /Format: other · Entry: data/)
+  assert.equal(packages.a[0].project_id, 'a')
+  assert.equal(packages.b[0].id, 'b-package')
+})
+
+test('deleting a dirty project requires explicit discard confirmation and clears its editor and packages', async () => {
+  await addNode()
+  const confirmations = []
+  window.confirm = message => { confirmations.push(message); return false }
+  await click('Delete project')
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(nodeCount(), 1)
+  assert.equal(records.length, 2)
+  assert.match(confirmations[0], /delete.*Project A/i)
+  assert.match(confirmations[0], /unsaved/i)
+  window.confirm = () => true
+  await click('Delete project')
+  assert.equal(title(), 'Open or create a project')
+  assert.equal(nodeCount(), 0)
+  assert.equal(container.querySelector('[aria-label="Data package"]'), null)
+  assert.deepEqual(records.map(item => item.id), ['b'])
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Project A'), false)
+  await click('Project B')
+  assert.equal(nodeCount(), 0)
+})
+
+test('a late adoption completion cannot replace the packages or notice of a newly opened project', async () => {
+  await click('Project B')
+  await choose('Data package', 'b-package')
+  await choose('Adoption target', 'a')
+  adoptionGate = deferred()
+  await click('Adopt package')
+  await click('Project A')
+  await act(async () => adoptionGate.resolve())
+  assert.equal(title(), 'Project A')
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), [''])
+  assert.equal(container.querySelector('[role=status]'), null)
+  await click('Project A')
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), ['', 'adopted-package'])
+})
+
+test('adoption errors are shown in their originating project and ignored after leaving and reopening it', async () => {
+  await click('Project B')
+  await choose('Data package', 'b-package')
+  await choose('Adoption target', 'a')
+  adoptionFailure = 'Target project is running'
+  await click('Adopt package')
+  assert.match(container.querySelector('[role=alert]').textContent, /Target project is running/)
+  adoptionGate = deferred()
+  await click('Adopt package')
+  await click('Project A')
+  await click('Project B')
+  await act(async () => adoptionGate.resolve())
+  assert.equal(container.querySelector('[role=alert]'), null)
+  assert.deepEqual(packages.a, [])
+})
+
+test('a pending deletion locks its editor and cannot clear the next project when it completes', async () => {
+  await addNode()
+  deleteGate = deferred()
+  await click('Delete project')
+  assert.equal(button('Remove node').disabled, true)
+  assert.equal(button('Save project').disabled, true)
+  await click('Project B')
+  await act(async () => deleteGate.resolve())
+  assert.equal(title(), 'Project B')
+  assert.equal(nodeCount(), 0)
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), ['', 'b-package'])
+  assert.equal(container.querySelector('[role=status]'), null)
+})
+
+test('a failed deletion preserves the dirty editor and reports the reason', async () => {
+  await addNode()
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => options?.method === 'DELETE'
+    ? Response.json({ detail: 'Project is running' }, { status: 409 }) : previousFetch(url, options)
+  await click('Delete project')
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(nodeCount(), 1)
+  assert.match(container.querySelector('[role=alert]').textContent, /Project is running/)
+  assert.equal(button('Save project').disabled, false)
+  assert.equal(records.length, 2)
 })

@@ -20,7 +20,7 @@ class ExecutionRuntime:
         self.messages.append(str(message))
 
 
-def prepare(app, flow):
+def prepare(app, flow, project_id):
     if not isinstance(flow, dict):
         raise HostError("Flow must be an object containing nodes and edges")
     if not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
@@ -85,7 +85,10 @@ def prepare(app, flow):
             if port.cardinality == "one" and count > 1:
                 raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
             for package_id in values:
-                if app.package(package_id).format not in port.accepts:
+                package = app.package(package_id)
+                if package.metadata()["project_id"] != project_id:
+                    raise HostError(f"Input package {package_id} is not owned by this project; adopt it before running")
+                if package.format not in port.accepts:
                     raise HostError(f"Package format is not accepted by {identifier}.{name}")
     ordered = []
     remaining = dict(by_id)
@@ -142,7 +145,7 @@ def accept(app, run, identifier, declaration, outcome, workdir):
 
 def execute(app, project_id):
     project = app._get("project", project_id)
-    by_id, selected, edges, ordered = prepare(app, project["flow"])
+    by_id, selected, edges, ordered = prepare(app, project["flow"], project_id)
     from uuid import uuid4
     run = {"id": uuid4().hex, "project_id": project_id, "status": "running", "nodes": {identifier: {"status": "pending", "outputs": {}, "diagnostics": [], "continuation": None} for identifier in ordered}, "diagnostics": [], "flow": project["flow"]}
     app._put("run", run)
