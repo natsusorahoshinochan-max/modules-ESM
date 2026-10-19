@@ -33,3 +33,24 @@ Both adapters explicitly pass every `GenerationConfig` computation control:
 Defaults and native input semantics come from fixed `repositories/esm` commit `43b4548b86762edfa747b07d5f440aad3c33acee`: `esm/sdk/api.py`, `sdk/forge.py`, `sdk/retry.py`, `sdk/base_forge_client.py`, `utils/function/encode_decode.py` and `utils/constants/esm3.py`. Local loading follows `pretrained.py`; sampling follows `utils/generation.py`. Biohub's [HTTP snapshot](../../docs/biohub-api-reference/v1/endpoints/generate.md) lists temperature 0.5; this adapter explicitly sends the SDK default 1.0. It uses only fields forwarded by the selected `ESMProtein` SDK path. Model names, deployment paths and dependency constraints refer to the actual tools.
 
 Local adapters acquire the [shared model resource](../../docs/local-models.md) themselves. Direct local node/adapter execution must not be nested inside another model-validation lease.
+
+## Public generation file helpers
+
+`modules.esm3.generation` exports two concrete helpers used by sequence completion
+and [sequence-then-structure generation](../joint_generation/FORMAT.md):
+
+- `read_sources(package)` reads the public canonical sequence or current editing
+  format, returning ordered records with `id`, current `prompt`, complete
+  `positions`, and current named `coordinates` when provided. It does not replay
+  edits or read retained source structures to replace current coordinates.
+- `retain_result(result, request, source, ordinal, runtime, files)` checks an
+  actual `ESM3Result`, complete native sequence and fixed Prompt correspondence,
+  reads its closed native file, and adds that file to the task-owned Delivery
+  file mapping. `ordinal` is zero-based within one input's samples. It returns
+  `(object, native_document)` with the public generated object shape and an
+  independently allocated object ID. The caller owns phase organization,
+  task-specific output requirements, acceptance and continuation.
+
+These helpers are installed with the `protein-workbench` distribution. They are
+optional public code reuse; independently reading the documented file formats
+requires no helper or producer installation.

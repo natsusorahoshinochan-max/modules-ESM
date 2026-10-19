@@ -16,6 +16,7 @@ def create_application(*, data_root: Path | None = None) -> FastAPI:
         host.install('modules.structure_io:module')
         host.install('modules.sequence_edit:module')
         host.install('modules.esm3:module')
+        host.install('modules.joint_generation:module')
         host.install('modules.esmc:module')
         host.install('modules.solubility:module')
         host.install('modules.proteinmpnn:module')

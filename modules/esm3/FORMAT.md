@@ -16,7 +16,13 @@ The JSON entry contains `objects`, `batch` and `tool`. `batch` records `complete
 - `native: {file}` names the complete native output JSON in this package.
 - `tool: {parameters, actual_seed}` records effective controls returned by the adapter. `actual_seed` is the literal local torch seed or `null` for Biohub. The SDK may reduce `num_steps` internally; the post-call config value is recorded where the SDK changes it.
 
-Native files contain `tracks` and `metrics`. Available sequence, secondary structure, SASA and function annotation tracks retain their native values. Coordinates retain the SDK's atom37 array order in Å; missing coordinate elements are JSON `null`. Atom order is listed in the public adapter's `ATOM37`. Scores are retained exactly without additional inference or rescaling: native pLDDT is 0–1, pTM is its native scalar/batch-shaped value, PAE is in Å. Metrics are optional, only present when naturally returned. Arrays retain the selected SDK/backend's actual axes: local structure decoding returns residue-only pLDDT, batch-shaped pTM, and batch/BOS/EOS axes for PAE; consumers must interpret these native axes explicitly. These scores belong to this generation/reconstruction, with no independent evaluation relation.
+Native files contain `tracks` and `metrics`. Available sequence, secondary structure, SASA and function annotation tracks retain their native values. Coordinates retain the SDK's atom37 array order in Å; missing coordinate elements are JSON `null`. The second coordinate axis is the following atom order, also exported as `modules.esm3.adapters.ATOM37`:
+
+```text
+N CA C CB O CG CG1 CG2 OG OG1 SG CD CD1 CD2 ND1 ND2 OD1 OD2 SD CE CE1 CE2 CE3 NE NE1 NE2 OE1 OE2 CH2 NH1 NH2 OH CZ CZ2 CZ3 NZ OXT
+```
+
+ Scores are retained exactly without additional inference or rescaling: native pLDDT is 0–1, pTM is its native scalar/batch-shaped value, PAE is in Å. Metrics are optional, only present when naturally returned. Arrays retain the selected SDK/backend's actual axes: local structure decoding returns residue-only pLDDT, batch-shaped pTM, and batch/BOS/EOS axes for PAE; consumers must interpret these native axes explicitly. These scores belong to this generation/reconstruction, with no independent evaluation relation.
 
 Every referenced native file is included. An independent consumer can read the manifest and files through `Package.open`, after adoption, source project deletion or producer uninstall. Private continuation state is unnecessary for reading results.
 
