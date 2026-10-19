@@ -88,3 +88,34 @@ def test_real_adapter_batch_stops_at_terminal_failure_and_continues_original_req
             assert stream.read().decode() == obj['sequence']
         with package.open(obj['confidence']['plddt']['file']) as stream:
             assert json.load(stream)['plddt'] == [.8, .9, .7]
+
+
+def test_biohub_sdk_default_attempt_limit_is_exhausted_before_batch_stops(tmp_path, monkeypatch):
+    import httpx
+    from esm.sdk import esmfold2_client
+    from modules.folding.adapters import create_remote
+    attempts = []
+    def transport(request):
+        attempts.append(json.loads(request.content)['sequence'])
+        return httpx.Response(503, json={'message': 'service temporarily unavailable'})
+    def client_factory(**kwargs):
+        client = esmfold2_client(**kwargs)
+        assert client.max_retry_attempts == 5
+        # Collapse only the SDK's wait time for this isolated HTTP contract check.
+        client.min_retry_wait = client.max_retry_wait = 0
+        client._client = httpx.Client(transport=httpx.MockTransport(transport))
+        return client
+    monkeypatch.setattr('modules.folding.adapters.create_remote', lambda settings: create_remote(settings, client_factory=client_factory))
+    app = Workbench(tmp_path)
+    app.install('modules.folding:module')
+    app.configure('workbench.prediction', {'token': 'contract-only-credential', 'service_url': 'https://fixture.invalid'})
+    project = app.create_project('SDK default attempts')
+    work = app.new_workdir()
+    (work / 'input').write_text(json.dumps({'objects': [{'id': 'first', 'sequence': 'ACD'}, {'id': 'unstarted', 'sequence': 'DEF'}]}))
+    package = app.create_input(project['id'], Delivery('workbench.sequence', 'input', {'input': 'input'}), work)
+    app.save_project(project['id'], {'nodes': [{'id': 'predict', 'type': 'workbench.predict', 'inputs': {'sequence': [package['id']]}, 'tools': {'predictor': 'workbench.esmfold2.remote'}}], 'edges': []}, {})
+    result = wait_run(app, app.start(project['id']))
+    assert result['status'] == 'failed', result
+    assert attempts == ['ACD'] * 5
+    assert result['nodes']['predict']['continuation'] == {'completed': 0}
+    assert result['nodes']['predict']['outputs']['structure'] == []

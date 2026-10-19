@@ -1318,3 +1318,19 @@ test('a teaching-save package refresh cannot overwrite inputs received by a late
   await act(async () => refresh.resolve())
   assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), ['', 'a-input'])
 })
+
+test('historical result input selection saves the exact chosen package without starting a run', async () => {
+  const previousFetch = globalThis.fetch
+  packages.a.push({ id: 'historical-result', format: 'test.format', entry: 'data', files: ['data'] })
+  globalThis.fetch = async (url, options = {}) => String(url) === '/api/projects/a/runs'
+    ? Response.json([{ id: 'history', status: 'succeeded', diagnostics: [], nodes: { producer: { status: 'succeeded', diagnostics: [], outputs: { output: ['historical-result'] } } } }])
+    : previousFetch(url, options)
+  await click('Project A')
+  await addNode()
+  const input = container.querySelector('.canvas article select')
+  assert.match([...input.options].find(option => option.value === 'historical-result').textContent, /Run 1 · producer.output/)
+  await act(async () => { input.value = 'historical-result'; input.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].inputs, { input: ['historical-result'] })
+  assert.deepEqual(runRequests, [])
+})
