@@ -61,7 +61,7 @@ examples = [
 modules = ["**/*.js", "**/*.md", "**/*.json", "**/*.yaml", "**/ui/build/*.js", "**/ui/build/*.css"]
 "modules.structure_comparison" = ["sample/*.pdb", "sample/*.cif"]
 "modules.structure_conversion" = ["sample/*.pdb"]
-protein_workbench_public = ["module_ui/package.json", "module_ui/index.d.ts"]
+protein_workbench_public = ["module_ui/package.json", "module_ui/index.d.ts", "resources/tutorial/*.json"]
 
 [tool.setuptools.exclude-package-data]
 examples = ["external_module/*", "independent_consumer/*", "typescript_module/*"]

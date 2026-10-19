@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import fcntl
 from contextlib import contextmanager, ExitStack
 from pathlib import Path
@@ -9,6 +10,7 @@ import sqlite3
 import shutil
 import tempfile
 from uuid import uuid4
+from threading import RLock
 
 
 class HostError(ValueError):
@@ -29,6 +31,8 @@ class Workbench:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self._workdirs = set()
+        self._draft_inputs = {}
+        self._draft_lock = RLock()
         self._run_errors = {}
         self._packages = self.root / "packages"
         self._packages.mkdir(exist_ok=True)
@@ -80,6 +84,8 @@ class Workbench:
         # Run leases reject immediately; file leases serialize complete copies/deletes.
         with ExitStack() as stack:
             for project_id in sorted(set(mutable)):
+                if self._get("project", project_id).get("tutorial"):
+                    raise HostError("Save the teaching example as your own project first")
                 stack.enter_context(self._project_lock(project_id, running=True))
             for project_id in sorted(set(project_ids)):
                 stack.enter_context(self._project_lock(project_id))
@@ -233,7 +239,74 @@ class Workbench:
         return self._put("project", {"id": uuid4().hex, "name": name, "flow": {"nodes": [], "edges": []}, "layout": {}})
 
     def list_projects(self):
-        return [self.get_project(record["id"]) for record in self._records("project")]
+        return [self.get_project(record["id"]) for record in self._records("project") if not record.get("tutorial")]
+
+    def tutorial(self):
+        """Open the bundled example without granting writes to its original files."""
+        from protein_workbench_public import resources
+        from .storage import receive
+        from protein_workbench_public.module_api import Delivery
+        directory = Path(resources.__file__).parent / "tutorial"
+        with (self._locks / "tutorial").open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if not any(record["id"] == "tutorial" for record in self._records("project")):
+                template = json.loads((directory / "project.json").read_text())
+                project = {"id": "tutorial", "tutorial": True, "name": template["name"], "flow": template["flow"], "layout": template["layout"]}
+                received = []
+                try:
+                    identities = {}
+                    for key, description in template["inputs"].items():
+                        record = receive(project["id"], Delivery(**description), directory, self._packages)
+                        received.append(record)
+                        identities[key] = record["id"]
+                    for node in project["flow"]["nodes"]:
+                        node["inputs"] = {port: [identities[key] for key in keys] for port, keys in node.get("inputs", {}).items()}
+                    with self._connect() as connection:
+                        for record in received:
+                            self._write(connection, "package", record)
+                        self._write(connection, "project", project)
+                except BaseException:
+                    for record in received:
+                        shutil.rmtree(self._packages / record["id"], ignore_errors=True)
+                    raise
+        return self.get_project("tutorial")
+
+    def copy_project(self, source_id, name, flow=None, layout=None):
+        """Copy the saved flow or an explicit draft, and only its directly bound inputs."""
+        from .storage import copy_package
+        with self._project_operation([source_id]), self._draft_lock:
+            source = self._get("project", source_id)
+            project = {"id": uuid4().hex, "name": name, "flow": deepcopy(source["flow"] if flow is None else flow), "layout": deepcopy(source["layout"] if layout is None else layout)}
+            nodes = project["flow"].get("nodes", [])
+            if not isinstance(nodes, list) or any(not isinstance(node, dict) or not isinstance(node.get("inputs", {}), dict) for node in nodes):
+                raise HostError("Flow nodes must have input mappings")
+            received = []
+            identities = {}
+            try:
+                for node in nodes:
+                    for port, keys in node.get("inputs", {}).items():
+                        if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+                            raise HostError("Direct inputs must be lists of package IDs")
+                        copied = []
+                        for key in keys:
+                            if key not in identities:
+                                package = self.package(key)
+                                if package.metadata()["project_id"] != source_id:
+                                    raise HostError("Copy inputs must belong to the source project; adopt them first")
+                                record = copy_package(project["id"], package, self._packages)
+                                received.append(record)
+                                identities[key] = record["id"]
+                            copied.append(identities[key])
+                        node["inputs"][port] = copied
+                with self._connect() as connection:
+                    for record in received:
+                        self._write(connection, "package", record)
+                    self._write(connection, "project", project)
+            except BaseException:
+                for record in received:
+                    shutil.rmtree(self._packages / record["id"], ignore_errors=True)
+                raise
+        return self.get_project(project["id"])
 
     def get_project(self, project_id):
         project = self._get("project", project_id)
@@ -278,6 +351,32 @@ class Workbench:
             shutil.rmtree(workdir)
         self._workdirs.discard(workdir)
 
+    def create_draft_input(self, project_id, delivery, workdir):
+        """Hold a teaching draft input until the user saves or abandons it."""
+        from .storage import receive
+        workdir = self._owned_workdir(workdir)
+        try:
+            if not self._get("project", project_id).get("tutorial"):
+                raise HostError("Temporary inputs belong to a teaching draft")
+            with self._draft_lock:
+                record = receive(project_id, delivery, workdir, self._packages)
+                self._draft_inputs[record["id"]] = record
+                return record
+        finally:
+            self._release_workdir(workdir)
+
+    def discard_draft_input(self, package_id):
+        with self._draft_lock:
+            record = self._draft_inputs.get(package_id)
+            if record is None:
+                raise HostError("Unknown temporary input")
+            shutil.rmtree(self._packages / package_id)
+            del self._draft_inputs[package_id]
+
+    def discard_draft_inputs(self):
+        for package_id in list(self._draft_inputs):
+            self.discard_draft_input(package_id)
+
     def create_input(self, project_id, delivery, workdir):
         from .storage import receive
         workdir = self._owned_workdir(workdir)
@@ -295,7 +394,7 @@ class Workbench:
 
     def adopt(self, target_project_id, source_package_id):
         """Copy every declared file without interpreting module-owned content."""
-        with self._project_operation([target_project_id, self._get("package", source_package_id)["project_id"]], mutable=[target_project_id]):
+        with self._project_operation([target_project_id, self.package(source_package_id).metadata()["project_id"]], mutable=[target_project_id]), self._draft_lock:
             from .storage import copy_package
             self._get("project", target_project_id)
             source = self.package(source_package_id)
@@ -345,13 +444,14 @@ class Workbench:
 
     def export_package(self, package_id):
         """Materialize a closed ZIP; the caller owns removal after delivery."""
-        with self._project_operation([self._get("package", package_id)["project_id"]]):
+        with self._project_operation([self.package(package_id).metadata()["project_id"]]), self._draft_lock:
             from .storage import export_package
             return export_package(self.package(package_id), self._work)
 
     def package(self, package_id):
         from .storage import StoredPackage
-        record = self._get("package", package_id)
+        with self._draft_lock:
+            record = self._draft_inputs.get(package_id) or self._get("package", package_id)
         return StoredPackage(record, self._packages / package_id)
 
     def list_packages(self, project_id):
@@ -381,6 +481,8 @@ class Workbench:
             logging.getLogger(__name__).exception("Could not commit failed backend run %s", run_id)
 
     def start(self, project_id):
+        if self._get("project", project_id).get("tutorial"):
+            raise HostError("Save the teaching example as your own project first")
         from threading import Thread
         from .execution import create_run, execute
         leases = ExitStack()
@@ -421,6 +523,7 @@ class Workbench:
         if result["status"] != "running":
             marker.unlink(missing_ok=True)
         return result
+
 
     def get_run(self, run_id):
         run = self._get("run", run_id)
