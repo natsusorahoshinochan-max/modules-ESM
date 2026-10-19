@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from protein_workbench_public.bootstrap import create_application
 with tempfile.TemporaryDirectory() as directory:
     with TestClient(create_application(data_root=Path(directory))) as client:
-        response = client.get('/api/modules/workbench.structure_comparison/ui.js')
+        record = next(item for item in client.get('/api/modules').json() if item['id'] == 'workbench.structure_comparison')
+        response = client.get(record['ui_url'])
         response.raise_for_status()
         print(response.text, end='')
 `], { cwd: new URL('../../', import.meta.url), encoding: 'utf8' })

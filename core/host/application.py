@@ -10,11 +10,16 @@ import sqlite3
 import shutil
 import tempfile
 from uuid import uuid4
+from urllib.parse import quote, urlencode
 from threading import RLock
 
 
 class HostError(ValueError):
     """An operation could not be completed; its message identifies the cause."""
+
+    def __init__(self, message, *, status_code=400):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _json_text(value):
@@ -134,53 +139,62 @@ class Workbench:
         data = _json_text(record)
         connection.execute("INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data", (kind, record["id"], data))
 
+    def _module_snapshot(self):
+        """Caller holds the module lock; read and load each declaration once."""
+        from .registry import load
+        records, loaded = self._records("module"), []
+        paths = [record["package_path"] for record in records if record.get("package_path")]
+        for record in records:
+            try:
+                declaration = load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
+                record["available"] = True
+                if record["enabled"]:
+                    loaded.append((record, declaration))
+            except HostError as exc:
+                record.update(available=False, load_error=str(exc))
+            record["ui_url"] = (f"/api/modules/{quote(record['id'], safe='')}/ui.js?" + urlencode({"installation_id": record["installation_id"]})) if record["enabled"] and record["available"] and record["ui"] else None
+        return records, loaded
+
     def _modules(self):
-        from .registry import load_record
-        loaded = []
-        for record in self._records("module"):
-            if record["enabled"]:
-                try:
-                    loaded.append((record, load_record(record)))
-                except HostError:
-                    continue
-        return loaded
+        from .module_packages import module_lock
+        with module_lock(self):
+            return self._module_snapshot()[1]
 
     def install(self, entry_point):
-        from .module_packages import mutation_lock
-        with mutation_lock(self):
+        from .module_packages import module_lock
+        with module_lock(self):
             return self._install(entry_point)
 
     def _install(self, entry_point, *, package_path=None):
-        from .registry import load, load_record
-        module = load(entry_point)
-        for record in self._records("module"):
+        from .registry import load
+        paths = [record["package_path"] for record in self._records("module") if record.get("package_path")]
+        module = load(entry_point, package_path=package_path, installed_paths=paths)
+        records, loaded = self._module_snapshot()
+        for record in records:
             if record["id"] == module.id:
-                if record["entry_point"] != entry_point:
+                if package_path or record["entry_point"] != entry_point:
                     raise HostError(f"Duplicate module identity: {module.id}")
                 return record
-        existing = set()
-        existing_tools = set()
-        for installed in self._records("module"):
-            try:
-                installed_module = load_record(installed)
-                existing.update(node.id for node in installed_module.nodes)
-                existing_tools.update(tool.id for tool in installed_module.tools)
-            except HostError:
-                continue
+        # Disabled declarations still reserve node and tool identities.
+        for record in records:
+            if record["available"] and not record["enabled"]:
+                loaded.append((record, load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)))
+        existing = {node.id for _, declaration in loaded for node in declaration.nodes}
+        existing_tools = {tool.id for _, declaration in loaded for tool in declaration.tools}
         for node in module.nodes:
             if node.id in existing:
                 raise HostError(f"Duplicate node identity: {node.id}")
         if any(tool.id in existing_tools for tool in module.tools):
             raise HostError("Duplicate tool identity")
-        return self._put("module", {**({"package_path": str(package_path)} if package_path else {}), "id": module.id, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
+        return self._put("module", {**({"package_path": str(package_path)} if package_path else {}), "id": module.id, "installation_id": uuid4().hex, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
 
     def install_package(self, wheel, entry_point):
         from .module_packages import install
         return install(self, wheel, entry_point)
 
     def configure(self, module_id, settings):
-        from .module_packages import mutation_lock
-        with mutation_lock(self):
+        from .module_packages import module_lock
+        with module_lock(self):
             if not isinstance(settings, dict):
                 raise HostError("Module settings must be an object")
             record = self._get("module", module_id)
@@ -188,52 +202,51 @@ class Workbench:
             return self._put("module", record)
 
     def list_modules(self):
-        from .registry import load_record
-        records = self._records("module")
-        for record in records:
-            try:
-                load_record(record)
-                record["available"] = True
-            except HostError as exc:
-                record.update(available=False, load_error=str(exc))
-        return records
+        from .module_packages import module_lock
+        with module_lock(self):
+            return self._module_snapshot()[0]
 
     def enable(self, module_id, enabled):
-        from .module_packages import mutation_lock
-        with mutation_lock(self):
+        from .module_packages import module_lock
+        with module_lock(self):
             record = self._get("module", module_id)
             if enabled:
-                from .registry import load_record
-                load_record(record)
+                from .registry import load
+                paths = [item["package_path"] for item in self._records("module") if item.get("package_path")]
+                load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
             record["enabled"] = bool(enabled)
             return self._put("module", record)
 
     def uninstall(self, module_id):
-        from .module_packages import mutation_lock
-        with mutation_lock(self):
+        from .module_packages import module_lock, discard
+        with module_lock(self):
             record = self._get("module", module_id)
             with self._connect() as connection:
                 connection.execute("DELETE FROM records WHERE kind='module' AND id=?", (module_id,))
             if record.get("package_path"):
-                from .module_packages import remove
-                remove(record["package_path"])
+                discard(record["package_path"])
 
-    def ui_entry(self, module_id):
-        record = self._get("module", module_id)
-        if not record["enabled"] or not record["ui"]:
-            raise HostError(f"Module has no enabled UI entry: {module_id}")
-        from .registry import load_record
-        declaration = load_record(record)
-        if not declaration.ui:
-            raise HostError(f"Module has no UI entry: {module_id}")
-        path = Path(declaration.ui)
-        if not path.is_file():
-            raise HostError(f"Missing module UI entry: {path}")
-        return path
+    def open_module_ui(self, module_id, installation_id):
+        from .module_packages import module_lock
+        from .registry import load
+        with module_lock(self):
+            record = self._get("module", module_id)
+            if record["installation_id"] != installation_id:
+                raise HostError("Module installation changed; refresh the module catalog", status_code=409)
+            if not record["enabled"] or not record["ui"]:
+                raise HostError(f"Module has no enabled UI entry: {module_id}")
+            paths = [item["package_path"] for item in self._records("module") if item.get("package_path")]
+            declaration = load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
+            if not declaration.ui:
+                raise HostError(f"Module has no UI entry: {module_id}")
+            return Path(declaration.ui).open("rb")
 
     def catalog(self):
+        from .module_packages import module_lock
         from .registry import node_record, tool_record
-        return {"nodes": [node_record(module, node) for _, module in self._modules() for node in module.nodes], "modules": self.list_modules(), "tools": [tool_record(module, tool) for _, module in self._modules() for tool in module.tools]}
+        with module_lock(self):
+            records, loaded = self._module_snapshot()
+            return {"nodes": [node_record(module, node) for _, module in loaded for node in module.nodes], "modules": records, "tools": [tool_record(module, tool) for _, module in loaded for tool in module.tools]}
 
     def create_project(self, name):
         return self._put("project", {"id": uuid4().hex, "name": name, "flow": {"nodes": [], "edges": []}, "layout": {}})
