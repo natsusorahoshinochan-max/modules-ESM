@@ -6,7 +6,7 @@ import secrets
 from shutil import copyfileobj
 from uuid import uuid4
 
-from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort, ToolSlot
+from protein_workbench_public.module_api import Delivery, InputPort, Interaction, Module, Node, Outcome, OutputPort, ToolSlot
 from modules.proteinmpnn.contract import MPNNRequest, MPNNResult
 from modules.structure_io import parse
 from .formats import actual_position, mapped_sequences, validate_samples
@@ -111,8 +111,11 @@ def execute(call, runtime):
 
 
 def module():
+    from .interaction import inspect
     return Module('workbench.sequence_backbone_evaluation', 'Independent sequence/backbone evaluation', nodes=(Node(
         'workbench.evaluate_sequence_backbone', 'Evaluate sequence against backbone', execute,
         inputs={'sequences': InputPort(SEQUENCES), 'reference': InputPort(REFERENCES)}, outputs={'evaluation': OutputPort(FORMAT)},
         parameters={'reference': {'description': 'Explicit reference object'}, 'bindings': {'description': 'Complete sequence-to-reference chain residue mapping'}, 'region': {'description': 'Optional actual reference residue selection'}},
-        tools={'mpnn': ToolSlot('workbench.proteinmpnn.call', 'ProteinMPNN sequence scoring')}),), ui=str(Path(__file__).with_name('ui.js').resolve()))
+        tools={'mpnn': ToolSlot('workbench.proteinmpnn.call', 'ProteinMPNN sequence scoring')}),), ui=str(Path(__file__).with_name('ui.js').resolve()),
+        interactions=(Interaction('workbench.sequence_backbone.inspect', inspect,
+            inputs={'sequences': InputPort(SEQUENCES), 'reference': InputPort(REFERENCES)}),))

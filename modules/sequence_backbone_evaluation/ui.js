@@ -9,7 +9,7 @@ export function register({ React }) {
     const epoch = React.useRef(0), current = React.useRef('');
     const inputs = Object.fromEntries(['sequences', 'reference'].map(port => [port, (context.inputs[port]?.packages || []).map(p => p.id)]));
     const signature = JSON.stringify([context.projectId, context.nodeId, inputs]);
-    current.current = JSON.stringify([signature, parameters]);
+    current.current = JSON.stringify([signature, context.revision, parameters]);
     React.useEffect(() => { epoch.current++; setData(null); setError(''); setBusy(false); return () => { epoch.current++; }; }, [signature]);
     function change(value) { epoch.current++; setBusy(false); onChange(value); }
     async function inspect() {

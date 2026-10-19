@@ -48,3 +48,20 @@ test('viewer shows independent method, all mask values and source sequences with
     assert.equal(container.textContent.includes('private-seq'), false);
   } finally { await React.act(async () => root.unmount()); container.remove(); }
 });
+
+test('a late inspect response from an earlier editor revision is released without replacing current selection', async () => {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container), released = [];
+  let resolve;
+  const response = new Promise(done => { resolve = done; });
+  const context = { projectId: 'p', nodeId: 'n', revision: 1, inputs: { sequences: { packages: [{ id: 's' }] }, reference: { packages: [{ id: 'r' }] } }, host: { preview: async () => response, cancelPreview: async id => released.push(id) } };
+  const props = { parameters: {}, onChange() {}, readOnly: false };
+  try {
+    await React.act(async () => root.render(React.createElement(extensions.editors[0].component, { ...props, context })));
+    await React.act(async () => container.querySelector('button').click());
+    await React.act(async () => root.render(React.createElement(extensions.editors[0].component, { ...props, context: { ...context, revision: 2 } })));
+    await React.act(async () => resolve({ id: 'old-inspect', data: { sequences: [], references: [] }, outputs: [] }));
+    assert.equal(Boolean(container.querySelector('[aria-label="Reference structure"]')), false);
+    assert.deepEqual(released, ['old-inspect']);
+  } finally { await React.act(async () => root.unmount()); container.remove(); }
+});
