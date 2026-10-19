@@ -5,15 +5,10 @@ from __future__ import annotations
 from core.catalog.preview import ValuePreviewDefinition
 from .authoring_preview import describe_prompt
 
-from core.catalog.ui import ModuleUiDefinition, ResultViewerDefinition
-from core.catalog.result_reading import ResultReaderDefinition
-from .published_reading import read_representation
-
 from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
 
-from core.catalog.adopted_sources import with_adopted_sources
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
@@ -45,16 +40,6 @@ from .adapter import (
     BiohubESM3Adapter,
 )
 from .implementation import ESM3GenerationOperation
-from .esmc_implementation import ESMCRepresentationOperation
-from .domain import (
-    ESMC_MEAN_EMBEDDING_DIMENSION,
-    ESMC_SEQUENCE_LOGITS_DIMENSION,
-)
-from .esmc_adapter import (
-    BIOHUB_ESMC_MODEL,
-    BiohubESMCAdapter,
-)
-from . import port_types as _port_types
 from .local_adapter import (
     LOCAL_ESM3_MODEL,
     LOCAL_ESM3_LSH_TABLE_PATH,
@@ -103,120 +88,6 @@ _BIOHUB_ENVIRONMENT_FIELDS = (
 _LOCAL_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
 )
-
-
-def _build_esmc(context: OperationContext) -> ESMCRepresentationOperation:
-    return ESMCRepresentationOperation(
-        BiohubESMCAdapter(
-            environment=context.environment,
-            resources=context.resources,
-            model_name=BIOHUB_ESMC_MODEL,
-        )
-    )
-
-
-def _esmc_method() -> MethodDefinition:
-    return MethodDefinition(
-        method_id="esm3.represent_sequence.esmc_600m_2024_12",
-        algorithm_identity={
-            "name": "ESMC masked-language-model sequence representation",
-            "provider_operations": ("encode", "logits"),
-            "logits_request": {
-                "selection": "outputs: embedding, logits, or both",
-            },
-            "published_value": (
-                "Requested provider mean embedding and/or actual residue logits"
-            ),
-        },
-        model_identity={
-            "model": BIOHUB_ESMC_MODEL,
-            "source": "Biohub",
-            "scale": "600M",
-            "release": "2024-12",
-        },
-        featurization_identity={
-            "input": "ESMProtein complete sequence",
-            "tokenization": "Biohub ESMC encode endpoint",
-            "residue_axis": "input order preserved",
-        },
-        scale_contract={
-            "mean_embedding": {
-                "storage": "provider_normalized_binary32",
-                "dimension": ESMC_MEAN_EMBEDDING_DIMENSION,
-            },
-            "sequence_logits": {
-                "storage": "actual_values",
-                "shape": "L_by_64",
-                "axis": "input_residues_without_CLS_EOS",
-                "model_head_class_width": ESMC_SEQUENCE_LOGITS_DIMENSION,
-            },
-        },
-    )
-
-
-def _esmc_binding() -> ExecutionBindingDefinition:
-    return ExecutionBindingDefinition(
-        binding_id=(
-            "esm3.represent_sequence.biohub_esmc_600m_2024_12"
-        ),
-        node_type=ExactContractReference(
-            "node_type",
-            "esm3.represent_sequence",
-        ),
-        method=ExactContractReference(
-            "method",
-            "esm3.represent_sequence.esmc_600m_2024_12",
-        ),
-        binding_parameters={},
-        environment_fields=_BIOHUB_ENVIRONMENT_FIELDS,
-        execution_route="adapter",
-        factory=ScientificOperationFactory(
-            behavior=BehaviorReference(
-                "esm3.represent_sequence/factory",
-                {
-                    "route": "biohub",
-                    "model": BIOHUB_ESMC_MODEL,
-                    "engine_identity": "stable_method_id",
-                },
-            ),
-            build=_build_esmc,
-        ),
-        adapter_behavior=BehaviorReference(
-            "esm3.biohub_esmc/adapter",
-            {
-                "provider_contract": "esm-sdk-encode+logits",
-                "output_contract": "optional-mean-embedding-1152+actual-logits-Lx64",
-                "engine_identity": "stable_method_id",
-            },
-        ),
-        availability=AvailabilityDeclaration(
-            behavior=BehaviorReference(
-                "esm3.biohub_esmc/availability",
-                {"observation": "startup"},
-            ),
-            prerequisites={"provider_sdk": {"name": "esm"}},
-            check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                "esm3.biohub_esmc/readiness",
-                {
-                    "observation": "cache-miss",
-                    "cache_order": "before-provider-entry",
-                    "secret_retention": "none",
-                },
-            ),
-            prerequisites={
-                "credential": {
-                    "source": "trusted_environment_configuration",
-                },
-                "provider_sdk": {"name": "esm"},
-            },
-            check=_ready,
-        ),
-        deterministic=True,
-        cacheable=True,
-    )
 
 
 def _available() -> AvailabilityResult:
@@ -670,38 +541,21 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     value_previews=(ValuePreviewDefinition("esm3.conditioning", "protein.prompt", "ESM3 有效工具条件", describe_prompt),),
-    result_readers=(ResultReaderDefinition("esm3.esmc_sequence_representation", "esmc_representation", read_representation),),
-    ui_extensions=(ModuleUiDefinition(
-        extension_id="esm3.esmc.viewers", resource_package=__package__,
-        entry="ui/build/viewers.js", styles=(), react_major=19, editors=(),
-        viewers=(ResultViewerDefinition("esm3.esmc.values", "ESMC 数值", "esm3.esmc_sequence_representation", "ESMCValues", True),),
-    ),),
     package_id="esm3",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/generate_sequence.yaml"),
         DefinitionResource("definitions/generate_structure.yaml"),
         DefinitionResource("definitions/generate_paired.yaml"),
-        DefinitionResource("definitions/represent_sequence.yaml"),
     ),
     methods=tuple(
         _method(operation, model)
         for model in _MODELS
         for operation in _OPERATIONS
-    ) + tuple(_local_method(operation) for operation in _OPERATIONS) + (
-        _esmc_method(),
-    ),
+    ) + tuple(_local_method(operation) for operation in _OPERATIONS),
     bindings=tuple(
         _binding(operation, model)
         for model in _MODELS
         for operation in _OPERATIONS
-    ) + tuple(_local_binding(operation) for operation in _OPERATIONS) + (
-        _esmc_binding(),
-    ),
-    port_types=(_port_types.ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE,),
+    ) + tuple(_local_binding(operation) for operation in _OPERATIONS),
 )
-
-
-MODULE_PACKAGE = with_adopted_sources(MODULE_PACKAGE, (
-    ("adopt_representation", "esm3.esmc_sequence_representation"),
-))

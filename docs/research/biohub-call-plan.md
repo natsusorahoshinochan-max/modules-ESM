@@ -60,15 +60,15 @@ FAST 模型在 SDK 中明确警告会忽略 MSA；full 模型才适合需要使�
 
 补充能力差异：固定 SDK 两种折叠请求均拒绝 `include_distogram=true`，现有 [折叠 Adapter](../../modules/folding/adapters.py)已拒绝该参数；all-atom SDK 未传 `include_pair_chains_iptm`，其响应 processor 也未交付 pair-chain 字段。这些差异记录为接口边界，当前资源条件无需新增直接 HTTP 或重试层。依据：[fold_all_atom 快照](../biohub-api-reference/v1/endpoints/fold_all_atom.md)、[SDK 请求与响应处理](../../repositories/esm/esm/sdk/forge.py)。
 
-## 当前入口与待办验证工作
+## 调用入口与验证范围
 
 | 对象 | 已有代码与当前任务 |
 | --- | --- |
 | ESMFold2 远端实跑 | [adapters.py](../../modules/folding/adapters.py)已有 `create_remote`，使用 `esmfold2_client` 与 `FoldingConfig`，工具 ID 为 `workbench.esmfold2.remote`；[verify.py](../../modules/folding/verify.py)已经覆盖公开工具选择、上传、推理、交付、存储及独立结构解析。当前测试配置在此入口选择远端，复用 [#146 的有效远端验证记录](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/146#issuecomment-6273735354)，不再将本地模型实跑列为该任务在本机完成的门槛。命令与配置字段维护在 [TOOL.md](../../modules/folding/TOOL.md)。 |
 | ESMFold2 本地契约 | 同一 [adapters.py](../../modules/folding/adapters.py)的 `create_local`、`LOCAL_DEFAULTS` 与 `workbench.esmfold2.local` 继续存在，[local_worker.py](../../modules/folding/local_worker.py)负责实际加载。本机隔离加载边界，验证本地参数、seed=0、worker 生命周期与结果交付；有资源机器再进行联合模型实跑。 |
-| ESMC 表征 [#164](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/164) | 现有 [esmc_adapter.py](../../modules/esm3/esmc_adapter.py)的远端实现由 [package.py](../../modules/esm3/package.py)登记为600M，含 `mean_embedding[0, 0]` 与 `sequence_logits[1:-1]` 的固定形状假设，尚不能直接视为6B接口验收。该任务按现行模块边界完成本地与 Biohub 两条路径、所有调用方及结果文件交付；本机6B实跑配置选择 `esmc-6b-2024-12`，本地加载替身用于契约检查，其他尺寸按其实际配置运行。 |
+| ESMC 表征 | [adapters.py](../../modules/esmc/adapters.py)通过原生 HF 模型或固定 Biohub SDK 取得实际数值；[公共模块](../../modules/esmc/__init__.py)交付数值文件及 token/来源位置、实际列映射。配置、独立本地和远端均值语义及验证命令见 [TOOL.md](../../modules/esmc/TOOL.md)，文件格式见 [FORMAT.md](../../modules/esmc/FORMAT.md)。6B 本机验证选择 `esmc-6b-2024-12`。 |
 
-表征任务的本地与 Biohub 契约验证共同覆盖真实 token/残基和输出列对应、可选 embedding / logits、实际数值保存、Provider 错误与资源释放；两条路径分别验证各自均值方法，不做跨后端数值等同断言。真实远端记录包括所选工具、模型、请求参数与可读取输出；本地实跑状态和后续补充范围按 [统一验证分工](../local-models.md#资源受限机器的验证范围)记录。这里列出的是待办技术检查，现有代码仅用于确定改动入口，不作为需求来源。
+表征任务的本地与 Biohub 契约验证共同覆盖真实 token/残基和输出列对应、可选 embedding / logits、实际数值保存、Provider 错误与资源释放；两条路径分别验证各自均值方法，不做跨后端数值等同断言。真实远端记录包括所选工具、模型、请求参数与可读取输出；本地实跑状态和后续补充范围按 [统一验证分工](../local-models.md#资源受限机器的验证范围)记录。
 
 ## 规划落点与执行顺序
 
