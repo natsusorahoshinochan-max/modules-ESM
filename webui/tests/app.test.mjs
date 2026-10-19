@@ -26,7 +26,7 @@ const hooks = registerHooks({
   },
 })
 const originalFetch = globalThis.fetch
-let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate, adoptionGate, deleteGate, adoptionFailure
+let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate, adoptionGate, deleteGate, adoptionFailure, discardedDraftInputs
 const clone = value => structuredClone(value)
 const node = (id, type = 'test.one') => ({ id, type, parameters: {}, inputs: {} })
 function deferred() {
@@ -42,20 +42,28 @@ beforeEach(async () => {
     { id: 'b', name: 'Project B', flow: { nodes: [], edges: [] }, layout: {} },
   ]
   window.confirm = () => true
+  discardedDraftInputs = [];
   adoptionGate = null; deleteGate = null; adoptionFailure = null
   pendingSave = null; uploadGate = null; savedFlows = []; runRequests = []; projectGate = null; runGate = null
-  packages = { a: [], b: [{ id: 'b-package', project_id: 'b', format: 'other', entry: 'data', files: ['data'] }] }
+  packages = { tutorial: [], a: [], b: [{ id: 'b-package', project_id: 'b', format: 'other', entry: 'data', files: ['data'] }] }
   globalThis.fetch = async (url, options = {}) => {
     const path = String(url)
     let result
-    if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }] }
+    if (path.startsWith('/api/draft-inputs/')) { discardedDraftInputs.push(path.split('/').at(-1)); result = {} }
+    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }] }
+    else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
     else {
       const [, id, suffix = ''] = path.match(/^\/api\/projects\/([^/]+)(.*)$/) ?? []
-      const record = records.find(item => item.id === id)
+      const record = id === 'tutorial' ? { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} } : records.find(item => item.id === id)
       assert.ok(record, `Unexpected request ${path}`)
-      if (suffix === '/adoptions') {
+      if (suffix === '/copies') {
+        if (pendingSave) await pendingSave.promise
+        const body = JSON.parse(options.body)
+        result = { id: 'copied', name: body.name, flow: body.flow ?? clone(record.flow), layout: body.layout ?? clone(record.layout) }
+        records.push(clone(result)); packages.copied = []
+      } else if (suffix === '/adoptions') {
         if (adoptionGate) await adoptionGate.promise
         if (adoptionFailure) return Response.json({ detail: adoptionFailure }, { status: 409 })
         const source = Object.values(packages).flat().find(item => item.id === JSON.parse(options.body).package_id)
@@ -79,7 +87,7 @@ beforeEach(async () => {
       else if (suffix.startsWith('/uploads/upload/files')) { if (uploadGate) await uploadGate.promise; result = { key: 'data' } }
       else if (suffix === '/uploads/upload/commit') {
         result = { id: 'a-input', project_id: id, format: 'test.format', entry: 'data', files: ['data'] }
-        packages[id].push(result)
+        if (id !== 'tutorial') packages[id].push(result)
       } else assert.fail(`Unexpected request ${path}`)
     }
     return Response.json(clone(result))
@@ -470,7 +478,8 @@ test('a chosen wheel is uploaded with its entry and module controls refresh the 
     }
     if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json(module) }
     if (path === '/api/modules/test.actions' && options.method === 'DELETE') { installed = false; return Response.json({}) }
-    if (path === '/api/catalog') return Response.json({ nodes: installed && enabled ? [declaration('test.one')] : [], modules: installed ? [{ ...module, enabled }] : [] })
+    if (path.startsWith('/api/draft-inputs/')) { discardedDraftInputs.push(path.split('/').at(-1)); result = {} }
+    else if (path === '/api/catalog') return Response.json({ nodes: installed && enabled ? [declaration('test.one')] : [], modules: installed ? [{ ...module, enabled }] : [] })
     return previousFetch(url, options)
   }
   await addNode()
@@ -702,4 +711,92 @@ test('discarding invalid JSON and reopening the same project restores its saved 
   await click('Save project')
   assert.equal(container.querySelector('[role=alert]')?.textContent, undefined)
   assert.deepEqual(savedFlows[1].flow.nodes[0].parameters, {})
+})
+
+
+test('teaching edits stay in memory until first manual save creates a user project', async () => {
+  await click('Teaching example')
+  assert.equal(title(), 'Teaching example')
+  await addNode()
+  assert.equal(title(), 'Teaching example · unsaved')
+  assert.equal(records.length, 2)
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(nodeCount(), 2)
+  assert.equal(records.find(item => item.id === 'copied').flow.nodes.length, 2)
+  await click('Teaching example')
+  assert.equal(nodeCount(), 1)
+})
+
+test('failed teaching first save preserves its draft and never reports completion', async () => {
+  await click('Teaching example')
+  await addNode()
+  pendingSave = deferred()
+  await click('Save project')
+  await act(async () => pendingSave.reject(new Error('commit refused')))
+  assert.equal(title(), 'Teaching example · unsaved')
+  assert.equal(nodeCount(), 2)
+  assert.match(container.querySelector('[role=alert]').textContent, /commit refused/)
+  assert.equal(container.querySelector('[role=status]'), null)
+  assert.equal(records.length, 2)
+})
+
+
+test('an untouched teaching example saves a user project before starting its run', async () => {
+  await click('Teaching example')
+  assert.equal(title(), 'Teaching example')
+  await click('Save and run')
+  assert.deepEqual(runRequests, ['copied'])
+  assert.equal(title(), 'Research project')
+})
+
+test('copy opens a new unrun project with the current flow and layout draft', async () => {
+  await addNode()
+  await click('Copy project')
+  assert.equal(title(), 'Research project')
+  assert.equal(nodeCount(), 1)
+  assert.equal(records.find(item => item.id === 'a').flow.nodes.length, 0)
+  assert.deepEqual(runRequests, [])
+})
+
+
+test('teaching file edits remain available in the draft and are released when discarded', async () => {
+  await click('Teaching example')
+  await click('Upload and add node')
+  assert.equal(title(), 'Teaching example · unsaved')
+  assert.equal(nodeCount(), 2)
+  assert.equal(records.length, 2)
+  assert.deepEqual(discardedDraftInputs, [])
+  await click('Project A')
+  assert.deepEqual(discardedDraftInputs, ['a-input'])
+})
+
+test('leaving the page releases teaching draft inputs after native leave confirmation', async () => {
+  await click('Teaching example')
+  await click('Upload and add node')
+  await act(async () => window.dispatchEvent(new window.Event('pagehide')))
+  assert.deepEqual(discardedDraftInputs, ['a-input'])
+})
+
+
+test('a copy failure after switching projects cannot overwrite the current editor notice', async () => {
+  await addNode()
+  pendingSave = deferred()
+  await click('Copy project')
+  await click('Project B')
+  await act(async () => pendingSave.reject(new Error('copy commit refused')))
+  assert.equal(title(), 'Project B')
+  assert.equal(Boolean(container.querySelector('[role=alert]')), false)
+})
+
+
+test('application startup opens the editable teaching example by default', async () => {
+  await act(async () => root.unmount())
+  root = createRoot(container)
+  await act(async () => root.render(createElement(App)))
+  assert.equal(title(), 'Teaching example')
+  assert.equal(nodeCount(), 1)
+  await addNode()
+  assert.equal(title(), 'Teaching example · unsaved')
+  assert.equal(records.length, 2)
 })
