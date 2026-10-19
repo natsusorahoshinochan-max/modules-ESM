@@ -155,7 +155,13 @@ def edit(call, runtime):
         raise ValueError('Edit cancelled')
     path = runtime.workdir / 'edited.json'
     path.write_text(json.dumps(document, ensure_ascii=False, allow_nan=False))
-    return InteractionResult({'document': document}, {'edited': Delivery(FORMAT, 'edited.json', {'edited.json': 'edited.json'})})
+    from .structure_conditions import preserve_files
+    files = preserve_files(document, call, runtime)
+    files['edited.json'] = 'edited.json'
+    display = ({'document_file': 'edited.json', 'position_count': len(document['positions'])}
+               if document.get('structures') or any(row['coordinates'] is not None for row in document['positions'])
+               else {'document': document})
+    return InteractionResult(display, {'edited': Delivery(FORMAT, 'edited.json', files)})
 
 
 def execute(call, runtime):
@@ -164,9 +170,12 @@ def execute(call, runtime):
 
 
 def module():
-    inputs = {'source': InputPort(('workbench.sequence', FORMAT), required=False)}
+    from .structure_conditions import interaction
+    inputs = {'source': InputPort(('workbench.sequence', FORMAT), required=False),
+              'structures': InputPort(('workbench.structure_set', 'workbench.prediction'), required=False)}
     return Module(id='workbench.sequence_edit', name='Sequence and condition editing',
                   ui=str(Path(__file__).with_name('ui.js')),
                   nodes=(Node('workbench.edit_sequence', 'Edit sequence and conditions', execute,
                               inputs=inputs, outputs={'edited': OutputPort(FORMAT)}),),
-                  interactions=(Interaction('workbench.sequence_edit', edit, inputs),))
+                  interactions=(Interaction('workbench.sequence_edit', edit, inputs),
+                                Interaction('workbench.sequence_structure', interaction, inputs)))

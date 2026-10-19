@@ -131,6 +131,21 @@ def create_http_app(host: Workbench) -> FastAPI:
     def execute_interaction(token: str):
         return host.interactions.execute(token)
 
+    @app.get('/api/interactions/{token}/file')
+    def interaction_file(token: str, output: str, key: str):
+        lease = host.interactions.open_file(token, output, key)
+        stream = lease.__enter__()
+        def chunks():
+            while chunk := stream.read(1024 * 1024):
+                yield chunk
+        class TemporaryResponse(StreamingResponse):
+            async def __call__(self, scope, receive, send):
+                try:
+                    await super().__call__(scope, receive, send)
+                finally:
+                    lease.__exit__(None, None, None)
+        return TemporaryResponse(chunks(), media_type='application/octet-stream')
+
     @app.post('/api/interactions/{token}/accept')
     def accept_interaction(token: str, body: InteractionAccept):
         return host.interactions.accept(token, body.output)

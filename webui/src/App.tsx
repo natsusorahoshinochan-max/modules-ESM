@@ -448,6 +448,7 @@ export default function App() {
         } finally { options?.signal?.removeEventListener('abort', cancel) }
       },
       async cancelPreview(id) { temporaryInteractions.current.delete(id); await client.cancelInteraction(id) },
+      readPreviewFile: client.readPreviewFile,
       readFile: client.readFile,
     }
   }, [project, locked, catalog])
@@ -584,7 +585,7 @@ export default function App() {
             const editorSession = projectSession.current
             return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
-              {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={parameters => {
+              {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
                 try {
                   if (editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || !currentProject.current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
                   updateNode(node.id, {parameters})
