@@ -227,8 +227,15 @@ def create_http_app(host: Workbench) -> FastAPI:
             if set(body.files) != set(upload.files) or any(body.files[key] != key for key in body.files):
                 raise HostError('Declare each uploaded logical file key exactly once, mapping the key to itself')
             uploads.pop(upload_id)
-        receive = host.create_draft_input if host.get_project(project_id).get("tutorial") else host.create_input
-        return receive(project_id, Delivery(body.format, body.entry, upload.files), upload.workdir)
+        transferred = False
+        try:
+            receive = host.create_draft_input if host.get_project(project_id).get("tutorial") else host.create_input
+            # Both receivers take ownership and release the workdir in their finally.
+            transferred = True
+            return receive(project_id, Delivery(body.format, body.entry, upload.files), upload.workdir)
+        finally:
+            if not transferred:
+                host.discard_workdir(upload.workdir)
 
     @app.delete('/api/projects/{project_id}/uploads/{upload_id}')
     def discard_upload(project_id: str, upload_id: str):

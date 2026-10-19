@@ -26,6 +26,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const currentProject = useRef<Project | null>(null)
+  const liveProject = useRef(true)
   const projectSession = useRef(0)
   const opening = useRef(0)
   const runningNow = useRef(false)
@@ -42,6 +43,11 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [projectName, setProjectName] = useState('Research project')
   const draftInputs = useRef<PackageInfo[]>([])
+  const pendingInputTransfers = useRef(new Set<{ session: number }>())
+  const [inputTransfers, setInputTransfers] = useState(0)
+  function ensureInputsTransferred(current: Project) {
+    if (current.tutorial && [...pendingInputTransfers.current].some(transfer => transfer.session === projectSession.current)) throw new Error('Wait for teaching input transfers to finish before saving')
+  }
   async function discardDraftInputs() {
     const inputs = draftInputs.current; draftInputs.current = []
     await Promise.all(inputs.map(input => client.discardDraftInput(input.id).catch(fail)))
@@ -53,10 +59,12 @@ export default function App() {
   const [adopting, setAdopting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const deletingProject = useRef('')
-  const locked = running || (deleting && deletingProject.current === project?.id)
+  const projectBusy = running || (deleting && deletingProject.current === project?.id)
+  const locked = projectBusy || (saving && !!project?.tutorial)
+  const waitingForTeachingInputs = !!project?.tutorial && inputTransfers > 0
   const [runs, setRuns] = useState<Run[]>([])
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
-  const fail = (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure))
+  const fail = (failure: unknown) => { if (liveProject.current) setError(failure instanceof Error ? failure.message : String(failure)) }
   async function refresh() {
     const next = await client.catalog(); setCatalog(next)
     try { setExtensions(await loadExtensions(next.modules)) } catch (failure) { setExtensions({}); fail(failure) }
@@ -64,33 +72,44 @@ export default function App() {
   }
   useEffect(() => { refresh().then(() => openTutorial(true)).catch(fail) }, [])
   useEffect(() => {
+    liveProject.current = true
+    function dispose() {
+      if (!liveProject.current) return
+      liveProject.current = false; projectSession.current += 1; opening.current += 1; currentProject.current = null
+      void discardDraftInputs()
+    }
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyNow.current) { event.preventDefault(); event.returnValue = '' } }
-    const pageHide = (event: PageTransitionEvent) => { if (!event.persisted) void discardDraftInputs() }
+    const pageHide = (event: PageTransitionEvent) => { if (!event.persisted) dispose() }
     window.addEventListener('beforeunload', beforeUnload)
     window.addEventListener('pagehide', pageHide)
-    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('pagehide', pageHide); void discardDraftInputs() }
+    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('pagehide', pageHide); dispose() }
   }, [])
   function change(update: (current: Project) => Project) {
+    if (!liveProject.current) throw new Error('Project changed; start the operation again')
+    if (savingNow.current && currentProject.current?.tutorial) throw new Error('Teaching draft is saving; wait for the user project')
     if (runningNow.current || deletingProject.current === currentProject.current?.id) throw new Error('Project is running or being deleted')
     if (!currentProject.current) throw new Error('Open a project first')
     currentProject.current = update(currentProject.current)
     setProject(currentProject.current); markDirty(true); setNotice('')
   }
   async function openTutorial(automatic = false) {
+    if (!liveProject.current) return
     const request = opening.current
     const example = await client.tutorial()
+    if (!liveProject.current) return
     if (automatic && (request !== opening.current || currentProject.current)) return
     await open(example.id)
   }
   async function open(id: string, approvedRevision?: number) {
+    if (!liveProject.current) return
     if (runningNow.current || (dirtyNow.current && draftRevision.current !== approvedRevision && !window.confirm('Discard unsaved changes and open this project?'))) return
     const leavingRevision = draftRevision.current
     const request = ++opening.current
     const [next, files, history] = await Promise.all([client.project(id), client.packages(id), client.runs(id)])
-    if (request !== opening.current) return
+    if (!liveProject.current || request !== opening.current) return
     if (dirtyNow.current && draftRevision.current !== leavingRevision && !window.confirm('Discard unsaved changes and open this project?')) return
     void discardDraftInputs()
-    projectSession.current += 1; currentProject.current = next; setProject(next); markDirty(false); setNotice('')
+    projectSession.current += 1; setInputTransfers(0); currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
     setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); setError('')
     return true
@@ -107,11 +126,13 @@ export default function App() {
     const snapshot = currentProject.current
     if (!snapshot) throw new Error('Open a project first')
     if (savingNow.current) throw new Error('Project save is already in progress')
+    ensureInputsTransferred(snapshot)
     const session = projectSession.current
     const revision = draftRevision.current
     savingNow.current = true; setSaving(true); setError('')
     try {
       const saved = snapshot.tutorial ? await client.copy(snapshot, projectName) : await client.save(snapshot)
+      if (!liveProject.current) return false
       if (snapshot.tutorial) setProjects(items => [...items, saved])
       if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
       if (snapshot.tutorial) {
@@ -133,11 +154,13 @@ export default function App() {
     const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
     if (invalid) { invalid.reportValidity(); throw new Error('Enter valid parameter JSON before copying') }
     const snapshot = currentProject.current
+    ensureInputsTransferred(snapshot)
     const session = projectSession.current
     const revision = draftRevision.current
     savingNow.current = true; setSaving(true); setError('')
     try {
       const copied = await client.copy(snapshot, projectName)
+      if (!liveProject.current) return
       setProjects(items => [...items, copied])
       if (session !== projectSession.current || draftRevision.current !== revision) return
       if (await open(copied.id, revision)) setNotice('Project copied with independent inputs and no runs')
@@ -228,7 +251,8 @@ export default function App() {
   const host = useMemo<ModuleHost>(() => {
     const origin = projectSession.current
     function activeProject() {
-      if (origin !== projectSession.current) throw new Error('Project changed; start the operation again')
+      if (!liveProject.current || origin !== projectSession.current) throw new Error('Project changed; start the operation again')
+      if (savingNow.current && currentProject.current?.tutorial) throw new Error('Teaching draft is saving; wait for the user project')
       if (!currentProject.current || runningNow.current || deletingProject.current === currentProject.current.id) throw new Error('Open an idle project first')
       return currentProject.current
     }
@@ -236,14 +260,23 @@ export default function App() {
       readOnly: locked || !project,
       async createInput(input) {
         const current = activeProject()
-        const result = await client.createInput(current.id, input)
-        if (current.tutorial) {
-          try { activeProject() } catch (failure) { await client.discardDraftInput(result.id); throw failure }
-          draftInputs.current.push(result)
+        const transfer = current.tutorial ? { session: origin } : null
+        if (transfer) { pendingInputTransfers.current.add(transfer); setInputTransfers(count => count + 1) }
+        try {
+          const result = await client.createInput(current.id, input)
+          if (current.tutorial) {
+            try { activeProject() } catch (failure) { await client.discardDraftInput(result.id); throw failure }
+            draftInputs.current.push(result)
+          }
+          activeProject()
+          const files = await client.packages(current.id)
+          activeProject(); setPackages([...files, ...draftInputs.current]); return result
+        } finally {
+          if (transfer) {
+            pendingInputTransfers.current.delete(transfer)
+            if (origin === projectSession.current) setInputTransfers([...pendingInputTransfers.current].filter(item => item.session === origin).length)
+          }
         }
-        activeProject()
-        const files = await client.packages(current.id)
-        activeProject(); setPackages([...files, ...draftInputs.current]); return result
       },
       async addNode(node) {
         activeProject()
@@ -276,11 +309,11 @@ export default function App() {
   return <div className="workbench"><header><h1>Protein Workbench</h1><span>Public module host</span></header>
     {error && <div role="alert" className="error">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     {notice && <p role="status">{notice}</p>}
-    <aside><h2>Projects</h2><button disabled={locked} onClick={() => openTutorial().catch(fail)}>Teaching example</button><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={locked} onClick={() => createProject().catch(fail)}>Create project</button>
+    <aside><h2>Projects</h2><button disabled={projectBusy} onClick={() => openTutorial().catch(fail)}>Teaching example</button><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={projectBusy} onClick={() => createProject().catch(fail)}>Create project</button>
       <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
       <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} fail={fail} />
     </aside>
-    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button onClick={() => Promise.all(runs.filter(item => item.status === 'running').map(item => client.cancelRun(item.id))).then(() => setNotice('Cancellation requested; waiting for the backend…')).catch(fail)}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
+    <main>{waitingForTeachingInputs && <p role="status">Receiving teaching input files; wait before saving.</p>}<div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button onClick={() => Promise.all(runs.filter(item => item.status === 'running').map(item => client.cancelRun(item.id))).then(() => setNotice('Cancellation requested; waiting for the backend…')).catch(fail)}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
         <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
