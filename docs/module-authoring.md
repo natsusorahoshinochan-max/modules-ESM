@@ -121,4 +121,6 @@ workbench_note_consumer:module
 
 流程节点的 `tools` 按位置名称保存所选实现 ID；`tool_parameters` 按相同位置保存参数字典。载体检查所选实现仍存在且声明相同约定 ID，将可调用对象注入 `Call.tools`，把选择 ID 提供给 `Call.tool_choices`。未安装或已禁用的实现不能执行；保存的选择仍保留。节点通过自己的公开约定解释请求、结果、错误及取消和续算，不枚举实现。
 
+独立结构比较入口为 `modules.structure_comparison:module`；参考输入、结果包和明确复用接口见 [比较格式](../modules/structure_comparison/FORMAT.md)。该消费者直接读取预测格式，查看叠合只需要结果包内的双方完整结构、对齐和全部原子坐标。
+
 完整实例为 `modules.folding:module`：调用约定见 [预测工具插槽](../modules/folding/TOOL.md)，独立数据读取说明与样例见 [预测格式](../modules/folding/FORMAT.md)。

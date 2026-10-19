@@ -59,6 +59,7 @@ examples = [
     "v2/structures/*.pdb",
 ]
 modules = ["**/*.js", "**/*.md", "**/*.json", "**/*.yaml", "**/ui/build/*.js", "**/ui/build/*.css"]
+"modules.structure_comparison" = ["sample/*.pdb", "sample/*.cif"]
 protein_workbench_public = ["module_ui/package.json", "module_ui/index.d.ts"]
 
 [tool.setuptools.exclude-package-data]

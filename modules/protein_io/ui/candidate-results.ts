@@ -2,7 +2,7 @@ import { strToU8 } from 'fflate'
 import type { ComponentReading, StructuralComponent } from './StructureComponents'
 import type { PublishedResults } from '../../../webui/src/published-results'
 import { type PublishedStructure, type PublishedResultValue, type PublishedScientificValue, type JsonObject, type PublicV2Client, type PublishedOutput, type ResultCandidate, type ResultCollectionPage, type ResultLocation, type RunProjection } from '../../../webui/src/protocol/client'
-import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type AlignmentView, type ResultIndex, type ScoreView } from './result-explorer'
+import { buildResultIndex, candidateViewKey, locationKey, referenceKey, type CandidateExportMaterial, type ResultIndex, type ScoreView } from './result-explorer'
 import type { WorkflowCommitSnapshot } from '../../../webui/src/project-workspace'
 import { readComputationParameters } from '../../../webui/src/result-parameters'
 
@@ -26,7 +26,6 @@ type Session = {
   definitionsPending?: Promise<void>
   collections: Map<string, Collection>
   scores: Map<string, ScoreView[]>
-  alignments: Map<string, AlignmentView>
   axes: Map<string, ResultIndex['sequences']>
   loaded: Set<string>
   pending: Map<string, Promise<void>>
@@ -59,7 +58,7 @@ export class CandidateResults {
     if (this.session?.reference.project_id !== run.project_id || this.session?.reference.run_id !== run.run_id) {
       this.session = {
         reference: run, revision: 0,
-        collections: new Map(), scores: new Map(), alignments: new Map(), axes: new Map(),
+        collections: new Map(), scores: new Map(), axes: new Map(),
         loaded: new Set(), pending: new Map(), values: new Map(), structures: new Map(),
       }
     }
@@ -230,7 +229,7 @@ export class CandidateResults {
           source, output, total: total!, title: `${source.node_id} / ${source.output_port}${output.value_count > 1 ? ` [${source.value_index}]` : ''}`,
           items: items.map((item) => ({ ...item, source, output })),
         })),
-        scores: sources.flatMap((key) => session.scores.get(key) ?? []), alignments: sources.flatMap((key) => { const alignment = session.alignments.get(key); return alignment ? [alignment] : [] }),
+        scores: sources.flatMap((key) => session.scores.get(key) ?? []), alignments: [],
       }, allSourcesKnown),
     }
     this.notify()
@@ -261,7 +260,7 @@ export class CandidateResults {
       }
       return collection.total === undefined ? this.readPage(session, collection) : Promise.resolve()
     }
-    if (!['score.collection', 'structure_transform.candidate_resolved_residue_axis_associations', 'structure_comparison.alignment_evidence'].includes(type) || session.loaded.has(key)) return Promise.resolve()
+    if (!['score.collection', 'structure_transform.candidate_resolved_residue_axis_associations'].includes(type) || session.loaded.has(key)) return Promise.resolve()
     const existing = session.pending.get(key)
     if (existing) return existing
     const task = this.readValue(session, source).then((reading) => {
@@ -271,8 +270,7 @@ export class CandidateResults {
         session.scores.set(key, payload.value.entries.map(entry => ({ ...entry, source })))
       } else if (payload.kind === 'candidate_sequences') {
         session.axes.set(key, Object.fromEntries(payload.value.entries.map(entry => [referenceKey(entry.subject), { sequence: entry.sequence, source }])))
-      } else if (payload.kind === 'alignment') {
-        session.alignments.set(key, { ...payload.value, value_content_digest: reading.value_content_digest, source, output })
+
       }
       session.loaded.add(key)
       this.publish(session)

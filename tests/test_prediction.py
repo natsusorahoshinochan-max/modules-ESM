@@ -32,7 +32,8 @@ def test_default_official_module_can_be_disabled_and_stays_disabled_on_reopen(tm
     from protein_workbench_public.bootstrap import create_application
     app = create_application(data_root=tmp_path).state.workbench
     assert any(item['id'] == 'workbench.prediction' and item['enabled'] for item in app.list_modules())
-    app.enable('workbench.prediction', False)
+    for module in app.list_modules():
+        app.enable(module['id'], False)
     reopened = create_application(data_root=tmp_path).state.workbench
     assert reopened.catalog()['nodes'] == []
 
