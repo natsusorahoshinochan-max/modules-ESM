@@ -7,7 +7,7 @@
 | 模型 | 路径 |
 |---|---|
 | ESM3 | `.models/esm3/`；权重在 `data/weights/` |
-| ESMC 300M（新版 Hugging Face 格式） | `.models/esmc-300m/` |
+| ESMC 300M（Hugging Face 格式） | `.models/esmc-300m/` |
 | ESMC 6B | `.models/esmc-6b/` |
 | ESMFold2 | `.models/esmfold2/` |
 | SimpleFold 100M | `.models/simplefold/simplefold_100M.ckpt` |

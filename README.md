@@ -10,3 +10,46 @@
 - 查阅概念读 [术语](GLOSSARY.md)。
 
 后续开发按确认需求与公共接口开展 TDD。
+
+## 安装
+
+需要 Python 3.12、uv、Node.js 和 npm。以下命令在仓库根目录执行。
+
+```bash
+npm ci --prefix webui
+PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" uv sync --locked --extra dev --extra providers
+```
+
+本地模型位置见 [本地模型路径](docs/local-models.md)。
+
+## 启动
+
+后端：
+
+```bash
+.venv/bin/protein-workbench-server --host 127.0.0.1 --port 8000
+```
+
+另开终端启动前端：
+
+```bash
+npm --prefix webui run dev -- --host 127.0.0.1
+```
+
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。
+
+## 构建
+
+前端：
+
+```bash
+npm --prefix webui run build
+```
+
+Python 源码包和 wheel：
+
+```bash
+PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" .venv/bin/python -m build --no-isolation
+```
+
+产物分别位于 `webui/dist/` 和 `dist/`。
