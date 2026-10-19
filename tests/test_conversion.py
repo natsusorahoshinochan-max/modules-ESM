@@ -1,4 +1,5 @@
 """Explicit format conversion through the production HTTP/application boundary."""
+from tests.run_helpers import wait_response
 import json
 
 import pytest
@@ -11,7 +12,7 @@ from tests.test_comparison import inputs, pdb
 def save_run(client, project, nodes, edges=()):
     response = client.put(f'/api/projects/{project}', json={'flow': {'nodes': nodes, 'edges': list(edges)}, 'layout': {}})
     assert response.status_code == 200, response.text
-    return client.post(f'/api/projects/{project}/runs')
+    return wait_response(client, client.post(f'/api/projects/{project}/runs'))
 
 
 def test_only_explicit_converter_connects_prediction_to_structure_consumer(tmp_path):
@@ -19,7 +20,7 @@ def test_only_explicit_converter_connects_prediction_to_structure_consumer(tmp_p
         project = client.post('/api/projects', json={'name': 'Explicit conversion'}).json()['id']
         subject, reference, _ = inputs(client, project)
         rejected = save_run(client, project, [{'id': 'compare', 'type': 'workbench.compare_structure', 'inputs': {'subject': [subject['id']], 'reference': [reference['id']]}}])
-        assert rejected.status_code == 400
+        assert rejected.json()['status'] == 'failed'
         assert 'format is not accepted' in rejected.text.lower(), rejected.text
         result = save_run(client, project, [
             {'id': 'convert', 'type': 'workbench.prediction_to_structure', 'inputs': {'prediction': [subject['id']]}},
@@ -61,7 +62,7 @@ def test_declared_prediction_edge_into_structure_only_consumer_is_rejected(tmp_p
             {'id': 'predict', 'type': 'workbench.predict', 'tools': {'predictor': predictor}},
             {'id': 'compare', 'type': 'workbench.compare_structure'},
         ], [{'source': 'predict', 'source_port': 'structure', 'target': 'compare', 'target_port': 'subject'}])
-        assert response.status_code == 400
+        assert response.json()['status'] == 'failed'
         assert 'select an explicit conversion node' in response.text
         saved = client.get(f'/api/projects/{project}').json()
         assert len(saved['flow']['nodes']) == 2

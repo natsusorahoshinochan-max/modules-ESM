@@ -75,6 +75,7 @@ def test_consumer_survives_producer_uninstall_without_sources_or_workdirs(distri
     produce = tmp_path / "produce.py"
     produce.write_text('''
 import json, sys
+from time import monotonic, sleep
 from pathlib import Path
 from fastapi.testclient import TestClient
 from protein_workbench_public.bootstrap import create_application
@@ -96,6 +97,10 @@ with TestClient(create_application(data_root=root)) as client:
     flow = {"nodes": [{"id": "producer", "type": "example.uppercase", "parameters": {}, "inputs": {"note": [source]}}], "edges": []}
     assert client.put(f"/api/projects/{project}", json={"flow": flow, "layout": {}}).status_code == 200
     run = client.post(f"/api/projects/{project}/runs").json()
+    deadline = monotonic() + 10
+    while run["status"] == "running" and monotonic() < deadline:
+        sleep(.01)
+        run = client.get(f"/api/runs/{run['id']}").json()
     assert run["status"] == "succeeded", run
     output = run["nodes"]["producer"]["outputs"]["note"][0]
     assert client.get(f"/api/packages/{output}/file", params={"key": "text"}).content == b"note: HELLO"
@@ -114,6 +119,7 @@ Path(sys.argv[2]).write_text(json.dumps({"project": project, "output": output}))
     consume = tmp_path / "consume.py"
     consume.write_text('''
 import importlib.util, json, sys
+from time import monotonic, sleep
 from importlib.metadata import distribution
 from pathlib import Path
 from fastapi.testclient import TestClient
@@ -132,6 +138,10 @@ with TestClient(create_application(data_root=root)) as client:
     flow = {"nodes": [{"id": "reader", "type": "example.count", "parameters": {}, "inputs": {"note": [original]}}], "edges": []}
     assert client.put(f"/api/projects/{project}", json={"flow": flow, "layout": {"reader": {"x": 37, "y": 12}}}).status_code == 200
     run = client.post(f"/api/projects/{project}/runs").json()
+    deadline = monotonic() + 10
+    while run["status"] == "running" and monotonic() < deadline:
+        sleep(.01)
+        run = client.get(f"/api/runs/{run['id']}").json()
     assert run["status"] == "succeeded", run
     output = run["nodes"]["reader"]["outputs"]["count"][0]
     assert client.get(f"/api/packages/{output}/file", params={"key": "count"}).content == b"11"
@@ -185,6 +195,7 @@ def test_structure_consumers_survive_staged_producer_code_removal(distributions,
     prepare = tmp_path / 'prepare.py'
     prepare.write_text('''
 import importlib.util, json, sys
+from time import monotonic, sleep
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('acceptance', sys.argv[1])
 a = importlib.util.module_from_spec(spec)

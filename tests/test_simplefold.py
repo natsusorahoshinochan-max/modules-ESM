@@ -1,3 +1,4 @@
+from tests.run_helpers import wait_run
 from types import SimpleNamespace
 
 import pytest
@@ -50,7 +51,7 @@ def test_selected_simplefold_configuration_persists_actual_optional_confidence(t
     (work / 'sequence.json').write_text(json.dumps({'objects': [{'id': 'input', 'sequence': 'A'}]}))
     package = app.create_input(project['id'], Delivery('workbench.sequence', 'sequence.json', {'sequence.json': 'sequence.json'}), work)
     app.save_project(project['id'], {'nodes': [{'id': 'predict', 'type': 'workbench.predict', 'inputs': {'sequence': [package['id']]}, 'tools': {'predictor': 'workbench.simplefold.local'}, 'tool_parameters': {'predictor': {'seed': 0, 'num_steps': 7, 'output_format': 'pdb', 'plddt': with_confidence}}}], 'edges': []}, {})
-    result = app.start(project['id'])
+    result = wait_run(app, app.start(project['id']))
     assert result['status'] == 'succeeded', result
     output = app.package(result['nodes']['predict']['outputs']['structure'][0])
     with output.open(output.entry) as stream:

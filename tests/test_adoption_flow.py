@@ -4,6 +4,7 @@ Byte equality below is a test assertion, never a production save prerequisite.
 """
 import io
 import json
+from time import monotonic, sleep
 from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
@@ -45,6 +46,10 @@ def compute(client, project, subject, reference):
     layout = {'direct': {'x': 51, 'y': 23}}
     checked(client.put(f'/api/projects/{project}', json={'flow': flow, 'layout': layout}))
     result = checked(client.post(f'/api/projects/{project}/runs'))
+    deadline = monotonic() + 10
+    while result['status'] == 'running' and monotonic() < deadline:
+        sleep(.01)
+        result = checked(client.get('/api/runs/' + result['id']))
     assert result['status'] == 'succeeded', result
     outputs = {name: result['nodes'][name]['outputs'][port][0] for name, port in (
         ('direct', 'comparison'), ('convert', 'structure'), ('converted', 'comparison'))}

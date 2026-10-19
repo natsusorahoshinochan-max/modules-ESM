@@ -1,3 +1,4 @@
+from tests.run_helpers import wait_response
 import json
 
 import gemmi
@@ -44,7 +45,7 @@ def inputs(client, project, content=None, sequence='AAAAA'):
 def run(client, project, subject, reference):
     response = client.put(f'/api/projects/{project}', json={'flow': {'nodes': [{'id': 'compare', 'type': 'workbench.compare', 'inputs': {'subject': [subject['id']], 'reference': [reference['id']]}}], 'edges': []}, 'layout': {}})
     assert response.status_code == 200, response.text
-    response = client.post(f'/api/projects/{project}/runs')
+    response = wait_response(client, client.post(f'/api/projects/{project}/runs'))
     assert response.status_code == 200, response.text
     return response.json()
 

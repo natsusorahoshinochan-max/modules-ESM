@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+from time import sleep
 
 from core.host import Workbench
 from protein_workbench_public.module_api import Delivery
@@ -21,6 +22,9 @@ def run(configuration, output_root):
     package = app.create_input(project['id'], Delivery('workbench.sequence', 'sequence.json', {'sequence.json': 'sequence.json'}), work)
     app.save_project(project['id'], {'nodes': [{'id': 'predict', 'type': 'workbench.predict', 'inputs': {'sequence': [package['id']]}, 'tools': {'predictor': configuration['tool']}, 'tool_parameters': {'predictor': configuration.get('parameters', {})}}], 'edges': []}, {})
     result = app.start(project['id'])
+    while result['status'] == 'running':
+        sleep(.1)
+        result = app.get_run(result['id'])
     if result['status'] != 'succeeded':
         raise RuntimeError(result['nodes']['predict']['diagnostics'])
     output = app.package(result['nodes']['predict']['outputs']['structure'][0])
