@@ -387,3 +387,34 @@ test('a failed deletion preserves the dirty editor and reports the reason', asyn
   assert.equal(button('Save project').disabled, false)
   assert.equal(records.length, 2)
 })
+
+test('backend running state keeps editing locked through polling and cancellation', async () => {
+  let status = 'running'
+  let cancellations = 0
+  const history = () => [{ id: 'background', status, nodes: { node: { status: status === 'running' ? 'running' : 'cancelled', outputs: {}, diagnostics: [] } }, diagnostics: [] }]
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/a/runs') return Response.json(options.method === 'POST' ? history()[0] : history())
+    if (String(url) === '/api/runs/background/cancel') { cancellations++; status = 'cancelled'; return Response.json(history()[0]) }
+    return previousFetch(url, options)
+  }
+  await click('Run')
+  assert.equal(button('Save project').disabled, true)
+  assert.equal(button('Run').disabled, true)
+  await click('Cancel run')
+  assert.equal(cancellations, 1)
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)) })
+  assert.equal(button('Save project').disabled, false)
+  assert.match(container.textContent, /cancelled/)
+})
+
+test('opening a project with an existing backend run restores the edit lock', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => String(url) === '/api/projects/a/runs'
+    ? Response.json([{ id: 'existing', status: 'running', nodes: {}, diagnostics: [] }])
+    : previousFetch(url, options)
+  await click('Project A')
+  assert.equal(button('Save project').disabled, true)
+  assert.equal(button('Run').disabled, true)
+  assert.ok(button('Cancel run'))
+})

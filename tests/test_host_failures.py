@@ -1,3 +1,4 @@
+from tests.run_helpers import wait_run
 """Failures observed through the same application boundary as real clients."""
 import os
 from pathlib import Path
@@ -24,10 +25,11 @@ class BlockScientificImports(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, BlockScientificImports())
 from protein_workbench_public.module_api import Module, Node, Delivery, Outcome
 from core.host import Workbench
+from tests.run_helpers import wait_run
 app = Workbench(sys.argv[1])
 project = app.create_project("Empty host")
 app.save_project(project["id"], {"nodes": [], "edges": []}, {"viewport": [1,2]})
-assert app.start(project["id"])["status"] == "succeeded"
+assert wait_run(app, app.start(project["id"]))["status"] == "succeeded"
 assert Workbench(sys.argv[1]).get_project(project["id"])["layout"] == {"viewport": [1,2]}
 '''
     result = subprocess.run([sys.executable, "-c", script, str(tmp_path / "store")], cwd=tmp_path, env=dict(os.environ, PYTHONPATH=str(source)), capture_output=True, text=True)
@@ -117,7 +119,7 @@ def test_delivery_failure_does_not_commit_output_or_progress_or_start_downstream
 
         monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connect(*args, **kwargs, factory=CommitFailure))
         expected = "output commit refused"
-    run = app.start(project["id"])
+    run = wait_run(app, app.start(project["id"]))
     reopened = Workbench(tmp_path)
     assert run["status"] == "failed"
     assert expected in run["nodes"]["producer"]["diagnostics"][0]

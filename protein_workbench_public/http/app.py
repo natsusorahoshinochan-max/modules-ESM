@@ -242,6 +242,10 @@ def create_http_app(host: Workbench) -> FastAPI:
     def runs(project_id: str):
         return host.list_runs(project_id)
 
+    @app.post('/api/runs/{run_id}/cancel')
+    def cancel(run_id: str):
+        return host.cancel_run(run_id)
+
     @app.get('/api/runs/{run_id}')
     def run(run_id: str):
         return host.get_run(run_id)

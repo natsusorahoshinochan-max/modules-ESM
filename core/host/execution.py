@@ -13,14 +13,18 @@ from .storage import receive
 class ExecutionRuntime:
     def __init__(self, workdir):
         self.workdir = workdir
-        self.cancelled = False
+        self._cancel = lambda: False
         self.messages = []
+
+    @property
+    def cancelled(self):
+        return self._cancel()
 
     def progress(self, message):
         self.messages.append(str(message))
 
 
-def prepare(app, flow, project_id):
+def prepare_group(app, flow, project_id):
     if not isinstance(flow, dict):
         raise HostError("Flow must be an object containing nodes and edges")
     if not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
@@ -44,6 +48,8 @@ def prepare(app, flow, project_id):
         if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict) or not isinstance(instance.get("tool_parameters", {}), dict):
             raise HostError(f"Invalid parameters or inputs for node {identifier}")
         choices = instance.get("tools", {})
+        if any(not isinstance(value, dict) for value in instance.get("tool_parameters", {}).values()):
+            raise HostError(f"Tool parameters must be objects on node {identifier}")
         if not isinstance(choices, dict) or set(choices) != set(selected[identifier][1].tools):
             raise HostError(f"Select every declared tool slot on node {identifier}")
         for name, slot in selected[identifier][1].tools.items():
@@ -102,6 +108,54 @@ def prepare(app, flow, project_id):
     return by_id, selected, edges, ordered
 
 
+def prepare(app, flow, project_id):
+    # Identity and document shape must be unambiguous before groups can be formed.
+    if not isinstance(flow, dict):
+        raise HostError("Flow must be an object containing nodes and edges")
+    nodes, edges = flow.get("nodes", []), flow.get("edges", [])
+    if not isinstance(nodes, list) or not isinstance(edges, list) or any(not isinstance(item, dict) for item in nodes + edges):
+        raise HostError("Flow nodes and edges must be lists of objects")
+    by_id = {}
+    for node in nodes:
+        identifier = node.get("id")
+        if not isinstance(identifier, str) or not identifier or identifier in by_id:
+            raise HostError(f"Invalid or duplicate flow node identity: {identifier!r}")
+        by_id[identifier] = node
+    neighbors = {identifier: set() for identifier in by_id}
+    for edge in edges:
+        source, target = edge.get("source"), edge.get("target")
+        source_known = isinstance(source, str) and source in by_id
+        target_known = isinstance(target, str) and target in by_id
+        if not source_known and not target_known:
+            raise HostError(f"Connection has no existing endpoint: {edge}")
+        if source_known and target_known:
+            neighbors[source].add(target)
+            neighbors[target].add(source)
+    visited, groups, selected, ordered = set(), [], {}, []
+    for identifier in by_id:
+        if identifier in visited:
+            continue
+        members, pending = set(), [identifier]
+        while pending:
+            current = pending.pop()
+            if current in members:
+                continue
+            members.add(current)
+            pending.extend(neighbors[current] - members)
+        visited.update(members)
+        group_nodes = [node for node in nodes if node["id"] in members]
+        group_edges = [edge for edge in edges if (isinstance(edge.get("source"), str) and edge["source"] in members) or (isinstance(edge.get("target"), str) and edge["target"] in members)]
+        group = {"nodes": [node["id"] for node in group_nodes], "diagnostics": []}
+        try:
+            _, declarations, _, sequence = prepare_group(app, {"nodes": group_nodes, "edges": group_edges}, project_id)
+            selected.update(declarations)
+            ordered.extend(sequence)
+        except HostError as exc:
+            group["diagnostics"].append(str(exc))
+        groups.append(group)
+    return by_id, selected, edges, ordered, groups
+
+
 def accept(app, run, identifier, declaration, outcome, workdir):
     if not isinstance(outcome, Outcome) or outcome.status not in ("succeeded", "failed", "cancelled"):
         raise HostError("Node must return a public Outcome with a valid terminal status")
@@ -143,13 +197,29 @@ def accept(app, run, identifier, declaration, outcome, workdir):
         raise
 
 
-def execute(app, project_id):
-    project = app._get("project", project_id)
-    by_id, selected, edges, ordered = prepare(app, project["flow"], project_id)
+def create_run(app, project_id):
     from uuid import uuid4
-    run = {"id": uuid4().hex, "project_id": project_id, "status": "running", "nodes": {identifier: {"status": "pending", "outputs": {}, "diagnostics": [], "continuation": None} for identifier in ordered}, "diagnostics": [], "flow": project["flow"]}
+    project = app._get("project", project_id)
+    by_id, selected, edges, ordered, groups = prepare(app, project["flow"], project_id)
+    states = {identifier: {"status": "pending", "outputs": {}, "diagnostics": [], "continuation": None} for identifier in by_id}
+    for group in groups:
+        if group["diagnostics"]:
+            for identifier in group["nodes"]:
+                states[identifier].update(status="configuration_blocked", diagnostics=group["diagnostics"])
+    run = {"id": uuid4().hex, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"]}
     app._put("run", run)
+    tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
+    return run, (by_id, selected, edges, ordered, tools)
+
+
+def execute(app, run, prepared, cancelled):
+    by_id, selected, edges, ordered, available_tools = prepared
     for identifier in ordered:
+        if cancelled():
+            run["nodes"][identifier]["status"] = "cancelled"
+            run["nodes"][identifier]["diagnostics"] = ["Run cancelled before this node started"]
+            app._put("run", run)
+            continue
         incoming = [edge for edge in edges if edge["target"] == identifier]
         if any(run["nodes"][edge["source"]]["status"] != "succeeded" for edge in incoming):
             run["nodes"][identifier]["status"] = "blocked"
@@ -171,7 +241,6 @@ def execute(app, project_id):
                     raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
             call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(instance.get("parameters", {}))), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(instance.get("tool_parameters", {}))))
             injected = {}
-            available_tools = {tool.id: (owner, tool) for owner, module in app._modules() for tool in module.tools}
             for name, choice in instance.get("tools", {}).items():
                 owner, tool = available_tools[choice]
                 injected[name] = tool.create(json.loads(json.dumps(owner["settings"])))
@@ -179,13 +248,25 @@ def execute(app, project_id):
                     raise HostError(f"Tool factory did not return a callable: {choice}")
             from dataclasses import replace
             call = replace(call, tools=injected, tool_choices=dict(instance.get("tools", {})))
-            outcome = declaration.execute(call, ExecutionRuntime(workdir))
-            accept(app, run, identifier, declaration, outcome, workdir)
+            runtime = ExecutionRuntime(workdir)
+            runtime._cancel = cancelled
+            run["nodes"][identifier]["status"] = "running"
+            app._put("run", run)
+            try:
+                outcome = declaration.execute(call, runtime)
+            except Exception as exc:
+                raise HostError(f"Node execution failed: {exc}") from exc
+            if cancelled() and isinstance(outcome, Outcome) and outcome.status == "succeeded":
+                outcome = replace(outcome, status="cancelled")
+            try:
+                accept(app, run, identifier, declaration, outcome, workdir)
+            except Exception as exc:
+                raise HostError(f"Output delivery failed: {exc}") from exc
         except Exception as exc:
-            run["nodes"][identifier] = {"status": "failed", "outputs": {}, "diagnostics": [f"Node execution or delivery failed: {exc}"], "continuation": None}
+            run["nodes"][identifier] = {"status": "cancelled" if cancelled() else "failed", "outputs": {}, "diagnostics": [str(exc)], "continuation": None}
             app._put("run", run)
         finally:
             app._release_workdir(workdir)
     statuses = {node["status"] for node in run["nodes"].values()}
-    run["status"] = "failed" if "failed" in statuses or "blocked" in statuses else "cancelled" if "cancelled" in statuses else "succeeded"
+    run["status"] = "failed" if "failed" in statuses or "blocked" in statuses or "configuration_blocked" in statuses else "cancelled" if "cancelled" in statuses else "succeeded"
     return app._put("run", run)

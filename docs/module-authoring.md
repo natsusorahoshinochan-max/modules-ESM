@@ -54,6 +54,12 @@ def module():
 
 操作不能完成时，返回 `failed` 和具体 `diagnostics`，或者抛出包含具体原因的异常。已接收的数据包通过应用的包入口重新读取，接收者只使用包内键。
 
+## 后端运行
+
+`Workbench.start(project_id)` 与 `POST /api/projects/{project_id}/runs` 返回已创建的运行记录，初始状态为 `running`。用 `Workbench.get_run(run_id)`、`GET /api/runs/{run_id}` 或项目运行列表查询后续状态；浏览器断开后后端继续执行。`Workbench.cancel_run(run_id)` 与 `POST /api/runs/{run_id}/cancel` 请求取消，模块通过 `runtime.cancelled` 观察信号；任务退出并释放项目租约后恢复编辑。
+
+运行记录的 `groups` 保存连通组成员及配置诊断。`configuration_blocked` 表示组内公开配置不完整或连接不合格；`failed` 表示节点执行或文件交付失败；`blocked` 表示依赖未成功而未执行。`Outcome` 的部分输出在接收成功后仍可查看，失败节点的输出不驱动下游。节点状态、输出包与续算内容在同一次提交后可见。查询发现运行租约已结束而终态未提交时，报告失败并保留已持久接收内容。
+
 ## React 界面
 
 公共类型以 npm 包 `@protein-workbench/module-ui` 分发，包文件随 Python wheel 安装在 `protein_workbench_public/module_ui/`。先安装 `protein-workbench` wheel 并激活其 Python 环境，再在作者项目目录执行：

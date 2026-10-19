@@ -1,3 +1,4 @@
+from tests.run_helpers import wait_run
 from core.host import Workbench
 
 
@@ -49,8 +50,8 @@ def test_external_nodes_encode_then_independently_read_committed_package(tmp_pat
     (workdir / "request").write_bytes(b"\x00hello")
     request = app.create_input(project["id"], Delivery("independent.request", "request", {"request": "request"}), workdir)
     app.save_project(project["id"], {"nodes": [{"id": "encode", "type": "independent.encode", "parameters": {"suffix": " world"}, "inputs": {"source": [request["id"]]}}, {"id": "receive", "type": "independent.receive"}], "edges": [{"source": "encode", "source_port": "result", "target": "receive", "target_port": "source"}]}, {})
-    first = app.start(project["id"])
-    second = app.start(project["id"])
+    first = wait_run(app, app.start(project["id"]))
+    second = wait_run(app, app.start(project["id"]))
     assert first["status"] == "succeeded"
     result_id = first["nodes"]["receive"]["outputs"]["result"][0]
     with Workbench(tmp_path).package(result_id).open("summary") as stream:
@@ -73,7 +74,7 @@ def test_required_many_input_is_checked_after_upstream_returns_empty_batch(tmp_p
     app.install("tests.fixtures.host_module:empty_module")
     project = app.create_project("Empty batch")
     app.save_project(project["id"], {"nodes": [{"id": "source", "type": "empty.source"}, {"id": "receiver", "type": "empty.receive"}], "edges": [{"source": "source", "source_port": "result", "target": "receiver", "target_port": "source"}]}, {})
-    run = app.start(project["id"])
+    run = wait_run(app, app.start(project["id"]))
     assert run["nodes"]["receiver"]["status"] == "failed"
     assert "Required input is missing: receiver.source" in run["nodes"]["receiver"]["diagnostics"][0]
 
@@ -96,7 +97,7 @@ def test_node_parameter_mutation_does_not_change_recorded_invocation(tmp_path):
     app.configure("mutating", {"nested": {"value": "original setting"}})
     project = app.create_project("Fixed call")
     app.save_project(project["id"], {"nodes": [{"id": "mutate", "type": "mutating.node", "parameters": {"nested": {"value": "original parameter"}}}], "edges": []}, {})
-    run = app.start(project["id"])
+    run = wait_run(app, app.start(project["id"]))
     assert run["flow"]["nodes"][0]["parameters"] == {"nested": {"value": "original parameter"}}
     assert app.get_project(project["id"])["flow"]["nodes"][0]["parameters"] == {"nested": {"value": "original parameter"}}
     assert app.list_modules()[0]["settings"] == {"nested": {"value": "original setting"}}
@@ -109,7 +110,7 @@ def test_malformed_saved_flow_has_a_concrete_start_error(tmp_path):
     project = app.create_project("Unfinished document")
     app.save_project(project["id"], "unfinished", {})
     with pytest.raises(HostError, match="Flow must be an object"):
-        app.start(project["id"])
+        wait_run(app, app.start(project["id"]))
 
 
 def test_invalid_unicode_catalog_declaration_is_rejected_before_registration(tmp_path):

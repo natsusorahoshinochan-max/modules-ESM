@@ -1,5 +1,5 @@
 import type { Edge, FlowNode, PackageInfo } from '@protein-workbench/module-ui'
-export interface Project { id: string; name: string; flow: { nodes: FlowNode[]; edges: Edge[] }; layout: Record<string, { x: number; y: number }>; missing_modules?: string[] }
+export interface Project { id: string; name: string; flow: { nodes: FlowNode[]; edges: Edge[] }; layout: Record<string, { x: number; y: number }>; missing_modules?: string[]; running?: boolean }
 export interface NodeDeclaration { id: string; module_id: string; name: string; inputs: Record<string, { accepts: string[]; cardinality: string; required: boolean }>; outputs: Record<string, { format: string; cardinality: string }>; parameters: Record<string, unknown>; tools?: Record<string, { id: string; name: string }> }
 export interface ToolDeclaration { id: string; name: string; module_id: string; slot: string; parameters: Record<string, unknown>; capabilities: Record<string, unknown> }
 export interface ModuleRecord { id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }
@@ -26,6 +26,8 @@ export const client = {
   exportUrl: (id: string) => `/api/packages/${encodeURIComponent(id)}/export.zip`,
   packages: (id: string) => json<PackageInfo[]>(`/projects/${id}/packages`),
   run: (id: string) => json<Run>(`/projects/${id}/runs`, {}),
+  cancelRun: (id: string) => json<Run>(`/runs/${encodeURIComponent(id)}/cancel`, {}),
+  runStatus: (id: string) => json<Run>(`/runs/${encodeURIComponent(id)}`),
   runs: (id: string) => json<Run[]>(`/projects/${id}/runs`),
   fileUrl: (id: string, key: string) => `/api/packages/${encodeURIComponent(id)}/file?key=${encodeURIComponent(key)}`,
   readFile: async (id: string, key: string) => {
