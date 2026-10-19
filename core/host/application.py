@@ -119,7 +119,11 @@ class Workbench:
     def get_project(self, project_id):
         project = self._get("project", project_id)
         available = {node["id"] for node in self.catalog()["nodes"]}
-        project["missing_modules"] = sorted({node.get("type", "") for node in project["flow"].get("nodes", [])} - available)
+        flow = project["flow"]
+        nodes = flow.get("nodes", []) if isinstance(flow, dict) else []
+        nodes = nodes if isinstance(nodes, list) else []
+        requested = {node["type"] for node in nodes if isinstance(node, dict) and isinstance(node.get("type"), str)}
+        project["missing_modules"] = sorted(requested - available)
         return project
 
     def save_project(self, project_id, flow, layout):

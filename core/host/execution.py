@@ -20,6 +20,12 @@ class ExecutionRuntime:
 
 
 def prepare(app, flow):
+    if not isinstance(flow, dict):
+        raise HostError("Flow must be an object containing nodes and edges")
+    if not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
+        raise HostError("Flow nodes and edges must be lists")
+    if any(not isinstance(item, dict) for item in flow.get("nodes", []) + flow.get("edges", [])):
+        raise HostError("Flow nodes and edges must contain objects")
     available = {node.id: (record, node) for record, module in app._modules() for node in module.nodes}
     nodes = flow.get("nodes", [])
     edges = flow.get("edges", [])
@@ -33,7 +39,7 @@ def prepare(app, flow):
         if instance.get("type") not in available:
             raise HostError(f"Missing module node: {instance.get('type')}")
         selected[identifier] = available[instance["type"]]
-        if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict):
+        if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict) or not isinstance(instance.get("tool_parameters", {}), dict):
             raise HostError(f"Invalid parameters or inputs for node {identifier}")
     connections = set()
     for edge in edges:

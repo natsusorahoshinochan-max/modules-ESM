@@ -100,3 +100,13 @@ def test_node_parameter_mutation_does_not_change_recorded_invocation(tmp_path):
     assert run["flow"]["nodes"][0]["parameters"] == {"nested": {"value": "original parameter"}}
     assert app.get_project(project["id"])["flow"]["nodes"][0]["parameters"] == {"nested": {"value": "original parameter"}}
     assert app.list_modules()[0]["settings"] == {"nested": {"value": "original setting"}}
+
+
+def test_malformed_saved_flow_has_a_concrete_start_error(tmp_path):
+    import pytest
+    from core.host import HostError
+    app = Workbench(tmp_path)
+    project = app.create_project("Unfinished document")
+    app.save_project(project["id"], "unfinished", {})
+    with pytest.raises(HostError, match="Flow must be an object"):
+        app.start(project["id"])
