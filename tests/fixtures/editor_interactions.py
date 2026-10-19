@@ -17,7 +17,7 @@ def inspect(call: Call, runtime):
         cancelled.set()
         finish.wait(5)
     # This write must remain possible until the handler returns, including cancellation.
-    (runtime.workdir / 'data').write_text(content + str(call.settings.get('suffix', '')))
+    (runtime.workdir / 'data').write_text((content + str(call.settings.get('suffix', ''))) * call.parameters.get('repeat', 1))
     files = {'data': 'missing' if call.parameters.get('missing') else 'data'}
     return InteractionResult({'content': content, 'settings': call.settings}, {'result': Delivery('external.edited', 'data', files)})
 

@@ -30,7 +30,12 @@ def preview(client, project, parameters, inputs=None):
     token = response.json()['id']
     response = client.post(f'/api/interactions/{token}/execute')
     assert response.status_code == 200, response.text
-    return token, response.json()['data']['document']
+    data = response.json()['data']
+    if 'document_file' in data:
+        response = client.get(f'/api/interactions/{token}/file', params={'output':'edited','key':data['document_file']})
+        response.raise_for_status()
+        return token, response.json()
+    return token, data['document']
 
 
 def test_position_edits_keep_conditions_and_source_mapping_and_never_replay_randomness(tmp_path):
@@ -138,3 +143,71 @@ def test_residue_and_fixed_variable_changes_update_the_actual_prompt_together(tm
             'kind': 'update', 'positions': [selected], 'changes': {'prompt': 'W'}}})
         assert fixed['sequence'] == 'AW'
         assert fixed['positions'][1]['fixed'] is True
+
+
+def test_preview_files_are_readable_until_cancel_or_accept(tmp_path):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Temporary files'}).json()['id']
+        token, expected = preview(client, project, {'sequence': 'AC'})
+        path = f'/api/interactions/{token}/file'
+        response = client.get(path, params={'output': 'edited', 'key': 'edited.json'})
+        assert response.status_code == 200, response.text
+        assert response.json() == expected
+        assert client.get(path, params={'output': 'edited', 'key': '../edited.json'}).status_code == 400
+        client.delete(f'/api/interactions/{token}').raise_for_status()
+        assert client.get(path, params={'output': 'edited', 'key': 'edited.json'}).status_code == 400
+        assert list((tmp_path / 'work').iterdir()) == []
+        token, expected = preview(client, project, {'sequence': 'AC'})
+        accepted = client.post(f'/api/interactions/{token}/accept', json={'output': 'edited'})
+        accepted.raise_for_status()
+        assert client.get(f"/api/packages/{accepted.json()['id']}/file", params={'key': 'edited.json'}).json() == expected
+        assert list((tmp_path / 'work').iterdir()) == []
+
+
+def test_live_http_disconnect_releases_reader_before_cancel_cleans_files(tmp_path):
+    import socket
+    import time
+    from threading import Thread
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+    import httpx
+    import uvicorn
+    from tests.test_sequence_io import upload
+    application = create_application(data_root=tmp_path)
+    with TestClient(application) as client:
+        client.post('/api/modules', json={'entry_point':'tests.fixtures.editor_interactions:module'}).raise_for_status()
+        project = client.post('/api/projects',json={'name':'Streaming cancellation'}).json()['id']
+        package = upload(client,project,'external.data',{'data':b'x'},entry='data')
+    listener = socket.socket()
+    listener.bind(('127.0.0.1',0))
+    port = listener.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(application,log_level='error'))
+    thread = Thread(target=lambda:server.run(sockets=[listener]),daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic()+5
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert server.started
+        with httpx.Client(base_url=f'http://127.0.0.1:{port}',timeout=5) as client:
+            token = client.post(f'/api/projects/{project}/interactions',json={'interaction':'external.inspect',
+                'inputs':{'data':[package['id']]},'parameters':{'repeat':64*1024*1024}}).json()['id']
+            client.post(f'/api/interactions/{token}/execute').raise_for_status()
+            stream = socket.create_connection(('127.0.0.1',port),timeout=5)
+            stream.sendall(f'GET /api/interactions/{token}/file?output=result&key=data HTTP/1.1\r\nHost: localhost\r\n\r\n'.encode())
+            assert b'200 OK' in stream.recv(4096)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                cancelling = pool.submit(client.delete,f'/api/interactions/{token}')
+                try:
+                    cancelling.result(timeout=.1)
+                    raise AssertionError('Cancellation released an active HTTP reader')
+                except TimeoutError:
+                    pass
+                finally:
+                    stream.close()
+                cancelling.result(timeout=5).raise_for_status()
+            assert client.get(f'/api/interactions/{token}/file',params={'output':'result','key':'data'}).status_code == 400
+            assert list((tmp_path/'work').iterdir()) == []
+    finally:
+        server.should_exit=True
+        thread.join(timeout=5)
+        listener.close()
