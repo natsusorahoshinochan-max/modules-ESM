@@ -6,11 +6,11 @@ export function register({React}) {
   const positionName=p=>`${p.chain}:${p.author_number}${p.insertion_code}`
   const methodName=value=>typeof value==='string'?value:JSON.stringify(value)
   function Editor({context,parameters,readOnly}) {
-    const [choices,setChoices]=React.useState([]),[selected,setSelected]=React.useState(parameters.selections??[])
+    const [choices,setChoices]=React.useState([]),[selected,setSelected]=React.useState(parameters.selections??[]),[inspected,setInspected]=React.useState(false)
     const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[chains,setChains]=React.useState({})
     const epoch=React.useRef(0),abort=React.useRef(null),origin=React.useRef(null)
     React.useEffect(()=>{
-      epoch.current++;abort.current?.abort();setChoices([]);setSelected(parameters.selections??[]);setBusy(false);setError('')
+      epoch.current++;abort.current?.abort();setChoices([]);setSelected(parameters.selections??[]);setInspected(false);setBusy(false);setError('')
       return()=>{epoch.current++;abort.current?.abort()}
     },[context.projectId,context.nodeId,context.revision])
     async function inspect() {
@@ -19,7 +19,7 @@ export function register({React}) {
       try {
         const inputs=Object.fromEntries(Object.entries(source.inputs).map(([port,input])=>[port,input.packages.map(pkg=>pkg.id)]))
         const response=await source.host.preview('workbench.inspect_metrics',inputs,{}, {signal:abort.current.signal})
-        try {if(current===epoch.current){setChoices(response.data.choices);origin.current=source}}
+        try {if(current===epoch.current){setChoices(response.data.choices);setInspected(true);origin.current=source}}
         finally {await source.host.cancelPreview(response.id)}
       }catch(error){if(current===epoch.current)setError(error.message)}
       finally{if(current===epoch.current)setBusy(false)}
@@ -39,6 +39,10 @@ export function register({React}) {
     return h('section',{'aria-label':'Existing metric selections'},
       ...Object.values(context.inputs).map((input,i)=>input.unavailable&&h('p',{key:i},input.unavailable)),
       h('button',{onClick:inspect,disabled:busy},'Inspect existing metrics'),error&&h('p',{role:'alert'},error),
+      inspected&&selected.map((selection,index)=>!choices.some(choice=>same(selection,choice.selector))&&h('fieldset',{key:`saved-${index}`,disabled:readOnly||busy},
+        h('legend',null,`Saved metric selection ${index+1} · Input ${selection.input+1} · ${selection.metric}`),
+        h('p',null,'This saved metric selection is not available in the current inspected inputs. Remove it or inspect the intended input again.'),
+        h('button',{'aria-label':`Remove saved metric selection ${index+1}`,onClick:()=>setSelected(items=>items.filter((_,offset)=>offset!==index))},'Remove saved metric selection'))),
       ...choices.map((choice,index)=>{
         const selection=selected.find(item=>same(item,choice.selector)),number=index+1
         const region=selection?.region

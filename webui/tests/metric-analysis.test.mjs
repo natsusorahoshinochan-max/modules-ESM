@@ -30,7 +30,21 @@ with tempfile.TemporaryDirectory() as directory:
         started=client.post(f'/api/projects/{project}/interactions',json={'interaction':'workbench.inspect_metrics','inputs':{'metrics':[package['id']]},'parameters':{}})
         started.raise_for_status()
         bad=client.post('/api/interactions/'+started.json()['id']+'/execute');bad.raise_for_status()
-        print(json.dumps({'source':source.text,'preview':preview,'bad_preview':bad.json()}))
+        old_selector=preview['data']['choices'][0]['selector']
+        flow={'nodes':[{'id':'analysis','type':'workbench.analyze_metrics','inputs':{'metrics':[package['id']]},'parameters':{'selections':[old_selector]}}],'edges':[]}
+        client.put(f'/api/projects/{project}',json={'flow':flow,'layout':{}}).raise_for_status()
+        document['objects'][0]['id']='replacement-object-private-id'
+        document['evaluations'][0]['object_id']='replacement-object-private-id'
+        files['manifest.json']=json.dumps(document).encode()
+        replacement=upload(client,project,'workbench.structure_confidence',files)
+        saved=client.get(f'/api/projects/{project}').json()
+        saved['flow']['nodes'][0]['inputs']['metrics']=[replacement['id']]
+        client.put(f'/api/projects/{project}',json={'flow':saved['flow'],'layout':saved['layout']}).raise_for_status()
+        reopened=client.get(f'/api/projects/{project}').json()['flow']['nodes'][0]
+        started=client.post(f'/api/projects/{project}/interactions',json={'interaction':'workbench.inspect_metrics','inputs':{'metrics':[replacement['id']]},'parameters':{}})
+        started.raise_for_status()
+        replaced=client.post('/api/interactions/'+started.json()['id']+'/execute');replaced.raise_for_status()
+        print(json.dumps({'source':source.text,'preview':preview,'bad_preview':bad.json(),'replaced_preview':replaced.json(),'reopened':reopened}))
 `],{cwd:new URL('../../',import.meta.url),encoding:'utf8'}))
 const source = actual.source
 const {register} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
@@ -41,6 +55,36 @@ const {createRoot} = await import('react-dom/client')
 after(()=>dom.window.close())
 const extensions=register({React})
 const positions=[{chain:'Z',author_number:12,insertion_code:''},{chain:'Z',author_number:12,insertion_code:'A'},{chain:'Z',author_number:19,insertion_code:''}]
+
+test('saved selection absent after input replacement stays visible until explicitly removed',async()=>{
+  const container=document.createElement('div');document.body.append(container)
+  const root=createRoot(container),updates=[]
+  const parameters=actual.reopened.parameters
+  const scalar=actual.replaced_preview.data.choices.find(choice=>choice.selector.metric==='mean_plddt')
+  assert.equal(parameters.selections[0].object,'hidden-object-identity')
+  assert.notEqual(parameters.selections[0].object,scalar.selector.object)
+  const context={projectId:'p',nodeId:'analysis',revision:1,parameters,bindings:actual.reopened.inputs,edges:[],
+    inputs:{metrics:{packages:[{id:actual.reopened.inputs.metrics[0]}]}},
+    host:{preview:async()=>actual.replaced_preview,cancelPreview:async()=>{}},update:async change=>updates.push(change)}
+  try{
+    await React.act(async()=>root.render(React.createElement(extensions.editors[0].component,{context,parameters,readOnly:false})))
+    await React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='Inspect existing metrics').click())
+    await React.act(async()=>container.querySelector('[aria-label="Use metric 1"]').click())
+    const apply=[...container.querySelectorAll('button')].find(button=>button.textContent==='Apply metric selections')
+    assert.equal(apply.disabled,true)
+    assert.match(container.textContent,/Saved metric selection.*mean_plddt/)
+    assert.match(container.textContent,/not available in the current inspected inputs/)
+    assert.doesNotMatch(container.textContent,/hidden-object-identity|replacement-object-private-id/)
+    assert.deepEqual(updates,[])
+    const remove=container.querySelector('[aria-label="Remove saved metric selection 1"]')
+    assert.ok(remove,'unresolved saved selection needs an explicit recovery control')
+    await React.act(async()=>remove.click())
+    assert.equal(apply.disabled,false)
+    await React.act(async()=>apply.click())
+    assert.deepEqual(updates,[{parameters:{selections:[scalar.selector]}}])
+    assert.equal(container.querySelector('[aria-label="Use metric 1"]').checked,true)
+  }finally{await React.act(async()=>root.unmount());container.remove()}
+})
 
 test('unavailable metric remains visible and removable while a valid scalar completes real analysis',async()=>{
   const container=document.createElement('div');document.body.append(container)
