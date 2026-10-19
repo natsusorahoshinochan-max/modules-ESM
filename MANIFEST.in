@@ -6,6 +6,11 @@ global-exclude __pycache__ *.py[cod]
 include setup.py
 include webui/package.json webui/package-lock.json
 recursive-include webui/src *.ts *.tsx *.css
+recursive-include webui/tests *.mjs
+recursive-include tests *.py
+include examples/external_module/pyproject.toml
+recursive-include examples/external_module/src *.py *.js *.md
+recursive-include examples/external_module/src/workbench_notes/sample *.txt
 recursive-include modules */ui/*.ts */ui/*.tsx */ui/*.css */ui/*.json
 
 recursive-include modules/residue_data/components *.tsx *.json
