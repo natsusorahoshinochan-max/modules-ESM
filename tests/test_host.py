@@ -110,3 +110,12 @@ def test_malformed_saved_flow_has_a_concrete_start_error(tmp_path):
     app.save_project(project["id"], "unfinished", {})
     with pytest.raises(HostError, match="Flow must be an object"):
         app.start(project["id"])
+
+
+def test_invalid_unicode_catalog_declaration_is_rejected_before_registration(tmp_path):
+    import pytest
+    from core.host import HostError
+    app = Workbench(tmp_path)
+    with pytest.raises(HostError, match='UTF-8'):
+        app.install('tests.fixtures.host_module:invalid_catalog_module')
+    assert Workbench(tmp_path).catalog() == {'nodes': [], 'modules': []}

@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Edge, Extensions, FlowNode, ModuleHost, PackageInfo } from '../../protein_workbench_public/react-api'
 import { client, type Catalog, type ModuleRecord, type Project, type Run } from './host-client'
 import { loadExtensions } from './host-ui'
@@ -34,7 +34,13 @@ export default function App() {
   const [extensions, setExtensions] = useState<Extensions>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [project, setProject] = useState<Project | null>(null)
+  const currentProject = useRef<Project | null>(null)
+  const projectSession = useRef(0)
+  const opening = useRef(0)
+  const runningNow = useRef(false)
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const savingNow = useRef(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -58,56 +64,81 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [dirty])
   function change(update: (current: Project) => Project) {
-    if (running) throw new Error('Project is running')
-    setProject(current => current ? update(current) : current); setDirty(true); setNotice('')
+    if (runningNow.current) throw new Error('Project is running')
+    if (!currentProject.current) throw new Error('Open a project first')
+    currentProject.current = update(currentProject.current)
+    setProject(currentProject.current); setDirty(true); setNotice('')
   }
   async function open(id: string) {
-    if (running || (dirty && !window.confirm('Discard unsaved changes and open this project?'))) return
-    const next = await client.project(id); setProject(next); setDirty(false); setNotice('')
-    setPackages(await client.packages(id)); setRuns(await client.runs(id)); setSelectedPackage('')
+    if (runningNow.current || (dirty && !window.confirm('Discard unsaved changes and open this project?'))) return
+    const request = ++opening.current
+    const [next, files, history] = await Promise.all([client.project(id), client.packages(id), client.runs(id)])
+    if (request !== opening.current) return
+    projectSession.current += 1; currentProject.current = next; setProject(next); setDirty(false); setNotice('')
+    setPackages(files); setRuns(history); setSelectedPackage('')
   }
   async function createProject() {
     if (dirty && !window.confirm('Discard unsaved changes and create a project?')) return
     const next = await client.createProject(projectName); await refresh(); await open(next.id)
   }
   async function save() {
-    if (!project) throw new Error('Open a project first')
-    const saved = await client.save(project); setProject(saved); setDirty(false); setNotice('Project and layout saved')
+    const snapshot = currentProject.current
+    if (!snapshot) throw new Error('Open a project first')
+    if (savingNow.current) throw new Error('Project save is already in progress')
+    savingNow.current = true; setSaving(true)
+    try {
+      const saved = await client.save(snapshot)
+      if (currentProject.current !== snapshot) return false
+      currentProject.current = saved; setProject(saved); setDirty(false); setNotice('Project and layout saved')
+      return true
+    } finally { savingNow.current = false; setSaving(false) }
   }
   async function run() {
     if (!project) return
-    if (dirty) { if (!window.confirm('Save changes and run?')) return; await save() }
-    setRunning(true); setError(''); setNotice('Running on the backend…')
+    if (dirty) { if (!window.confirm('Save changes and run?')) return; if (!await save()) throw new Error('Project changed while saving; save again before running') }
+    opening.current += 1; runningNow.current = true; setRunning(true); setError(''); setNotice('Running on the backend…')
     try {
       const result = await client.run(project.id)
       setRuns(await client.runs(project.id)); const files = await client.packages(project.id); setPackages(files)
       const output = Object.values(result.nodes).flatMap(node => Object.values(node.outputs).flat())[0]
       if (output) setSelectedPackage(output)
       setNotice(`Run ${result.status}`)
-    } finally { setRunning(false) }
+    } finally { runningNow.current = false; setRunning(false) }
   }
-  const host = useMemo<ModuleHost>(() => ({
-    readOnly: running || !project,
-    async createInput(input) {
-      if (!project || running) throw new Error('Open an idle project first')
-      const result = await client.createInput(project.id, input); setPackages(await client.packages(project.id)); return result
-    },
-    async addNode(node) {
-      if (!project || running) throw new Error('Open an idle project first')
-      const id = crypto.randomUUID(); change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...node, id }] } })); return id
-    },
-    async connect(edge) {
-      if (!project || running) throw new Error('Open an idle project first')
-      const source = project.flow.nodes.find(node => node.id === edge.source)
-      const target = project.flow.nodes.find(node => node.id === edge.target)
-      const output = catalog.nodes.find(node => node.id === source?.type)?.outputs[edge.source_port]
-      const input = catalog.nodes.find(node => node.id === target?.type)?.inputs[edge.target_port]
-      if (!output || !input || !input.accepts.includes(output.format)) throw new Error('Port formats do not match; select an explicit conversion node')
-      if (input.cardinality === 'one' && (target?.inputs[edge.target_port]?.length || project.flow.edges.some(item => item.target === edge.target && item.target_port === edge.target_port))) throw new Error('Input accepts only one package')
-      change(current => ({ ...current, flow: { ...current.flow, edges: [...current.flow.edges, edge] } }))
-    },
-    readFile: client.readFile,
-  }), [project, running, catalog])
+  const host = useMemo<ModuleHost>(() => {
+    const origin = projectSession.current
+    function activeProject() {
+      if (origin !== projectSession.current) throw new Error('Project changed; start the operation again')
+      if (!currentProject.current || runningNow.current) throw new Error('Open an idle project first')
+      return currentProject.current
+    }
+    return {
+      readOnly: running || !project,
+      async createInput(input) {
+        const current = activeProject()
+        const result = await client.createInput(current.id, input)
+        activeProject()
+        const files = await client.packages(current.id)
+        activeProject(); setPackages(files); return result
+      },
+      async addNode(node) {
+        activeProject()
+        const id = crypto.randomUUID(); change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...node, id }] } })); return id
+      },
+      async connect(edge) {
+        const current = activeProject()
+        const source = current.flow.nodes.find(node => node.id === edge.source)
+        const target = current.flow.nodes.find(node => node.id === edge.target)
+        const output = catalog.nodes.find(node => node.id === source?.type)?.outputs[edge.source_port]
+        const input = catalog.nodes.find(node => node.id === target?.type)?.inputs[edge.target_port]
+        if (!output || !input || !input.accepts.includes(output.format)) throw new Error('Port formats do not match; select an explicit conversion node')
+        if (input.cardinality === 'one' && output.cardinality === 'many') throw new Error('Cardinality mismatch: a many output requires a many input')
+        if (input.cardinality === 'one' && (target?.inputs[edge.target_port]?.length || current.flow.edges.some(item => item.target === edge.target && item.target_port === edge.target_port))) throw new Error('Input accepts only one package')
+        change(current => ({ ...current, flow: { ...current.flow, edges: [...current.flow.edges, edge] } }))
+      },
+      readFile: client.readFile,
+    }
+  }, [project, running, catalog])
   const selected = packages.find(item => item.id === selectedPackage)
   const viewers = extensions.viewers?.filter(item => item.formats.includes(selected?.format ?? '')) ?? []
   const Viewer = viewers.find(item => item.id === viewer)?.component ?? viewers[0]?.component
@@ -127,7 +158,7 @@ export default function App() {
       {catalog.modules.map(module => <ModuleSettings key={module.id} module={module} disabled={running} refresh={refresh} fail={fail} />)}
       {!catalog.modules.length && <p>No modules enabled. Projects and canvas are available.</p>}
     </aside>
-    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || running} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || running} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button></div>
+    <main><div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || running || saving} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || running || saving} onClick={() => run().catch(fail)}>{dirty ? 'Save and run' : 'Run'}</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
         <label>Add node<select disabled={running} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
         <section className="canvas" aria-label="Workflow canvas"><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
@@ -135,11 +166,11 @@ export default function App() {
             const declaration = catalog.nodes.find(item => item.id === node.type)
             const Editor = extensions.editors?.find(item => item.node === node.type)?.component
             return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>
-              <label>Horizontal position<input type="range" min="0" max="240" disabled={running} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { x, y: 0 } } })) }} /></label>
+              <label>Horizontal position<input type="range" min="0" max="240" disabled={running} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { y: 0, ...current.layout[node.id], x } } })) }} /></label>
               {Editor ? <ExtensionBoundary><Editor parameters={node.parameters} readOnly={running} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={running} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={running} value={node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: event.target.value ? [event.target.value] : [] } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.format} · {pkg.id}</option>)}</select></label>)}
               {Object.entries(declaration?.outputs ?? {}).map(([port, output]) => <p key={port}>Output {port} → {output.format}</p>)}
-              <button disabled={running} onClick={() => change(current => ({ ...current, flow: { nodes: current.flow.nodes.filter(item => item.id !== node.id), edges: current.flow.edges.filter(edge => edge.source !== node.id && edge.target !== node.id) } }))}>Remove node</button>
+              <button disabled={running} onClick={() => change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.filter(item => item.id !== node.id), edges: current.flow.edges.filter(edge => edge.source !== node.id && edge.target !== node.id) } }))}>Remove node</button>
             </article>
           })}
           <ul>{project.flow.edges.map((edge, index) => <li key={index}>{project.flow.nodes.findIndex(node => node.id === edge.source) + 1}:{edge.source_port} → {project.flow.nodes.findIndex(node => node.id === edge.target) + 1}:{edge.target_port} <button disabled={running} onClick={() => change(current => ({ ...current, flow: { ...current.flow, edges: current.flow.edges.filter((_, i) => i !== index) } }))}>Disconnect</button></li>)}</ul>

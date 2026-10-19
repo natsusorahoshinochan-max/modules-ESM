@@ -15,7 +15,7 @@
 
 ## 安装
 
-需要 Python 3.12、uv、Node.js 和 npm。以下命令在仓库根目录执行。
+需要 Python 3.12、uv、Node.js 22.15+ 和 npm。以下命令在仓库根目录执行。
 
 ```bash
 npm ci --prefix webui
@@ -59,10 +59,11 @@ PROTEIN_WORKBENCH_UI_TOOLCHAIN="$PWD/webui" .venv/bin/python -m build --no-isola
 
 ## 验证
 
-公共应用、HTTP 文件交付及轻量模型资源锁测试：
+公共应用、HTTP 文件交付、轻量模型资源锁及公共 React 交互测试：
 
 ```bash
 .venv/bin/python -m pytest tests -q
+npm --prefix webui test
 ```
 
 真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。

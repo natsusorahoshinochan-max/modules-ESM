@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build"
+    "build": "tsc -b && vite build",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "2.3.7",
@@ -26,6 +27,7 @@
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
     "esbuild": "0.28.2",
+    "jsdom": "26.1.0",
     "typescript": "~5.8.3",
     "vite": "^7.1.4"
   }
