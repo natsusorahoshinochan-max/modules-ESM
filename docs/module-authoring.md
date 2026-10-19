@@ -75,6 +75,8 @@ workbench_notes:module
 workbench_notes.receiver:module
 ```
 
-样例提供自定义文本输入、节点参数编辑器和结果查看器。其独立接收节点依据公开格式读取生产节点的数据包。格式说明与样例位于 `examples/external_module/src/workbench_notes/FORMAT.md` 和同目录的 `sample/`。
+使用 `New note` 操作输入文本并添加 `Uppercase note` 节点，再添加 `Count note characters` 节点。在端口连接区将前者的 `note` 输出连到后者的 `note` 输入，保存并运行。结果包可通过查看器或文件下载入口读取，重开项目后仍可访问。
+
+样例提供节点参数编辑器和结果查看器。独立接收节点依据公开格式读取生产节点的数据包。格式说明与样例位于 `examples/external_module/src/workbench_notes/FORMAT.md` 和同目录的 `sample/`。
 
 模块包使用标准 Python 构建配置将工厂代码、浏览器入口及格式资源一并安装。登记和设置保存在应用数据目录，重启应用后继续读取。
