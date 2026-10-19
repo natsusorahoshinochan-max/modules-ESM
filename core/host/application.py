@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 import shutil
@@ -26,8 +27,24 @@ class Workbench:
         with self._connect() as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, data TEXT NOT NULL, PRIMARY KEY(kind,id))")
 
+    @contextmanager
     def _connect(self):
-        return sqlite3.connect(self._database)
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database)
+            yield connection
+            connection.commit()
+        except (sqlite3.Error, OSError) as exc:
+            if connection is not None:
+                connection.rollback()
+            raise HostError(f"Database read, write or commit failed: {exc}") from exc
+        except BaseException:
+            if connection is not None:
+                connection.rollback()
+            raise
+        finally:
+            if connection is not None:
+                connection.close()
 
     def _records(self, kind):
         with self._connect() as connection:

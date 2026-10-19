@@ -23,7 +23,7 @@ def load(entry_point):
 def validate(module):
     if not isinstance(module, Module):
         raise ValueError("entry must return public Module declaration")
-    if not module.id or not isinstance(module.id, str) or not module.name:
+    if not module.id or not isinstance(module.id, str) or not isinstance(module.name, str) or not module.name:
         raise ValueError("module id and name are required")
     json.dumps(module.settings, allow_nan=False)
     if not isinstance(module.settings, dict):
@@ -32,11 +32,13 @@ def validate(module):
         raise ValueError("UI entry must name an existing absolute file")
     seen = set()
     for node in module.nodes:
-        if not isinstance(node, Node) or not isinstance(node.id, str) or not node.id or not node.name or not callable(node.execute):
+        if not isinstance(node, Node) or not isinstance(node.id, str) or not node.id or not isinstance(node.name, str) or not node.name or not callable(node.execute):
             raise ValueError("node requires id, name and executable entry")
         if node.id in seen:
             raise ValueError(f"duplicate node identity: {node.id}")
         seen.add(node.id)
+        if not isinstance(node.parameters, dict):
+            raise ValueError("node parameter declaration must be an object")
         json.dumps(node.parameters, allow_nan=False)
         for name, port in node.inputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, InputPort):
