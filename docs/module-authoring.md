@@ -149,4 +149,4 @@ workbench_note_consumer:module
 
 需要机器资源互斥的本地 Adapter 可调用仅依赖标准库的公共入口 `protein_workbench_public.worker_process.run_worker(command, *, cwd, log_path, cancelled, label)`。`command` 为可执行文件及参数列表，`cancelled` 为读取取消状态的无参数函数，`label` 用于错误显示。正常退出后返回；非零退出时报告退出码及日志末尾的具体原因，取消时等待进程清理后报告错误。模块自行准备配置文件并读取结果文件；资源与进程约束见 [本地模型](local-models.md)。
 
-完整结构导入、查看与导出入口为 `modules.structure_io:module`，独立文件格式与选择规则见 [完整结构格式](../modules/structure_io/FORMAT.md)。模块直接读取包内坐标文件，通用载体只负责交付、持久化及 ZIP。
+结构读取、真实位置选择、提取、坐标变换与格式导出入口为 `modules.structure_io:module`，公开 Python 能力、安装依赖和独立格式见 [完整结构格式](../modules/structure_io/FORMAT.md)。模块直接读取包内坐标文件，通用载体只负责交付、持久化及 ZIP。
