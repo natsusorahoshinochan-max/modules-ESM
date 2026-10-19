@@ -120,3 +120,21 @@ def test_invalid_unicode_catalog_declaration_is_rejected_before_registration(tmp
     with pytest.raises(HostError, match='UTF-8'):
         app.install('tests.fixtures.host_module:invalid_catalog_module')
     assert Workbench(tmp_path).catalog() == {'nodes': [], 'modules': [], 'tools': []}
+def test_http_continue_provides_accepted_outputs_without_private_continuation(tmp_path):
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.bootstrap import create_application
+    from tests.run_helpers import wait_response
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        assert client.post('/api/modules', json={'entry_point': 'tests.fixtures.host_module:output_only_module'}).status_code == 200
+        project = client.post('/api/projects', json={'name': 'Output-only continuation'}).json()['id']
+        assert client.put('/api/projects/' + project, json={'flow': {'nodes': [{'id': 'node', 'type': 'output.node'}], 'edges': []}, 'layout': {}}).status_code == 200
+        first = wait_response(client, client.post('/api/projects/' + project + '/runs')).json()
+        assert first['status'] == 'failed'
+        assert first['nodes']['node']['continuation'] is None
+        prior = first['nodes']['node']['outputs']['result'][0]
+        assert client.get('/api/packages/' + prior + '/file', params={'key': 'data'}).content == b'accepted partial'
+        final = wait_response(client, client.post('/api/runs/' + first['id'] + '/nodes/node/continue')).json()
+        assert final['id'] == first['id']
+        assert final['status'] == 'succeeded'
+        output = final['nodes']['node']['outputs']['result'][0]
+        assert client.get('/api/packages/' + output + '/file', params={'key': 'data'}).content == b'accepted partial + completed'

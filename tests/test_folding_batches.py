@@ -127,6 +127,66 @@ def test_continuation_accepts_retry_after_initial_delivery_failed_without_any_pr
     assert [sequence for sequence, _ in calls] == ['ACD', 'DEF', 'GHI', 'ACD', 'DEF', 'GHI']
 
 
+def test_continue_after_persistent_terminal_commit_failure_uses_last_accepted_state(tmp_path, monkeypatch):
+    import sqlite3
+    from threading import Event
+    app, project, flow, calls, failing = batch_app(tmp_path, monkeypatch)
+    app.install('tests.fixtures.prediction_tool:consumer_module')
+    app.install('tests.fixtures.host_module:branch_module')
+    flow['nodes'] += [
+        {'id': 'reader', 'type': 'lab.consume', 'parameters': {'note': 'original'}},
+        {'id': 'independent', 'type': 'branch.node'},
+        {'id': 'other_failure', 'type': 'branch.node', 'parameters': {'fail': True}},
+    ]
+    flow['edges'] = [{'source': 'predict', 'source_port': 'structure', 'target': 'reader', 'target_port': 'source'}]
+    app.save_project(project['id'], flow, {})
+    first = wait_run(app, app.start(project['id']))
+    old = first['nodes']['predict']
+    packages = app.list_packages(project['id'])
+    failing['sequence'] = None
+    connect = sqlite3.connect
+    refused = Event()
+    class RefusedTerminalCommit(sqlite3.Connection):
+        def commit(self):
+            if self.in_transaction and (refused.is_set() or self.execute("SELECT COUNT(*) FROM records WHERE kind='package'").fetchone()[0] > len(packages)):
+                refused.set()
+                raise sqlite3.OperationalError('persistent continuation terminal commit refused')
+            return super().commit()
+    monkeypatch.setattr(sqlite3, 'connect', lambda *args, **kwargs: connect(*args, **kwargs, factory=RefusedTerminalCommit))
+    interrupted = wait_run(app, app.continue_run(first['id'], 'predict'))
+    assert refused.is_set()
+    assert interrupted['status'] == 'failed'
+    assert 'persistent continuation terminal commit refused' in str(interrupted['diagnostics'])
+    for field in ('outputs', 'continuation', 'progress'):
+        assert interrupted['nodes']['predict'][field] == old[field]
+    assert interrupted['calls'] == first['calls']
+    assert app.list_packages(project['id']) == packages
+    monkeypatch.setattr(sqlite3, 'connect', connect)
+    reopened = Workbench(tmp_path)
+    assert reopened.get_run(first['id'])['status'] == 'failed'
+    flow['nodes'][0]['inputs'] = {'sequence': []}
+    flow['nodes'][0]['tool_parameters']['predictor']['seed'] = 99
+    flow['nodes'][0]['tools']['predictor'] = 'missing.tool'
+    flow['nodes'][1]['parameters'] = {'note': 'changed canvas'}
+    reopened.save_project(project['id'], flow, {})
+    final = wait_run(reopened, reopened.continue_run(first['id'], 'predict'))
+    assert final['id'] == first['id']
+    assert final['nodes']['predict']['status'] == 'succeeded'
+    assert final['calls']['predict'] == first['calls']['predict']
+    assert final['nodes']['independent'] == first['nodes']['independent']
+    assert final['nodes']['other_failure'] == first['nodes']['other_failure']
+    package, document = manifest(reopened, final)
+    assert [obj['sequence'] for obj in document['objects']] == ['ACD', 'DEF', 'GHI']
+    for obj in document['objects']:
+        with package.open(obj['structure']['file']) as stream:
+            assert stream.read().decode() == obj['sequence']
+    assert final['nodes']['reader']['status'] == 'succeeded'
+    reader = reopened.package(final['nodes']['reader']['outputs']['result'][0])
+    with reader.open(reader.entry) as stream:
+        assert json.load(stream) == {'count': 3, 'parameters': {'note': 'original'}}
+    assert calls == [(sequence, {'seed': 0}) for sequence in ['ACD', 'DEF', 'DEF', 'GHI', 'DEF', 'GHI']]
+
+
 def test_continuation_only_advances_original_blocked_dependents_after_full_delivery(tmp_path, monkeypatch):
     app, project, flow, calls, failing = batch_app(tmp_path, monkeypatch)
     app.install('tests.fixtures.prediction_tool:consumer_module')

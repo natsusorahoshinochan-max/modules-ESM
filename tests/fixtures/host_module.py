@@ -84,3 +84,20 @@ def branch_node(call, runtime):
 
 def branch_module():
     return Module('branch', 'Branches', nodes=(Node('branch.node', 'Branch', branch_node, inputs={'source': InputPort(('branch.bytes',), 'many', False)}, outputs={'result': OutputPort('branch.bytes')}),))
+
+
+def output_only_node(call, runtime):
+    value = b'accepted partial'
+    if call.previous is not None:
+        assert call.previous.continuation is None
+        package = call.previous.outputs['result'][0]
+        with package.open(package.entry) as stream:
+            value = stream.read() + b' + completed'
+    (runtime.workdir / 'bytes').write_bytes(value)
+    return Outcome(status='succeeded' if call.previous is not None else 'failed',
+        outputs={'result': [Delivery('output.bytes', 'data', {'data': 'bytes'})]})
+
+
+def output_only_module():
+    return Module('output.only', 'Output only', nodes=(Node('output.node', 'Output node', output_only_node,
+        outputs={'result': OutputPort('output.bytes')}),))

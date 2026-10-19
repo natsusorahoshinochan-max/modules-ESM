@@ -309,7 +309,7 @@ def execute(app, run, prepared, cancelled, retry_target=None):
             from dataclasses import replace
             call = replace(call, tools=injected, tool_choices=dict(snapshot["tools"]),
                 previous=Previous(outputs={name: tuple(app.package(key) for key in keys) for name, keys in previous["outputs"].items()},
-                                  continuation=previous["continuation"]) if identifier == retry_target and previous["continuation"] is not None else None)
+                                  continuation=previous["continuation"]) if identifier == retry_target and (previous["outputs"] or previous["continuation"] is not None) else None)
             runtime = ExecutionRuntime(workdir)
             runtime._cancel = cancelled
             try:
