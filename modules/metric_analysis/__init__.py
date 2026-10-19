@@ -2,15 +2,16 @@
 import json
 import math
 from shutil import copyfileobj
+from pathlib import Path
 
-from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort
+from protein_workbench_public.module_api import Delivery, InputPort, Interaction, InteractionResult, Module, Node, Outcome, OutputPort
 from .formats import finite, positions
 
-FORMATS = ('workbench.structure_confidence', 'workbench.comparison', 'workbench.solubility', 'workbench.prediction')
+FORMATS = ('workbench.structure_confidence', 'workbench.comparison', 'workbench.solubility', 'workbench.prediction', 'workbench.sequence_backbone_evaluation')
 
 
 def read_json(package, key):
-    if key not in package.files:
+    if not isinstance(key, str) or key not in package.files:
         raise ValueError(f'Required metric file is not declared: {key}')
     with package.open(key) as reader:
         return json.load(reader)
@@ -45,8 +46,11 @@ def prediction_positions(package, obj):
     return axis
 
 
-def choices(package):
+def choices(package, selected=None):
     document = read_json(package, package.entry)
+    if package.format == 'workbench.sequence_backbone_evaluation':
+        from .backbone import backbone_choices
+        return backbone_choices(document, package)
     if package.format == 'workbench.comparison':
         subject, reference = document.get('subject'), document.get('reference')
         for obj in (subject, reference):
@@ -65,16 +69,26 @@ def choices(package):
             raise ValueError('Comparison contains no existing numeric metrics')
         return result
     objects = document.get('objects', [])
+    if not isinstance(objects, list) or any(not isinstance(obj, dict) for obj in objects):
+        raise ValueError('Metric input requires actual object descriptions')
     ids = [obj.get('id') for obj in objects]
     if not ids or any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
         raise ValueError('Metric objects require unique explicit identities')
+    if package.format in ('workbench.structure_confidence', 'workbench.prediction'):
+        if any(obj.get('structure', {}).get('file') not in package.files for obj in objects):
+            raise ValueError('Metric input requires every complete original structure file')
     result = []
     if package.format == 'workbench.prediction':
+        tool = document.get('tool')
+        if not isinstance(tool, dict) or not isinstance(tool.get('id'), str) or not tool['id'] or not isinstance(tool.get('parameters'), dict):
+            raise ValueError('Natural confidence requires its actual source tool and parameters')
         for obj in objects:
+            if selected is not None and obj['id'] != selected.get('object'):
+                continue
             common = {'object': obj, 'reference': None, 'source_region': None,
                 'source_method': document.get('tool'), 'unit': 'fraction (0–1)'}
             confidence = obj.get('confidence', {})
-            if 'plddt' in confidence:
+            if 'plddt' in confidence and (selected is None or selected.get('metric') == 'plddt'):
                 descriptor = confidence['plddt']
                 if descriptor.get('scale') != '0-1':
                     raise ValueError('Natural confidence requires its explicit 0–1 scale')
@@ -84,24 +98,36 @@ def choices(package):
                     raise ValueError('Natural confidence correspondence must cover every finite 0–1 value')
                 result.append(common | {'selector': {'object': obj['id'], 'origin': 'generation', 'metric': 'plddt'},
                     'metric': 'plddt', 'meaning': 'Source prediction local confidence', 'input_values': scores, 'positions': axis})
-            if 'ptm' in confidence:
+            if 'ptm' in confidence and (selected is None or selected.get('metric') == 'ptm'):
                 value = confidence['ptm']
                 if not finite(value) or not 0 <= value <= 1:
                     raise ValueError('Natural pTM requires a finite 0–1 value')
                 result.append(common | {'selector': {'object': obj['id'], 'origin': 'generation', 'metric': 'ptm'},
                     'metric': 'ptm', 'meaning': 'Source whole-prediction pTM', 'input_values': [value], 'positions': None})
     for index, evaluation in enumerate(document.get('evaluations', [])):
+        if selected is not None and selected.get('evaluation') != index:
+            continue
+        if not isinstance(evaluation, dict) or 'reference' not in evaluation or 'region' not in evaluation:
+            raise ValueError('Metric evaluation requires explicit attribution and original region')
         matches = [obj for obj in objects if obj['id'] == evaluation.get('object_id')]
         if len(matches) != 1:
             raise ValueError('Metric evaluation requires one explicitly supplied object')
         obj = matches[0]
+        if package.format == 'workbench.structure_confidence' and (evaluation.get('origin') != 'independent_existing_geometry' or evaluation['reference'] is not None):
+            raise ValueError('Confidence requires its independent existing-geometry attribution')
         for metric, value in evaluation.get('values', {}).items():
+            if package.format == 'workbench.structure_confidence' and (selected is None or selected.get('metric') == metric):
+                number = value.get('value')
+                if value.get('unit') != 'fraction (0–1)' or not finite(number) or not 0 <= number <= 1:
+                    raise ValueError('Confidence scalar requires an existing finite fraction (0–1)')
             result.append({'selector': {'object': obj['id'], 'origin': 'evaluation', 'evaluation': index, 'metric': metric},
                 'object': obj, 'reference': evaluation.get('reference'), 'source_region': evaluation.get('region'),
                 'source_method': evaluation.get('method'), 'metric': metric, 'unit': value.get('unit'),
                 'meaning': value.get('meaning'), 'input_values': [value.get('value')], 'positions': None})
-        if 'per_position' in evaluation:
+        if 'per_position' in evaluation and (selected is None or selected.get('metric') == 'plddt'):
             descriptor = evaluation['per_position']
+            if descriptor.get('unit') != 'fraction (0–1)':
+                raise ValueError('Confidence requires its explicit fraction (0–1) unit')
             scores = read_json(package, descriptor.get('file'))
             axis, values = scores.get('positions'), scores.get('plddt')
             keys = positions(axis)
@@ -129,9 +155,11 @@ def analyze(call, runtime):
     for selection in selections:
         if not isinstance(selection, dict) or type(selection.get('input')) is not int or not 0 <= selection['input'] < len(packages):
             raise ValueError('Select an explicitly supplied metric input')
-        available = choices(packages[selection['input']])
         selector = {k: v for k, v in selection.items() if k not in ('input', 'region')}
-        found = [choice for choice in available if all(choice['selector'].get(k) == v for k, v in selector.items())]
+        if not isinstance(selector.get('metric'), str) or not isinstance(selector.get('origin'), str) or not ({'object', 'objects'} & selector.keys()):
+            raise ValueError('Existing metric selection is missing or ambiguous; choose object, reference, method and metric')
+        available = choices(packages[selection['input']], selector)
+        found = [choice for choice in available if set(choice['selector']) == set(selector) and all(type(choice['selector'][k]) is type(v) and choice['selector'][k] == v for k, v in selector.items())]
         if len(found) != 1:
             raise ValueError('Existing metric selection is missing or ambiguous; choose object, reference, method and metric')
         choice = found[0]
@@ -144,12 +172,18 @@ def analyze(call, runtime):
             keys = positions(axis)
             if any(p not in keys for p in requested):
                 raise ValueError('Selected region lacks existing values or complete position correspondence')
-            indices = [keys.index(p) for p in requested]
+            lookup = {key: i for i, key in enumerate(keys)}
+            indices = [lookup[p] for p in requested]
             values, axis = [values[i] for i in indices], region
-        if not values or not all(finite(v) for v in values) or not choice['unit'] or not choice['source_method'] or not choice['meaning']:
+        if 'valid_positions' in choice:
+            lookup = {key: i for i, key in enumerate(positions(choice['positions']))}
+            indices = [lookup[p] for p in positions(axis)]
+            if any(not choice['valid_positions'][i] for i in indices):
+                raise ValueError('Selected region lacks valid existing backbone coordinates for its values')
+        if not values or not all(finite(v) for v in values) or not isinstance(choice['unit'], str) or not choice['unit'] or not isinstance(choice['source_method'], (str, dict)) or not choice['source_method'] or not isinstance(choice['meaning'], str) or not choice['meaning']:
             raise ValueError('Selected metric requires finite existing values, actual method, unit and meaning')
-        analyses.append({k: v for k, v in choice.items() if k != 'selector'} | {
-            'source': selection['input'], 'selection': choice['selector'], 'region': region if axis is not None else choice['source_region'],
+        analyses.append({k: v for k, v in choice.items() if k not in ('selector', 'valid_positions')} | {
+            'source': selection['input'], 'selection': choice['selector'], 'region': axis if axis is not None else choice.get('metric_region', choice['source_region']),
             'positions': axis, 'input_values': values,
             'method': 'arithmetic mean, minimum, maximum of existing values',
             'statistics': {'count': len(values), 'mean': math.fsum(values) / len(values), 'minimum': min(values), 'maximum': max(values)}})
@@ -157,6 +191,8 @@ def analyze(call, runtime):
     for index, package in enumerate(packages):
         mapping = {}
         for offset, key in enumerate(package.files):
+            if runtime.cancelled:
+                return Outcome(status='cancelled')
             target = f'sources/{index}/{offset}'
             path = runtime.workdir / target
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -172,8 +208,24 @@ def analyze(call, runtime):
     return Outcome(outputs={'analysis': [Delivery('workbench.metric_analysis', 'manifest.json', files)]})
 
 
+def inspect_metrics(call, runtime):
+    display = []
+    for index, package in enumerate(call.inputs.get('metrics', ())):
+        if runtime.cancelled:
+            raise ValueError('Metric inspection cancelled')
+        for ordinal, choice in enumerate(choices(package)):
+            reference = choice['reference']
+            display.append({'selector': {'input': index, **choice['selector']},
+                'object_label': choice['object'].get('label') or f'Object {ordinal + 1}',
+                'reference_label': (reference.get('label') or 'Selected reference') if isinstance(reference, dict) else 'No reference',
+                'source_region': choice['source_region'], 'source_method': choice['source_method'],
+                'positions': choice['positions'], 'unit': choice['unit'], 'meaning': choice['meaning']})
+    return InteractionResult(data={'choices': display})
+
+
 def module():
-    return Module('workbench.metric_analysis', 'Existing metric analysis', nodes=(Node(
+    return Module('workbench.metric_analysis', 'Existing metric analysis', ui=str(Path(__file__).with_name('ui.js')),
+        interactions=(Interaction('workbench.inspect_metrics', inspect_metrics, inputs={'metrics': InputPort(FORMATS, cardinality='many')}),), nodes=(Node(
         'workbench.analyze_metrics', 'Analyze existing metrics', analyze,
         inputs={'metrics': InputPort(FORMATS, cardinality='many')},
         outputs={'analysis': OutputPort('workbench.metric_analysis')},

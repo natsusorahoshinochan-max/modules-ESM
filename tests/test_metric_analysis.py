@@ -149,3 +149,101 @@ def test_prediction_confidence_maps_existing_values_to_actual_insertion_position
             'prediction.pdb': structure, 'confidence.json': b'{"plddt":[0.1,0.9,0.3]}'})
         failure = run_analysis(client, project, source, [selector])
         assert failure['status'] == 'failed' and 'sequence' in str(failure), failure
+
+
+def test_inspect_uses_explicit_packages_and_does_not_run_or_save_analysis(tmp_path):
+    with TestClient(create_application(data_root=tmp_path / 'store')) as client:
+        project = client.post('/api/projects', json={'name': 'Choose actual values'}).json()['id']
+        source = upload(client, project, 'workbench.structure_confidence', confidence_files())
+        response = client.post(f'/api/projects/{project}/interactions', json={
+            'interaction': 'workbench.inspect_metrics', 'inputs': {'metrics': [source['id']]}, 'parameters': {}})
+        assert response.status_code == 200, response.text
+        token = response.json()['id']
+        response = client.post(f'/api/interactions/{token}/execute')
+        assert response.status_code == 200, response.text
+        display = response.json()
+        choice = next(c for c in display['data']['choices'] if c['selector']['metric'] == 'plddt')
+        assert choice['object_label'] == 'Research structure'
+        assert choice['positions'] == POSITIONS
+        assert choice['reference_label'] == 'No reference'
+        assert 'input_values' not in choice
+        assert display['outputs'] == []
+        assert client.get(f'/api/projects/{project}/runs').json() == []
+        assert len(client.get(f'/api/projects/{project}/packages').json()) == 1
+        client.delete(f'/api/interactions/{token}').raise_for_status()
+
+
+def test_backbone_metrics_keep_joint_context_and_explicit_stochastic_sample(tmp_path):
+    objects = [{'id': 'one', 'label': 'Sequence one', 'sequence': 'AA'}, {'id': 'two', 'label': 'Context sequence', 'sequence': 'A'}]
+    axis = [dict(p, tool_position=i) for i,p in enumerate(POSITIONS[:2],1)] + [{'chain':'B','author_number':3,'insertion_code':'','tool_position':1}]
+    sample = {'chains': {'Z':'AA','B':'A'}, 'score':2., 'global_score':3., 'region_nll':3.,
+        'residue_nll': {'Z':[1.,3.], 'B':[5.]}, 'design_mask': {'Z':[1.,1.], 'B':[0.]},
+        'coordinate_mask': {'Z':[1.,1.], 'B':[1.]}, 'region_mask': {'Z':[1.,1.], 'B':[1.]}}
+    evaluation = {'origin':'independent_sequence_backbone','object_ids':['one','two'],
+        'reference': {'id':'unrelated','label':'Arbitrary backbone','structure':{'file':'backbone.pdb','format':'pdb'}},
+        'positions':axis, 'region':None, 'method':'ProteinMPNN score_only',
+        'bindings':[{'reference_chain':'Z','object':'one','positions':[dict(p,sequence_index=i) for i,p in enumerate(POSITIONS[:2],1)]}, {'reference_chain':'B','object':'two','positions':[{'chain':'B','author_number':3,'insertion_code':'','sequence_index':1}]}],
+        'reference_manifest':{'file':'reference.json','files':{'reference.json':'reference.json','backbone.pdb':'backbone.pdb'}},
+        'unit':'negative log likelihood (natural logarithm)', 'meaning':'Full-context native NLL', 'actual_seed':17, 'parameters':{'seed':0},
+        'samples':[sample, {**sample,'residue_nll':{'Z':[2.,4.],'B':[6.]}}]}
+    with TestClient(create_application(data_root=tmp_path/'store')) as client:
+        project = client.post('/api/projects',json={'name':'Explicit sample'}).json()['id']
+        source = upload(client,project,'workbench.sequence_backbone_evaluation',{'manifest.json':json.dumps({'objects':objects,'evaluations':[evaluation]}).encode(),'backbone.pdb':b'complete original','reference.json':b'{}'})
+        selector={'input':0,'objects':['one','two'],'origin':'sequence_backbone','evaluation':0,'sample':1,'metric':'residue_nll'}
+        result = run_analysis(client,project,source,[{**selector,'region':POSITIONS[:2]}])
+        assert result['status']=='succeeded',result
+        output=result['nodes']['analyze']['outputs']['analysis'][0]
+        analysis=client.get(f'/api/packages/{output}/file',params={'key':'manifest.json'}).json()['analyses'][0]
+        assert analysis['object']['members']==objects
+        assert analysis['reference']['id']=='unrelated'
+        assert analysis['input_values']==[2.,4.] and analysis['statistics']['mean']==3.
+        ambiguous={k:v for k,v in selector.items() if k!='sample'}
+        failure=run_analysis(client,project,source,[ambiguous])
+        assert failure['status']=='failed' and 'ambiguous' in str(failure),failure
+
+
+def test_canvas_nodes_choose_package_groups_without_global_grouping(tmp_path):
+    with TestClient(create_application(data_root=tmp_path/'store')) as client:
+        project=client.post('/api/projects',json={'name':'Canvas composition'}).json()['id']
+        first=upload(client,project,'workbench.structure_confidence',confidence_files())
+        second=upload(client,project,'workbench.structure_confidence',confidence_files([.9,.7,.5]))
+        selector={'object':'original','origin':'evaluation','evaluation':0,'metric':'plddt'}
+        nodes=[{'id':'together','type':'workbench.analyze_metrics','inputs':{'metrics':[first['id'],second['id']]},
+                'parameters':{'selections':[dict(selector,input=0,region=[POSITIONS[0]]),dict(selector,input=1,region=[POSITIONS[2]])]}},
+               {'id':'separate','type':'workbench.analyze_metrics','inputs':{'metrics':[second['id']]},
+                'parameters':{'selections':[dict(selector,input=0,region=[POSITIONS[1]])]}}]
+        client.put(f'/api/projects/{project}',json={'flow':{'nodes':nodes,'edges':[]},'layout':{}}).raise_for_status()
+        result=wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
+        assert result['status']=='succeeded',result
+        def saved(node):
+            output=result['nodes'][node]['outputs']['analysis'][0]
+            return client.get(f'/api/packages/{output}/file',params={'key':'manifest.json'}).json()
+        assert [a['input_values'] for a in saved('together')['analyses']]==[[.2],[.5]]
+        assert [a['input_values'] for a in saved('separate')['analyses']]==[[.7]]
+        assert len(saved('together')['sources'])==2 and len(saved('separate')['sources'])==1
+
+
+def test_scalar_selection_does_not_require_unused_per_position_correspondence(tmp_path):
+    files=confidence_files([.2])
+    with TestClient(create_application(data_root=tmp_path/'store')) as client:
+        project=client.post('/api/projects',json={'name':'Use actual scalar only'}).json()['id']
+        source=upload(client,project,'workbench.structure_confidence',files)
+        selector={'input':0,'object':'original','origin':'evaluation','evaluation':0,'metric':'mean_plddt'}
+        result=run_analysis(client,project,source,[selector])
+        assert result['status']=='succeeded',result
+        output=result['nodes']['analyze']['outputs']['analysis'][0]
+        saved=client.get(f'/api/packages/{output}/file',params={'key':'manifest.json'}).json()
+        assert saved['analyses'][0]['input_values']==[.5]
+        assert saved['analyses'][0]['region'] is None
+
+
+def test_invalid_confidence_scalar_scale_stops_without_a_replacement_value(tmp_path):
+    files=confidence_files()
+    document=json.loads(files['manifest.json'])
+    document['evaluations'][0]['values']['mean_plddt']['value']=80.
+    files['manifest.json']=json.dumps(document).encode()
+    with TestClient(create_application(data_root=tmp_path/'store')) as client:
+        project=client.post('/api/projects',json={'name':'Existing scale'}).json()['id']
+        source=upload(client,project,'workbench.structure_confidence',files)
+        result=run_analysis(client,project,source,[{'input':0,'object':'original','origin':'evaluation','evaluation':0,'metric':'mean_plddt'}])
+        assert result['status']=='failed' and 'fraction' in str(result),result

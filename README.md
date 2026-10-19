@@ -95,3 +95,5 @@ ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF �
 已有序列的独立可溶性评价支持明确选择 SoluProt full、no-TM 或 Protein-Sol；配置与数值含义见 [可溶性工具](modules/solubility/TOOL.md)，保存和独立读取见 [评价格式](modules/solubility/FORMAT.md)。
 
 已有结构的独立置信度评价使用 SimpleFold 原几何 latent/head 调用；完整结构和来源预测分数保留，区域只选择报告的残基。输入选择、模型配置、保存及独立读取见[已有结构置信度](modules/structure_confidence/FORMAT.md)和 [SimpleFold 工具](modules/simplefold/TOOL.md)。
+
+已有指标可在画布加入“Existing metric analysis”，选择明确对象、参考、评价及真实残基区域进行统计；数据范围、交互步骤和独立读取见[已有指标分析](modules/metric_analysis/FORMAT.md)。
