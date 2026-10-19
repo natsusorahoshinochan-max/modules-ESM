@@ -41,7 +41,7 @@ def validate(module):
         for name, port in node.inputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, InputPort):
                 raise ValueError("invalid input port declaration")
-            if not port.accepts or any(not isinstance(item, str) or not item for item in port.accepts) or port.cardinality not in ("one", "many") or not isinstance(port.required, bool):
+            if not isinstance(port.accepts, (tuple, list)) or not port.accepts or any(not isinstance(item, str) or not item for item in port.accepts) or port.cardinality not in ("one", "many") or not isinstance(port.required, bool):
                 raise ValueError(f"invalid input declaration: {name}")
         for name, port in node.outputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, OutputPort) or not isinstance(port.format, str) or not port.format or port.cardinality not in ("one", "many"):

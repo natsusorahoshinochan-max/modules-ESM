@@ -71,7 +71,12 @@ class Workbench:
                 if record["entry_point"] != entry_point:
                     raise HostError(f"Duplicate module identity: {module.id}")
                 return record
-        existing = {node["id"] for node in self.catalog()["nodes"]}
+        existing = set()
+        for installed in self._records("module"):
+            try:
+                existing.update(node.id for node in load(installed["entry_point"]).nodes)
+            except HostError:
+                continue
         for node in module.nodes:
             if node.id in existing:
                 raise HostError(f"Duplicate node identity: {node.id}")

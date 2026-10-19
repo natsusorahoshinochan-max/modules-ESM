@@ -43,3 +43,11 @@ def mutating_node(call, runtime):
 
 def mutating_module():
     return Module("mutating", "Mutating", nodes=(Node("mutating.node", "Mutating node", mutating_node),))
+
+
+def conflicting_module():
+    return Module("conflict", "Conflicting module", nodes=(Node("independent.encode", "Conflicting node", empty_batch),))
+
+
+def malformed_module():
+    return Module("malformed", "Malformed", nodes=(Node("bad.input", "Bad input", empty_batch, inputs={"source": InputPort("format-is-not-a-list")}),))

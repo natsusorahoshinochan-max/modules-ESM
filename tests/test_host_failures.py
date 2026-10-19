@@ -128,3 +128,17 @@ def test_delivery_failure_does_not_commit_output_or_progress_or_start_downstream
     assert reopened.list_packages(project["id"]) == [source]
     with reopened.package(source["id"]).open("request") as stream:
         assert stream.read() == b"original"
+
+
+def test_duplicate_node_identity_is_rejected_even_if_existing_module_disabled(tmp_path):
+    app = Workbench(tmp_path)
+    app.install("tests.fixtures.host_module:module")
+    app.enable("independent", False)
+    with pytest.raises(HostError, match="Duplicate node identity"):
+        app.install("tests.fixtures.host_module:conflicting_module")
+
+
+def test_input_formats_declaration_must_be_a_collection_of_names(tmp_path):
+    app = Workbench(tmp_path)
+    with pytest.raises(HostError, match="invalid input declaration"):
+        app.install("tests.fixtures.host_module:malformed_module")
