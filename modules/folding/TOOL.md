@@ -16,6 +16,10 @@ Both adapters accept an optional `msa` dictionary with aligned `sequences` and o
 
 Configure existing Python executable, model directory, ESMC 6B directory and device in module settings for local use. The worker runs offline and explicitly attaches the configured ESMC path; it installs or downloads nothing. Local inference is supervised by `protein_workbench_public.model_validation` from before SDK/model loading through worker process cleanup. Remote settings are `token`, optional `service_url` (default `https://biohub.ai`) and request timeout (default 150 seconds).
 
+## SimpleFold
+
+独立模块 `modules.simplefold:module` 提供同一插槽的 `workbench.simplefold.local` 实现，其原生参数、部署路径和能力限制见 [SimpleFold 工具说明](../simplefold/TOOL.md)。
+
 ## Executable verification
 
 Copy `sample/local-verification.json` outside the repository and replace its paths with existing resources. From the installed application environment run:
