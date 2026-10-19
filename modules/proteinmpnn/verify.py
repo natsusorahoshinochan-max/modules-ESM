@@ -36,7 +36,7 @@ def run(configuration, output):
     with package.open(package.entry) as stream:
         document = json.load(stream)
     print(json.dumps({'run_id': result['id'], 'status': result['status'], 'objects': [
-        {'length': len(obj['sequence']), 'score': obj['design']['score'], 'global_score': obj['design']['global_score'],
+        {'chain_lengths': {chain: len(sequence) for chain, sequence in obj['chains'].items()}, 'score': obj['design']['score'], 'global_score': obj['design']['global_score'],
          'actual_seed': obj['tool']['actual_seed'], 'positions': len(obj['positions'])} for obj in document['objects']]}))
     return document
 
