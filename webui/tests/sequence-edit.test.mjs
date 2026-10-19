@@ -80,3 +80,28 @@ test('a changed host draft discards old module content and its preview',async()=
   assert.equal(cancelled.length,2)
  }finally{await React.act(async()=>root.unmount());container.remove()}
 })
+
+test('StrictMode sequence editor loads its live draft and releases a late unmounted preview',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ const cancelled=[];let resolve,signal
+ const context={projectId:'p',nodeId:'n',revision:0,parameters:{sequence:'AC'},bindings:{},edges:[],inputs:{},host:{
+   async preview(id,inputs,parameters,options){
+     if(!parameters.document)return{id:'load',data:{document:base},outputs:['edited']}
+     signal=options.signal
+     return new Promise(done=>{resolve=done})
+   },async cancelPreview(id){cancelled.push(id)}},async update(){assert.fail('Unmounted preview must not update a node')}}
+ const button=text=>[...container.querySelectorAll('button')].find(button=>button.textContent===text)
+ let unmounted=false
+ try{
+  await React.act(async()=>root.render(React.createElement(React.StrictMode,null,React.createElement(Editor,{context,parameters:context.parameters,readOnly:false}))))
+  await React.act(async()=>button('Load current sequence').click())
+  assert.match(container.textContent,/Sequence: AC/)
+  assert.equal(button('Preview current content').disabled,false)
+  await React.act(async()=>button('Preview current content').click())
+  await React.act(async()=>root.unmount());unmounted=true
+  assert.equal(signal.aborted,true)
+  await React.act(async()=>resolve({id:'late-unmounted',data:{document:random},outputs:['edited']}))
+  assert.deepEqual(cancelled,['load','late-unmounted'])
+  assert.equal(container.textContent,'')
+ }finally{if(!unmounted)await React.act(async()=>root.unmount());container.remove()}
+})

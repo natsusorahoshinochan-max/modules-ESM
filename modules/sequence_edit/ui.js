@@ -16,10 +16,13 @@ export function register({React}) {
     const controller = React.useRef(null)
     const epoch = React.useRef(0), mounted = React.useRef(true), tokens = React.useRef(new Set()), latestContext = React.useRef(context)
     latestContext.current = context
-    React.useEffect(() => () => {
-      mounted.current = false; epoch.current++; controller.current?.abort()
-      for (const token of tokens.current) void latestContext.current.host.cancelPreview(token).catch(() => {})
-      tokens.current.clear()
+    React.useEffect(() => {
+      mounted.current = true
+      return () => {
+        mounted.current = false; epoch.current++; controller.current?.abort()
+        for (const token of tokens.current) void latestContext.current.host.cancelPreview(token).catch(() => {})
+        tokens.current.clear()
+      }
     }, [])
     React.useEffect(() => {
       if (seenRevision.current === context.revision) return

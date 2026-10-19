@@ -101,7 +101,7 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 ## 节点编辑上下文与临时交互
 
-`EditorProps.context` 提供当前 `projectId`、`nodeId`、`parameters`、直接 `bindings`、相关 `edges`，以及按端口排列的 `inputs`。每个输入含明确绑定的 `packages`；未选择已交付包、绑定包缺失或只有计算连线时，`unavailable` 给出原因。载体不自动查找上游结果或执行上游。
+`EditorProps.context` 提供当前 `projectId`、`nodeId`、`parameters`、直接 `bindings`、相关 `edges`，以及按端口排列的 `inputs`。`parameters` 是独立、递归只读的已接受参数快照；参数未替换时，同一对象及嵌套引用保持稳定。模块通过 `onChange` 或 `context.update` 提交独立的新参数，载体在接收时复制，异步更新在首次等待前固定参数内容。每个输入含明确绑定的 `packages`；未选择已交付包、绑定包缺失或只有计算连线时，`unavailable` 给出原因。载体不自动查找上游结果或执行上游。
 
 模块在 `Module.interactions` 中声明 `Interaction(id, execute, inputs, parameters)`。处理函数接收公开的 `Call` 和 `Runtime`，返回 `InteractionResult(data=小型展示数据, outputs={名称: Delivery(...)})`。载体核对输入格式及基数，提供明确包、所属模块设置、只读文件访问、工作目录和取消信号；调用不创建运行。返回前关闭文件并放弃写权，工作目录由载体保留到结束或接收完成。
 
