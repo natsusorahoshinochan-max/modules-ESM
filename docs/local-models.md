@@ -50,3 +50,5 @@
 预测节点的应用内配置、独立本地与远端默认值及可执行验证命令见 [预测工具插槽](../modules/folding/TOOL.md)。ESMFold2 与 [SimpleFold](../modules/simplefold/TOOL.md) 的本地预测 Adapter 自行持有上述资源锁，其 `modules.folding.verify` 命令直接运行，避免嵌套获取同一把锁。
 
 已有结构的独立置信度同样由 SimpleFold Adapter 持有资源锁；原几何预处理、所需权重和公开调用入口见 [SimpleFold 既有几何评价](../modules/simplefold/TOOL.md#existing-geometry-confidence)。直接运行应用内节点即可，不再嵌套模型验证入口。
+
+ESM3 本地生成由 Adapter 的监督 worker 持有资源锁，直接运行节点或调用 Adapter 即可。已有快照配置、明确 torch seed 和输入限制见 [ESM3 公共工具](../modules/esm3/TOOL.md)。

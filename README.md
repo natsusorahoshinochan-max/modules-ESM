@@ -99,3 +99,5 @@ ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF �
 已有指标可在画布加入“Existing metric analysis”，选择明确对象、参考、评价及真实残基区域进行统计；数据范围、交互步骤和独立读取见[已有指标分析](modules/metric_analysis/FORMAT.md)。
 
 独立序列与任意所选骨架的 ProteinMPNN 评价支持完整链对应、真实残基编号与插入码、独立区域及评分 mask；输入选择、数值含义和独立读取见[序列与骨架评价](modules/sequence_backbone_evaluation/FORMAT.md)。
+
+ESM3 的补全与受约束生成节点读取当前编辑包中的 Prompt、固定/可变区域和坐标条件，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/esm3/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。
