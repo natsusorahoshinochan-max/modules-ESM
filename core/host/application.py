@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
+import shutil
+import tempfile
 from uuid import uuid4
 
 
@@ -15,6 +17,11 @@ class Workbench:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self._workdirs = set()
+        self._packages = self.root / "packages"
+        self._packages.mkdir(exist_ok=True)
+        self._work = self.root / "work"
+        self._work.mkdir(exist_ok=True)
         self._database = self.root / "host.sqlite"
         with self._connect() as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, data TEXT NOT NULL, PRIMARY KEY(kind,id))")
@@ -120,3 +127,44 @@ class Workbench:
         project.update(flow=flow, layout=layout)
         self._put("project", project)
         return self.get_project(project_id)
+
+    def new_workdir(self):
+        path = Path(tempfile.mkdtemp(prefix="execution-", dir=self._work))
+        self._workdirs.add(path)
+        return path
+
+    def _owned_workdir(self, workdir):
+        workdir = Path(workdir).absolute()
+        if workdir not in self._workdirs or workdir.is_symlink() or not workdir.is_dir() or workdir.resolve().parent != self._work:
+            raise HostError(f"Delivery workdir is not allocated by this host: {workdir}")
+        return workdir
+
+    def _release_workdir(self, workdir):
+        self._workdirs.discard(workdir)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    def create_input(self, project_id, delivery, workdir):
+        from .storage import receive
+        self._get("project", project_id)
+        workdir = self._owned_workdir(workdir)
+        record = None
+        try:
+            record = receive(project_id, delivery, workdir, self._packages)
+            return self._put("package", record)
+        except (OSError, sqlite3.Error) as exc:
+            raise HostError(f"Could not receive input: {exc}") from exc
+        except HostError:
+            if record is not None:
+                shutil.rmtree(self._packages / record["id"], ignore_errors=True)
+            raise
+        finally:
+            self._release_workdir(workdir)
+
+    def package(self, package_id):
+        from .storage import StoredPackage
+        record = self._get("package", package_id)
+        return StoredPackage(record, self._packages / package_id)
+
+    def list_packages(self, project_id):
+        self._get("project", project_id)
+        return [record for record in self._records("package") if record["project_id"] == project_id]

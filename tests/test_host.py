@@ -23,3 +23,17 @@ def test_external_declarations_and_settings_survive_reopening(tmp_path):
     catalog = reopened.catalog()
     assert [node["id"] for node in catalog["nodes"]] == ["independent.encode", "independent.receive"]
     assert catalog["nodes"][0]["inputs"] == {"source": {"accepts": ["independent.request"], "cardinality": "one", "required": True}}
+
+
+def test_binary_input_is_saved_without_interpreting_its_scientific_content(tmp_path):
+    from protein_workbench_public.module_api import Delivery
+    app = Workbench(tmp_path)
+    project = app.create_project("Binary")
+    workdir = app.new_workdir()
+    (workdir / "temporary-name").write_bytes(b"\x00not scientific JSON\xff")
+    package = app.create_input(project["id"], Delivery("author.custom", "stable.bin", {"stable.bin": "temporary-name"}), workdir)
+    assert package["files"] == ["stable.bin"]
+    reopened = Workbench(tmp_path).package(package["id"])
+    with reopened.open(reopened.entry) as stream:
+        assert stream.read() == b"\x00not scientific JSON\xff"
+    assert not workdir.exists()
