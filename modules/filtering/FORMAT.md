@@ -17,9 +17,11 @@ the operation before output is produced, including values of candidates that
 would fail another condition. All conditions are combined with AND.
 
 Candidates accept `workbench.sequence`, `workbench.structure_set`,
-`workbench.proteinmpnn_design`, the concrete formats listed in the
+`workbench.proteinmpnn_design`, the concrete source formats listed in the
 [metric reader](../metric_analysis/FORMAT.md), and `workbench.filtered_collection`.
-Evaluation inputs accept those metric formats and filtered collections.
+Evaluation inputs accept those metric formats, saved `workbench.metric_analysis`
+statistics and filtered collections. Analysis results supply evaluations; bind
+the original object packages separately as candidates.
 An empty candidate list or an empty candidate package yields an empty collection.
 A comparison package supplies its actual subject. A sequence/backbone package
 supplies each complete explicitly evaluated joint sequence context as one item;

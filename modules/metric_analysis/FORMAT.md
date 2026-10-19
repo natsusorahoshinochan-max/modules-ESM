@@ -14,6 +14,7 @@ installing or calling their producers:
 
 | Input | Existing values used |
 | --- | --- |
+| `workbench.metric_analysis` | Explicit saved `mean`, `minimum`, `maximum`, `count` statistics; analysis method and region remain separate from the original source method and region |
 | [`workbench.proteinmpnn_design`](../proteinmpnn/FORMAT.md) | Natural whole-design `score`, `global_score` and optional `recovery`, retaining every chain, original backbone and native masks |
 | [`workbench.esm3_generation`](../esm3/FORMAT.md) | Native whole-generation pTM scalar; local single-invocation pTM with its declared size-1 batch axis |
 | [`workbench.structure_confidence`](../structure_confidence/FORMAT.md) | Explicit evaluation `values` scalars; `per_position` JSON `positions` / `plddt` |
@@ -135,3 +136,12 @@ and complete native scoring masks. `score` and `global_score` retain NLL in natu
 logarithm units; `recovery` retains the native design-mask fraction. The reader
 checks the selected scalar's required original sample and mask correspondence and
 never attributes the design score to a chain extracted from that sample.
+
+Saved analysis statistics use selector origin `analysis`, the exact `analysis`
+array index, and metric `<original metric>.<statistic>`. Each choice retains the
+original object/context and reference. Its region is the explicitly analyzed
+region; `source_method` records the actual analysis method/statistic and separately
+preserves the original method, source region and selection. Count uses count units;
+mean/minimum/maximum retain original units. Multiple analyses of an object remain
+separate choices. To filter them, bind the original candidate package to
+`candidates` and this saved analysis package to `evaluations`.

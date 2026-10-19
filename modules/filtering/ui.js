@@ -1,8 +1,8 @@
 export const runtime={react:19}
 export function register({React}) {
  const h=React.createElement
- const metrics=['workbench.proteinmpnn_design','workbench.esm3_generation','workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation','workbench.filtered_collection']
- const candidates=['workbench.sequence','workbench.structure_set','workbench.proteinmpnn_design','workbench.filtered_collection',...metrics]
+ const metrics=['workbench.metric_analysis','workbench.proteinmpnn_design','workbench.esm3_generation','workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation','workbench.filtered_collection']
+ const candidates=['workbench.sequence','workbench.structure_set','workbench.proteinmpnn_design','workbench.filtered_collection',...metrics.filter(format=>format!=='workbench.metric_analysis')]
  const label=value=>typeof value==='string'?value:(value?.name??value?.method??value?.id??'Recorded method')
  const choiceLabel=(c,i)=>`${i+1}. ${c.metric} · ${label(c.method)} · ${c.reference?.label??(c.reference?'Selected reference':'No reference')} · ${JSON.stringify(c.region)} · ${c.sample===null||c.sample===undefined?'':`Sample ${c.sample+1} · `}${c.unit??''} · ${c.meaning??''}${c.unavailable?' · Unavailable: '+c.unavailable:''}`
  function Controls({host,inputs,parameters,onChange,disabled=false,temporary=false}) {

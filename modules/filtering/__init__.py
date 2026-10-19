@@ -11,7 +11,7 @@ from modules.metric_analysis import FORMATS as METRICS, read_metric_choices
 from .formats import SourcePackage, read_collection
 
 FORMAT = 'workbench.filtered_collection'
-CANDIDATES = ('workbench.sequence', 'workbench.structure_set', *METRICS, FORMAT)
+CANDIDATES = ('workbench.sequence', 'workbench.structure_set', *(format for format in METRICS if format != 'workbench.metric_analysis'), FORMAT)
 
 
 def _document(package):
@@ -202,8 +202,9 @@ def execute(call, runtime):
             for offset,item in enumerate(original['items']):
                 locations[index,offset] = start + item['source']
         else:
-            for row in _candidates((package,)):
-                locations[index,row['item']] = len(sources)
+            if role == 'candidate':
+                for row in _candidates((package,)):
+                    locations[index,row['item']] = len(sources)
             sources.append({'format':package.format,'entry':package.entry,'files':mapping,'roles':[role]})
         copied[package.id] = {'sources':list(range(start,len(sources))), 'locations':{offset:value for (input_index,offset),value in locations.items() if input_index == index}}
     document = {'sources':sources,'items':[{'source':locations[row['input'],row['item']],'object':deepcopy(row['object'])} for row in selected],

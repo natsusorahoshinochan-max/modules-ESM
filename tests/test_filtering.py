@@ -207,3 +207,18 @@ def test_native_proteinmpnn_design_score_filters_complete_multichain_sample(tmp_
         bindings=[{'candidate':{'input':row['input'],'item':row['item']},'evaluation':next(c for c in row['choices'] if c['metric']=='score')['evaluation']} for row in rows]
         result=interaction(client,project,'workbench.filter',inputs,{'sort':{'evaluation':{'bindings':bindings},'direction':'ascending'},'limit':1})
         assert result.status_code==200 and result.json()['data']['selected']==[{'input':0,'item':1}],result.text
+
+
+def test_explicit_positional_analysis_result_is_used_as_existing_filter_scalar(tmp_path):
+    from tests.test_metric_analysis import confidence_files
+    with TestClient(create_application(data_root=tmp_path/'store')) as client:
+        project=client.post('/api/projects',json={'name':'Analyze then filter'}).json()['id']
+        package=upload(client,project,'workbench.structure_confidence',confidence_files())
+        flow={'nodes':[{'id':'analysis','type':'workbench.analyze_metrics','inputs':{'metrics':[package['id']]},'parameters':{'selections':[{'input':0,'object':'original','origin':'evaluation','evaluation':0,'metric':'plddt'}]}},
+            {'id':'filter','type':'workbench.filter','inputs':{'candidates':[package['id']]},'parameters':{'conditions':[{'evaluation':{'bindings':[{'candidate':{'input':0,'item':0},'evaluation':{'input':0,'selector':{'object':'original','origin':'analysis','analysis':0,'metric':'plddt.mean'}}}]},'operator':'gt','value':.4}]}}],
+            'edges':[{'source':'analysis','source_port':'analysis','target':'filter','target_port':'evaluations'}]}
+        client.put(f'/api/projects/{project}',json={'flow':flow,'layout':{}}).raise_for_status()
+        run=wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
+        assert run['status']=='succeeded',run
+        output=client.get('/api/packages/'+run['nodes']['filter']['outputs']['collection'][0]+'/file',params={'key':'manifest.json'}).json()
+        assert [item['object']['id'] for item in output['items']]==['original']
