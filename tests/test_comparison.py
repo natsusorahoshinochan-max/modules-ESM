@@ -174,3 +174,99 @@ def test_unknown_residue_in_declared_mmcif_protein_polymer_stops_comparison(tmp_
         assert result['status'] == 'failed', result
         assert 'Unsupported protein residue XYZ' in ' '.join(result['nodes']['compare']['diagnostics'])
         assert not result['nodes']['compare']['outputs']
+
+
+def test_discontinuous_real_positions_align_and_reopen_complete_independent_structures(tmp_path):
+    selected = {'positions': [
+        {'chain': 'X', 'author_number': 12, 'insertion_code': 'A'},
+        {'chain': 'X', 'author_number': 16, 'insertion_code': ''},
+        {'chain': 'X', 'author_number': 20, 'insertion_code': ''},
+    ]}
+    reference_selected = {'positions': [{**p, 'chain': 'R', 'author_number': p['author_number'] + 38} for p in selected['positions']]}
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Discontinuous'}).json()['id']
+        subject, _, _ = inputs(client, project)
+        transformed = pdb([(10-y, 20+x, 30+z) for x, y, z in POINTS])
+        reference_structure = gemmi.read_pdb_string(transformed)
+        reference_structure[0][0].name = 'R'
+        for residue in reference_structure[0][0]:
+            residue.seqid = gemmi.SeqId(residue.seqid.num + 38, residue.seqid.icode)
+        reference_cif = reference_structure.make_mmcif_document().as_string().encode()
+        reference = upload(client, project, 'workbench.reference', {'objects': [{'id': 'independent-reference', 'structure': {'file': 'reference.cif', 'format': 'mmcif'}}]}, reference_cif, 'reference.cif')
+        response = client.put(f'/api/projects/{project}', json={'flow': {'nodes': [{
+            'id': 'compare', 'type': 'workbench.compare',
+            'parameters': {'subject_selection': selected, 'reference_selection': reference_selected},
+            'inputs': {'subject': [subject['id']], 'reference': [reference['id']]},
+        }], 'edges': []}, 'layout': {}})
+        assert response.status_code == 200, response.text
+        result = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        assert result['status'] == 'succeeded', result
+        output = result['nodes']['compare']['outputs']['comparison'][0]
+        target = client.post('/api/projects', json={'name': 'Independent region result'}).json()['id']
+        adopted = client.post(f'/api/projects/{target}/adoptions', json={'package_id': output})
+        assert adopted.status_code == 200, adopted.text
+        output = adopted.json()['id']
+        assert client.delete(f'/api/projects/{project}').status_code == 200
+        for module in ('workbench.prediction', 'workbench.structure_comparison'):
+            assert client.delete('/api/modules/' + module).status_code == 200
+    # Read the public files with an independent consumer after reopening the app.
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        manifest = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()
+        assert manifest['region'] == {'subject': selected, 'reference': reference_selected}
+        assert manifest['alignment']['subject_positions'] == selected['positions']
+        assert manifest['alignment']['reference_positions'] == reference_selected['positions']
+        assert manifest['metrics']['tm_subject']['normalization_length'] == 3
+        assert manifest['metrics']['tm_subject']['value'] == pytest.approx(1)
+        assert manifest['reference']['id'] == 'independent-reference'
+        for side, content in [('subject', pdb()), ('reference', reference_cif)]:
+            assert client.get(f'/api/packages/{output}/file', params={'key': manifest[side]['structure']['file']}).content == content
+        overlay = client.get(f'/api/packages/{output}/file', params={'key': manifest['overlay']}).json()
+        assert len(overlay['subject']) == len(overlay['reference']) == 6
+        assert overlay['subject'][0]['position'] == pytest.approx([10, 20, 30], abs=1e-5)
+
+
+def test_explicit_chain_from_multichain_file_is_aligned_without_cropping_original(tmp_path):
+    content = pdb(extra_chain=True)
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Chain selection'}).json()['id']
+        subject, reference, _ = inputs(client, project, content, 'AAAAAA')
+        response = client.put(f'/api/projects/{project}', json={'flow': {'nodes': [{
+            'id': 'compare', 'type': 'workbench.compare',
+            'parameters': {'subject_selection': {'chains': ['X']}},
+            'inputs': {'subject': [subject['id']], 'reference': [reference['id']]},
+        }], 'edges': []}, 'layout': {}})
+        assert response.status_code == 200, response.text
+        result = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        assert result['status'] == 'succeeded', result
+        output = result['nodes']['compare']['outputs']['comparison'][0]
+        manifest = client.get(f'/api/packages/{output}/file', params={'key': 'manifest.json'}).json()
+        assert manifest['metrics']['tm_subject']['normalization_length'] == 5
+        assert manifest['metrics']['tm_subject']['value'] == pytest.approx(1)
+        assert manifest['region'] == {'subject': {'chains': ['X']}, 'reference': None}
+        overlay = client.get(f'/api/packages/{output}/file', params={'key': 'overlay.json'}).json()
+        assert any(atom['chain'] == 'Y' for atom in overlay['subject'])
+        assert client.get(f'/api/packages/{output}/file', params={'key': 'subject.pdb'}).content == content
+
+
+@pytest.mark.parametrize(('selection', 'diagnostic'), [
+    ({'positions': [{'chain': 'X', 'author_number': 13, 'insertion_code': ''}]}, 'exactly one actual component'),
+    ({'positions': [{'chain': 'X', 'author_number': 12, 'insertion_code': 'B'}]}, 'exactly one actual component'),
+    ({'positions': [{'chain': 'W', 'author_number': 3, 'insertion_code': ''}]}, 'not a canonical protein residue'),
+    ({'chains': ['absent']}, 'Unknown chain'),
+    ({'positions': []}, 'nonempty'),
+    ({'atoms': [0, 1, 2]}, 'chains or actual residue positions'),
+])
+def test_invalid_region_fails_public_comparison_without_repairing_or_rewriting_input(tmp_path, selection, diagnostic):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Invalid real region'}).json()['id']
+        subject, reference, _ = inputs(client, project)
+        client.put(f'/api/projects/{project}', json={'flow': {'nodes': [{
+            'id': 'compare', 'type': 'workbench.compare',
+            'parameters': {'subject_selection': selection},
+            'inputs': {'subject': [subject['id']], 'reference': [reference['id']]},
+        }], 'edges': []}, 'layout': {}})
+        result = wait_response(client, client.post(f'/api/projects/{project}/runs')).json()
+        assert result['status'] == 'failed', result
+        assert diagnostic in ' '.join(result['nodes']['compare']['diagnostics'])
+        assert not result['nodes']['compare']['outputs']
+        assert client.get(f"/api/packages/{subject['id']}/file", params={'key': 'subject.pdb'}).content == pdb()
