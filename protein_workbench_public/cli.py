@@ -19,7 +19,7 @@ def _loopback_host(value: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Construct and launch the installed current-protocol backend."""
+    """Construct and launch the installed module-host backend."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--host",
