@@ -24,14 +24,13 @@ class ExecutionRuntime:
         self.messages.append(str(message))
 
 
-def prepare_group(app, flow, project_id):
+def prepare_group(app, flow, project_id, modules):
     if not isinstance(flow, dict):
         raise HostError("Flow must be an object containing nodes and edges")
     if not isinstance(flow.get("nodes", []), list) or not isinstance(flow.get("edges", []), list):
         raise HostError("Flow nodes and edges must be lists")
     if any(not isinstance(item, dict) for item in flow.get("nodes", []) + flow.get("edges", [])):
         raise HostError("Flow nodes and edges must contain objects")
-    modules = app._modules()
     available = {node.id: (record, node) for record, module in modules for node in module.nodes}
     tools = {tool.id: (record, tool) for record, module in modules for tool in module.tools}
     nodes = flow.get("nodes", [])
@@ -109,7 +108,7 @@ def prepare_group(app, flow, project_id):
     return by_id, selected, edges, ordered
 
 
-def prepare(app, flow, project_id):
+def prepare(app, flow, project_id, modules):
     # Identity and document shape must be unambiguous before groups can be formed.
     if not isinstance(flow, dict):
         raise HostError("Flow must be an object containing nodes and edges")
@@ -148,7 +147,7 @@ def prepare(app, flow, project_id):
         group_edges = [edge for edge in edges if (isinstance(edge.get("source"), str) and edge["source"] in members) or (isinstance(edge.get("target"), str) and edge["target"] in members)]
         group = {"nodes": [node["id"] for node in group_nodes], "diagnostics": []}
         try:
-            _, declarations, _, sequence = prepare_group(app, {"nodes": group_nodes, "edges": group_edges}, project_id)
+            _, declarations, _, sequence = prepare_group(app, {"nodes": group_nodes, "edges": group_edges}, project_id, modules)
             selected.update(declarations)
             ordered.extend(sequence)
         except HostError as exc:
@@ -201,7 +200,8 @@ def accept(app, run, identifier, declaration, outcome, workdir):
 def create_run(app, project_id):
     from uuid import uuid4
     project = app._get("project", project_id)
-    by_id, selected, edges, ordered, groups = prepare(app, project["flow"], project_id)
+    modules = app._modules()
+    by_id, selected, edges, ordered, groups = prepare(app, project["flow"], project_id, modules)
     states = {identifier: {"status": "pending", "outputs": {}, "diagnostics": [], "continuation": None} for identifier in by_id}
     for group in groups:
         if group["diagnostics"]:

@@ -953,3 +953,17 @@ test('application startup opens the editable teaching example by default', async
   assert.equal(title(), 'Teaching example · unsaved')
   assert.equal(records.length, 2)
 })
+
+test('opening the teaching example at startup preserves the current module import error', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/catalog') return Response.json({nodes:[],modules:[{id:'missing',installation_id:'startup',name:'Missing UI',enabled:true,settings:{},settings_schema:{},ui:'missing.js',ui_url:'/api/modules/startup-missing/ui.js?installation_id=startup'}]})
+    return previousFetch(url, options)
+  }
+  await act(async () => root.unmount())
+  root = createRoot(container)
+  await act(async () => root.render(createElement(App)))
+  assert.equal(title(), 'Teaching example')
+  assert.ok(container.querySelector('[role=alert]'))
+  assert.equal([...container.querySelectorAll('button')].some(item => item.textContent === 'Add connected pair'), false)
+})

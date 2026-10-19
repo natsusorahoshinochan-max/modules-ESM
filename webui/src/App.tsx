@@ -64,13 +64,13 @@ export default function App() {
     try {
       next = await client.catalog()
       if (!current()) return
-      let nextExtensions: LoadedExtensions = {}, extensionError: unknown
-      try { nextExtensions = await loadExtensions(next.modules) } catch (failure) { extensionError = failure }
+      let nextExtensions: LoadedExtensions = {}, extensionError: unknown, extensionFailed = false
+      try { nextExtensions = await loadExtensions(next.modules) } catch (failure) { extensionError = failure; extensionFailed = true }
       if (!current()) return
       const nextProjects = await client.projects()
       if (!current()) return
       setSnapshot({ catalog: next, extensions: nextExtensions, projects: nextProjects })
-      if (extensionError) fail(extensionError)
+      if (extensionFailed) fail(extensionError)
     } catch (failure) {
       if (!current()) return
       setSnapshot(previous => ({ catalog: next ?? previous.catalog, extensions: {}, projects: previous.projects }))
@@ -95,9 +95,9 @@ export default function App() {
     const request = opening.current
     const example = await client.tutorial()
     if (automatic && (request !== opening.current || currentProject.current)) return
-    await open(example.id)
+    await open(example.id, undefined, automatic)
   }
-  async function open(id: string, approvedRevision?: number) {
+  async function open(id: string, approvedRevision?: number, preserveError = false) {
     if (runningNow.current || (dirtyNow.current && draftRevision.current !== approvedRevision && !window.confirm('Discard unsaved changes and open this project?'))) return
     const leavingRevision = draftRevision.current
     const request = ++opening.current
@@ -107,13 +107,14 @@ export default function App() {
     void discardDraftInputs()
     projectSession.current += 1; currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
-    setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); setError('')
+    setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); if (!preserveError) setError('')
     return true
   }
   async function createProject() {
     if (dirtyNow.current && !window.confirm('Discard unsaved changes and create a project?')) return
     const approvedRevision = draftRevision.current
-    const next = await client.createProject(projectName); await refresh(); await open(next.id, approvedRevision)
+    setError('')
+    const next = await client.createProject(projectName); await refresh(); await open(next.id, approvedRevision, true)
   }
   async function save() {
     if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()

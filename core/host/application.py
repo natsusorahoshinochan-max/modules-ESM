@@ -123,9 +123,10 @@ class Workbench:
         """Caller holds the module lock; read and load each declaration once."""
         from .registry import load
         records, loaded = self._records("module"), []
+        paths = [record["package_path"] for record in records if record.get("package_path")]
         for record in records:
             try:
-                declaration = load(record["entry_point"], package_path=record.get("package_path"))
+                declaration = load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
                 record["available"] = True
                 if record["enabled"]:
                     loaded.append((record, declaration))
@@ -146,7 +147,8 @@ class Workbench:
 
     def _install(self, entry_point, *, package_path=None):
         from .registry import load
-        module = load(entry_point, package_path=package_path)
+        paths = [record["package_path"] for record in self._records("module") if record.get("package_path")]
+        module = load(entry_point, package_path=package_path, installed_paths=paths)
         records, loaded = self._module_snapshot()
         for record in records:
             if record["id"] == module.id:
@@ -156,7 +158,7 @@ class Workbench:
         # Disabled declarations still reserve node and tool identities.
         for record in records:
             if record["available"] and not record["enabled"]:
-                loaded.append((record, load(record["entry_point"], package_path=record.get("package_path"))))
+                loaded.append((record, load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)))
         existing = {node.id for _, declaration in loaded for node in declaration.nodes}
         existing_tools = {tool.id for _, declaration in loaded for tool in declaration.tools}
         for node in module.nodes:
@@ -190,7 +192,8 @@ class Workbench:
             record = self._get("module", module_id)
             if enabled:
                 from .registry import load
-                load(record["entry_point"], package_path=record.get("package_path"))
+                paths = [item["package_path"] for item in self._records("module") if item.get("package_path")]
+                load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
             record["enabled"] = bool(enabled)
             return self._put("module", record)
 
@@ -212,7 +215,8 @@ class Workbench:
                 raise HostError("Module installation changed; refresh the module catalog", status_code=409)
             if not record["enabled"] or not record["ui"]:
                 raise HostError(f"Module has no enabled UI entry: {module_id}")
-            declaration = load(record["entry_point"], package_path=record.get("package_path"))
+            paths = [item["package_path"] for item in self._records("module") if item.get("package_path")]
+            declaration = load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
             if not declaration.ui:
                 raise HostError(f"Module has no UI entry: {module_id}")
             return Path(declaration.ui).open("rb")

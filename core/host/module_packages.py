@@ -57,4 +57,7 @@ def _install(host, wheel, entry_point):
 def discard(path):
     from .registry import discard_paths
     discard_paths([path])
-    shutil.rmtree(path)
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass

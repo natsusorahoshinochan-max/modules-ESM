@@ -1,6 +1,7 @@
 """Declaration-only module loading; content formats remain module-owned."""
 import importlib
 import sys
+from importlib.machinery import all_suffixes
 from threading import RLock
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def discard_paths(paths):
 def reconcile(package_root, installed_paths):
     """Converge warm process imports with the caller's locked installation records."""
     root = Path(package_root).resolve()
-    active = {Path(path).resolve() for path in installed_paths}
+    active = {Path(path).resolve() for path in installed_paths if Path(path).is_dir()}
     observed = list(sys.path)
     for module in list(sys.modules.values()):
         observed.extend(_locations(module))
@@ -54,13 +55,26 @@ def reconcile(package_root, installed_paths):
     discard_paths(stale)
 
 
-def load(entry_point, *, package_path=None):
+def load(entry_point, *, package_path=None, installed_paths=()):
     from .application import HostError
     with import_lock:
         try:
             module_name, attribute = entry_point.split(":")
             if package_path:
                 destination = Path(package_path).resolve()
+                if not destination.is_dir():
+                    raise ValueError(f"Installed package directory is missing: {destination}")
+                # Persistent owners reserve Python names even in a cold process.
+                for installed in installed_paths:
+                    installed = Path(installed).resolve()
+                    if installed == destination:
+                        continue
+                    for index in range(1, len(module_name.split('.')) + 1):
+                        prefix = installed.joinpath(*module_name.split('.')[:index])
+                        files = [prefix.parent / (prefix.name + suffix) for suffix in all_suffixes()]
+                        files += [prefix / ('__init__' + suffix) for suffix in all_suffixes()]
+                        if any(file.is_file() for file in files):
+                            raise ValueError(f"Python import namespace {'.'.join(module_name.split('.')[:index])!r} already belongs to another installation")
                 for index in range(1, len(module_name.split('.')) + 1):
                     name = '.'.join(module_name.split('.')[:index])
                     cached = sys.modules.get(name)
