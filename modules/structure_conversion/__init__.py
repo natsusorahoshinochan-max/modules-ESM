@@ -8,7 +8,7 @@ from pathlib import Path
 from shutil import copyfileobj
 
 from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort
-from modules.structure_comparison.api import StructureInput, compare, read_comparison_input
+from modules.structure_comparison.api import StructureInput, compare, comparison_parameters, read_comparison_input
 
 
 def _structure(value):
@@ -63,8 +63,6 @@ def convert_prediction(call, runtime):
 
 
 def compare_structure(call, runtime):
-    if call.parameters:
-        raise ValueError('Complete-structure comparison has no node parameters')
     source = call.inputs['subject'][0]
     with source.open(source.entry) as stream:
         document = json.load(stream)
@@ -78,7 +76,7 @@ def compare_structure(call, runtime):
         content = stream.read()
     subject = StructureInput(structure['id'], content, structure['format'], structure['sequence'],
                              structure.get('label'), generation)
-    return compare(subject, read_comparison_input(call.inputs['reference'][0]), runtime)
+    return compare(subject, read_comparison_input(call.inputs['reference'][0]), runtime, **comparison_parameters(call.parameters))
 
 
 def module():
@@ -89,6 +87,7 @@ def module():
                  inputs={'prediction': InputPort(('workbench.prediction',))},
                  outputs={'structure': OutputPort('workbench.structure')}),
             Node(id='workbench.compare_structure', name='Compare converted structure', execute=compare_structure,
+                 parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}},
                  inputs={'subject': InputPort(('workbench.structure',)), 'reference': InputPort(('workbench.reference', 'workbench.structure_set'))},
                  outputs={'comparison': OutputPort('workbench.comparison')}),
         ), ui=str(Path(__file__).with_name('ui.js').resolve()),

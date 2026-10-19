@@ -1,5 +1,5 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Edge, FlowNode, ModuleHost, PackageInfo } from '@protein-workbench/module-ui'
+import type { Edge, FlowNode, ModuleHost, PackageInfo, EditorContext, EditorUpdate } from '@protein-workbench/module-ui'
 import { client, type Catalog, type Project, type Run } from './host-client'
 import { loadExtensions, type LoadedExtensions } from './host-ui'
 import { ModuleManagement } from './ModuleManagement'
@@ -55,10 +55,15 @@ export default function App() {
     if (current.tutorial && [...pendingInputTransfers.current].some(transfer => transfer.session === projectSession.current)) throw new Error('Wait for teaching input transfers to finish before saving')
   }
   async function discardDraftInputs() {
+    for (const token of temporaryInteractions.current) void client.cancelInteraction(token).catch(() => {})
+    temporaryInteractions.current.clear()
     const inputs = draftInputs.current; draftInputs.current = []
     await Promise.all(inputs.map(input => client.discardDraftInput(input.id).catch(fail)))
   }
+  const temporaryInteractions = useRef(new Set<string>())
+  const packagesNow = useRef<PackageInfo[]>([])
   const [packages, setPackages] = useState<PackageInfo[]>([])
+  packagesNow.current = packages
   const [selectedPackage, setSelectedPackage] = useState('')
   const [viewer, setViewer] = useState('')
   const [adoptionTarget, setAdoptionTarget] = useState('')
@@ -409,9 +414,114 @@ export default function App() {
         if (input.cardinality === 'one' && (target?.inputs[edge.target_port]?.length || current.flow.edges.some(item => item.target === edge.target && item.target_port === edge.target_port))) throw new Error('Input accepts only one package')
         change(current => ({ ...current, flow: { ...current.flow, edges: [...current.flow.edges, edge] } }))
       },
+      async preview(interaction, inputs, parameters, options) {
+        // The session survives harmless React renders, but never project changes.
+        const current = currentProject.current
+        if (!current || !liveProject.current || origin !== projectSession.current) throw new Error('Project changed; start the operation again')
+        const { id } = await client.beginInteraction(current.id, interaction, inputs, parameters)
+        if (!liveProject.current || origin !== projectSession.current) { await client.cancelInteraction(id); throw new Error('Project changed; start the operation again') }
+        if (options?.signal?.aborted) { await client.cancelInteraction(id); throw new Error('Preview cancelled') }
+        temporaryInteractions.current.add(id)
+        const cancel = () => { temporaryInteractions.current.delete(id); void client.cancelInteraction(id).catch(() => {}) }
+        options?.signal?.addEventListener('abort', cancel, {once:true})
+        try {
+          const result = await client.executeInteraction(id)
+          if (options?.signal?.aborted) throw new Error('Preview cancelled')
+          if (!liveProject.current || origin !== projectSession.current) throw new Error('Project changed; start the operation again')
+          return result
+        } catch (failure) {
+          temporaryInteractions.current.delete(id); await client.cancelInteraction(id).catch(() => {}); throw failure
+        } finally { options?.signal?.removeEventListener('abort', cancel) }
+      },
+      async cancelPreview(id) { temporaryInteractions.current.delete(id); await client.cancelInteraction(id) },
       readFile: client.readFile,
     }
   }, [project, locked, catalog])
+  function editorContext(node: FlowNode): EditorContext {
+    const session = projectSession.current, revision = draftRevision.current, projectId = project!.id
+    const declaration = catalog.nodes.find(item => item.id === node.type)
+    function currentTarget() {
+      const current = currentProject.current
+      if (!liveProject.current || session !== projectSession.current || current?.id !== projectId) throw new Error('Project changed; reopen this editor')
+      if (revision !== draftRevision.current || !current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; preview the current node again')
+      if (runningNow.current || deletingProject.current === projectId || (savingNow.current && current.tutorial)) throw new Error('Project is running, saving or being deleted')
+      return current
+    }
+    const edges = project!.flow.edges.filter(edge => edge.source === node.id || edge.target === node.id)
+    return {
+      projectId, nodeId: node.id, revision, parameters: structuredClone(node.parameters), bindings: structuredClone(node.inputs), edges: structuredClone(edges), host,
+      inputs: Object.fromEntries(Object.entries(declaration?.inputs ?? {}).map(([port, input]) => {
+        const ids = node.inputs[port] ?? []
+        const selected = ids.flatMap(id => packagesNow.current.filter(item => item.id === id))
+        const missing = ids.filter(id => !selected.some(item => item.id === id))
+        const connected = edges.some(edge => edge.target === node.id && edge.target_port === port)
+        const unavailable = missing.length ? `Selected packages are unavailable: ${missing.join(', ')}` : connected ? 'Connected input requires a delivered package selected explicitly; prepare and run the source group first' : !ids.length ? `No delivered package is selected for ${port}${input.required ? ' (required)' : ''}` : undefined
+        return [port, {packages: structuredClone(selected), ...(unavailable ? {unavailable} : {})}]
+      })),
+      async update(update: EditorUpdate) {
+        currentTarget()
+        if ((await client.project(projectId)).running) throw new Error('Project is running; wait before accepting edits')
+        currentTarget()
+        let inputs = { ...node.inputs, ...update.inputs }
+        const replace = update.replaceConnections ?? []
+        const additions = update.connections ?? []
+        const changedPorts = new Set([...Object.keys(update.inputs ?? {}), ...(update.delivery ? [update.delivery.port] : [])])
+        if (replace.some(port => !changedPorts.has(port))) throw new Error('Connection replacement requires an explicit input update')
+        const current = currentTarget()
+        for (const edge of additions) {
+          const source = current.flow.nodes.find(item => item.id === edge.source)
+          const output = catalog.nodes.find(item => item.id === source?.type)?.outputs[edge.source_port]
+          const input = declaration?.inputs[edge.target_port]
+          if (edge.target !== node.id || !replace.includes(edge.target_port) || !input || !output || !input.accepts.includes(output.format) || (input.cardinality === 'one' && output.cardinality === 'many')) throw new Error('Replacement connection does not match the current target declaration')
+        }
+        if (new Set(additions.map(edge => JSON.stringify(edge))).size !== additions.length) throw new Error('Duplicate replacement connection')
+        function validateBindings(values: Record<string, string[]>, extra?: PackageInfo) {
+          for (const port of changedPorts) {
+            const input = declaration?.inputs[port]
+            if (!input) throw new Error(`Unknown input port: ${port}`)
+            const ids = values[port] ?? []
+            const incoming = [...edges.filter(edge => !replace.includes(edge.target_port)), ...additions].filter(edge => edge.target === node.id && edge.target_port === port).length
+            if (input.cardinality === 'one' && ids.length + incoming > 1) throw new Error('Input accepts only one package; explicitly replace its connection')
+            for (const id of ids) {
+              const pkg = extra?.id === id ? extra : packagesNow.current.find(item => item.id === id)
+              if (!pkg || pkg.project_id !== projectId || !input.accepts.includes(pkg.format)) throw new Error(`Input package is unavailable or has an unaccepted format: ${port}`)
+            }
+          }
+        }
+        if (update.delivery) {
+          const delivery = update.delivery
+          if ('interaction' in delivery && !temporaryInteractions.current.has(delivery.interaction)) throw new Error('Preview has ended; create a new preview')
+          if (!declaration?.inputs[delivery.port]) throw new Error('Unknown delivery input port')
+          // Validate connection replacement before committing any files.
+          validateBindings({...inputs, [delivery.port]: []})
+          const transfer = project!.tutorial ? {session} : null
+          if (transfer) { pendingInputTransfers.current.add(transfer); setInputTransfers(count => count + 1) }
+          try {
+            const received = 'interaction' in delivery ? await client.acceptInteraction(delivery.interaction, delivery.output) : await client.createInput(projectId, delivery.input)
+            if ('interaction' in delivery) temporaryInteractions.current.delete(delivery.interaction)
+            try {
+              if ((await client.project(projectId)).running) throw new Error('Project is running; wait before accepting edits')
+              currentTarget()
+            } catch (failure) {
+              if (received.project_id === 'tutorial') await client.discardDraftInput(received.id)
+              throw failure
+            }
+            inputs = {...inputs, [delivery.port]: [received.id]}
+            validateBindings(inputs, received)
+            if (project!.tutorial) draftInputs.current.push(received)
+            packagesNow.current = [...packagesNow.current, received]; setPackages(packagesNow.current)
+          } finally {
+            if (transfer) { pendingInputTransfers.current.delete(transfer); if (session === projectSession.current) setInputTransfers([...pendingInputTransfers.current].filter(item => item.session === session).length) }
+          }
+        } else validateBindings(inputs)
+        currentTarget()
+        change(current => ({...current, flow: {...current.flow,
+          nodes: current.flow.nodes.map(item => item.id === node.id ? {...item, ...(update.parameters ? {parameters:update.parameters} : {}), inputs} : item),
+          edges: [...current.flow.edges.filter(edge => !(edge.target === node.id && replace.includes(edge.target_port))), ...additions],
+        }}))
+      },
+    }
+  }
   const selected = packages.find(item => item.id === selectedPackage)
   const viewers = extensions.viewers?.filter(item => item.formats.includes(selected?.format ?? '')) ?? []
   const activeViewer = viewers.find(item => item.id === viewer) ?? viewers[0]
@@ -447,9 +557,16 @@ export default function App() {
             const declaration = catalog.nodes.find(item => item.id === node.type)
             const editor = extensions.editors?.find(item => item.node === node.type)
             const Editor = editor?.component
+            const context = editorContext(node)
+            const editorSession = projectSession.current
             return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
               <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
-              {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor parameters={node.parameters} readOnly={locked} onChange={parameters => updateNode(node.id, { parameters })} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
+              {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={parameters => {
+                try {
+                  if (editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || !currentProject.current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
+                  updateNode(node.id, {parameters})
+                } catch (failure) { fail(failure) }
+              }} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
                 const available = (catalog.tools ?? []).filter(tool => tool.slot === contract.id)
                 const selectedId = node.tools?.[slot] ?? ''

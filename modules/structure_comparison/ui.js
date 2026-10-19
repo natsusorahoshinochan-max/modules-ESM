@@ -3,6 +3,51 @@ export const runtime = { react: 19 };
 
 export function register({ React }) {
   const h = React.createElement;
+  const positionLabel = p => `${p.chain || '(blank chain)'} ${p.author_number}${p.insertion_code ? `:${p.insertion_code}` : ''}`;
+  function Region({ side, selection, onChange, readOnly }) {
+    const [scope, setScope] = React.useState(selection?.positions ? 'positions' : selection?.chains ? 'chain' : 'complete');
+    const [chain, setChain] = React.useState(selection?.chains?.[0] ?? selection?.positions?.[0]?.chain ?? '');
+    const [residues, setResidues] = React.useState(selection?.positions?.map(p => `${p.author_number}${p.insertion_code ? `:${p.insertion_code}` : ''}`).join(', ') || '');
+    const [error, setError] = React.useState('');
+    React.useEffect(() => {
+      setScope(selection?.positions ? 'positions' : selection?.chains ? 'chain' : 'complete');
+      setChain(selection?.chains?.[0] ?? selection?.positions?.[0]?.chain ?? '');
+      setResidues(selection?.positions?.map(p => `${p.author_number}${p.insertion_code ? `:${p.insertion_code}` : ''}`).join(', ') || '');
+      setError('');
+    }, [selection]);
+    function apply() {
+      if (readOnly) return;
+      try {
+        let next = null;
+        if (scope === 'chain') next = { chains: [chain] };
+        if (scope === 'positions') {
+          const positions = residues.split(',').map(token => {
+            const match = /^(-?\d+)(?:([A-Za-z])|:([^\s,:]))?$/.exec(token.trim());
+            if (!match || !Number.isSafeInteger(Number(match[1]))) throw new Error('Enter each actual residue number and optional insertion code, for example 12, 12A, 16 or 12:1.');
+            return { chain, author_number: Number(match[1]), insertion_code: match[2] || match[3] || '' };
+          });
+          if (new Set(positions.map(p => JSON.stringify(p))).size !== positions.length) throw new Error('Select each actual residue only once.');
+          next = { positions };
+        }
+        onChange(next); setError('');
+      } catch (failure) { setError(String(failure)); }
+    }
+    return h('fieldset', null, h('legend', null, `${side} evaluation region`),
+      h('label', null, 'Scope', h('select', { 'aria-label': `${side} scope`, value: scope, disabled: readOnly, onChange: e => { setScope(e.target.value); setError(''); } },
+        h('option', { value: 'complete' }, 'Complete structure'), h('option', { value: 'chain' }, 'One chain'), h('option', { value: 'positions' }, 'Discontinuous residues on one chain'))),
+      scope !== 'complete' && h('label', null, 'Actual chain name (empty for blank chain)', h('input', { 'aria-label': `${side} chain`, value: chain, disabled: readOnly, onChange: e => setChain(e.target.value) })),
+      scope === 'positions' && h('label', null, 'Actual residue numbers and insertion codes, separated by commas (12, 12A, 16)', h('input', { 'aria-label': `${side} residues`, value: residues, disabled: readOnly, onChange: e => setResidues(e.target.value) })),
+      h('button', { 'aria-label': `Apply ${side} region`, disabled: readOnly, onClick: apply }, `Apply ${side} region`),
+      h('p', null, selection?.positions ? `Applied: ${selection.positions.map(positionLabel).join(', ')}` : selection?.chains ? `Applied chain: ${selection.chains[0] || '(blank)'}` : 'Applied: complete structure'),
+      error && h('p', { role: 'alert' }, error));
+  }
+  function ComparisonEditor({ parameters, onChange, readOnly }) {
+    return h('section', null,
+      h('p', null, 'Choose independent subject and reference inputs on the canvas. TM-align fits the selected Cα streams with one rigid transform, retaining both complete original structures and every atom in the overlay. It supports one canonical protein chain per selected scope and at least three residues. Multichain full structures require an explicit single-chain selection.'),
+      ...['subject', 'reference'].map(side => h(Region, { key: side, side: side === 'subject' ? 'Subject' : 'Reference', selection: parameters[`${side}_selection`], readOnly,
+        onChange: selection => onChange({ ...parameters, [`${side}_selection`]: selection }) })),
+      h('p', null, 'Region positions follow coordinate-file order. Numbering gaps and insertion codes are retained; unavailable positions stop the operation. TM-scores are normalized by each selected region length. Region selection changes this evaluation only.'));
+  }
   function ReferenceInput({ host }) {
     const [file, setFile] = React.useState(null);
     const [error, setError] = React.useState('');
@@ -24,7 +69,7 @@ export function register({ React }) {
       finally { setBusy(false); }
     }
     return h('section', null, h('h3', null, 'Compare with an independent reference'),
-      h('p', null, 'TM-align compares complete single protein chains using Cα atoms. Select one conformation with all protein residues resolved. Ligands, metals and water remain in the saved structures and overlay; nucleic acids and modified proteins are unsupported.'),
+      h('p', null, 'TM-align compares one protein chain or its discontinuous residues using Cα atoms. Configure each side in the node editor. Select one conformation with all protein residues resolved. Ligands, metals and water remain in the saved structures and overlay; nucleic acids and modified proteins are unsupported.'),
       h('label', null, 'Reference structure', h('input', { type: 'file', accept: '.pdb,.cif,.mmcif', disabled: host.readOnly || busy,
         onChange: event => { setFile(event.target.files?.[0] || null); setError(''); setStatus(''); } })),
       h('button', { disabled: host.readOnly || busy || !file, onClick: add }, busy ? 'Adding…' : 'Add reference and comparison node'),
@@ -72,6 +117,7 @@ export function register({ React }) {
       h('h3', null, 'Saved structure overlay'),
       h('p', null, `${manifest.subject.label || 'Subject'} (blue) → ${manifest.reference.label || 'Reference'} (orange)`),
       h('p', null, manifest.method.scope),
+      ...['subject', 'reference'].map(side => h('p', { key: `region-${side}` }, `${side} region: ${manifest.region[side]?.positions ? manifest.region[side].positions.map(positionLabel).join(', ') : manifest.region[side]?.chains ? `chain ${manifest.region[side].chains[0] || '(blank)'}` : 'complete structure'}`)),
       h('dl', null,
         h('dt', null, `TM-score / subject length: ${manifest.metrics.tm_subject.normalization_length}`), h('dd', null, manifest.metrics.tm_subject.value.toFixed(6)),
         h('dt', null, `TM-score / reference length: ${manifest.metrics.tm_reference.normalization_length}`), h('dd', null, manifest.metrics.tm_reference.value.toFixed(6)),
@@ -90,5 +136,5 @@ export function register({ React }) {
       selected && h('p', { 'aria-label': 'Selected atom' }, `${selected.side}: chain ${selected.chain}, residue ${selected.author_number}${selected.insertion_code} ${selected.residue_name}, atom ${selected.atom_name} (${selected.element})`),
       h('details', null, h('summary', null, 'Residue alignment, transform and calculation details'), h('pre', null, JSON.stringify(manifest, null, 2))));
   }
-  return { viewers: [{ id: 'workbench.comparison.overlay', name: 'Complete structure overlay', formats: ['workbench.comparison'], component: ComparisonViewer }], actions: [{ id: 'workbench.comparison.reference', name: 'Compare with an independent reference', component: ReferenceInput }] };
+  return { editors: [{ node: 'workbench.compare', component: ComparisonEditor }, { node: 'workbench.compare_structure', component: ComparisonEditor }], viewers: [{ id: 'workbench.comparison.overlay', name: 'Complete structure overlay', formats: ['workbench.comparison'], component: ComparisonViewer }], actions: [{ id: 'workbench.comparison.reference', name: 'Compare with an independent reference', component: ReferenceInput }] };
 }

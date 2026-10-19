@@ -28,6 +28,8 @@ const hooks = registerHooks({
   },
 })
 const originalFetch = globalThis.fetch
+let interactionPreviewGate, interactionCancellations
+let interactionFailure, interactionGate, interactionReceipts
 let root, container, records, pendingSave, packages, uploadGate, savedFlows, runRequests, projectGate, runGate, adoptionGate, deleteGate, adoptionFailure, discardedDraftInputs, draftDiscardFailure
 const clone = value => structuredClone(value)
 const node = (id, type = 'test.one') => ({ id, type, parameters: {}, inputs: {} })
@@ -39,6 +41,8 @@ function deferred() {
 const declaration = (id, cardinality = 'one') => ({ id, module_id: 'test.actions', name: id, inputs: { input: { accepts: ['test.format'], cardinality: 'one', required: false } }, outputs: { output: { format: 'test.format', cardinality } }, parameters: {} })
 
 beforeEach(async () => {
+  interactionPreviewGate=null; interactionCancellations=0
+  interactionFailure = null; interactionGate = null; interactionReceipts = 0
   records = [
     { id: 'a', name: 'Project A', flow: { nodes: [], edges: [] }, layout: {} },
     { id: 'b', name: 'Project B', flow: { nodes: [], edges: [] }, layout: {} },
@@ -51,12 +55,20 @@ beforeEach(async () => {
   globalThis.fetch = async (url, options = {}) => {
     const path = String(url)
     let result
-    if (path.startsWith('/api/draft-inputs/')) {
+    if (path === '/api/interactions/preview/execute') { if(interactionPreviewGate) await interactionPreviewGate.promise; result = {id:'preview',data:{},outputs:['edited']} }
+    else if (path === '/api/interactions/preview/accept') {
+      interactionReceipts++
+      if (interactionGate) await interactionGate.promise
+      if (interactionFailure) return Response.json({detail:interactionFailure},{status:400})
+      result = {id:'received',project_id:'a',format:'test.format',entry:'data',files:['data']};packages.a.push(result)
+    }
+    else if (path === '/api/interactions/preview') {interactionCancellations++;result = {}}
+    else if (path.startsWith('/api/draft-inputs/')) {
       discardedDraftInputs.push(path.split('/').at(-1))
       if (draftDiscardFailure) return Response.json({ detail: 'temporary cleanup refused' }, { status: 400 })
       result = {}
     }
-    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
+    else if (path === '/api/catalog') result = { nodes: [declaration('test.one'), declaration('test.many', 'many'), declaration('test.editor')], modules: [{ id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js', installation_id: 'fixture', ui_url: '/api/modules/test.actions/ui.js' }] }
     else if (path === '/api/tutorial') result = { id: 'tutorial', tutorial: true, name: 'Teaching example', flow: { nodes: [node('teaching')], edges: [] }, layout: {} }
     else if (path === '/api/projects' && options.method === 'POST') { result = { id: 'new', name: JSON.parse(options.body).name, flow: { nodes: [], edges: [] }, layout: {} }; records.push(result); packages.new = [] }
     else if (path === '/api/projects') result = records
@@ -89,6 +101,7 @@ beforeEach(async () => {
         if (options.method === 'POST') { runRequests.push(id); if (runGate) await runGate.promise; result = { id: 'run', status: 'succeeded', nodes: {}, diagnostics: [] } }
         else result = []
       }
+      else if (suffix === '/interactions') result = {id:'preview'}
       else if (suffix === '/uploads') result = { upload_id: 'upload' }
       else if (suffix.startsWith('/uploads/upload/files')) { if (uploadGate) await uploadGate.promise; result = { key: 'data' } }
       else if (suffix === '/uploads/upload/commit') {
@@ -485,7 +498,15 @@ test('a chosen wheel is uploaded with its entry and module controls refresh the 
     }
     if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json(module) }
     if (path === '/api/modules/test.actions' && options.method === 'DELETE') { installed = false; return Response.json({}) }
-    if (path.startsWith('/api/draft-inputs/')) {
+    if (path === '/api/interactions/preview/execute') { if(interactionPreviewGate) await interactionPreviewGate.promise; result = {id:'preview',data:{},outputs:['edited']} }
+    else if (path === '/api/interactions/preview/accept') {
+      interactionReceipts++
+      if (interactionGate) await interactionGate.promise
+      if (interactionFailure) return Response.json({detail:interactionFailure},{status:400})
+      result = {id:'received',project_id:'a',format:'test.format',entry:'data',files:['data']};packages.a.push(result)
+    }
+    else if (path === '/api/interactions/preview') {interactionCancellations++;result = {}}
+    else if (path.startsWith('/api/draft-inputs/')) {
       discardedDraftInputs.push(path.split('/').at(-1))
       if (draftDiscardFailure) return Response.json({ detail: 'temporary cleanup refused' }, { status: 400 })
       result = {}
@@ -1480,4 +1501,99 @@ test('historical result input selection saves the exact chosen package without s
   await click('Save project')
   assert.deepEqual(savedFlows[0].flow.nodes[0].inputs, { input: ['historical-result'] })
   assert.deepEqual(runRequests, [])
+})
+
+
+test('public editor context updates existing bindings and connections in one unsaved draft', async () => {
+  records[0].flow = { nodes: [node('source'), node('target','test.editor')], edges: [{source:'source',source_port:'output',target:'target',target_port:'input'}] }
+  packages.a.push({id:'edited',project_id:'a',format:'test.format',entry:'data',files:['data']})
+  await click('Project A')
+  const contexts = container.querySelectorAll('[data-editor-context]')
+  const context = JSON.parse(contexts[0].textContent)
+  assert.deepEqual(context.inputs.input.packages, [])
+  assert.match(context.inputs.input.unavailable, /delivered.*explicitly/i)
+  await act(async () => [...container.querySelectorAll('button')].filter(button => button.textContent === 'Accept editor draft')[0].click())
+  assert.match(container.textContent, /unsaved/)
+  assert.equal(savedFlows.length, 0)
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[1].inputs, {input:['edited']})
+  assert.deepEqual(savedFlows[0].flow.nodes[1].parameters, {edited:true})
+  assert.deepEqual(savedFlows[0].flow.edges, [])
+})
+
+
+async function connectedEditor() {
+  records[0].flow = { nodes: [node('source'), node('target','test.editor')], edges: [{source:'source',source_port:'output',target:'target',target_port:'input'}] }
+  await click('Project A')
+}
+async function editorButton(text, index=0) {
+  await act(async () => [...container.querySelectorAll('button')].filter(button => button.textContent === text)[index].click())
+}
+test('failed file receipt retains original node bindings and connections', async () => {
+  await connectedEditor()
+  interactionFailure = 'declared file could not be received'
+  await editorButton('Receive editor file')
+  assert.match(container.textContent, /declared file could not be received/)
+  assert.doesNotMatch(container.querySelector('.toolbar').textContent, /unsaved/)
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow, records[0].flow)
+  assert.equal(savedFlows[0].flow.edges.length,1)
+})
+test('file receipt arriving after a draft edit cannot overwrite current bindings or edges', async () => {
+  await connectedEditor()
+  interactionGate = deferred()
+  await editorButton('Receive editor file')
+  assert.equal(interactionReceipts,1)
+  await addNode('test.one')
+  await act(async()=>interactionGate.resolve())
+  assert.match(container.textContent,/Editor draft changed/)
+  await click('Save project')
+  assert.equal(savedFlows[0].flow.nodes.length,3)
+  assert.deepEqual(savedFlows[0].flow.nodes[1].inputs,{})
+  assert.equal(savedFlows[0].flow.edges.length,1)
+})
+test('remembered node context rejects later draft and backend running state', async () => {
+  await connectedEditor()
+  await editorButton('Remember editor context')
+  await addNode()
+  await editorButton('Apply remembered editor')
+  assert.match(container.textContent,/Editor draft changed/)
+  await click('Save project')
+  records[0].running = true
+  await editorButton('Accept editor draft')
+  assert.match(container.textContent,/Project is running/)
+  assert.deepEqual(records[0].flow.nodes[1].parameters,{})
+})
+
+
+test('public target update restores the prior connection and clears accepted direct binding atomically', async () => {
+  await connectedEditor()
+  await editorButton('Receive editor file')
+  assert.match(container.textContent,/Input received/)
+  await editorButton('Restore editor connection')
+  assert.match(container.textContent,/Connection restored/)
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[1].inputs,{input:[]})
+  assert.deepEqual(savedFlows[0].flow.edges,[{source:'source',source_port:'output',target:'target',target_port:'input'}])
+})
+
+
+test('public preview abort signals the active handler before its delayed response returns',async()=>{
+ await connectedEditor();interactionPreviewGate=deferred()
+ await editorButton('Begin cancellable preview')
+ await editorButton('Abort editor preview')
+ assert.equal(interactionCancellations,1)
+ await act(async()=>interactionPreviewGate.resolve())
+ assert.match(container.textContent,/Preview cancelled/)
+ assert.doesNotMatch(container.textContent,/Preview returned/)
+})
+test('a received editor file cannot write into a project opened while it was pending',async()=>{
+ await connectedEditor();interactionGate=deferred()
+ await editorButton('Receive editor file')
+ await click('Project B')
+ await act(async()=>interactionGate.resolve())
+ assert.equal(container.querySelectorAll('.node').length,0)
+ assert.doesNotMatch(container.querySelector('.toolbar').textContent,/unsaved/)
+ await click('Save project')
+ assert.deepEqual(savedFlows[0].flow,{nodes:[],edges:[]})
 })

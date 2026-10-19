@@ -39,6 +39,8 @@ class Workbench:
         self._draft_inputs = {}
         self._draft_lock = RLock()
         self._run_errors = {}
+        from .interactions import Interactions
+        self.interactions = Interactions(self)
         self._packages = self.root / "packages"
         self._packages.mkdir(exist_ok=True)
         self._work = self.root / "work"
@@ -184,6 +186,9 @@ class Workbench:
         for node in module.nodes:
             if node.id in existing:
                 raise HostError(f"Duplicate node identity: {node.id}")
+        existing_interactions = {item.id for _, declaration in loaded for item in declaration.interactions}
+        if any(item.id in existing_interactions for item in module.interactions):
+            raise HostError("Duplicate interaction identity")
         if any(tool.id in existing_tools for tool in module.tools):
             raise HostError("Duplicate tool identity")
         return self._put("module", {**({"package_path": str(package_path)} if package_path else {}), "id": module.id, "installation_id": uuid4().hex, "name": module.name, "entry_point": entry_point, "enabled": True, "settings": {}, "settings_schema": module.settings, "ui": module.ui})
@@ -246,7 +251,7 @@ class Workbench:
         from .registry import node_record, tool_record
         with module_lock(self):
             records, loaded = self._module_snapshot()
-            return {"nodes": [node_record(module, node) for _, module in loaded for node in module.nodes], "modules": records, "tools": [tool_record(module, tool) for _, module in loaded for tool in module.tools]}
+            return {"nodes": [node_record(module, node) for _, module in loaded for node in module.nodes], "interactions": [{"id": item.id, "module_id": module.id, "inputs": {name: {"accepts": list(port.accepts), "required": port.required, "cardinality": port.cardinality} for name, port in item.inputs.items()}, "parameters": item.parameters} for _, module in loaded for item in module.interactions], "modules": records, "tools": [tool_record(module, tool) for _, module in loaded for tool in module.tools]}
 
     def create_project(self, name):
         return self._put("project", {"id": uuid4().hex, "name": name, "flow": {"nodes": [], "edges": []}, "layout": {}})
