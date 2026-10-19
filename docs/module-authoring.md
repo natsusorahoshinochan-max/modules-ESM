@@ -128,3 +128,7 @@ workbench_note_consumer:module
 完整实例为 `modules.folding:module`：调用约定见 [预测工具插槽](../modules/folding/TOOL.md)，独立数据读取说明与样例见 [预测格式](../modules/folding/FORMAT.md)。
 
 显式转换及独立目标格式消费者见 `modules.structure_conversion:module` 的 [格式与接入说明](../modules/structure_conversion/FORMAT.md)，其比较执行明确依赖 `protein-workbench` 分发包提供的比较公共入口。
+
+## 本地子进程工具
+
+需要机器资源互斥的本地 Adapter 可调用仅依赖标准库的公共入口 `protein_workbench_public.worker_process.run_worker(command, *, cwd, log_path, cancelled, label)`。`command` 为可执行文件及参数列表，`cancelled` 为读取取消状态的无参数函数，`label` 用于错误显示。正常退出后返回；非零退出时报告退出码及日志末尾的具体原因，取消时等待进程清理后报告错误。模块自行准备配置文件并读取结果文件；资源与进程约束见 [本地模型](local-models.md)。

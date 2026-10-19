@@ -2,10 +2,9 @@
 import json
 import math
 from pathlib import Path
-import subprocess
 import sys
-import time
 
+from protein_workbench_public.worker_process import run_worker
 from protein_workbench_public.module_api import Module, Tool
 from modules.folding.contract import PredictionResult
 
@@ -53,27 +52,12 @@ def create(settings):
                 raise ValueError(f'SimpleFold requires existing resource: {path}')
         config = runtime.workdir / 'simplefold-request.json'
         config.write_text(json.dumps({'sequence': request.sequence, 'parameters': values, 'settings': paths, 'workdir': str(runtime.workdir)}))
-        log_path = runtime.workdir / 'simplefold-worker.log'
-        with log_path.open('w') as log:
-            process = subprocess.Popen([sys.executable, '-m', 'protein_workbench_public.model_validation', '--', str(python), '-m', 'modules.simplefold.worker', str(config)], cwd=Path(__file__).resolve().parents[2], stderr=log)
-            try:
-                while process.poll() is None:
-                    if runtime.cancelled:
-                        process.terminate()
-                        process.wait()
-                        raise ValueError('Prediction cancelled')
-                    time.sleep(.1)
-                if process.returncode:
-                    log.flush()
-                    with log_path.open('rb') as reader:
-                        reader.seek(max(0, log_path.stat().st_size - 4096))
-                        lines = reader.read().decode(errors='replace').splitlines()
-                    detail = next((line for line in reversed(lines) if line.strip() and not line.startswith('Model processes exited')), 'No worker diagnostic was returned')
-                    raise ValueError(f'SimpleFold failed (exit {process.returncode}): {detail}')
-            finally:
-                if process.poll() is None:
-                    process.terminate()
-                    process.wait()
+        run_worker(
+            [str(python), '-m', 'modules.simplefold.worker', str(config)],
+            cwd=Path(__file__).resolve().parents[2],
+            log_path=runtime.workdir / 'simplefold-worker.log',
+            cancelled=lambda: runtime.cancelled, label='SimpleFold',
+        )
         return PredictionResult(**json.loads((runtime.workdir / 'simplefold-result.json').read_text()))
     return predict
 

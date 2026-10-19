@@ -2,10 +2,9 @@
 import json
 import math
 from pathlib import Path
-import subprocess
 import sys
-import time
 
+from protein_workbench_public.worker_process import run_worker
 from protein_workbench_public.module_api import Tool
 from .contract import PredictionResult
 
@@ -139,21 +138,12 @@ def create_local(settings):
         payload['settings']['device'] = settings.get('device', 'cpu')
         config = runtime.workdir / 'esmfold2-request.json'
         config.write_text(json.dumps(payload))
-        # The supervisor owns the machine lock until the worker and all descendants exit.
-        process = subprocess.Popen([sys.executable, '-m', 'protein_workbench_public.model_validation', '--', str(python), '-m', 'modules.folding.local_worker', str(config)], cwd=Path(__file__).resolve().parents[2])
-        try:
-            while process.poll() is None:
-                if runtime.cancelled:
-                    process.terminate()
-                    process.wait()
-                    raise ValueError('Prediction cancelled')
-                time.sleep(.1)
-            if process.returncode:
-                raise ValueError(f'Local ESMFold2 process failed with exit code {process.returncode}; inspect backend log')
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                process.wait()
+        run_worker(
+            [str(python), '-m', 'modules.folding.local_worker', str(config)],
+            cwd=Path(__file__).resolve().parents[2],
+            log_path=runtime.workdir / 'esmfold2-worker.log',
+            cancelled=lambda: runtime.cancelled, label='ESMFold2',
+        )
         result = json.loads((runtime.workdir / 'esmfold2-result.json').read_text())
         return PredictionResult(**result)
     return predict
