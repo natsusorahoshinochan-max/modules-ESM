@@ -414,8 +414,8 @@ export default function App() {
       },
       async addNode(node) {
         activeProject()
-        const id = crypto.randomUUID(), parameters = structuredClone(node.parameters)
-        change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...node, parameters, id }] } })); return id
+        const id = crypto.randomUUID(), ownedNode = structuredClone(node)
+        change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...ownedNode, id }] } })); return id
       },
       async connect(edge) {
         const current = activeProject()
@@ -612,8 +612,9 @@ export default function App() {
                     <label>Tool parameters (JSON)<JsonEditor value={node.tool_parameters?.[slot] ?? {}} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { tool_parameters: { ...node.tool_parameters, [slot]: parameters } })} /></label></>}
                 </fieldset>
               })}
-              {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={locked} value={node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: event.target.value ? [event.target.value] : [] } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select></label>)}
+              {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={locked} multiple={input.cardinality === 'many'} value={input.cardinality === 'many' ? node.inputs[port] ?? [] : node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: Array.from(event.target.selectedOptions).map(option => option.value).filter(Boolean) } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select></label>)}
               {Object.entries(declaration?.outputs ?? {}).map(([port, output]) => <p key={port}>Output {port} → {output.format}</p>)}
+              <button disabled={locked} onClick={() => { const copy = structuredClone(node); void host.addNode(copy).catch(fail) }}>Copy node</button>
               <button disabled={locked} onClick={() => change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.filter(item => item.id !== node.id), edges: current.flow.edges.filter(edge => edge.source !== node.id && edge.target !== node.id) } }))}>Remove node</button>
             </article>
           })}
@@ -626,7 +627,7 @@ export default function App() {
           {Object.entries(result.outputs).flatMap(([port, values]) => values.map((packageId, index) => <button key={`${port}-${index}`} onClick={() => { setSelectedPackage(packageId); setViewer('') }}>View {port} result {index + 1}</button>))}
           {(result.status === 'failed' || result.status === 'cancelled') && run.calls?.[id] !== undefined && <button disabled={locked || saving} onClick={() => void continueRun(run.id, id)}>Continue {id} with original inputs and parameters</button>}
         </section>)}</details>)}
-        <h3>Data packages</h3><select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select>
+        <h3>Data packages</h3>{extensions.resultActions?.map(action => <ExtensionBoundary key={projectSession.current + action.id + action.installation_id}><action.component host={host} packages={packages} /></ExtensionBoundary>)}<select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select>
         {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id + activeViewer?.installation_id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
       </>}
     </main></div>

@@ -25,5 +25,6 @@ def create_application(*, data_root: Path | None = None) -> FastAPI:
         host.install('modules.structure_comparison:module')
         host.install('modules.structure_conversion:module')
         host.install('modules.metric_analysis:module')
+        host.install('modules.filtering:module')
         host._put('application', {'id': 'initialized'})
     return create_http_app(host)

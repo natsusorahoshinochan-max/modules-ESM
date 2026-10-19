@@ -1,7 +1,7 @@
 export const runtime = {react:19}
 export function register({React}) {
   const h=React.createElement
-  const supported=['workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation']
+  const supported=['workbench.proteinmpnn_design','workbench.esm3_generation','workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation']
   const same=(a,b)=>Object.keys(b).every(key=>JSON.stringify(a[key])===JSON.stringify(b[key]))
   const positionName=p=>`${p.chain}:${p.author_number}${p.insertion_code}`
   const methodName=value=>typeof value==='string'?value:JSON.stringify(value)

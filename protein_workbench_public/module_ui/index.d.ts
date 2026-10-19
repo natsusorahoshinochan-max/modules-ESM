@@ -34,9 +34,11 @@ export interface ModuleHost {
   readFile(packageId: string, key: string): Promise<Blob>
 }
 export interface ModuleActionProps { host: ModuleHost }
+export interface ResultActionProps { host: ModuleHost; packages: readonly PackageInfo[] }
 export interface EditorProps { context: EditorContext; parameters: Record<string, unknown>; onChange(parameters: Record<string, unknown>): void; onDraftChange?(): void; readOnly: boolean }
 export interface ViewerProps { package: PackageInfo; host: ModuleHost }
 export interface Extensions {
+  resultActions?: { id: string; name: string; component: React.ComponentType<ResultActionProps> }[]
   actions?: { id: string; name: string; component: React.ComponentType<ModuleActionProps> }[]
   editors?: { node: string; component: React.ComponentType<EditorProps> }[]
   viewers?: { id: string; name: string; formats: string[]; component: React.ComponentType<ViewerProps> }[]
