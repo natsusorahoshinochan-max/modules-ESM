@@ -1028,3 +1028,95 @@ test('cancellation waits until a lost-response run is identified by the current 
   assert.match(container.querySelector('[role=status]').textContent, /Cancellation requested/)
   assert.equal(button('Save project').disabled, true)
 })
+
+
+test('committed teaching first save retains its user project when package-list refresh fails', async () => {
+  await click('Teaching example')
+  await click('Upload and add node')
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages') throw new Error('package list unavailable')
+    const response = await previousFetch(url, options)
+    if (String(url) === '/api/projects/tutorial/copies') {
+      const copied = await response.json()
+      copied.flow.nodes[1].inputs = { input: ['copied-input'] }
+      records = records.map(record => record.id === copied.id ? clone(copied) : record)
+      return Response.json(copied)
+    }
+    return response
+  }
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(records.length, 3)
+  assert.match(container.querySelector('[role=status]').textContent, /saved/)
+  assert.match(container.querySelector('[role=alert]').textContent, /package.*refresh.*package list unavailable/i)
+  assert.deepEqual(discardedDraftInputs, ['a-input'])
+  await addNode()
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  assert.equal(records.length, 3)
+  assert.equal(savedFlows.at(-1).id, 'copied')
+  assert.deepEqual(savedFlows.at(-1).flow.nodes[1].inputs, { input: ['copied-input'] })
+})
+
+
+test('teaching save-and-run starts the saved flow while its auxiliary package refresh is pending', async () => {
+  await click('Teaching example')
+  const previousFetch = globalThis.fetch
+  const refresh = deferred()
+  let requestedRefresh = false
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages' && !requestedRefresh) {
+      requestedRefresh = true
+      await refresh.promise
+      return Response.json([{ id: 'obsolete-package', project_id: 'copied', format: 'obsolete', entry: 'data', files: ['data'] }])
+    }
+    return previousFetch(url, options)
+  }
+  await click('Save and run')
+  assert.equal(title(), 'Research project')
+  assert.deepEqual(runRequests, ['copied'])
+  assert.equal(records.length, 3)
+  await act(async () => refresh.resolve())
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), [''])
+})
+
+test('a failed teaching-save package refresh cannot report an error after navigation', async () => {
+  await click('Teaching example')
+  const previousFetch = globalThis.fetch
+  const refresh = deferred()
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages') {
+      await refresh.promise
+      throw new Error('stale package list error')
+    }
+    return previousFetch(url, options)
+  }
+  await click('Save project')
+  assert.equal(title(), 'Research project')
+  await click('Project B')
+  await act(async () => refresh.resolve())
+  assert.equal(title(), 'Project B')
+  assert.equal(Boolean(container.querySelector('[role=alert]')), false)
+})
+
+
+test('a teaching-save package refresh cannot overwrite inputs received by a later user draft', async () => {
+  await click('Teaching example')
+  const previousFetch = globalThis.fetch
+  const refresh = deferred()
+  let requestedRefresh = false
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/copied/packages' && !requestedRefresh) {
+      requestedRefresh = true
+      await refresh.promise
+      return Response.json([])
+    }
+    return previousFetch(url, options)
+  }
+  await click('Save project')
+  await click('Upload and add node')
+  assert.equal(title(), 'Research project · unsaved')
+  await act(async () => refresh.resolve())
+  assert.deepEqual([...container.querySelector('[aria-label="Data package"]').options].map(option => option.value), ['', 'a-input'])
+})

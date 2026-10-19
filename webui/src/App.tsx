@@ -138,12 +138,18 @@ export default function App() {
       if (snapshot.tutorial) setProjects(items => [...items, saved])
       if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
       if (snapshot.tutorial) {
-        const files = await client.packages(saved.id)
-        if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
-        projectSession.current += 1; setPackages(files); setRuns([]); setSelectedPackage(''); setViewer('')
+        projectSession.current += 1; setPackages([]); setRuns([]); setSelectedPackage(''); setViewer('')
         void discardDraftInputs()
       }
       currentProject.current = saved; setProject(saved); markDirty(false); setNotice('Project and layout saved')
+      if (snapshot.tutorial) {
+        const target = { projectId: saved.id, session: projectSession.current, epoch: runOperationEpoch.current }
+        const openedAt = opening.current
+        const current = () => liveProject.current && currentProject.current === saved && currentRunOperation(target) && opening.current === openedAt
+        void client.packages(saved.id).then(files => { if (current()) setPackages(files) }).catch(failure => {
+          if (current()) fail(new Error(`Project saved; package list refresh failed: ${failure instanceof Error ? failure.message : String(failure)}`))
+        })
+      }
       return true
     } catch (failure) {
       if (session !== projectSession.current) return false
