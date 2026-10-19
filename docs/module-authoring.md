@@ -6,7 +6,7 @@
 
 模块提供一个无参数工厂，返回 `Module`。工厂声明节点、配置字段和可选的浏览器入口；配置保存在应用数据目录中，与节点计算参数分开。一个模块的 `nodes` 可声明多个节点。
 
-用户在应用中选择 wheel 文件并填写 `包名.模块名:工厂名`，点击 `Install package`。应用使用后端 Python 将所选 wheel 离线安装到数据目录的独立包目录，只安装该包；其 `Requires-Dist` 中的依赖须已由部署者装入后端环境。已有环境包可用 `Register module` 登记同一公共工厂。安装成功后默认启用。禁用保留设置；卸载删除登记及应用拥有的包目录。随载体发行的官方模块可重新登记其公开入口。安装失败清理本次目录并报告具体原因。
+用户在应用中选择 wheel 文件并填写 `包名.模块名:工厂名`，点击 `Install package`。应用使用后端 Python 将所选 wheel 离线安装到数据目录的独立包目录，只安装该包；其 `Requires-Dist` 中的依赖须已由部署者装入后端环境。已有环境包可用 `Register module` 登记同一公共工厂。安装成功后默认启用。禁用保留设置；卸载删除登记及应用拥有的包目录。随载体发行的官方模块可重新登记其公开入口。安装失败清理本次目录并报告具体原因。HTTP 客户端上传使用 `POST /api/module-packages?filename=所选文件名&entry_point=公开工厂`，携带 `Content-Type: application/octet-stream` 和 `X-Workbench-Module-Package: wheel`；应用界面自动填写。登记已有环境包的 `POST /api/modules` 使用 `application/json`。
 
 模块声明的环境字段是凭据、已有模型路径、服务地址或程序位置等字符串。`Module.settings` 以字段名映射说明文字，或映射 `{ "type": "string", "title": "显示名称", "secret": true }`；`secret` 字段在界面中遮蔽显示。载体按声明展示并保存用户值，通过 `Call.settings` 及工具的构造入口提供给所属模块。
 
@@ -86,6 +86,8 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 仓库前端也使用这个 npm 包；`webui/.npmrc` 的 `install-links=true` 将本地包复制到前端的 `node_modules`，公共声明集中维护在包内的 `index.d.ts`。
 
 `Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
+
+模块记录的 `installation_id` 标识当前这次安装；启停和设置保留它，卸载重装重新分配。`GET /api/catalog` 返回当前 `ui_url`，载体通过该地址装载界面。入口按当前安装核对，与当前身份不符的地址返回 409。模块入口为单文件 bundle；其依赖沿下述共享和打包约定提供。
 
 载体传入自己安装的 React 19 实例。模块使用这个实例创建元素和调用 hooks；构建模块时将 React 作为共享依赖，产物只保留传入的运行时引用。其他浏览器依赖由模块打包进自己的入口文件。
 

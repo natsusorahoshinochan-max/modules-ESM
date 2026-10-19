@@ -1,29 +1,112 @@
 """Declaration-only module loading; content formats remain module-owned."""
 import importlib
+import sys
+from importlib.machinery import all_suffixes
+from threading import RLock
 from pathlib import Path
 
 from protein_workbench_public.module_api import InputPort, Module, Node, OutputPort, Tool, ToolSlot
 
 
-def load(entry_point):
+import_lock = RLock()
+
+
+def _locations(module):
+    source = getattr(module, "__file__", None)
+    return ([source] if source else []) + list(getattr(module, "__path__", ()))
+
+
+def discard_paths(paths):
+    """Evict only objects owned by these application installation directories."""
+    paths = {Path(path).resolve() for path in paths}
+    def owned(value):
+        return any(Path(value).resolve().is_relative_to(path) for path in paths)
+    # Namespace paths consult their parents lazily; snapshot before removing either.
+    loaded = [(name, module, getattr(module, "__file__", None), list(getattr(module, "__path__", ()))) for name, module in list(sys.modules.items())]
+    sys.path[:] = [value for value in sys.path if not owned(value)]
+    for name, module, source, locations in loaded:
+        if source and owned(source):
+            sys.modules.pop(name, None)
+        elif any(owned(value) for value in locations):
+            remaining = [value for value in locations if not owned(value)]
+            if not remaining:
+                sys.modules.pop(name, None)
+            else:
+                module.__path__ = remaining
+                if getattr(module, "__spec__", None):
+                    module.__spec__.submodule_search_locations = remaining
+    importlib.invalidate_caches()
+
+
+def reconcile(package_root, installed_paths):
+    """Converge warm process imports with the caller's locked installation records."""
+    root = Path(package_root).resolve()
+    active = {Path(path).resolve() for path in installed_paths if Path(path).is_dir()}
+    observed = list(sys.path)
+    for module in list(sys.modules.values()):
+        observed.extend(_locations(module))
+    stale = set()
+    for value in observed:
+        path = Path(value).resolve()
+        if path.is_relative_to(root) and path != root:
+            installation = root / path.relative_to(root).parts[0]
+            if installation not in active:
+                stale.add(installation)
+    discard_paths(stale)
+
+
+def load(entry_point, *, package_path=None, installed_paths=()):
     from .application import HostError
-    try:
-        module_name, attribute = entry_point.split(":")
-        factory = getattr(importlib.import_module(module_name), attribute)
-        if not callable(factory):
-            raise ValueError("entry must be callable")
-        declaration = factory()
-        validate(declaration)
-        return declaration
-    except Exception as exc:
-        raise HostError(f"Could not load module entry {entry_point!r}: {exc}") from exc
-
-
-def load_record(record):
-    if record.get("package_path"):
-        from .module_packages import activate
-        activate(record["package_path"])
-    return load(record["entry_point"])
+    with import_lock:
+        try:
+            module_name, attribute = entry_point.split(":")
+            if package_path:
+                destination = Path(package_path).resolve()
+                if not destination.is_dir():
+                    raise ValueError(f"Installed package directory is missing: {destination}")
+                # Persistent owners reserve Python names even in a cold process.
+                for installed in installed_paths:
+                    installed = Path(installed).resolve()
+                    if installed == destination:
+                        continue
+                    for index in range(1, len(module_name.split('.')) + 1):
+                        prefix = installed.joinpath(*module_name.split('.')[:index])
+                        files = [prefix.parent / (prefix.name + suffix) for suffix in all_suffixes()]
+                        files += [prefix / ('__init__' + suffix) for suffix in all_suffixes()]
+                        if any(file.is_file() for file in files):
+                            raise ValueError(f"Python import namespace {'.'.join(module_name.split('.')[:index])!r} already belongs to another installation")
+                for index in range(1, len(module_name.split('.')) + 1):
+                    name = '.'.join(module_name.split('.')[:index])
+                    cached = sys.modules.get(name)
+                    source = getattr(cached, '__file__', None)
+                    if source and not Path(source).resolve().is_relative_to(destination):
+                        raise ValueError(f"Python import namespace {name!r} already belongs to another package; entry must belong to the selected wheel")
+                if str(destination) not in sys.path:
+                    sys.path.insert(0, str(destination))
+                # Extend shared namespace packages without replacing their valid children.
+                for index in range(1, len(module_name.split('.'))):
+                    name = '.'.join(module_name.split('.')[:index])
+                    cached = sys.modules.get(name)
+                    namespace = destination.joinpath(*module_name.split('.')[:index])
+                    if cached is not None and not getattr(cached, '__file__', None) and namespace.is_dir():
+                        locations = list(cached.__path__)
+                        if str(namespace) not in locations:
+                            cached.__path__ = locations + [str(namespace)]
+                            cached.__spec__.submodule_search_locations = cached.__path__
+                importlib.invalidate_caches()
+            imported = importlib.import_module(module_name)
+            if package_path:
+                source = getattr(imported, '__file__', None)
+                if not source or not Path(source).resolve().is_relative_to(destination):
+                    raise ValueError("Entry point must belong to the selected wheel")
+            factory = getattr(imported, attribute)
+            if not callable(factory):
+                raise ValueError("entry must be callable")
+            declaration = factory()
+            validate(declaration)
+            return declaration
+        except Exception as exc:
+            raise HostError(f"Could not load module entry {entry_point!r}: {exc}") from exc
 
 
 def validate(module):

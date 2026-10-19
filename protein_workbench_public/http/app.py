@@ -25,6 +25,22 @@ class ArchiveResponse(FileResponse):
             Path(self.path).unlink(missing_ok=True)
 
 
+class ModuleUIResponse(StreamingResponse):
+    def __init__(self, stream):
+        self.stream = stream
+        def chunks():
+            with stream:
+                while chunk := stream.read(1024 * 1024):
+                    yield chunk
+        super().__init__(chunks(), media_type='text/javascript')
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.stream.close()
+
+
 class ProjectName(BaseModel):
     name: str
 
@@ -90,7 +106,7 @@ def create_http_app(host: Workbench) -> FastAPI:
 
     @app.exception_handler(HostError)
     async def host_error(_request: Request, error: HostError):
-        return JSONResponse(status_code=400, content={'detail': str(error)})
+        return JSONResponse(status_code=error.status_code, content={'detail': str(error)})
 
     @app.exception_handler(OSError)
     async def file_error(_request: Request, error: OSError):
@@ -105,11 +121,23 @@ def create_http_app(host: Workbench) -> FastAPI:
         return host.list_modules()
 
     @app.post('/api/modules')
-    def install(body: InstallModule):
+    def install(body: InstallModule, request: Request):
+        if request.headers.get('content-type', '').split(';')[0].strip().lower() != 'application/json':
+            raise HostError('Module registration requires application/json', status_code=415)
         return host.install(body.entry_point)
+
+    def require_selected_package_request(request):
+        if (request.headers.get('sec-fetch-site', '').lower() == 'cross-site'
+                or request.headers.get('sec-fetch-mode', '').lower() == 'no-cors'
+                or request.headers.get('origin', '').strip().lower() == 'null'):
+            raise HostError('Cross-site module installation is forbidden', status_code=403)
+        if (request.headers.get('x-workbench-module-package') != 'wheel'
+                or request.headers.get('content-type', '').split(';')[0].strip().lower() != 'application/octet-stream'):
+            raise HostError('Selected wheel requests require X-Workbench-Module-Package: wheel and application/octet-stream', status_code=415)
 
     @app.post('/api/module-packages')
     async def install_package(request: Request, filename: str, entry_point: str):
+        require_selected_package_request(request)
         if Path(filename).name != filename or "\\" in filename or not filename.endswith('.whl'):
             raise HostError('Select a wheel filename without a directory')
         with tempfile.TemporaryDirectory(prefix='module-upload-', dir=host.root) as directory:
@@ -133,8 +161,8 @@ def create_http_app(host: Workbench) -> FastAPI:
         return {'removed': module_id}
 
     @app.get('/api/modules/{module_id}/ui.js')
-    def module_ui(module_id: str):
-        return FileResponse(host.ui_entry(module_id), media_type='text/javascript', headers={'Cache-Control': 'no-cache'})
+    def module_ui(module_id: str, installation_id: str):
+        return ModuleUIResponse(host.open_module_ui(module_id, installation_id))
 
     @app.get('/api/tutorial')
     def tutorial():

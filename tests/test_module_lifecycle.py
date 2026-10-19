@@ -11,6 +11,9 @@ from protein_workbench_public.bootstrap import create_application
 from tests.run_helpers import wait_response
 
 
+INSTALL_HEADERS = {'Content-Type': 'application/octet-stream', 'X-Workbench-Module-Package': 'wheel'}
+
+
 def wheel():
     data = BytesIO()
     with ZipFile(data, 'w') as archive:
@@ -44,7 +47,7 @@ def unsafe_wheel():
 
 
 def install(client):
-    return client.post('/api/module-packages', params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'lifecycle_example:module'}, content=wheel())
+    return client.post('/api/module-packages', headers=INSTALL_HEADERS, params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'lifecycle_example:module'}, content=wheel())
 
 
 def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_path):
@@ -55,7 +58,8 @@ def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_pa
         assert response.status_code == 200, response.text
         module = response.json()
         assert module['enabled'] and module['settings'] == {}
-        ui = client.get('/api/modules/lifecycle.example/ui.js')
+        ui_url = next(item['ui_url'] for item in client.get('/api/modules').json() if item['id'] == module['id'])
+        ui = client.get(ui_url)
         assert ui.status_code == 200
         assert 'register({ React })' in ui.text
         assert client.put('/api/modules/lifecycle.example/settings', json={'settings': settings}).status_code == 200
@@ -66,7 +70,7 @@ def test_selected_package_lifecycle_preserves_project_and_delivered_files(tmp_pa
         package = result['nodes']['one']['outputs']['result'][0]
         assert client.get(f'/api/packages/{package}/file', params={'key': 'data'}).content == b'chosen-token|/existing/model|http://localhost:9000|/existing/program'
         assert client.put('/api/modules/lifecycle.example/enabled', json={'enabled': False}).status_code == 200
-        assert client.get('/api/modules/lifecycle.example/ui.js').status_code == 400
+        assert client.get(ui_url).status_code == 400
         unavailable = client.get(f'/api/projects/{project}').json()
         assert unavailable['flow'] == flow
         assert unavailable['layout'] == {'one': {'x': 11, 'y': 2}}
@@ -101,12 +105,12 @@ with TestClient(create_application(data_root=Path(sys.argv[1]))) as client:
 def test_wheel_rejection_and_failed_factory_leave_no_installed_package(tmp_path):
     with TestClient(create_application(data_root=tmp_path)) as client:
         for filename in ('../outside.whl', '/outside.whl', r'..\outside.whl'):
-            response = client.post('/api/module-packages', params={'filename': filename, 'entry_point': 'lifecycle_example:module'}, content=wheel())
+            response = client.post('/api/module-packages', headers=INSTALL_HEADERS, params={'filename': filename, 'entry_point': 'lifecycle_example:module'}, content=wheel())
             assert response.status_code == 400
         for content in (b'invalid wheel', unsafe_wheel()):
-            rejected = client.post('/api/module-packages', params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'lifecycle_example:module'}, content=content)
+            rejected = client.post('/api/module-packages', headers=INSTALL_HEADERS, params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'lifecycle_example:module'}, content=content)
             assert rejected.status_code == 400
-        invalid = client.post('/api/module-packages', params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'lifecycle_example:missing'}, content=wheel())
+        invalid = client.post('/api/module-packages', headers=INSTALL_HEADERS, params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'lifecycle_example:missing'}, content=wheel())
         assert invalid.status_code == 400
         assert 'missing' in invalid.json()['detail']
         assert not any(tmp_path.glob('module-upload-*'))
@@ -139,7 +143,7 @@ def test_unavailable_package_reports_load_error_and_can_be_removed(tmp_path, mon
 
 def test_selected_wheel_cannot_register_an_unrelated_installed_entry(tmp_path):
     with TestClient(create_application(data_root=tmp_path)) as client:
-        response = client.post('/api/module-packages', params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'tests.fixtures.host_module:module'}, content=wheel())
+        response = client.post('/api/module-packages', headers=INSTALL_HEADERS, params={'filename': 'lifecycle_example-0.1-py3-none-any.whl', 'entry_point': 'tests.fixtures.host_module:module'}, content=wheel())
         assert response.status_code == 400
         assert 'selected wheel' in response.json()['detail']
         assert list((tmp_path / 'module-packages').iterdir()) == []
