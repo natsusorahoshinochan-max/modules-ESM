@@ -6,7 +6,7 @@ from threading import RLock
 from pathlib import Path
 from os import PathLike
 
-from protein_workbench_public.module_api import InputPort, Module, Node, OutputPort, Tool, ToolSlot
+from protein_workbench_public.module_api import InputPort, Interaction, Module, Node, OutputPort, Tool, ToolSlot
 
 
 import_lock = RLock()
@@ -155,6 +155,14 @@ def validate(module):
         raise ValueError("settings declaration must be an object")
     if module.ui is not None and (not isinstance(module.ui, str) or not Path(module.ui).is_absolute() or not Path(module.ui).is_file()):
         raise ValueError("UI entry must name an existing absolute file")
+    interaction_ids = set()
+    for interaction in module.interactions:
+        if not isinstance(interaction, Interaction) or not interaction.id or not callable(interaction.execute):
+            raise ValueError("interaction requires identity and executable entry")
+        if interaction.id in interaction_ids:
+            raise ValueError("duplicate interaction identity")
+        interaction_ids.add(interaction.id)
+        validate(Module(id=module.id, name=module.name, nodes=(Node(interaction.id, interaction.id, interaction.execute, inputs=interaction.inputs, parameters=interaction.parameters),)))
     tool_ids = set()
     for tool in module.tools:
         if not isinstance(tool, Tool) or not all(isinstance(value, str) and value for value in (tool.id, tool.name, tool.slot)) or not callable(tool.create):

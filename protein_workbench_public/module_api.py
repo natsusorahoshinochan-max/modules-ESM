@@ -113,3 +113,19 @@ class Module:
     settings: dict[str, Any] = field(default_factory=dict)
     ui: str | None = None
     tools: tuple[Tool, ...] = ()
+    interactions: tuple[Interaction, ...] = ()
+
+
+@dataclass(frozen=True)
+class InteractionResult:
+    """Module display data and named temporary deliveries; no flow run is created."""
+    data: Any = None
+    outputs: Mapping[str, Delivery] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Interaction:
+    id: str
+    execute: Callable[[Call, Runtime], InteractionResult]
+    inputs: Mapping[str, InputPort] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)

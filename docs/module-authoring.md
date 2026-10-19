@@ -95,9 +95,21 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 载体传入自己安装的 React 19 实例。模块使用这个实例创建元素和调用 hooks；构建模块时将 React 作为共享依赖，产物只保留传入的运行时引用。其他浏览器依赖由模块打包进自己的入口文件。
 
-操作入口通过 `host.createInput` 上传文件并创建输入包，使用 `host.addNode` 和 `host.connect` 编辑流程。查看器通过 `host.readFile` 读取包内文件。同一格式可声明多个具有唯一 `id` 的查看器；载体按查看器 ID 排序，默认使用第一项，用户可手动切换。打开另一包时恢复默认；当前查看器被禁用或卸载时使用剩余默认项，切换只影响展示。编辑器接收节点参数及 `onChange`；界面遵守 `readOnly` 状态。各接口的参数以公共类型声明为准。
+操作入口通过 `host.createInput` 上传文件并创建输入包，使用 `host.addNode` 和 `host.connect` 编辑流程。查看器通过 `host.readFile` 读取包内文件。同一格式可声明多个具有唯一 `id` 的查看器；载体按查看器 ID 排序，默认使用第一项，用户可手动切换。打开另一包时恢复默认；当前查看器被禁用或卸载时使用剩余默认项，切换只影响展示。编辑器接收节点参数、`onChange` 及下面的 `context`；界面遵守 `readOnly` 状态。各接口的参数以公共类型声明为准。
 
 操作绑定发起时的项目会话；切换项目后，旧操作的编辑请求会拒绝。`await host.addNode(...)` 完成后，后续 `addNode` 或 `connect` 调用可立即使用已添加的节点。
+
+## 节点编辑上下文与临时交互
+
+`EditorProps.context` 提供当前 `projectId`、`nodeId`、`parameters`、直接 `bindings`、相关 `edges`，以及按端口排列的 `inputs`。每个输入含明确绑定的 `packages`；未选择已交付包、绑定包缺失或只有计算连线时，`unavailable` 给出原因。载体不自动查找上游结果或执行上游。
+
+模块在 `Module.interactions` 中声明 `Interaction(id, execute, inputs, parameters)`。处理函数接收公开的 `Call` 和 `Runtime`，返回 `InteractionResult(data=小型展示数据, outputs={名称: Delivery(...)})`。载体核对输入格式及基数，提供明确包、所属模块设置、只读文件访问、工作目录和取消信号；调用不创建运行。返回前关闭文件并放弃写权，工作目录由载体保留到结束或接收完成。
+
+`context.host.preview(id, inputs, parameters, {signal})` 返回 `{id, data, outputs}`；`inputs` 是端口到明确包 ID 列表的映射，取消信号可省略。调用 `cancelPreview(id)` 结束预览并释放文件。取消正在执行的处理函数时先传递取消信号，待函数返回后才删除工作目录；迟到结果不能再被采用。
+
+`context.update({parameters})` 更新当前节点参数草稿。`context.update({delivery: {interaction: 预览ID, output: 输出名, port: 输入端口}, replaceConnections: [输入端口]})` 先完整接收该预览的实际文件，再把输入绑定与明确替换的连线一次更新。也可传入 `delivery: {input: {format, entry, files}, port}` 接收界面生成的文件。直接修改绑定使用 `inputs`；恢复或调整输入连接时，`connections` 提供指向当前节点且属于 `replaceConnections` 端口的完整替代连线。载体按公开端口声明核对连接、格式和基数。
+
+节点更新核对发起时的项目会话、目标节点、编辑草稿和运行锁；过期操作或文件接收失败保留原节点。模块捕获本次操作的 `context` 并维护自己的显示请求顺序，防止旧响应覆盖后续界面编辑。确认仅标记未保存，流程与布局由用户手动保存。具体编辑模块及独立消费格式见 [序列与条件编辑](../modules/sequence_edit/FORMAT.md)。
 
 ## 安装并运行外部样例
 
