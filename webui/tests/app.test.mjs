@@ -19,6 +19,8 @@ await build({ entryPoints: ['src/App.tsx'], bundle: true, packages: 'external', 
 const { default: App } = await import(pathToFileURL(output).href)
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === '/api/modules/test.broken/ui.js') return { url: new URL('./module-broken-viewer.mjs', import.meta.url).href, shortCircuit: true }
+    if (specifier === '/api/modules/test.viewers/ui.js') return { url: new URL('./module-viewers.mjs', import.meta.url).href, shortCircuit: true }
     if (specifier === '/api/modules/test.actions/ui.js') return { url: new URL('./module-actions.mjs', import.meta.url).href, shortCircuit: true }
     return nextResolve(specifier, context)
   },
@@ -389,6 +391,122 @@ test('a failed deletion preserves the dirty editor and reports the reason', asyn
   assert.equal(records.length, 2)
 })
 
+test('module deployment fields save credentials and locations independently of node parameters', async () => {
+  let settings = {}, received
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/modules/environment/settings') {
+      received = JSON.parse(options.body).settings; settings = received
+      return Response.json({})
+    }
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [declaration('test.one')], modules: [{ id: 'environment', name: 'Environment', entry_point: 'environment:module', enabled: true, ui: null, settings, settings_schema: {
+      credential: { type: 'string', title: 'Service credential', secret: true },
+      model: 'Existing model location', service: 'Service URL', program: 'Program location',
+    } }] })
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  for (const [name, value] of Object.entries({ credential: 'chosen-token', model: '/model', service: 'http://localhost', program: '/program' })) {
+    const input = container.querySelector(`[aria-label="Environment: ${name}"]`)
+    assert.ok(input, `Missing deployment field ${name}`)
+    if (name === 'credential') assert.equal(input.type, 'password')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value)
+      input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+  }
+  await click('Save settings')
+  assert.deepEqual(received, { credential: 'chosen-token', model: '/model', service: 'http://localhost', program: '/program' })
+  await addNode()
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].parameters, {})
+})
+
+test('a chosen wheel is uploaded with its entry and module controls refresh the canvas without editing its draft', async () => {
+  const previousFetch = globalThis.fetch
+  let enabled = true, installed = true, uploaded, receivedEntry
+  const module = { id: 'test.actions', name: 'Test module', entry_point: 'test:module', enabled: true, settings: {}, settings_schema: {}, ui: 'fixture.js' }
+  globalThis.fetch = async (url, options) => {
+    const path = String(url)
+    if (path.startsWith('/api/module-packages?')) {
+      uploaded = options.body; receivedEntry = new URL(path, 'http://localhost').searchParams.get('entry_point'); installed = true; enabled = true
+      return Response.json(module)
+    }
+    if (path === '/api/modules/test.actions/enabled') { enabled = JSON.parse(options.body).enabled; return Response.json(module) }
+    if (path === '/api/modules/test.actions' && options.method === 'DELETE') { installed = false; return Response.json({}) }
+    if (path === '/api/catalog') return Response.json({ nodes: installed && enabled ? [declaration('test.one')] : [], modules: installed ? [{ ...module, enabled }] : [] })
+    return previousFetch(url, options)
+  }
+  await addNode()
+  await click('Disable')
+  assert.match(container.querySelector('.canvas').textContent, /Missing module: test.one/)
+  assert.match(container.querySelector('.canvas').textContent, /Cannot run/)
+  assert.equal(nodeCount(), 1)
+  await click('Enable')
+  assert.doesNotMatch(container.querySelector('.canvas').textContent, /Missing module/)
+  await click('Uninstall')
+  assert.equal(nodeCount(), 1)
+  const input = container.querySelector('input[type=file]')
+  const file = new window.File(['selected wheel bytes'], 'external-0.1-py3-none-any.whl')
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  await act(async () => input.dispatchEvent(new window.Event('change', { bubbles: true })))
+  await click('Install package')
+  assert.equal(uploaded, file)
+  assert.equal(receivedEntry, 'workbench_notes:module')
+  assert.doesNotMatch(container.querySelector('.canvas').textContent, /Missing module/)
+  await click('Save project')
+  assert.equal(savedFlows[0].flow.nodes.length, 1)
+})
+
+test('multiple viewers use a stable ID default and switching leaves packages and computation unchanged', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [{ id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', settings: {}, settings_schema: {} }] })
+    return previousFetch(url, options)
+  }
+  await click('Register module')
+  await click('Project B')
+  const original = clone(packages.b)
+  await choose('Data package', 'b-package')
+  const select = [...container.querySelectorAll('label')].find(label => label.textContent.startsWith('Viewer')).querySelector('select')
+  assert.deepEqual([...select.options].map(option => option.value), ['a.basic', 'z.detail'])
+  assert.equal(select.value, 'a.basic')
+  assert.equal(container.querySelector('[data-testid=viewer]').textContent, 'Basic b-package')
+  await act(async () => { select.value = 'z.detail'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  assert.equal(container.querySelector('[data-testid=viewer]').textContent, 'Detailed b-package')
+  assert.deepEqual(packages.b, original)
+  assert.deepEqual(runRequests, [])
+  assert.equal(title(), 'Project B')
+  await click('Project A'); await click('Project B'); await choose('Data package', 'b-package')
+  assert.equal(container.querySelector('[data-testid=viewer]').textContent, 'Basic b-package')
+})
+
+test('disabling a failed viewer restores the stable available default', async () => {
+  const previousFetch = globalThis.fetch
+  let brokenEnabled = true
+  globalThis.fetch = async (url, options) => {
+    if (String(url) === '/api/modules') return Response.json({})
+    if (String(url) === '/api/catalog') return Response.json({ nodes: [], modules: [
+      { id: 'test.viewers', name: 'Viewers', enabled: true, ui: 'fixture.js', settings: {}, settings_schema: {} },
+      { id: 'test.broken', name: 'Broken viewer', enabled: brokenEnabled, ui: 'fixture.js', settings: {}, settings_schema: {} },
+    ] })
+    return previousFetch(url, options)
+  }
+  await click('Register module'); await click('Project B'); await choose('Data package', 'b-package')
+  const select = [...container.querySelectorAll('label')].find(label => label.textContent.startsWith('Viewer')).querySelector('select')
+  const originalError = console.error
+  console.error = () => {}
+  try {
+    await act(async () => { select.value = 'z.broken'; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  } finally { console.error = originalError }
+  assert.match(container.querySelector('.package [role=alert]').textContent, /Viewer unavailable/)
+  brokenEnabled = false
+  await click('Register module')
+  assert.equal(container.querySelector('[data-testid=viewer]')?.textContent, 'Basic b-package')
+  assert.deepEqual(runRequests, [])
+})
 
 test('a failed save from a previous project cannot show an error in the current editor', async () => {
   await addNode()

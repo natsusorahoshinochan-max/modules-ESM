@@ -4,7 +4,7 @@ import type { ModuleRecord } from './host-client'
 
 export async function loadExtensions(modules: ModuleRecord[]): Promise<Extensions> {
   const extensions: Required<Extensions> = { actions: [], editors: [], viewers: [] }
-  for (const module of modules.filter(item => item.enabled && item.ui).sort((a, b) => a.id.localeCompare(b.id))) {
+  for (const module of modules.filter(item => item.enabled && item.available !== false && item.ui).sort((a, b) => a.id.localeCompare(b.id))) {
     const entry: ModuleEntry = await import(/* @vite-ignore */ `/api/modules/${encodeURIComponent(module.id)}/ui.js`)
     if (entry.runtime?.react !== 19 || typeof entry.register !== 'function') throw new Error(`${module.name}: UI must export runtime.react = 19 and register({React})`)
     const result = entry.register({ React })

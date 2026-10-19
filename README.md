@@ -13,7 +13,7 @@
 
 后续开发按确认需求与公共接口开展 TDD。
 
-外部模块的声明、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
+模块包安装、环境设置、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
 
 ## 安装
 
