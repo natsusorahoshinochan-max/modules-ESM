@@ -197,8 +197,7 @@ def accept(app, run, identifier, declaration, outcome, workdir):
         raise
 
 
-def create_run(app, project_id):
-    from uuid import uuid4
+def create_run(app, project_id, run_id):
     project = app._get("project", project_id)
     by_id, selected, edges, ordered, groups = prepare(app, project["flow"], project_id)
     states = {identifier: {"status": "pending", "outputs": {}, "diagnostics": [], "continuation": None} for identifier in by_id}
@@ -206,9 +205,9 @@ def create_run(app, project_id):
         if group["diagnostics"]:
             for identifier in group["nodes"]:
                 states[identifier].update(status="configuration_blocked", diagnostics=group["diagnostics"])
-    run = {"id": uuid4().hex, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"]}
-    app._put("run", run)
+    run = {"id": run_id, "project_id": project_id, "status": "running", "nodes": states, "groups": groups, "diagnostics": [], "flow": project["flow"]}
     tools = {tool.id: (record, tool) for record, module in app._modules() for tool in module.tools}
+    app._put("run", run)
     return run, (by_id, selected, edges, ordered, tools)
 
 
@@ -226,13 +225,16 @@ def execute(app, run, prepared, cancelled):
             run["nodes"][identifier]["diagnostics"] = ["An upstream node did not succeed"]
             app._put("run", run)
             continue
-        instance = by_id[identifier]
-        record, declaration = selected[identifier]
-        inputs = {name: list(instance.get("inputs", {}).get(name, [])) for name in declaration.inputs}
-        for edge in incoming:
-            inputs[edge["target_port"]].extend(run["nodes"][edge["source"]]["outputs"][edge["source_port"]])
-        workdir = app.new_workdir()
+        workdir = None
         try:
+            run["nodes"][identifier]["status"] = "running"
+            app._put("run", run)
+            instance = by_id[identifier]
+            record, declaration = selected[identifier]
+            inputs = {name: list(instance.get("inputs", {}).get(name, [])) for name in declaration.inputs}
+            for edge in incoming:
+                inputs[edge["target_port"]].extend(run["nodes"][edge["source"]]["outputs"][edge["source_port"]])
+            workdir = app.new_workdir()
             for name, port in declaration.inputs.items():
                 count = len(inputs[name])
                 if port.required and not count:
@@ -250,8 +252,6 @@ def execute(app, run, prepared, cancelled):
             call = replace(call, tools=injected, tool_choices=dict(instance.get("tools", {})))
             runtime = ExecutionRuntime(workdir)
             runtime._cancel = cancelled
-            run["nodes"][identifier]["status"] = "running"
-            app._put("run", run)
             try:
                 outcome = declaration.execute(call, runtime)
             except Exception as exc:
@@ -266,7 +266,20 @@ def execute(app, run, prepared, cancelled):
             run["nodes"][identifier] = {"status": "cancelled" if cancelled() else "failed", "outputs": {}, "diagnostics": [str(exc)], "continuation": None}
             app._put("run", run)
         finally:
-            app._release_workdir(workdir)
+            if workdir is not None:
+                import sys
+                pending_error = sys.exception()
+                try:
+                    app._release_workdir(workdir)
+                except Exception as cleanup_error:
+                    detail = f"Work directory cleanup failed: {cleanup_error}"
+                    if pending_error is not None:
+                        raise HostError(f"{pending_error}; {detail}") from cleanup_error
+                    # Received outputs remain available even if cleanup fails.
+                    node = run["nodes"][identifier]
+                    node["status"] = "failed"
+                    node["diagnostics"].append(detail)
+                    app._put("run", run)
     statuses = {node["status"] for node in run["nodes"].values()}
     run["status"] = "failed" if "failed" in statuses or "blocked" in statuses or "configuration_blocked" in statuses else "cancelled" if "cancelled" in statuses else "succeeded"
     return app._put("run", run)
