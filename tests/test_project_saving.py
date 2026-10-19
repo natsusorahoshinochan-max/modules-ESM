@@ -1,4 +1,5 @@
 """Manual flow saving and delivered files have separate public lifecycles."""
+from tests.run_helpers import wait_response
 import sqlite3
 
 import pytest
@@ -90,7 +91,7 @@ def test_run_result_reception_preserves_the_explicitly_saved_flow_and_layout(tmp
             'layout': {'encode': {'x': 24, 'y': 63}},
         }
         assert client.put(f'/api/projects/{project}', json=saved).status_code == 200
-        run = client.post(f'/api/projects/{project}/runs', json={}).json()
+        run = wait_response(client, client.post(f'/api/projects/{project}/runs', json={})).json()
         assert run['status'] == 'succeeded'
         output = run['nodes']['encode']['outputs']['result'][0]
     with TestClient(create_application(data_root=tmp_path)) as reopened:

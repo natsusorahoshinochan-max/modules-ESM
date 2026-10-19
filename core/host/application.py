@@ -29,6 +29,7 @@ class Workbench:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self._workdirs = set()
+        self._run_errors = {}
         self._packages = self.root / "packages"
         self._packages.mkdir(exist_ok=True)
         self._work = self.root / "work"
@@ -222,14 +223,24 @@ class Workbench:
         nodes = nodes if isinstance(nodes, list) else []
         requested = {node["type"] for node in nodes if isinstance(node, dict) and isinstance(node.get("type"), str)}
         project["missing_modules"] = sorted(requested - available)
+        project["running"] = self._project_running(project_id)
         return project
+
+    def _project_running(self, project_id):
+        try:
+            with self._project_lock(project_id, running=True):
+                return False
+        except HostError as exc:
+            if str(exc).startswith("Project is running:"):
+                return True
+            raise
 
     def save_project(self, project_id, flow, layout):
         with self._project_operation([project_id], mutable=[project_id]):
             project = self._get("project", project_id)
             project.update(flow=flow, layout=layout)
             self._put("project", project)
-            return self.get_project(project_id)
+        return self.get_project(project_id)
 
     def new_workdir(self):
         path = Path(tempfile.mkdtemp(prefix="execution-", dir=self._work))
@@ -324,16 +335,65 @@ class Workbench:
         return [record for record in self._records("package") if record["project_id"] == project_id]
 
     def start(self, project_id):
-        with self._project_lock(project_id, running=True):
-            from .execution import execute
-            return execute(self, project_id)
+        from threading import Thread
+        from .execution import create_run, execute
+        lease = self._project_lock(project_id, running=True)
+        lease.__enter__()
+        try:
+            run, prepared = create_run(self, project_id)
+            # The cancellation marker is independent of run-record replacement.
+            marker = self._locks / ("cancel-" + run["id"])
+            def work():
+                try:
+                    execute(self, run, prepared, marker.exists)
+                except Exception as exc:
+                    run["status"] = "failed"
+                    run["diagnostics"].append(f"Backend run failed: {exc}")
+                    try:
+                        self._put("run", run)
+                    except HostError as commit_error:
+                        import logging
+                        self._run_errors[run["id"]] = str(commit_error)
+                        logging.getLogger(__name__).exception("Could not commit failed backend run %s", run["id"])
+                finally:
+                    lease.__exit__(None, None, None)
+                    marker.unlink(missing_ok=True)
+            response = json.loads(json.dumps(run))
+            Thread(target=work, name="workbench-run-" + run["id"], daemon=False).start()
+            return response
+        except BaseException:
+            lease.__exit__(None, None, None)
+            raise
+
+    def cancel_run(self, run_id):
+        run = self.get_run(run_id)
+        marker = self._locks / ("cancel-" + run["id"])
+        if run["status"] == "running":
+            marker.touch()
+        result = self.get_run(run_id)
+        if result["status"] != "running":
+            marker.unlink(missing_ok=True)
+        return result
 
     def get_run(self, run_id):
-        return self._get("run", run_id)
+        run = self._get("run", run_id)
+        if run["status"] == "running" and not self._project_running(run["project_id"]):
+            # Re-read after acquiring the lease: a terminal commit may have happened
+            # between the first read and the lease probe.
+            run = self._get("run", run_id)
+            if run["status"] == "running":
+                run["status"] = "failed"
+                detail = self._run_errors.get(run_id, "Run lease ended without a committed terminal state")
+                run["diagnostics"] = [*run["diagnostics"], detail]
+                for node in run["nodes"].values():
+                    if node["status"] in ("pending", "running"):
+                        node["status"] = "failed" if node["status"] == "running" else "blocked"
+                        node["diagnostics"] = [*node["diagnostics"], "Backend run ended before this node's terminal state was committed"]
+        return run
 
     def list_runs(self, project_id):
         self._get("project", project_id)
-        return [run for run in self._records("run") if run["project_id"] == project_id]
+        return [self.get_run(run["id"]) for run in self._records("run") if run["project_id"] == project_id]
 
     def discard_workdir(self, workdir):
         """Discard a host-allocated upload whose caller has abandoned it."""

@@ -1,3 +1,4 @@
+from tests.run_helpers import wait_run
 import json
 
 from core.host import Workbench
@@ -16,7 +17,7 @@ def test_public_tool_is_discovered_and_injected_without_node_enumerating_it(tmp_
     app.save_project(project['id'], {'nodes': [{'id': 'predict', 'type': 'workbench.predict', 'inputs': {'sequence': [package['id']]}, 'tools': {'predictor': 'lab.external'}, 'tool_parameters': {'predictor': {'seed': 0}}}], 'edges': []}, {})
     catalog = app.catalog()
     assert any(tool['id'] == 'lab.external' for tool in catalog['tools'])
-    result = app.start(project['id'])
+    result = wait_run(app, app.start(project['id']))
     assert result['status'] == 'succeeded', result
     output = app.package(result['nodes']['predict']['outputs']['structure'][0])
     with output.open(output.entry) as stream:
@@ -46,6 +47,7 @@ def test_missing_selected_tool_stops_run_without_resetting_saved_selection(tmp_p
     project = app.create_project('Missing tool')
     flow = {'nodes': [{'id': 'predict', 'type': 'workbench.predict', 'tools': {'predictor': 'uninstalled.tool'}}], 'edges': []}
     app.save_project(project['id'], flow, {})
-    with pytest.raises(HostError, match='uninstalled.tool'):
-        app.start(project['id'])
+    result = wait_run(app, app.start(project['id']))
+    assert result['nodes']['predict']['status'] == 'configuration_blocked'
+    assert 'uninstalled.tool' in str(result['nodes']['predict']['diagnostics'])
     assert app.get_project(project['id'])['flow'] == flow

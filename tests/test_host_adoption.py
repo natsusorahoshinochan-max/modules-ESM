@@ -1,4 +1,5 @@
 """Generic package ownership through the public application boundary."""
+from tests.run_helpers import wait_run
 import os
 import sqlite3
 
@@ -94,7 +95,7 @@ def test_running_project_rejects_mutation_across_host_instances_without_waiting(
             assert other.get_project(project['id'])['name'] == 'running'
         finally:
             release.set()
-        assert future.result(timeout=5)['status'] == 'succeeded'
+        assert wait_run(app, future.result(timeout=5))['status'] == 'succeeded'
     other.save_project(project['id'], {'nodes': [], 'edges': []}, {})
     other.adopt(project['id'], package['id'])
 
@@ -110,12 +111,13 @@ def test_raw_cross_project_input_cannot_bypass_adoption(tmp_path):
     package = app.create_input(source['id'], Delivery('independent.request', 'data', {'data': 'data'}), work)
     flow = {'nodes': [{'id': 'encode', 'type': 'independent.encode', 'inputs': {'source': [package['id']]}}], 'edges': []}
     app.save_project(target['id'], flow, {})
-    with pytest.raises(HostError, match='owned by.*project|adopt'):
-        app.start(target['id'])
+    blocked = wait_run(app, app.start(target['id']))
+    assert blocked['nodes']['encode']['status'] == 'configuration_blocked'
+    assert 'adopt' in str(blocked['nodes']['encode']['diagnostics'])
     adopted = app.adopt(target['id'], package['id'])
     flow['nodes'][0]['inputs']['source'] = [adopted['id']]
     app.save_project(target['id'], flow, {})
-    assert app.start(target['id'])['status'] == 'succeeded'
+    assert wait_run(app, app.start(target['id']))['status'] == 'succeeded'
 
 
 @pytest.mark.parametrize('failure', ['missing', 'write', 'rename', 'commit'])

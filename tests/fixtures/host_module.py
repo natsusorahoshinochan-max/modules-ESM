@@ -72,3 +72,15 @@ def held_node(call, runtime):
 
 def held_module():
     return Module('held', 'Held', nodes=(Node('held.node', 'Held node', held_node),))
+
+
+def branch_node(call, runtime):
+    if call.parameters.get('fail'):
+        (runtime.workdir / 'bytes').write_bytes(b'partial result')
+        return Outcome(status='failed', outputs={'result': [Delivery('branch.bytes', 'data', {'data': 'bytes'})]}, diagnostics=('Scientific input is unsuitable',), continuation={'completed': 1})
+    (runtime.workdir / 'bytes').write_bytes(b'complete result')
+    return Outcome(outputs={'result': [Delivery('branch.bytes', 'data', {'data': 'bytes'})]})
+
+
+def branch_module():
+    return Module('branch', 'Branches', nodes=(Node('branch.node', 'Branch', branch_node, inputs={'source': InputPort(('branch.bytes',), 'many', False)}, outputs={'result': OutputPort('branch.bytes')}),))
