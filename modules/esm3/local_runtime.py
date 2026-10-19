@@ -104,4 +104,3 @@ def load_local_esm3_client(
     )
     client = client.float()
     return client
-
