@@ -4,7 +4,15 @@
 
 The request is `modules.folding.contract.PredictionRequest(sequence, object_id)`. The result is `PredictionResult(structure_path, structure_format='pdb', plddt=None, ptm=None, extras={})`. An implementation importing these public dataclasses declares the prediction package as an installation dependency. It may produce PDB or mmCIF; sequence order must agree with the single protein chain. Any unsupported input or missing required result raises a descriptive exception. Tool-specific parameters are a separate dictionary and never inferred from another tool's names.
 
-Write structure output completely inside `runtime.workdir`, close it before returning, and return its relative path. The prediction node owns subsequent encoding and passes its files to the host; the adapter relinquishes write ownership on return. No external paths or live streams are returned. Check `runtime.cancelled` before loading or starting requests and during cancellable waits. A cancelled call does not publish a successful prediction. This single-request node has no continuation state; failed requests use a new run.
+Write structure output completely inside `runtime.workdir`, close it before returning, and return its relative path. The prediction node owns subsequent encoding and passes its files to the host; the adapter relinquishes write ownership on return. No external paths or live streams are returned. Check `runtime.cancelled` before loading or starting requests and during cancellable waits. A cancelled call does not publish a successful prediction. The node reads an ordered sequence-object batch and invokes this single-request contract once per unfinished object. The adapter retains its applicable retry behavior; the node stops after the first terminal failure. The node copies each completed structure into its own delivery files before another request can reuse an adapter output path.
+
+## Batches and continuation
+
+Use the sequence action's explicit **Batch FASTA import** option for multiple records. Each record becomes one sequence object in the input package. The single-sequence mode continues to reject multiple FASTA records.
+
+Open a run in **Runs** to view its node diagnostics and result packages. Failed or cancelled batches show their accepted partial results. Use **Continue … with original inputs and parameters** on the selected node to resume that run. The node reads its last accepted package through `Call.previous.outputs`, interprets its own continuation content, copies accepted files into the new work directory, skips completed objects and returns one cumulative package. Its private progress is accepted together with the files. Even a fully completed outcome carries its completed count so a cancellation arriving during handoff can continue without recalculating accepted objects.
+
+To change the calculation, edit the canvas and start a new run. A historical package can be selected explicitly in a node input selector; across projects, adopt it into the destination project first. Deployment settings remain module settings and are excluded from result parameters.
 
 ## ESMFold2
 

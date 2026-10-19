@@ -311,6 +311,12 @@ def create_http_app(host: Workbench) -> FastAPI:
     def runs(project_id: str):
         return host.list_runs(project_id)
 
+    @app.post('/api/runs/{run_id}/nodes/{node_id}/continue')
+    async def continue_node(run_id: str, node_id: str, request: Request):
+        if await request.body() or request.query_params:
+            raise HostError('Continue accepts only the original run and node; start a new run for changed configuration')
+        return await run_in_threadpool(host.continue_run, run_id, node_id)
+
     @app.post('/api/runs/{run_id}/cancel')
     def cancel(run_id: str):
         return host.cancel_run(run_id)

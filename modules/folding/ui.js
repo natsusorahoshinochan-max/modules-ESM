@@ -11,25 +11,33 @@ export function parseSequence(text) {
   return { sequence, ...(headers.length && lines[0].slice(1).trim() ? { label: lines[0].slice(1).trim() } : {}) };
 }
 
+export function parseBatch(text) {
+  const records = text.trim().split(/(?=^>)/m).filter(record => record.trim());
+  if (!records.length || records.some(record => !record.trim().startsWith('>'))) throw new Error('Batch import requires FASTA records with headers.');
+  return records.map(parseSequence);
+}
+
 export function register({ React }) {
   const h = React.createElement;
   function SequenceInput({ host }) {
     const [text, setText] = React.useState('');
+    const [batch, setBatch] = React.useState(false);
     const [error, setError] = React.useState('');
     const [busy, setBusy] = React.useState(false);
     async function add() {
       setBusy(true); setError('');
       try {
-        const object = { id: crypto.randomUUID(), ...parseSequence(text) };
+        const objects = (batch ? parseBatch(text) : [parseSequence(text)]).map(object => ({ id: crypto.randomUUID(), ...object }));
         const pkg = await host.createInput({ format: 'workbench.sequence', entry: 'manifest.json', files: {
-          'manifest.json': new Blob([JSON.stringify({ objects: [object] })], { type: 'application/json' }),
+          'manifest.json': new Blob([JSON.stringify({ objects })], { type: 'application/json' }),
         } });
         await host.addNode({ type: 'workbench.predict', parameters: {}, inputs: { sequence: [pkg.id] }, tools: {}, tool_parameters: {} });
       } catch (failure) { setError(String(failure)); }
       finally { setBusy(false); }
     }
     return h('section', null, h('h3', null, 'Predict a protein structure'),
-      h('label', null, 'Single sequence or FASTA', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => setText(event.target.value) })),
+      h('label', null, h('input', { type: 'checkbox', 'aria-label': 'Batch FASTA import', checked: batch, disabled: host.readOnly || busy, onChange: event => setBatch(event.target.checked) }), 'Batch FASTA import'),
+      h('label', null, batch ? 'Batch FASTA records' : 'Single sequence or FASTA', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => setText(event.target.value) })),
       h('label', null, 'Import sequence file', h('input', { type: 'file', accept: '.fasta,.fa,.faa,.txt', disabled: host.readOnly || busy,
         onChange: async event => {
           const file = event.target.files?.[0];

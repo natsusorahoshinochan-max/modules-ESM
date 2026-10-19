@@ -494,21 +494,37 @@ class Workbench:
             logging.getLogger(__name__).exception("Could not commit failed backend run %s", run_id)
 
     def start(self, project_id):
+        return self._launch(project_id)
+
+    def continue_run(self, run_id, node_id):
+        original = self._get("run", run_id)
+        return self._launch(original["project_id"], (run_id, node_id))
+
+    def _launch(self, project_id, continuing=None):
         if self._get("project", project_id).get("tutorial"):
             raise HostError("Save the teaching example as your own project first")
         from threading import Thread
-        from .execution import create_run, execute
+        from .execution import create_run, execute, prepare_continuation
         leases = ExitStack()
         run = None
         try:
             leases.enter_context(self._project_lock(project_id, running=True))
-            run_id = uuid4().hex
+            run_id = continuing[0] if continuing else uuid4().hex
             leases.enter_context(self._run_lease(project_id, run_id))
-            run, prepared = create_run(self, project_id, run_id)
+            if continuing:
+                original = self._get("run", run_id)
+                prepared = prepare_continuation(self, original, continuing[1])
+                run = original
+                run["status"] = "running"
+                run["diagnostics"] = []
+                self._put("run", run)
+                self._run_errors.pop(run_id, None)
+            else:
+                run, prepared = create_run(self, project_id, run_id)
             marker = self._locks / ("cancel-" + run_id)
             def work():
                 try:
-                    execute(self, run, prepared, marker.exists)
+                    execute(self, run, prepared, marker.exists, continuing[1] if continuing else None)
                 except Exception as exc:
                     self._fail_run(run_id, exc)
                 finally:

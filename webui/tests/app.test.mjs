@@ -1190,6 +1190,38 @@ test('cancellation waits until a lost-response run is identified by the current 
   assert.equal(button('Save project').disabled, true)
 })
 
+test('run results expose partial files and Continue preserves the edited canvas draft', async () => {
+  const previousFetch = globalThis.fetch
+  let current = { id: 'original-run', status: 'failed', diagnostics: [], calls: { predict: {} }, nodes: {
+    predict: { status: 'failed', diagnostics: ['provider failed'], outputs: { structure: ['partial-package'] } },
+  } }
+  packages.a.push({ id: 'partial-package', format: 'test.format', entry: 'data', files: ['data'] })
+  const continued = []
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url) === '/api/projects/a/runs') return Response.json([current])
+    if (String(url) === '/api/runs/original-run/nodes/predict/continue') {
+      continued.push(options)
+      current = { ...current, status: 'succeeded', nodes: { predict: { status: 'succeeded', diagnostics: [], outputs: { structure: ['partial-package'] } } } }
+      return Response.json(current)
+    }
+    return previousFetch(url, options)
+  }
+  await click('Project A')
+  assert.match(container.textContent, /Partial results · batch incomplete/)
+  await click('View structure result 1')
+  assert.equal(container.querySelector('[aria-label="Data package"]').value, 'partial-package')
+  await addNode()
+  assert.equal(title(), 'Project A · unsaved')
+  await click('Continue predict with original inputs and parameters')
+  assert.equal(continued.length, 1)
+  assert.equal(continued[0].body, undefined)
+  assert.equal(continued[0].method, 'POST')
+  assert.equal(savedFlows.length, 0)
+  assert.equal(title(), 'Project A · unsaved')
+  assert.equal(nodeCount(), 1)
+  assert.equal(button('Save project').disabled, false)
+  assert.doesNotMatch(container.textContent, /Partial results · batch incomplete/)
+})
 
 test('committed teaching first save retains its user project when package-list refresh fails', async () => {
   await click('Teaching example')
@@ -1432,4 +1464,20 @@ test('create confirmed after navigation updates the sidebar without replacing th
   await act(async () => gate.resolve())
   assert.equal(title(), 'Project B')
   assert.ok(button('Research project'))
+})
+
+test('historical result input selection saves the exact chosen package without starting a run', async () => {
+  const previousFetch = globalThis.fetch
+  packages.a.push({ id: 'historical-result', format: 'test.format', entry: 'data', files: ['data'] })
+  globalThis.fetch = async (url, options = {}) => String(url) === '/api/projects/a/runs'
+    ? Response.json([{ id: 'history', status: 'succeeded', diagnostics: [], nodes: { producer: { status: 'succeeded', diagnostics: [], outputs: { output: ['historical-result'] } } } }])
+    : previousFetch(url, options)
+  await click('Project A')
+  await addNode()
+  const input = container.querySelector('.canvas article select')
+  assert.match([...input.options].find(option => option.value === 'historical-result').textContent, /Run 1 · producer.output/)
+  await act(async () => { input.value = 'historical-result'; input.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  await click('Save project')
+  assert.deepEqual(savedFlows[0].flow.nodes[0].inputs, { input: ['historical-result'] })
+  assert.deepEqual(runRequests, [])
 })
