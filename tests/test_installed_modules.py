@@ -49,8 +49,10 @@ def distributions(tmp_path_factory):
                                     "examples/typescript_module/")) for name in names)
     assert "protein_workbench_public/react-api.ts" not in names
     # Resolve normal wheel requirements once; fresh environments install offline.
+    existing = os.environ.get("WORKBENCH_TEST_WHEELHOUSE")
+    offline = ["--no-index", "--find-links", existing] if existing else []
     run([sys.executable, "-m", "pip", "download", "--only-binary=:all:",
-         "--dest", wheels, host, "httpx==0.28.1"], directory)
+         *offline, "--dest", wheels, host, "httpx==0.28.1"], directory)
     return directory, wheels
 
 
@@ -170,3 +172,57 @@ def test_typescript_author_compiles_with_installed_public_package(distributions,
     assert output.is_file()
     assert "@protein-workbench/module-ui" not in output.read_text()
 
+
+def test_structure_consumers_survive_staged_producer_code_removal(distributions, tmp_path):
+    """Monolithic wheel staging removes only producer directories, not a pip uninstall."""
+    artifact_root, wheels = distributions
+    python = install_environment(tmp_path, wheels)
+    assert not (artifact_root / 'build-source').exists()
+    helper = tmp_path / 'acceptance.py'
+    shutil.copy2(ROOT / 'tests/test_adoption_flow.py', helper)
+    sample = tmp_path / 'sample'
+    shutil.copytree(ROOT / 'modules/structure_comparison/sample', sample)
+    prepare = tmp_path / 'prepare.py'
+    prepare.write_text('''
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('acceptance', sys.argv[1])
+a = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(a)
+sample, data, state = map(Path, sys.argv[2:])
+prediction = {'objects':[{'id':'unchanged-prediction','sequence':'AAAAA','structure':{'file':'subject.pdb','format':'pdb'}}], 'tool':{'id':'recorded.tool','parameters':{'seed':0}}}
+reference = {'objects':[{'id':'independent-reference','structure':{'file':'reference.cif','format':'mmcif'}}]}
+p = ({'format':'workbench.prediction','entry':'manifest.json'}, {'manifest.json':json.dumps(prediction).encode(), 'subject.pdb':(sample/'subject.pdb').read_bytes(), '../opaque/supplement':b'opaque data retained'})
+r = ({'format':'workbench.reference','entry':'manifest.json'}, {'manifest.json':json.dumps(reference).encode(), 'reference.cif':(sample/'reference.cif').read_bytes()})
+state.write_text(json.dumps(a.prepare(data,[p],r)))
+''', encoding='utf-8')
+    data, state = tmp_path / 'data', tmp_path / 'state.json'
+    run([python, '-I', prepare, helper, sample, data, state], tmp_path)
+    site = Path(run([python, '-I', '-c', 'import sysconfig; print(sysconfig.get_paths()["purelib"])'], tmp_path).strip())
+    # These are the two producer directories within the actual installed wheel.
+    for name in ('folding', 'simplefold'):
+        shutil.rmtree(site / 'modules' / name)
+    shutil.rmtree(data / 'work')
+    shutil.rmtree(sample)
+    prepare.unlink()
+    consume = tmp_path / 'consume.py'
+    consume.write_text('''
+import importlib, importlib.util, json, sys
+from pathlib import Path
+for producer in ('modules.folding', 'modules.simplefold'):
+    assert importlib.util.find_spec(producer) is None
+    try:
+        importlib.import_module(producer)
+    except ModuleNotFoundError:
+        pass
+    else:
+        raise AssertionError(producer + ' remained importable')
+import modules.structure_comparison, modules.structure_conversion
+assert Path(modules.structure_comparison.__file__).is_relative_to(sys.prefix)
+spec = importlib.util.spec_from_file_location('acceptance', sys.argv[1])
+a = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(a)
+a.reopen(Path(sys.argv[2]), json.loads(Path(sys.argv[3]).read_text()))
+print('Staged producer code absent: read, ZIP, readopt, independent computation passed')
+''', encoding='utf-8')
+    assert 'Staged producer code absent' in run([python, '-I', consume, helper, data, state], tmp_path)
