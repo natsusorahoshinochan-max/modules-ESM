@@ -50,6 +50,12 @@ class ProjectEdit(BaseModel):
     layout: dict = Field(default_factory=dict)
 
 
+class ProjectCopy(BaseModel):
+    name: str
+    flow: dict | None = None
+    layout: dict | None = None
+
+
 class InstallModule(BaseModel):
     entry_point: str
 
@@ -93,6 +99,7 @@ def create_http_app(host: Workbench) -> FastAPI:
             for upload in uploads.values():
                 host.discard_workdir(upload.workdir)
             uploads.clear()
+            host.discard_draft_inputs()
 
     app = FastAPI(title='Protein Workbench', lifespan=lifespan)
     app.state.workbench = host
@@ -156,6 +163,14 @@ def create_http_app(host: Workbench) -> FastAPI:
     @app.get('/api/modules/{module_id}/ui.js')
     def module_ui(module_id: str, installation_id: str):
         return ModuleUIResponse(host.open_module_ui(module_id, installation_id))
+
+    @app.get('/api/tutorial')
+    def tutorial():
+        return host.tutorial()
+
+    @app.post('/api/projects/{project_id}/copies')
+    def copy_project(project_id: str, body: ProjectCopy):
+        return host.copy_project(project_id, body.name, body.flow, body.layout)
 
     @app.get('/api/projects')
     def projects():
@@ -240,7 +255,8 @@ def create_http_app(host: Workbench) -> FastAPI:
             if set(body.files) != set(upload.files) or any(body.files[key] != key for key in body.files):
                 raise HostError('Declare each uploaded logical file key exactly once, mapping the key to itself')
             uploads.pop(upload_id)
-        return host.create_input(project_id, Delivery(body.format, body.entry, upload.files), upload.workdir)
+        receive = host.create_draft_input if host.get_project(project_id).get("tutorial") else host.create_input
+        return receive(project_id, Delivery(body.format, body.entry, upload.files), upload.workdir)
 
     @app.delete('/api/projects/{project_id}/uploads/{upload_id}')
     def discard_upload(project_id: str, upload_id: str):
@@ -251,6 +267,11 @@ def create_http_app(host: Workbench) -> FastAPI:
             uploads.pop(upload_id)
         host.discard_workdir(upload.workdir)
         return {'discarded': upload_id}
+
+    @app.delete('/api/draft-inputs/{package_id}')
+    def discard_draft_input(package_id: str):
+        host.discard_draft_input(package_id)
+        return {'discarded': package_id}
 
     @app.get('/api/packages/{package_id}')
     def package(package_id: str):
