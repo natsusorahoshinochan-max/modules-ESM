@@ -8,7 +8,7 @@ from modules.folding.contract import PredictionRequest
 
 def test_simplefold_independently_declares_prediction_slot_and_rejects_foreign_parameters(tmp_path):
     from modules.simplefold import module
-    tool, = module().tools
+    tool = next(tool for tool in module().tools if tool.slot == 'workbench.predict.structure')
     assert tool.slot == 'workbench.predict.structure'
     assert tool.parameters['defaults']['tau'] == .1
     assert tool.parameters['defaults']['plddt'] is False

@@ -93,3 +93,5 @@ ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF �
 在结果包的“Adopt into project”中选择已创建的目标项目，点击“Adopt package”，再打开目标项目选择其包作为输入。每个包的“Download ZIP”下载完整文件及文件键索引；缺少查看器时仍可使用文件链接。项目区的“Delete project”经确认删除当前项目，已采用到其他项目的包继续保留。
 
 已有序列的独立可溶性评价支持明确选择 SoluProt full、no-TM 或 Protein-Sol；配置与数值含义见 [可溶性工具](modules/solubility/TOOL.md)，保存和独立读取见 [评价格式](modules/solubility/FORMAT.md)。
+
+已有结构的独立置信度评价使用 SimpleFold 原几何 latent/head 调用；完整结构和来源预测分数保留，区域只选择报告的残基。输入选择、模型配置、保存及独立读取见[已有结构置信度](modules/structure_confidence/FORMAT.md)和 [SimpleFold 工具](modules/simplefold/TOOL.md)。
