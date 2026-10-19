@@ -2,6 +2,7 @@
 /output/
 .DS_Store
 .codex/
+/.ua/
 .agents/
 .workbuddy/
 skills-lock.json
