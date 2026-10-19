@@ -1,6 +1,5 @@
 """Declaration-only module loading; content formats remain module-owned."""
 import importlib
-import json
 from pathlib import Path
 
 from protein_workbench_public.module_api import InputPort, Module, Node, OutputPort
@@ -21,11 +20,12 @@ def load(entry_point):
 
 
 def validate(module):
+    from .application import _json_text
     if not isinstance(module, Module):
         raise ValueError("entry must return public Module declaration")
     if not module.id or not isinstance(module.id, str) or not isinstance(module.name, str) or not module.name:
         raise ValueError("module id and name are required")
-    json.dumps(module.settings, allow_nan=False)
+    _json_text(module.settings)
     if not isinstance(module.settings, dict):
         raise ValueError("settings declaration must be an object")
     if module.ui is not None and (not isinstance(module.ui, str) or not Path(module.ui).is_absolute() or not Path(module.ui).is_file()):
@@ -39,7 +39,6 @@ def validate(module):
         seen.add(node.id)
         if not isinstance(node.parameters, dict):
             raise ValueError("node parameter declaration must be an object")
-        json.dumps(node.parameters, allow_nan=False)
         for name, port in node.inputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, InputPort):
                 raise ValueError("invalid input port declaration")
@@ -48,6 +47,7 @@ def validate(module):
         for name, port in node.outputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, OutputPort) or not isinstance(port.format, str) or not port.format or port.cardinality not in ("one", "many"):
                 raise ValueError(f"invalid output declaration: {name}")
+        _json_text(node_record(module, node))
 
 
 def node_record(module, node):

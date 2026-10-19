@@ -121,3 +121,35 @@ def test_missing_entry_and_unreadable_stored_file_report_failure(tmp_path, monke
         response = client.get(f"/api/packages/{package['id']}/file", params={'key': 'text'})
         assert response.status_code == 400
         assert 'storage temporarily unreadable' in response.json()['detail']
+
+
+def test_invalid_unicode_project_name_cannot_poison_project_list(tmp_path):
+    with TestClient(create_application(data_root=tmp_path), raise_server_exceptions=False) as client:
+        rejected = client.post('/api/projects', content=b'{"name":"\\ud800"}', headers={'Content-Type': 'application/json'})
+        assert rejected.status_code == 400
+        assert 'UTF-8' in rejected.json()['detail']
+        assert client.get('/api/projects').json() == []
+        valid = client.post('/api/projects', json={'name': 'Research 🧪'}).json()
+    with TestClient(create_application(data_root=tmp_path)) as reopened:
+        assert [project['name'] for project in reopened.get('/api/projects').json()] == ['Research 🧪']
+        assert reopened.get(f"/api/projects/{valid['id']}").status_code == 200
+
+
+def test_invalid_nested_flow_and_settings_leave_previous_records_readable(tmp_path):
+    import json
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        project = client.post('/api/projects', json={'name': 'Safe project'}).json()['id']
+        module = client.post('/api/modules', json={'entry_point': 'tests.fixtures.host_module:module'}).json()['id']
+        for path, data in [
+            (f'/api/projects/{project}', {'flow': {'nodes': [], 'edges': [], 'draft': [{'title': '\ud800'}]}, 'layout': {}}),
+            (f'/api/projects/{project}', {'flow': {'nodes': [], 'edges': []}, 'layout': {'\udfff': {'x': 1}}}),
+            (f'/api/modules/{module}/settings', {'settings': {'nested': [{'label': '\udfff'}]}}),
+        ]:
+            response = client.put(path, content=json.dumps(data).encode('ascii'), headers={'Content-Type': 'application/json'})
+            assert response.status_code == 400
+            assert 'UTF-8' in response.json()['detail']
+    with TestClient(create_application(data_root=tmp_path)) as reopened:
+        assert reopened.get(f'/api/projects/{project}').json()['flow'] == {'nodes': [], 'edges': []}
+        assert reopened.get(f'/api/projects/{project}').json()['layout'] == {}
+        assert reopened.get('/api/modules').json()[0]['settings'] == {}
+        assert reopened.get('/api/catalog').status_code == 200

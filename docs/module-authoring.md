@@ -60,6 +60,8 @@ def module():
 
 操作入口通过 `host.createInput` 上传文件并创建输入包，使用 `host.addNode` 和 `host.connect` 编辑流程。查看器通过 `host.readFile` 读取包内文件。编辑器接收节点参数及 `onChange`；界面遵守 `readOnly` 状态。各接口的参数以公共类型声明为准。
 
+操作绑定发起时的项目会话；切换项目后，旧操作的编辑请求会拒绝。`await host.addNode(...)` 完成后，后续 `addNode` 或 `connect` 调用可立即使用已添加的节点。
+
 ## 安装并运行外部样例
 
 在已安装本项目的 Python 3.12 环境中，从仓库根目录执行：

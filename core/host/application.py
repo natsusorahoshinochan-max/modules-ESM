@@ -14,6 +14,15 @@ class HostError(ValueError):
     """An operation could not be completed; its message identifies the cause."""
 
 
+def _json_text(value):
+    try:
+        data = json.dumps(value, ensure_ascii=False, allow_nan=False)
+        data.encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise HostError(f"Record must be UTF-8 JSON: {exc}") from exc
+    return data
+
+
 class Workbench:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
@@ -67,7 +76,8 @@ class Workbench:
 
     @staticmethod
     def _write(connection, kind, record):
-        connection.execute("INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data", (kind, record["id"], json.dumps(record, allow_nan=False)))
+        data = _json_text(record)
+        connection.execute("INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data", (kind, record["id"], data))
 
     def _modules(self):
         from .registry import load

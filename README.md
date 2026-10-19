@@ -15,7 +15,7 @@
 
 ## 安装
 
-需要 Python 3.12、uv、Node.js 和 npm。以下命令在仓库根目录执行。
+需要 Python 3.12、uv、Node.js 22.15+ 和 npm。以下命令在仓库根目录执行。
 
 ```bash
 npm ci --prefix webui
@@ -59,15 +59,10 @@ Python 源码包和 wheel：
 
 ## 验证
 
-公共应用、HTTP 文件交付及轻量模型资源锁测试：
+公共应用、HTTP 文件交付、轻量模型资源锁及公共 React 交互测试：
 
 ```bash
 .venv/bin/python -m pytest tests -q
-```
-
-界面事件与公共模块操作的回归测试使用 Node.js 22.15 及以上：
-
-```bash
 npm --prefix webui test
 ```
 

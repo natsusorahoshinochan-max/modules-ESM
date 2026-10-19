@@ -51,3 +51,7 @@ def conflicting_module():
 
 def malformed_module():
     return Module("malformed", "Malformed", nodes=(Node("bad.input", "Bad input", empty_batch, inputs={"source": InputPort("format-is-not-a-list")}),))
+
+
+def invalid_catalog_module():
+    return Module("invalid.catalog", "Invalid catalog", nodes=(Node("invalid.catalog.node", "Bad \ud800 title", empty_batch),))
