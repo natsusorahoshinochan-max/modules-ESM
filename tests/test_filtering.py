@@ -222,3 +222,40 @@ def test_explicit_positional_analysis_result_is_used_as_existing_filter_scalar(t
         assert run['status']=='succeeded',run
         output=client.get('/api/packages/'+run['nodes']['filter']['outputs']['collection'][0]+'/file',params={'key':'manifest.json'}).json()
         assert [item['object']['id'] for item in output['items']]==['original']
+
+
+def test_native_backbone_is_required_before_limits_in_direct_and_mapped_candidates(tmp_path):
+    app = create_application(data_root=tmp_path/'store')
+    with TestClient(app) as client:
+        project = client.post('/api/projects', json={'name':'Native resources'}).json()['id']
+        obj = {'id':'sample', 'chains':{'A':'AA'}, 'backbone':{'id':'backbone', 'structure':{'file':'backbone.pdb','format':'pdb'}},
+            'design':{'chains':{'A':'AA'}, 'score':1.2, 'global_score':1.3,
+                'coordinate_mask':{'A':[1.,1.]}, 'design_mask':{'A':[1.,1.]}}, 'tool':{'parameters':{},'actual_seed':7}}
+        manifest = json.dumps({'objects':[obj], 'tool':{'id':'workbench.proteinmpnn.local','parameters':{}}}).encode()
+        # Generic storage accepts the scientifically incomplete manifest.
+        bad = upload(client, project, 'workbench.proteinmpnn_design', {'manifest.json':manifest})
+        inputs = {'candidates':[bad['id']]}
+        refused = interaction(client, project, 'workbench.filter', inputs, {'limit':0})
+        assert refused.status_code == 400 and 'backbone' in refused.text, refused.text
+        flow = {'nodes':[{'id':'filter','type':'workbench.filter','inputs':inputs,'parameters':{'limit':1}}], 'edges':[]}
+        client.put(f'/api/projects/{project}',json={'flow':flow,'layout':{}}).raise_for_status()
+        run = wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
+        assert run['nodes']['filter']['status'] == 'failed', run
+        assert not run['nodes']['filter'].get('outputs'), run
+        good = upload(client, project, 'workbench.proteinmpnn_design', {'manifest.json':manifest,'backbone.pdb':pdb()})
+        flow['nodes'][0]['inputs']['candidates'] = [good['id']]
+        client.put(f'/api/projects/{project}',json={'flow':flow,'layout':{}}).raise_for_status()
+        run = wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
+        assert run['status'] == 'succeeded', run
+        collection = run['nodes']['filter']['outputs']['collection'][0]
+        assert interaction(client,project,'workbench.filter',{'candidates':[collection]}, {'limit':0}).status_code == 200
+        saved = client.get(f'/api/packages/{collection}/file',params={'key':'manifest.json'}).json()
+        mapped = saved['sources'][0]['files'].pop('backbone.pdb')
+        # Its source map, rather than a similarly named unrelated file, owns access.
+        files = {'manifest.json':json.dumps(saved).encode()}
+        for key in saved['sources'][0]['files'].values():
+            files[key] = client.get(f'/api/packages/{collection}/file',params={'key':key}).content
+        files['backbone.pdb'] = pdb()
+        malformed = upload(client,project,'workbench.filtered_collection',files)
+        refused = interaction(client,project,'workbench.filter',{'candidates':[malformed['id']]},{'limit':0})
+        assert refused.status_code == 400 and 'backbone' in refused.text, (mapped,refused.text)

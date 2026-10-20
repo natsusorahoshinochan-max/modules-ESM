@@ -3,8 +3,32 @@ export function register({React}) {
  const h=React.createElement
  const metrics=['workbench.metric_analysis','workbench.proteinmpnn_design','workbench.esm3_generation','workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation','workbench.filtered_collection']
  const candidates=['workbench.sequence','workbench.structure_set','workbench.proteinmpnn_design','workbench.filtered_collection',...metrics.filter(format=>format!=='workbench.metric_analysis')]
- const label=value=>typeof value==='string'?value:(value?.name??value?.method??value?.id??'Recorded method')
- const choiceLabel=(c,i)=>`${i+1}. ${c.metric} · ${label(c.method)} · ${c.reference?.label??(c.reference?'Selected reference':'No reference')} · ${JSON.stringify(c.region)} · ${c.sample===null||c.sample===undefined?'':`Sample ${c.sample+1} · `}${c.unit??''} · ${c.meaning??''}${c.unavailable?' · Unavailable: '+c.unavailable:''}`
+ const methodText=value=>typeof value==='string'?value:Object.entries(value??{}).filter(([key])=>['name','method','id','tmtools','algorithm','scope','parameters','actual_seed','statistic'].includes(key)).map(([key,value])=>`${key}: ${typeof value==='object'?JSON.stringify(value):value}`).join('; ')
+ const contextText=c=>`Evaluation input ${(c.context?.input??c.evaluation.input)+1}${c.context?.source===undefined?'':` · source ${c.context.source+1}`} · ${c.context?.format??'Evaluation'} · ${c.context?.entry??''}${c.context?.analysis_source===undefined?'':` · analysis source ${c.context.analysis_source+1}`}`
+ const referenceText=c=>c.reference_display?[c.reference_display.label??c.reference_display.name??'Unnamed reference',c.reference_display.file,c.reference_display.format].filter(Boolean).join(' · '):(c.reference?'Unnamed reference':'No reference')
+ const choiceLabel=c=>`${contextText(c)} · ${c.metric} · ${referenceText(c)} · ${methodText(c.method)} · Region ${JSON.stringify(c.region)} · ${c.sample===null||c.sample===undefined?'':`Sample ${c.sample+1} · `}${c.unit??''} · ${c.meaning??''}${c.unavailable?' · Unavailable: '+c.unavailable:''}`
+ function ReferenceDetails({choice,host,inputs}) {
+  const [text,setText]=React.useState(''),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false)
+  const epoch=React.useRef(0),mounted=React.useRef(false),current=React.useRef(null)
+  const access=choice.reference_access,packageId=inputs.evaluations?.[access?.input]
+  const key=JSON.stringify([choice.evaluation,packageId,access?.key])
+  current.current=key
+  React.useEffect(()=>{mounted.current=true;setText('');setError('');setBusy(false);return()=>{mounted.current=false;epoch.current++}},[key])
+  async function view() {
+   const request=++epoch.current,origin=key
+   const live=()=>mounted.current&&epoch.current===request&&current.current===origin
+   setBusy(true);setError('');setText('')
+   try{const file=await host.readFile(packageId,access.key);const content=await file.text();if(live())setText(content)}
+   catch(error){if(live())setError(error.message)}finally{if(live())setBusy(false)}
+  }
+  return h('section',{'aria-label':'Selected evaluation details'},
+   h('p',null,contextText(choice)),h('p',null,`Reference: ${referenceText(choice)}`),
+   h('p',null,`Method: ${methodText(choice.method)}`),h('p',null,`Selected region: ${JSON.stringify(choice.region)}`),
+   choice.method?.source_method&&h('p',null,`Source method: ${methodText(choice.method.source_method)}`),
+   choice.method?.source_region!==undefined&&h('p',null,`Source region: ${JSON.stringify(choice.method.source_region)}`),
+   access?.key&&packageId?h('button',{type:'button',disabled:busy,onClick:view},'View reference file'):h('p',null,access?.unavailable??'Reference file access unavailable'),
+   error&&h('p',{role:'alert'},error),text&&h('pre',{'aria-label':'Reference file content'},text))
+ }
  function Controls({host,inputs,parameters,onChange,disabled=false,temporary=false}) {
   const [rows,setRows]=React.useState([]),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false),[selected,setSelected]=React.useState(null)
   const epoch=React.useRef(0),abort=React.useRef(null)
@@ -24,23 +48,23 @@ export function register({React}) {
    return rows.map((row,index)=>{
     const bound=evaluation?.bindings?.find(binding=>binding.candidate.input===row.input&&binding.candidate.item===row.item)
     const selected=row.choices.findIndex(choice=>JSON.stringify(choice.evaluation)===JSON.stringify(bound?.evaluation))
-    return h('label',{key:index},`Input ${row.input+1} · ${row.label}`,h('select',{'aria-label':`${key} evaluation for input ${row.input+1} item ${row.item+1}`,disabled,value:selected<0?'':String(selected),onChange:event=>onSelect(bindings(evaluation,row,event.target.value))},h('option',{value:''},'Choose actual evaluation'),...row.choices.map((choice,i)=>h('option',{key:i,value:String(i),disabled:!!choice.unavailable},choiceLabel(choice,i)))))
+    return h('div',{key:index},h('label',null,`Input ${row.input+1} · ${row.label}`,h('select',{'aria-label':`${key} evaluation for input ${row.input+1} item ${row.item+1}`,disabled,value:selected<0?'':String(selected),onChange:event=>onSelect(bindings(evaluation,row,event.target.value))},h('option',{value:''},'Choose actual evaluation'),...row.choices.map((choice,i)=>h('option',{key:i,value:String(i),disabled:!!choice.unavailable},choiceLabel(choice))))),selected>=0&&h(ReferenceDetails,{choice:row.choices[selected],host,inputs}))
    })
   }
   return h('section',{'aria-label':temporary?'Temporary filtering':'Node filtering parameters'},
    h('button',{disabled:busy,onClick:()=>invoke('workbench.filter.inspect')},'Inspect selected inputs'),
    error&&h('p',{role:'alert'},error),
    ...rows.map((row,index)=>h('p',{key:index},`Input ${row.input+1} · ${row.label} · ${row.choices.length} existing evaluation choices`)),
-   h('fieldset',{disabled},h('legend',null,'Conditions'),
+   h('fieldset',null,h('legend',null,'Conditions'),
     ...(parameters.conditions??[]).map((condition,index)=>h('fieldset',{key:index},h('legend',null,`Condition ${index+1}`),
      ...evaluationFields(condition.evaluation,evaluation=>change({...parameters,conditions:parameters.conditions.map((c,i)=>i===index?{...c,evaluation}:c)}),`Condition ${index+1}`),
-     h('select',{'aria-label':`Condition ${index+1} comparison`,value:condition.operator,onChange:event=>change({...parameters,conditions:parameters.conditions.map((c,i)=>i===index?{...c,operator:event.target.value}:c)})},...['lt','le','eq','ge','gt'].map((op,i)=>h('option',{key:op,value:op},['<','≤','=','≥','>'][i]))),
-     h('input',{'aria-label':`Condition ${index+1} value`,type:'number',step:'any',value:condition.value??'',onChange:event=>change({...parameters,conditions:parameters.conditions.map((c,i)=>i===index?{...c,value:event.target.value===''?null:Number(event.target.value)}:c)})}),
-     h('button',{onClick:()=>change({...parameters,conditions:parameters.conditions.filter((_,i)=>i!==index)})},'Remove condition'))),
-    h('button',{onClick:()=>change({...parameters,conditions:[...(parameters.conditions??[]),{evaluation:{bindings:[]},operator:'ge',value:0}]})},'Add condition'),
-    h('label',null,h('input',{type:'checkbox',checked:!!parameters.sort,onChange:event=>{const next={...parameters};if(event.target.checked)next.sort={evaluation:{bindings:[]},direction:'ascending'};else delete next.sort;change(next)}}),'Sort by an existing evaluation'),
-    parameters.sort&&h('div',null,...evaluationFields(parameters.sort.evaluation,evaluation=>change({...parameters,sort:{...parameters.sort,evaluation}}),'Sort'),h('select',{'aria-label':'Sort direction',value:parameters.sort.direction,onChange:event=>change({...parameters,sort:{...parameters.sort,direction:event.target.value}})},h('option',{value:'ascending'},'Ascending'),h('option',{value:'descending'},'Descending'))),
-    h('label',null,'Quantity limit',h('input',{'aria-label':'Quantity limit',type:'number',min:0,step:1,value:parameters.limit??'',onChange:event=>{const next={...parameters};if(event.target.value==='')delete next.limit;else next.limit=Number(event.target.value);change(next)}}))),
+     h('select',{'aria-label':`Condition ${index+1} comparison`,disabled,value:condition.operator,onChange:event=>change({...parameters,conditions:parameters.conditions.map((c,i)=>i===index?{...c,operator:event.target.value}:c)})},...['lt','le','eq','ge','gt'].map((op,i)=>h('option',{key:op,value:op},['<','≤','=','≥','>'][i]))),
+     h('input',{'aria-label':`Condition ${index+1} value`,disabled,type:'number',step:'any',value:condition.value??'',onChange:event=>change({...parameters,conditions:parameters.conditions.map((c,i)=>i===index?{...c,value:event.target.value===''?null:Number(event.target.value)}:c)})}),
+     h('button',{disabled,onClick:()=>change({...parameters,conditions:parameters.conditions.filter((_,i)=>i!==index)})},'Remove condition'))),
+    h('button',{disabled,onClick:()=>change({...parameters,conditions:[...(parameters.conditions??[]),{evaluation:{bindings:[]},operator:'ge',value:0}]})},'Add condition'),
+    h('label',null,h('input',{type:'checkbox',disabled,checked:!!parameters.sort,onChange:event=>{const next={...parameters};if(event.target.checked)next.sort={evaluation:{bindings:[]},direction:'ascending'};else delete next.sort;change(next)}}),'Sort by an existing evaluation'),
+    parameters.sort&&h('div',null,...evaluationFields(parameters.sort.evaluation,evaluation=>change({...parameters,sort:{...parameters.sort,evaluation}}),'Sort'),h('select',{'aria-label':'Sort direction',disabled,value:parameters.sort.direction,onChange:event=>change({...parameters,sort:{...parameters.sort,direction:event.target.value}})},h('option',{value:'ascending'},'Ascending'),h('option',{value:'descending'},'Descending'))),
+    h('label',null,'Quantity limit',h('input',{'aria-label':'Quantity limit',disabled,type:'number',min:0,step:1,value:parameters.limit??'',onChange:event=>{const next={...parameters};if(event.target.value==='')delete next.limit;else next.limit=Number(event.target.value);change(next)}}))),
    temporary&&h('button',{disabled:busy,onClick:()=>invoke('workbench.filter')},'Apply temporary filter'),
    selected&&h('ol',{'aria-label':'Temporarily selected items'},...selected.map((item,index)=>h('li',{key:index},`Input ${item.input+1} · Item ${item.item+1}`))))
  }
