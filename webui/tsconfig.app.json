@@ -21,21 +21,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "fflate": [
-        "./node_modules/fflate"
-      ],
-      "3dmol": [
-        "./node_modules/3dmol"
-      ],
-      "lucide-react": [
-        "./node_modules/lucide-react"
-      ],
-      "ag-grid-react": [
-        "./node_modules/ag-grid-react"
-      ],
-      "ag-grid-community": [
-        "./node_modules/ag-grid-community"
-      ],
       "@protein-workbench/module-ui": [
         "../protein_workbench_public/module_ui/index.d.ts"
       ]

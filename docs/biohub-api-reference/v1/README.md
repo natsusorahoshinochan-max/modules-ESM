@@ -1,7 +1,7 @@
 # Biohub 官方接口快照
 
 - 请求字段、类型、默认值及约束：[api-reference.json](api-reference.json)。
-- 来源链接、抓取时间、页面发布标识及定义摘要：[manifest.json](manifest.json)。
+- 来源链接、抓取时间、页面发布标识：[manifest.json](manifest.json)。
 - 各端点说明：`endpoints/`。
 
 ## 共用约定

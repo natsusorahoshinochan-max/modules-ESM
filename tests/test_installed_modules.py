@@ -31,7 +31,7 @@ def distributions(tmp_path_factory):
     directory = tmp_path_factory.mktemp("installed-modules")
     source = directory / "build-source"
     source.mkdir()
-    for name in ("core", "datatypes", "modules", "examples", "protein_workbench_public"):
+    for name in ("core", "modules", "examples", "protein_workbench_public"):
         shutil.copytree(ROOT / name, source / name, ignore=shutil.ignore_patterns(
             "__pycache__", "*.egg-info", "build", "dist", "node_modules",
         ))

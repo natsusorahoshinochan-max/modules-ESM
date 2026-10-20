@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "provider": "Biohub Platform",
   "api_version": "v1",
   "captured_at": "2026-07-16T03:56:50.184Z",
@@ -9,7 +8,6 @@
     {
       "name": "logits",
       "source_url": "https://biohub.ai/api-reference/logits",
-      "source_definition_sha256": "6da5dc2e1778fe43dd77543bbcf168d1fbc08a8a71839dd1a0f047250dd678cc",
       "method": "POST",
       "path": "/api/v1/logits",
       "summary": "(ESM3, ESMC) Performs one inference step and returns logits, embeddings, and SAE features (ESMC only).",
@@ -200,7 +198,6 @@
     {
       "name": "encode",
       "source_url": "https://biohub.ai/api-reference/encode",
-      "source_definition_sha256": "a37046ffe4bb88f6618c024d898a380cb90c204b455dea608a6300842a031793",
       "method": "POST",
       "path": "/api/v1/encode",
       "summary": "(ESM3, ESMC) Tokenize sequence, structure, or function annotations",
@@ -306,7 +303,6 @@
     {
       "name": "decode",
       "source_url": "https://biohub.ai/api-reference/decode",
-      "source_definition_sha256": "b8a68d24c583030be549118d1ae61a4068a0a8720a4ce0139b6b71c26b4fed89",
       "method": "POST",
       "path": "/api/v1/decode",
       "summary": "(ESM3, ESMC) Decodes tokens sequence, structure, or function annotations",
@@ -387,7 +383,6 @@
     {
       "name": "generate",
       "source_url": "https://biohub.ai/api-reference/generate",
-      "source_definition_sha256": "50607f5fe12e4aeabea00e6e4a5aecd0bf212fad4861a057aa16466e83195f86",
       "method": "POST",
       "path": "/api/v1/generate",
       "summary": "(ESM3) Generates an output track conditioned on inputs",
@@ -559,7 +554,6 @@
     {
       "name": "generate_tensor",
       "source_url": "https://biohub.ai/api-reference/generate_tensor",
-      "source_definition_sha256": "6be7397d84b760be1c1aff281a4d6341dd03f24e4d21140ab2382168687708fc",
       "method": "POST",
       "path": "/api/v1/generate_tensor",
       "summary": "(ESM3) Generates an output track conditioned on inputs. Accepts and returns raw tokens.",
@@ -700,7 +694,6 @@
     {
       "name": "forward_and_sample",
       "source_url": "https://biohub.ai/api-reference/forward_and_sample",
-      "source_definition_sha256": "1f5006d0895f0d107df386722f790542f5c484710eac93ba5361195e7e7ffdaa",
       "method": "POST",
       "path": "/api/v1/forward_and_sample",
       "summary": "(ESM3) Performs one inference step and samples output tokens",
@@ -1000,7 +993,6 @@
     {
       "name": "fold",
       "source_url": "https://biohub.ai/api-reference/fold",
-      "source_definition_sha256": "3db2562edf1ae9ab0ab4722bbf58b16fbae50f5632faada757e39bb1428f540e",
       "method": "POST",
       "path": "/api/v1/fold",
       "summary": "(ESM3, ESMFold2) Folds proteins. Defaults to esmfold2-fast-2026-05 if no model is given",
@@ -1127,7 +1119,6 @@
     {
       "name": "fold_all_atom",
       "source_url": "https://biohub.ai/api-reference/fold_all_atom",
-      "source_definition_sha256": "98fc1b846d2b2d8dcf8ddce2694afb11582a92fdc95281f1f788be7d7e9a8559",
       "method": "POST",
       "path": "/api/v1/fold_all_atom",
       "summary": "(ESMFold2) Folds molecular complexes containing proteins, dna, rna, and ligands. Defaults to esmfold2-fast-2026-05 if no model is given",
@@ -1494,7 +1485,6 @@
     {
       "name": "inverse_fold",
       "source_url": "https://biohub.ai/api-reference/inverse_fold",
-      "source_definition_sha256": "fa7495ba86abac45c2e6366e030904709b3543ff0741d36835ec2f527f1b384f",
       "method": "POST",
       "path": "/api/v1/inverse_fold",
       "summary": "(ESM3) Inverse folds proteins. Defaults to esm3-open-2024-03 if no model is given",

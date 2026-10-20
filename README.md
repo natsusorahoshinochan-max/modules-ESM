@@ -2,7 +2,7 @@
 
 通过画布组合模块，完成蛋白数据编辑、生成、预测、比较和筛选等研究任务。
 
-项目正在进行大规模重构。已确认的需求与目标设计见下列入口，现有代码尚未完成替换。
+功能范围与模块职责见下列入口。
 
 资源受限机器的模型验证范围见 [本地模型与验证](docs/local-models.md)，接口依据和实施分工见 [验证规划](docs/research/biohub-call-plan.md)。
 
@@ -10,8 +10,6 @@
 - 核对行为范围读 [需求](docs/requirements.md)。
 - 设计模块、数据交接和保存读 [架构](docs/architecture.md)。
 - 查阅概念读 [术语](GLOSSARY.md)。
-
-后续开发按确认需求与公共接口开展 TDD。
 
 模块包安装、环境设置、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
 
@@ -76,7 +74,7 @@ npm --prefix webui test
 
 真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
 
-首次启动附带并启用结构预测、SimpleFold 工具、ESMC 表征、结构比较和显式结构转换模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
+首次启动附带并启用官方功能模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
 
 完整结构使用“Import PDB or mmCIF structure”逐文件导入，选择实际构象编号或全部独立候选。运行导入节点后可查看、旋转及选择完整组分，再指定 PDB/mmCIF 导出为 ZIP；格式与操作见 [完整结构说明](modules/structure_io/FORMAT.md)。
 
@@ -101,3 +99,5 @@ ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF �
 独立序列与任意所选骨架的 ProteinMPNN 评价支持完整链对应、真实残基编号与插入码、独立区域及评分 mask；输入选择、数值含义和独立读取见[序列与骨架评价](modules/sequence_backbone_evaluation/FORMAT.md)。
 
 ESM3 的补全与受约束生成节点读取当前编辑包中的 Prompt、固定/可变区域和坐标条件，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/esm3/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。[联合生成节点](modules/joint_generation/FORMAT.md) 先完成序列，再以该序列和原条件生成结构；结构阶段失败后保留序列并从该阶段续算。
+
+筛选使用“Filter existing evaluations”，为当前节点选择明确的候选、已有评价、条件、排序及数量上限。结果页选择所需数据包后，可使用同一模块的临时筛选操作；选择与独立读取见 [筛选格式](modules/filtering/FORMAT.md)。

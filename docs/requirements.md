@@ -1,6 +1,6 @@
 # Protein Workbench 需求
 
-状态：以下为已确认要求，尚未全部实施。目标设计见 [architecture.md](architecture.md)。
+状态：以下为已确认要求。目标设计见 [architecture.md](architecture.md)。
 
 ## 本次重构的六组核心需求
 

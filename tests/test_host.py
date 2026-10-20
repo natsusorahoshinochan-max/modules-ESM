@@ -4,7 +4,7 @@ from core.host import Workbench
 
 def test_host_without_modules_saves_and_reopens_incomplete_project(tmp_path):
     app = Workbench(tmp_path)
-    assert app.catalog() == {"nodes": [], "modules": [], "tools": []}
+    assert app.catalog() == {"nodes": [], "interactions": [], "modules": [], "tools": []}
     project = app.create_project("Research")
     flow = {"nodes": [{"id": "draft", "type": "absent.edit", "parameters": {"region": [12, 17]}}], "edges": [], "custom": {"prompt": "hello"}}
     layout = {"draft": {"x": 13, "y": 29}}
@@ -119,7 +119,7 @@ def test_invalid_unicode_catalog_declaration_is_rejected_before_registration(tmp
     app = Workbench(tmp_path)
     with pytest.raises(HostError, match='UTF-8'):
         app.install('tests.fixtures.host_module:invalid_catalog_module')
-    assert Workbench(tmp_path).catalog() == {'nodes': [], 'modules': [], 'tools': []}
+    assert Workbench(tmp_path).catalog() == {'nodes': [], 'interactions': [], 'modules': [], 'tools': []}
 def test_http_continue_provides_accepted_outputs_without_private_continuation(tmp_path):
     from fastapi.testclient import TestClient
     from protein_workbench_public.bootstrap import create_application
