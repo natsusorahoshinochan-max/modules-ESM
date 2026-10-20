@@ -14,7 +14,6 @@ dependencies = [
     "numpy==2.5.1",
     "pip>=24,<27",
     "pyyaml>=6,<7",
-    "rfc8785==0.1.4",
     "scipy==1.18.0",
     "tmtools==0.3.0",
     "uvicorn[standard]>=0.30,<1",
@@ -45,19 +44,11 @@ providers = [
 exclude = ["examples.external_module*", "examples.independent_consumer*", "examples.typescript_module*"]
 include = [
     "core*",
-    "datatypes*",
-    "examples*",
     "modules*",
     "protein_workbench_public*",
 ]
 
 [tool.setuptools.package-data]
-examples = [
-    "*.json",
-    "v2/*.json",
-    "v2/*.zip",
-    "v2/structures/*.pdb",
-]
 modules = ["**/*.js", "**/*.md", "**/*.json", "**/*.yaml", "**/ui/build/*.js", "**/ui/build/*.css"]
 "modules.structure_comparison" = ["sample/*.pdb", "sample/*.cif"]
 "modules.structure_conversion" = ["sample/*.pdb"]

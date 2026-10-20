@@ -1,1 +1,0 @@
-"""Output Admission implementation namespace."""
