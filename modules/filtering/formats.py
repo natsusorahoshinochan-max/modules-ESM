@@ -29,6 +29,10 @@ class SourcePackage:
         self.format, self.entry = source['format'], source['entry']
         self.files = tuple(source['files'])
 
+    def file_key(self, key):
+        mapped = self._source['files'][key]
+        return self._package.file_key(mapped) if isinstance(self._package, SourcePackage) else mapped
+
     def open(self, key):
         return self._package.open(self._source['files'][key])
 

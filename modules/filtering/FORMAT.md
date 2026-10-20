@@ -27,6 +27,11 @@ A comparison package supplies its actual subject. A sequence/backbone package
 supplies each complete explicitly evaluated joint sequence context as one item;
 its score cannot be assigned to a single member sequence. A native ESM3 generation
 is likewise one complete object, including all chains and its original native file.
+Native ProteinMPNN candidates retain their complete backbone PDB/mmCIF file.
+The shared candidate reader checks these concrete required file declarations and
+readability through each actual source map before predicates or quantity limits,
+including zero. Missing resources stop filtering; generic package saving remains
+format-agnostic.
 
 In the canvas, bind delivered packages explicitly using the port's multiple
 selection control. **Inspect selected inputs** lists each candidate and its actual
@@ -46,7 +51,23 @@ not change the canvas. Input changes and cancelled requests invalidate pending d
 It returns `candidates: [{input, item, label, choices}]`. Each choice contains an
 opaque `evaluation` selection, plus descriptive `metric`, `method`, `reference`,
 `region`, `sample`, `unit`, `meaning` and optional `unavailable`. Interfaces maintain
-these selections internally; users select descriptive options.
+these selections internally; users select descriptive options. Inspection also supplies
+`context` (evaluation input, optional collection source, source format/entry and
+optional analysis source ordinal), `reference_display` (provided name/label and
+structure file/format), and `reference_access` (`input` and exact package `key`, or
+an `unavailable` reason). Access resolves original keys through the recorded
+collection and saved-analysis source maps; matching filenames are never used to
+infer an association.
+
+Both node and temporary controls show that explicit input/source context, actual
+reference file, region, method details and parameters. For saved statistics,
+analysis method/region and original source method/region are shown separately.
+**View reference file** reads the selected reference's declared PDB/mmCIF bytes
+through the existing package file access, including while the node is read-only.
+Anonymous references can share filenames; their explicit input/source context and
+actual content allow selection without exposing object or package identities.
+Viewing changes no filtering parameter, flow or result. A changed choice/input or
+unmount discards pending file responses; unavailable access reports its reason.
 
 ## Parameters
 

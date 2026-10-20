@@ -22,6 +22,25 @@ def _document(package):
     return value
 
 
+def _require_candidate_files(source, obj):
+    required = []
+    if 'structure' in obj or source.format in ('workbench.structure_set','workbench.prediction','workbench.structure_confidence'):
+        required.append(('structure', obj.get('structure'), True))
+    if source.format == 'workbench.proteinmpnn_design':
+        required.append(('backbone structure', obj.get('backbone', {}).get('structure'), True))
+    if source.format == 'workbench.esm3_generation':
+        required.append(('original native generation', obj.get('native'), False))
+    for role, descriptor, structural in required:
+        key = descriptor.get('file') if isinstance(descriptor, dict) else None
+        if not isinstance(key, str) or key not in source.files or (structural and descriptor.get('format') not in ('pdb','mmcif')):
+            raise ValueError(f'Candidate requires its complete declared {role} file')
+        try:
+            with source.open(key) as reader:
+                reader.read(1)
+        except OSError as error:
+            raise ValueError(f'Candidate {role} file is unreadable: {key}') from error
+
+
 def _candidates(packages):
     result = []
     for index, package in enumerate(packages):
@@ -48,15 +67,7 @@ def _candidates(packages):
             raise ValueError('Candidates require explicit complete objects')
         for offset, obj in enumerate(objects):
             source = SourcePackage(package, document['sources'][document['items'][offset]['source']]) if package.format == FORMAT else package
-            if 'structure' in obj or source.format in ('workbench.structure_set','workbench.prediction','workbench.structure_confidence'):
-                descriptor = obj.get('structure')
-                if not isinstance(descriptor, dict) or descriptor.get('format') not in ('pdb','mmcif') or descriptor.get('file') not in source.files:
-                    raise ValueError('Candidate requires its complete declared structure file')
-                with source.open(descriptor['file']):
-                    pass
-            if source.format == 'workbench.esm3_generation':
-                if obj.get('native', {}).get('file') not in source.files:
-                    raise ValueError('Candidate requires its complete original native generation file')
+            _require_candidate_files(source, obj)
             result.append({'input': index, 'item': offset, 'object': obj})
     return result
 
@@ -65,7 +76,36 @@ def _identity(obj):
     return ('joint', tuple(member['id'] for member in obj['members'])) if 'members' in obj else ('object', obj['id'])
 
 
-def _metrics(packages):
+def _describe_choice(package, choice, index, source=None):
+    context = {'input':index, 'format':package.format, 'entry':package.entry}
+    if source is not None:
+        context['source'] = source
+    reference = choice['reference']
+    display = None
+    access = {'unavailable':'This evaluation has no reference structure'}
+    if isinstance(reference, dict):
+        descriptor = reference.get('structure', {})
+        display = {key:reference[key] for key in ('label','name') if isinstance(reference.get(key), str)}
+        display.update({key:descriptor[key] for key in ('file','format') if isinstance(descriptor.get(key), str)})
+        try:
+            key = descriptor.get('file')
+            if descriptor.get('format') not in ('pdb','mmcif') or not isinstance(key, str):
+                raise ValueError('Reference has no declared PDB or mmCIF file')
+            if package.format == 'workbench.metric_analysis':
+                document = _document(package)
+                analysis = document['analyses'][choice['selector']['analysis']]
+                original = document['sources'][analysis['source']]
+                key = original['files'][key]
+                context['analysis_source'] = analysis['source']
+            if key not in package.files:
+                raise ValueError('Reference file is not declared in its actual evaluation source')
+            access = {'input':index, 'key':package.file_key(key) if isinstance(package, SourcePackage) else key}
+        except (KeyError, IndexError, TypeError, ValueError) as error:
+            access = {'unavailable':f'Reference file access unavailable: {error}'}
+    return dict(choice, context=context, reference_display=display, reference_access=access)
+
+
+def _metrics(packages, describe=False):
     result = []
     for index, package in enumerate(packages):
         if package.format == FORMAT:
@@ -74,13 +114,13 @@ def _metrics(packages):
             chosen = [(i,source) for i,source in enumerate(sources) if source['format'] in METRICS]
             for source_index,source in chosen:
                 for choice in read_metric_choices(SourcePackage(package,source)):
-                    result.append(dict(choice, input=index, source=source_index))
+                    result.append(dict(_describe_choice(SourcePackage(package,source),choice,index,source_index) if describe else choice, input=index, source=source_index))
         else:
             document = _document(package)
             if document.get('objects') == []:
                 continue
             for choice in read_metric_choices(package):
-                result.append(dict(choice, input=index))
+                result.append(dict(_describe_choice(package,choice,index) if describe else choice, input=index))
     return result
 
 
@@ -159,10 +199,11 @@ def temporary(call, runtime):
 
 def inspect(call, runtime):
     candidates = _candidates(call.inputs.get('candidates', ()))
-    choices = _metrics(call.inputs.get('evaluations', ()))
+    choices = _metrics(call.inputs.get('evaluations', ()), describe=True)
     return InteractionResult(data={'candidates':[{'input':c['input'],'item':c['item'],'label':c['object'].get('label',f'Object {i+1}'),
         'choices':[{'evaluation':_selection(m),'metric':m['metric'],'method':m['source_method'],
-            'reference':m['reference'],'region':m['source_region'],'unit':m.get('unit'),'meaning':m.get('meaning'),
+            'reference':m['reference'],'reference_display':m['reference_display'],'reference_access':m['reference_access'],
+            'context':m['context'],'region':m['source_region'],'unit':m.get('unit'),'meaning':m.get('meaning'),
             'sample':m.get('sample'),'unavailable':m.get('unavailable') or ('Positional values require explicit analysis' if m.get('positions') is not None else None)}
             for m in choices if _identity(m['object']) == _identity(c['object'])]} for i,c in enumerate(candidates)]})
 
