@@ -259,3 +259,39 @@ def test_native_backbone_is_required_before_limits_in_direct_and_mapped_candidat
         malformed = upload(client,project,'workbench.filtered_collection',files)
         refused = interaction(client,project,'workbench.filter',{'candidates':[malformed['id']]},{'limit':0})
         assert refused.status_code == 400 and 'backbone' in refused.text, (mapped,refused.text)
+
+
+def test_nested_saved_analysis_reference_view_resolves_selected_records_and_file_maps(tmp_path):
+    app = create_application(data_root=tmp_path/'store')
+    with TestClient(app) as client:
+        project = client.post('/api/projects',json={'name':'Nested reference access'}).json()['id']
+        files = {'subject.pdb':pdb(), 'reference.pdb':b'REMARK selected nested reference\n'+pdb()}
+        document = {'subject':{'id':'subject','structure':{'file':'subject.pdb','format':'pdb'}},
+            'reference':{'id':'reference','structure':{'file':'reference.pdb','format':'pdb'}}, 'method':'TM-align', 'region':None,
+            'metrics':{'tm_reference':{'value':.8,'unit':'dimensionless','normalization':'reference length'}}}
+        package = upload(client,project,'workbench.comparison',dict(files, **{'manifest.json':json.dumps(document).encode()}))
+        flow = {'nodes':[
+            {'id':'first','type':'workbench.analyze_metrics','inputs':{'metrics':[package['id']]},'parameters':{'selections':[{'input':0,'object':'subject','origin':'comparison','metric':'tm_reference'}]}},
+            {'id':'second','type':'workbench.analyze_metrics','inputs':{},'parameters':{'selections':[{'input':0,'object':'subject','origin':'analysis','analysis':0,'metric':'tm_reference.mean'}]}}],
+            'edges':[{'source':'first','source_port':'analysis','target':'second','target_port':'metrics'}]}
+        client.put(f'/api/projects/{project}',json={'flow':flow,'layout':{}}).raise_for_status()
+        run = wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
+        assert run['status'] == 'succeeded', run
+        nested = run['nodes']['second']['outputs']['analysis'][0]
+        inputs = {'candidates':[package['id']], 'evaluations':[nested]}
+        response = interaction(client,project,'workbench.filter.inspect',inputs,{})
+        assert response.status_code == 200, response.text
+        choice = next(choice for choice in response.json()['data']['candidates'][0]['choices'] if choice['metric']=='tm_reference.mean.mean')
+        access = choice['reference_access']
+        assert 'key' in access, access
+        actual = client.get(f'/api/packages/{nested}/file',params={'key':access['key']})
+        assert actual.status_code == 200 and actual.content == files['reference.pdb']
+        # Invalid current-package source cycles must produce an explicit view reason.
+        saved = client.get(f'/api/packages/{nested}/file',params={'key':'manifest.json'}).json()
+        saved['sources'] = [{'format':'workbench.metric_analysis','entry':'manifest.json','files':{'manifest.json':'manifest.json'}}]
+        saved['analyses'][0]['selection'] = {'object':'subject','origin':'analysis','analysis':0,'metric':'tm_reference.mean'}
+        circular = upload(client,project,'workbench.metric_analysis',{'manifest.json':json.dumps(saved).encode()})
+        response = interaction(client,project,'workbench.filter.inspect',dict(inputs,evaluations=[circular['id']]),{})
+        assert response.status_code == 200, response.text
+        unavailable = response.json()['data']['candidates'][0]['choices'][0]['reference_access']['unavailable']
+        assert 'cycle' in unavailable.lower(), unavailable

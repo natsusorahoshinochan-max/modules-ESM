@@ -57,7 +57,9 @@ optional analysis source ordinal), `reference_display` (provided name/label and
 structure file/format), and `reference_access` (`input` and exact package `key`, or
 an `unavailable` reason). Access resolves original keys through the recorded
 collection and saved-analysis source maps; matching filenames are never used to
-infer an association.
+infer an association. Repeated saved analyses follow each selected analysis record
+and its explicit source map within the current self-contained package. A cyclic
+source declaration reports unavailable access with its reason.
 
 Both node and temporary controls show that explicit input/source context, actual
 reference file, region, method details and parameters. For saved statistics,

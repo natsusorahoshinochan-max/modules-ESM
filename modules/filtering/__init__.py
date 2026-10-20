@@ -91,12 +91,23 @@ def _describe_choice(package, choice, index, source=None):
             key = descriptor.get('file')
             if descriptor.get('format') not in ('pdb','mmcif') or not isinstance(key, str):
                 raise ValueError('Reference has no declared PDB or mmCIF file')
-            if package.format == 'workbench.metric_analysis':
+            selector, seen = choice['selector'], set()
+            while package.format == 'workbench.metric_analysis':
+                entry = package.file_key(package.entry) if isinstance(package, SourcePackage) else package.entry
+                if entry in seen:
+                    raise ValueError('Selected analysis source contains a cycle')
+                seen.add(entry)
+                if not isinstance(selector, dict) or selector.get('origin') != 'analysis' or type(selector.get('analysis')) is not int or selector['analysis'] < 0:
+                    raise ValueError('Reference access requires the exact selected analysis record')
                 document = _document(package)
-                analysis = document['analyses'][choice['selector']['analysis']]
-                original = document['sources'][analysis['source']]
-                key = original['files'][key]
-                context['analysis_source'] = analysis['source']
+                analysis = document['analyses'][selector['analysis']]
+                source_index = analysis['source']
+                if type(source_index) is not int or source_index < 0:
+                    raise ValueError('Reference access requires an explicit analysis source')
+                if 'analysis_source' not in context:
+                    context['analysis_source'] = source_index
+                package = SourcePackage(package, document['sources'][source_index])
+                selector = analysis['selection']
             if key not in package.files:
                 raise ValueError('Reference file is not declared in its actual evaluation source')
             access = {'input':index, 'key':package.file_key(key) if isinstance(package, SourcePackage) else key}
