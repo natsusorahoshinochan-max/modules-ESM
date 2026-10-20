@@ -22,10 +22,39 @@ export function register({ React }) {
     React.useEffect(() => { let active = true; host.readFile(pkg.id, pkg.entry).then(blob => blob.text()).then(value => { if (active) setText(value); }).catch(error => { if (active) setText(String(error)); }); return () => { active = false; }; }, [pkg.id]);
     return h('pre', null, text);
   }
-  function Parameters({ parameters, onChange, readOnly }) {
-    return h('label', null, 'Node parameters (JSON)', h('textarea', { defaultValue: JSON.stringify(parameters), disabled: readOnly,
-      onBlur: event => { try { onChange(JSON.parse(event.target.value)); } catch { event.target.setCustomValidity('Enter a JSON object'); event.target.reportValidity(); } } }));
+  function Parameters({ parameters, onChange, onDraftChange, readOnly }) {
+    const accepted = JSON.stringify(parameters);
+    const [text, setText] = React.useState(accepted);
+    const field = React.useRef(null);
+    const previousAccepted = React.useRef(accepted);
+    const submitted = React.useRef(null);
+    React.useLayoutEffect(() => {
+      if (previousAccepted.current === accepted) return;
+      previousAccepted.current = accepted;
+      // An acknowledgement must not replace formatting or a newer invalid edit.
+      if (submitted.current === accepted) { submitted.current = null; return; }
+      submitted.current = null;
+      setText(accepted);
+      field.current?.setCustomValidity('');
+    }, [accepted]);
+    function input(event) {
+      if (readOnly) return;
+      const value = event.currentTarget.value;
+      setText(value);
+      let parsed;
+      try { parsed = JSON.parse(value); } catch { /* Invalid text stays in the local draft. */ }
+      const valid = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+      event.currentTarget.setCustomValidity(valid ? '' : 'Enter a JSON object');
+      if (valid) {
+        submitted.current = JSON.stringify(parsed);
+        onChange(parsed);
+      } else onDraftChange?.();
+    }
+    return h('label', null, 'Node parameters (JSON)', h('textarea', {
+      ref: field, value: text, disabled: readOnly, onInput: input,
+    }));
   }
+
   return {
     actions: [{ id: 'example.new-note', name: 'New note', component: NoteInput }],
     editors: [{ node: 'example.uppercase', component: Parameters }],
