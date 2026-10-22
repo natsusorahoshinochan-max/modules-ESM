@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "actual_calls": 2,
+  "generated_lengths": [
+    59,
+    59
+  ],
+  "all_backbone_positions_present": true,
+  "sequence_inputs": "this run's second-round sequences",
+  "new_structure_coordinates": true,
+  "method": "ESM3 generation and native learned structure decoder",
+  "independent_prediction": false
+}

@@ -1,0 +1,778 @@
+{
+  "format": "prototype.evaluated_collection",
+  "objects": [
+    {
+      "object_id": "feedback-round2-candidate-2",
+      "label": "第2轮序列 2 的 ESM3 生成结构",
+      "sequence": "MTYKLILKIKGGTKTESIDTIEADSKADAKQKAEELLDGFGDKGIEEVDTVVFLDLRGS",
+      "structure_file": "objects/candidate-2.pdb",
+      "sequence_file": "objects/candidate-2.fasta",
+      "method": "ESM3 sequence-conditioned structure generation",
+      "source_sequence_evidence": "modules/sequence_edit/prototype_result_feedback/evidence/feedback/result.json",
+      "parameters": {
+        "model": "esm3_sm_open_v1",
+        "track": "structure",
+        "num_steps": 4,
+        "temperature": 0.5,
+        "temperature_annealing": false,
+        "seed": 182,
+        "device": "cpu",
+        "dtype": "float32"
+      },
+      "sampling_seconds": 51.97828791686334,
+      "confidence": {
+        "method": "ESM3 structure decoder; natural output of generation",
+        "plddt": [
+          0.932811975479126,
+          0.9363166689872742,
+          0.9206386208534241,
+          0.9105374217033386,
+          0.8999395966529846,
+          0.8702502846717834,
+          0.8557648062705994,
+          0.8310579061508179,
+          0.8174616098403931,
+          0.8005006909370422,
+          0.776190996170044,
+          0.7735958695411682,
+          0.7781573534011841,
+          0.8032056093215942,
+          0.8337103128433228,
+          0.8695881962776184,
+          0.8817669749259949,
+          0.9116219282150269,
+          0.9316936731338501,
+          0.9558446407318115,
+          0.9561346173286438,
+          0.9711261987686157,
+          0.9715646505355835,
+          0.9719269275665283,
+          0.9647635221481323,
+          0.9280074834823608,
+          0.9418472051620483,
+          0.9638698101043701,
+          0.945379912853241,
+          0.9217996597290039,
+          0.9492776393890381,
+          0.9545426368713379,
+          0.9239825010299683,
+          0.9091440439224243,
+          0.938691258430481,
+          0.9213334918022156,
+          0.8813692331314087,
+          0.895390510559082,
+          0.9117666482925415,
+          0.8646161556243896,
+          0.8474347591400146,
+          0.8314827680587769,
+          0.8287510275840759,
+          0.7994841933250427,
+          0.7949026226997375,
+          0.7955549955368042,
+          0.7900938987731934,
+          0.7667192220687866,
+          0.7767516374588013,
+          0.7355282306671143,
+          0.7458438277244568,
+          0.7611812353134155,
+          0.770240306854248,
+          0.8237231969833374,
+          0.8393009901046753,
+          0.895653486251831,
+          0.8910109400749207,
+          0.8908803462982178,
+          0.7941379547119141
+        ],
+        "ptm": 0.6382505893707275
+      }
+    }
+  ],
+  "references": [
+    {
+      "object_id": "original-1pga",
+      "label": "原始 1PGA · A 链 56 位",
+      "structure_file": "references/original-1pga.pdb"
+    }
+  ],
+  "evaluations": [
+    {
+      "evaluation_id": "b3e2efb9b98a443c9e1e24c3524175b9",
+      "subject_id": "feedback-round2-candidate-2",
+      "reference_id": "original-1pga",
+      "region_key": "full-chain-A",
+      "method": {
+        "name": "TM-align",
+        "tmtools": "0.3.0",
+        "algorithm": "20210224",
+        "scope": "selected single protein chain C-alpha alignment; complete original structures retained, other components excluded from metrics",
+        "parameters": {}
+      },
+      "region": {
+        "subject": {
+          "chains": [
+            "A"
+          ]
+        },
+        "reference": {
+          "chains": [
+            "A"
+          ]
+        }
+      },
+      "metrics": {
+        "tm_subject": {
+          "value": 0.5890921522600375,
+          "normalization": "selected subject protein residue count",
+          "normalization_length": 59,
+          "unit": "dimensionless"
+        },
+        "tm_reference": {
+          "value": 0.6137247185464406,
+          "normalization": "selected reference protein residue count",
+          "normalization_length": 56,
+          "unit": "dimensionless"
+        },
+        "rmsd": {
+          "value": 2.346936700519352,
+          "unit": "angstrom",
+          "scope": "TM-align aligned C-alpha pairs",
+          "aligned_pair_count": 46
+        }
+      },
+      "alignment": {
+        "subject_sequence": "MTYKLILKIKGGTKTESIDTIEADSKADAKQKAEELLDGFGDKGIEEVDTVVFLDLRGS----------",
+        "reference_sequence": "MTYKLILNGK-T-L-KGETTTEAVDAATAEKVFKQYANDN-G--V--DGEWTYD-----DATKTFTVTE",
+        "markers": ":::::::::: : : ::::::::::::::::::::::::: :  .  :::.:..               ",
+        "subject_positions": [
+          {
+            "chain": "A",
+            "author_number": 1,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 2,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 3,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 4,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 5,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 6,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 7,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 8,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 9,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 10,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 11,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 12,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 13,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 14,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 15,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 16,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 17,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 18,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 19,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 20,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 21,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 22,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 23,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 24,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 25,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 26,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 27,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 28,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 29,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 30,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 31,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 32,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 33,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 34,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 35,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 36,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 37,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 38,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 39,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 40,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 41,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 42,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 43,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 44,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 45,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 46,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 47,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 48,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 49,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 50,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 51,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 52,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 53,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 54,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 55,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 56,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 57,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 58,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 59,
+            "insertion_code": ""
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "reference_positions": [
+          {
+            "chain": "A",
+            "author_number": 1,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 2,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 3,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 4,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 5,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 6,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 7,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 8,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 9,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 10,
+            "insertion_code": ""
+          },
+          null,
+          {
+            "chain": "A",
+            "author_number": 11,
+            "insertion_code": ""
+          },
+          null,
+          {
+            "chain": "A",
+            "author_number": 12,
+            "insertion_code": ""
+          },
+          null,
+          {
+            "chain": "A",
+            "author_number": 13,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 14,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 15,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 16,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 17,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 18,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 19,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 20,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 21,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 22,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 23,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 24,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 25,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 26,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 27,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 28,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 29,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 30,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 31,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 32,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 33,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 34,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 35,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 36,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 37,
+            "insertion_code": ""
+          },
+          null,
+          {
+            "chain": "A",
+            "author_number": 38,
+            "insertion_code": ""
+          },
+          null,
+          null,
+          {
+            "chain": "A",
+            "author_number": 39,
+            "insertion_code": ""
+          },
+          null,
+          null,
+          {
+            "chain": "A",
+            "author_number": 40,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 41,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 42,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 43,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 44,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 45,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 46,
+            "insertion_code": ""
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "chain": "A",
+            "author_number": 47,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 48,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 49,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 50,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 51,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 52,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 53,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 54,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 55,
+            "insertion_code": ""
+          },
+          {
+            "chain": "A",
+            "author_number": 56,
+            "insertion_code": ""
+          }
+        ]
+      },
+      "comparison_file": "comparisons/original-full-2/manifest.json",
+      "files": [
+        "comparisons/original-full-2/subject.pdb",
+        "comparisons/original-full-2/reference.pdb",
+        "comparisons/original-full-2/overlay.json",
+        "comparisons/original-full-2/manifest.json"
+      ]
+    }
+  ],
+  "score_options": [
+    {
+      "key": "original-full:tm_reference",
+      "label": "原始 1PGA · A 链 56 位 · full-chain-A · TM-score / 参考长度",
+      "reference_id": "original-1pga",
+      "region_key": "full-chain-A",
+      "method_name": "TM-align",
+      "metric": "tm_reference"
+    }
+  ],
+  "evidence_scope": "Actual ESM3 generated structures and native TM-align scores; structure generation is the actual source of the compared coordinates.",
+  "files": [
+    "objects/candidate-2.pdb",
+    "objects/candidate-2.fasta",
+    "references/original-1pga.pdb",
+    "comparisons/original-full-2/subject.pdb",
+    "comparisons/original-full-2/reference.pdb",
+    "comparisons/original-full-2/overlay.json",
+    "comparisons/original-full-2/manifest.json"
+  ]
+}

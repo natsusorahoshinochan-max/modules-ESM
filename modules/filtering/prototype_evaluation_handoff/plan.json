@@ -1,0 +1,13 @@
+{
+  "prototype": "THROWAWAY: evaluation, filtering and extraction handoff",
+  "inputs": "Two actual 58-residue ESM3 generated structures from prototype_result_feedback; original 56-residue 1PGA chain A",
+  "comparisons": [
+    {"key": "original-full", "reference": "original-1pga", "region": "full-chain-A"},
+    {"key": "original-regions", "reference": "original-1pga", "region": "A:1-5,30-35"},
+    {"key": "candidate-1-full", "reference": "first-candidate", "region": "full-chain-A"}
+  ],
+  "method": "TM-align via the existing public modules.structure_comparison.api.compare entry; tmtools 0.3.0 native defaults",
+  "primary_filter": {"score_key": "original-full:tm_reference", "operator": "ge", "threshold": 0.0, "direction": "descending", "limit": 1},
+  "empty_filter": {"score_key": "original-full:tm_reference", "operator": "ge", "threshold": 1.01, "direction": "descending", "limit": 1},
+  "independent_check": "Compute the expected ordered IDs from the actual native metrics in Python; compare against the shared HTML/CLI pure JavaScript filter. Copy selected package to PROTOTYPE_WIPE_ME and read it using only its manifest/files, Gemmi and the standard library."
+}

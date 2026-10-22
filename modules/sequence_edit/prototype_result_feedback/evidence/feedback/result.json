@@ -1,0 +1,56 @@
+{
+  "status": "passed",
+  "actual_generation_calls": 2,
+  "model": "esm3_sm_open_v1",
+  "method": "native ESM3 sequence generation",
+  "selected_object_id": "feedback-candidate-1",
+  "target_length": 59,
+  "native_prompt": "MTYKL______________________________________________________",
+  "coordinate_target_positions_one_based": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+  ],
+  "fixed_sequence_conditions_preserved": true,
+  "input_coordinates_not_claimed_as_generated_structure": true,
+  "parameters": {
+    "num_steps": 1,
+    "temperature": 0.5,
+    "condition_on_coordinates_only": true,
+    "temperature_annealing": false,
+    "device": "cpu",
+    "dtype": "float32"
+  },
+  "outputs": [
+    {
+      "seed": 101,
+      "sequence": "MTYKLILNTHESNPYTIEDEFEADTEKSARQAALEFIKDRPLLINIYAIYKDTAEIPKE",
+      "length": 59,
+      "seconds": 12.67609545798041,
+      "output": "new sequence; returned coordinate track remains input condition"
+    },
+    {
+      "seed": 102,
+      "sequence": "MTYKLILKIKGGTKTESIDTIEADSKADAKQKAEELLDGFGDKGIEEVDTVVFLDLRGS",
+      "length": 59,
+      "seconds": 12.26931329187937,
+      "output": "new sequence; returned coordinate track remains input condition"
+    }
+  ],
+  "sequence_only": {
+    "encoded": true,
+    "target_length": 59,
+    "coordinates": null,
+    "structure_tokens": null,
+    "native_prompt": "MTYKL______________________________________________________",
+    "scope": "actual native encode, no second sequence-only sampling"
+  }
+}

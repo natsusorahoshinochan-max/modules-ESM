@@ -1,0 +1,79 @@
+{
+  "purpose": "Actual user-visible browser rehearsal of the four throwaway prototypes",
+  "driver": "Codex CUA in-app browser",
+  "origin": "http://127.0.0.1:8766",
+  "persistence": "Page state is in memory; model results are recorded evidence, not browser inference",
+  "cases": [
+    {
+      "page": "modules/sequence_edit/prototype_result_feedback/index.html",
+      "actions": "Select actual structure; fix first five characters; select two coordinate regions; preview insert-two/delete-one; confirm; deliver",
+      "observed": {"adopted_length": 59, "fixed_characters": 5, "coordinate_condition_positions": 11, "new_positions_without_coordinates": [12, 13], "target_31_source": 30, "target_36_source": 35}
+    },
+    {
+      "page": "modules/sequence_edit/prototype_result_feedback/index.html",
+      "actions": "Run preview-cancel walkthrough",
+      "observed": {"adopted_length": 58, "fixed_characters": 5, "coordinate_condition_positions": 11}
+    },
+    {
+      "page": "modules/sequence_edit/prototype_result_feedback/index.html",
+      "actions": "Select sequence-only result; fix first five; preview; confirm; deliver",
+      "observed": {"adopted_length": 59, "fixed_characters": 5, "coordinate_condition_positions": 0}
+    },
+    {
+      "page": "modules/filtering/prototype_evaluation_handoff/index.html",
+      "actions": "Merge; filter using predeclared original-reference rule; extract",
+      "observed": {"selected_label": "历史序列 1 的 ESM3 生成结构", "selected_score": 0.8263003040517922, "object_count": 1, "evaluation_count": 3, "reference_count": 2, "file_count": 15}
+    },
+    {
+      "page": "modules/filtering/prototype_evaluation_handoff/index.html",
+      "actions": "Switch to discontinuous-region score; filter; switch to candidate-one reference; filter again",
+      "observed": "Explicit selector changes evaluation; scores retain reference length and region; selected object remains candidate one"
+    },
+    {
+      "page": "modules/filtering/prototype_evaluation_handoff/index.html",
+      "actions": "Set guided threshold to 1.01; filter; extract empty result",
+      "observed": {"objects": 0, "evaluations": 0, "references": 0, "files": 0}
+    },
+    {
+      "page": "core/host/prototype_scope_graph/index.html",
+      "actions": "Load inside-map filtering graph; execute two rounds",
+      "observed": {"round1": ["A.1", "B.1"], "round2": ["A.1.1", "B.1.1"], "source": "clearly labelled teaching data"}
+    },
+    {
+      "page": "core/host/prototype_scope_graph/index.html",
+      "actions": "Move filter after collection; execute the edited graph",
+      "observed": {"round1": ["A.1", "A.2"], "round2": ["A.1.1", "A.1.2"], "source": "clearly labelled teaching data"}
+    },
+    {
+      "page": "core/host/prototype_scope_graph/index.html",
+      "actions": "Connect selected object to next-round reference; execute",
+      "observed": {"round2_reference": "A.1", "round2": ["A.1.2", "A.2.1"], "source": "clearly labelled teaching data"}
+    },
+    {
+      "page": "core/host/prototype_scope_graph/index.html",
+      "actions": "Load non-protein text-list graph; execute two rounds",
+      "observed": {"round1": ["red!", "blue!"], "round2": ["red!!", "blue!!"]}
+    },
+    {
+      "page": "core/host/prototype_scope_graph/index.html",
+      "actions": "Select and load first-round actual evaluation record; execute graph; select and load second-round record; execute graph",
+      "observed": {"round1_selected": "历史序列 1 的 ESM3 生成结构", "round1_score": 0.8263003040517922, "round2_selected": "第2轮序列 2 的 ESM3 生成结构", "round2_score": 0.6137247185464406, "scope": "Two independent recorded-score replays, no browser model execution"}
+    },
+    {
+      "page": "core/host/prototype_nested_resume/index.html",
+      "actions": "Complete independent branch and first item; finish first request of second item; cancel run; edit canvas parameters; continue old call",
+      "observed": {"partial_requests": "1/2", "canvas_parameter": "edited-canvas", "run_parameter": "original", "resumed_request": "request-2", "final_status": "succeeded", "scope": "Browser state rehearsal; actual host file operations recorded separately"}
+    },
+    {
+      "page": "core/host/prototype_nested_resume/index.html",
+      "actions": "Fail second request; inspect blocked dependencies and successful independent branch; restore lightweight tool; continue",
+      "observed": {"failed_item_partial_requests": "1/2", "dependent_nodes": "not called", "independent_branch": "succeeded", "resumed_request": "request-2", "final_status": "succeeded"}
+    }
+  ],
+  "screenshots": [
+    "prototype_roundtrip_evaluation.jpg",
+    "prototype_roundtrip_feedback.jpg",
+    "prototype_roundtrip_resume.jpg",
+    "prototype_roundtrip_scope.jpg"
+  ]
+}

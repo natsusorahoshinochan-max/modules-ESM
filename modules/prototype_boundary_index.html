@@ -9,15 +9,24 @@
 <body>
 <span class="tag">PROTOTYPE · 可丢弃的逻辑实验</span>
 <h1>模块之间，究竟交接什么？</h1>
-<p>四组原型分别检验条件表示、工具调用、循环调度和标准文件交接。每组显示操作后的状态。长流程用来暴露交接问题；研究策略由用户配置。</p>
+<p>沿真实蛋白质设计流程检查模块交接。每个原型只回答一个设计问题，页面显示操作后的状态；真实模型计算、文件交付和教学演示分别标明。</p>
+<h2>本轮：结果回流与流程组合</h2>
+<div class="grid">
+ <article class="card"><span class="number">实验 05 · 结果回流</span><h2>选中结果怎样成为新模板？</h2><p>从真实生成的序列和结构明确选择下一轮条件，增删位置，预览并确认交付。</p><a href="sequence_edit/prototype_result_feedback/index.html">打开结果回流原型 →</a></article>
+ <article class="card"><span class="number">实验 06 · 评价与集合</span><h2>分数属于哪个对象和参考？</h2><p>实际结构比较，明确选择参考、区域和方法，筛选并抽取可独立读取的文件。</p><a href="filtering/prototype_evaluation_handoff/index.html">打开评价交接原型 →</a></article>
+ <article class="card"><span class="number">实验 07 · 子流程范围</span><h2>筛选位置怎样改变流程？</h2><p>编辑子流程和连线，比较逐项内部筛选与合并后的全局筛选，连接明确的轮次反馈。</p><a href="../core/host/prototype_scope_graph/index.html">打开流程范围原型 →</a></article>
+ <article class="card"><span class="number">实验 08 · 嵌套调用</span><h2>中途停止后继续哪一项？</h2><p>查看轮次、子流程条目、节点与任务内请求；观察真实载体交付记录和轻量执行演示。</p><a href="../core/host/prototype_nested_resume/index.html">打开续算原型 →</a></article>
+</div>
+<p><a href="prototype_roundtrip_results.md">本轮问题、实际证据与设计结论</a></p>
+<h2>前序：表示与单次调用</h2>
 <div class="grid">
  <article class="card"><span class="number">实验 01 · 数据表示</span><h2>长度改变，条件如何跟随？</h2><p>比较逐位置保存条件与按位置键分离轨道。观察增删、重排、区域和位置对约束如何交接。</p><a href="sequence_edit/prototype_conditions/index.html">打开条件原型 →</a></article>
  <article class="card"><span class="number">实验 02 · 工具边界</span><h2>谁编译模型的输入？</h2><p>比较操作侧编译原生请求与工具侧编译任务请求。观察换工具、缺失能力和输出对应。</p><a href="esm3/prototype_tool_boundary/index.html">打开工具原型 →</a></article>
  <article class="card"><span class="number">实验 03 · 执行边界</span><h2>批次与循环怎样分工？</h2><p>比较任务整批调用与载体逐项调用。观察多轮、筛选范围、失败和续算。</p><a href="../core/host/prototype_iteration/index.html">打开迭代原型 →</a></article>
  <article class="card"><span class="number">实验 04 · 对等文件交接</span><h2>原文件＋映射，还是完整目标 mmCIF？</h2><p>同一次 56→58 编辑，比较两种完整交付。实际写读证明两者构造相同 ESM 输入；完整 mmCIF 路线无需外部位置映射。</p><a href="sequence_edit/prototype_file_handoff/index.html">打开文件交接原型 →</a></article>
 </div>
-<section><h2>怎样使用</h2><p>每个原型都可以单独双击打开。先跟随场景按钮，再自由操作，检查每一步的对象、条件和执行状态。页面内的模型输出使用明确标注的模拟数据；真实工具执行另存证据。</p></section>
-<section id="evidence"><h2>已经实际执行</h2><table><thead><tr><th>路径</th><th>证据</th><th>当前界限</th></tr></thead><tbody>
+<section><h2>怎样使用</h2><p>每个原型都可以单独双击打开。先跟随场景按钮，再自由操作，检查每一步的对象、条件和执行状态。页面明确区分真实计算记录与教学数据；点击演示不会加载模型。真实工具执行另存证据。</p></section>
+<section id="evidence"><h2>前序实验的实际范围</h2><table><thead><tr><th>路径</th><th>证据</th><th>该次实验的界限</th></tr></thead><tbody>
 <tr><td>条件编辑 → ESM-3</td><td>真实 1PGA 的 56 个位置变成 58 位；标准文件加 HTML 导出的任务参数进入完整 ESM3 模型，三种条件配置均实际生成 58 位序列，保留指定前五位。</td><td>单步序列生成用于检查输入交接；尚未生成结构、折叠或评价生物学效果。</td></tr>
 <tr><td>完整目标 mmCIF → ESM 输入</td><td>真实写出并由 Gemmi、Bio.PDB 读取：完整目标 58 位，55 位有坐标。原生 ESM 输入及序列 token 与原文件＋映射路线相等。</td><td>只比较同一用户操作；输入已等同于上一轮实际生成输入，没有重复模型推理。</td></tr>
 <tr><td>上游读取探针</td><td>此前 11 个探针保存了直接调用上游 loader/parser 的行为；当前 MPNN Adapter 已避开或拒绝编号展开、多 MODEL、缺骨架等问题。</td><td>作为工具选型资料，不能直接当作当前用户流程失败或新增模块的依据。</td></tr>
@@ -26,6 +35,6 @@
 <tr><td>批次与循环</td><td>自动检查与浏览器引导演习覆盖两轮、不同筛选范围、参考交接、失败、取消、续算和非蛋白任务。</td><td>科学数值使用确定性模拟，尚未接入应用执行器。</td></tr>
 </tbody></table><p>重现命令见 <a href="esm3/prototype_real_validation/README.md">真实验证说明</a>，执行范围见 <a href="esm3/prototype_real_validation/evidence/summary.json">原始汇总</a>。</p></section>
 <section><h2>当前结论：标准文件可以承载编辑后的完整目标</h2><p>mmCIF 的完整聚合物序列和原子 label_seq_id 能表达本次 58 位目标与 55 位观测坐标。外部请求只需相同的序列与坐标选择，不必附加 target_to_source。原文件加映射同样可行，两者代表不同的交付选择。</p><p>之前的原子缺失、错误来源编号等手工输入属于接口探针；CPU dtype 属于运行环境；ESM 两种原生参数产生不同输出属于参数生效。此处只依据用户操作实际产生的数据评估交接方案。</p><p>重现说明：<a href="sequence_edit/prototype_cif_handoff/README.md">两种完整交付的同任务比较</a> · <a href="esm3/prototype_file_input/README.md">原文件路线的真实生成</a> · <a href="structure_io/prototype_file_transport/README.md">上游探针的适用范围</a>。</p></section>
-<section><h2>这轮实验支持怎样的设计？</h2><p>两种条件存储形式都能正确交接，内部表示仍可选择。任务形状的工具接口能把模型专属编解码集中到工具实现。载体逐项调用与任务内部批次可以同时存在；轮次交接必须保持明确的调用身份与成功边界。</p><p>并行调度、文件提交与续算的原子性、独立作者接入，以及完整真实生成—预测—筛选循环，仍需后续验证。</p></section>
+<section><h2>前序实验确定的方向</h2><p>两种条件存储形式都能正确交接，内部表示仍可选择。任务形状的工具接口能把模型专属编解码集中到工具实现。载体逐项调用与任务内部批次可以同时存在；轮次交接必须保持明确的调用身份与成功边界。本轮沿这些交接继续验证，具体范围见上方报告。</p></section>
 <footer>此页面用于审查候选设计。原型位于独立实验分支，正式模块的接口需根据实验结果进一步确定。</footer>
 </body></html>

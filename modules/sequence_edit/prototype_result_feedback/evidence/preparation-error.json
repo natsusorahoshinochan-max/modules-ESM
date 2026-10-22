@@ -1,0 +1,4 @@
+{
+  "type": "TypeError",
+  "message": "__getitem__(): incompatible function arguments. The following argument types are supported:\n    1. __getitem__(self, arg: int, /) -> str\n    2. __getitem__(self, arg: str, /) -> str\n\nInvoked with types: gemmi.cif.Row, slice"
+}

@@ -1,0 +1,602 @@
+{
+  "kind": "Pure reducer user-action rehearsal; no browser or backend inference",
+  "scenarios": {
+    "cancel": {
+      "history": [
+        {
+          "action": "start",
+          "notice": "已创建新运行并保存此次输入、工具和参数。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/independent 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:0/copy 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:1/copy 完成请求 1，使用参数 original。当前为部分成果。",
+          "status": "running"
+        },
+        {
+          "action": "cancel",
+          "notice": "整次运行已取消。成功成果保留；尚未启动的节点也已取消。部分成果只供查看。",
+          "status": "cancelled"
+        },
+        {
+          "action": "edit",
+          "notice": "画布参数改为 edited-canvas；旧运行仍保留原调用。",
+          "status": "cancelled"
+        },
+        {
+          "action": "resume",
+          "notice": "继续原运行的第 2 项：跳过成功请求，等待该项完整成功后再调度汇合与第 2 轮。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:1/copy 完成请求 2，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/collect 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。",
+          "status": "succeeded"
+        }
+      ],
+      "final": {
+        "scenario": "cancel",
+        "canvasParameter": "edited-canvas",
+        "toolAvailable": true,
+        "run": {
+          "id": "selected-run",
+          "status": "succeeded",
+          "nodes": [
+            {
+              "id": "call-1",
+              "scope": "root/independent",
+              "deps": [],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-1-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-1.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-2",
+              "scope": "root/repeat/round:1/map/item:0/copy",
+              "deps": [],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-2-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-1.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-3",
+              "scope": "root/repeat/round:1/map/item:1/copy",
+              "deps": [],
+              "requests": 2,
+              "status": "succeeded",
+              "done": [
+                1,
+                2
+              ],
+              "outputs": [
+                "call-3-request-1.fasta",
+                "call-3-request-2.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-4",
+              "scope": "root/repeat/round:1/collect",
+              "deps": [
+                "call-2",
+                "call-3"
+              ],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-2-request-1.fasta",
+                "call-3-request-1.fasta",
+                "call-3-request-2.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "call-2-request-1.fasta",
+                  "call-3-request-1.fasta",
+                  "call-3-request-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-5",
+              "scope": "root/repeat/round:2/copy",
+              "deps": [
+                "call-4"
+              ],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-5-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "call-2-request-1.fasta",
+                  "call-3-request-1.fasta",
+                  "call-3-request-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            }
+          ],
+          "mode": "continue",
+          "queue": [],
+          "parameter": "original"
+        },
+        "notice": "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。",
+        "log": [
+          "已创建新运行并保存此次输入、工具和参数。",
+          "root/independent 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:1/map/item:0/copy 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:1/map/item:1/copy 完成请求 1，使用参数 original。当前为部分成果。",
+          "整次运行已取消。成功成果保留；尚未启动的节点也已取消。部分成果只供查看。",
+          "画布参数改为 edited-canvas；旧运行仍保留原调用。",
+          "继续原运行的第 2 项：跳过成功请求，等待该项完整成功后再调度汇合与第 2 轮。",
+          "root/repeat/round:1/map/item:1/copy 完成请求 2，使用参数 original。已完整交付。",
+          "root/repeat/round:1/collect 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。"
+        ]
+      }
+    },
+    "failure": {
+      "history": [
+        {
+          "action": "start",
+          "notice": "已创建新运行并保存此次输入、工具和参数。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:0/copy 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:1/copy 完成请求 1，使用参数 original。当前为部分成果。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "第 2 项请求 2：轻量文件工具暂时不可用。停止此节点剩余请求，保留请求 1 的成果。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/collect 因依赖未成功而未调用；部分成果没有进入下游。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:2/copy 因依赖未成功而未调用；部分成果没有进入下游。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/independent 完成请求 1，使用参数 original。已完整交付。",
+          "status": "failed"
+        },
+        {
+          "action": "restore",
+          "notice": "轻量文件工具恢复可用，尚未重新执行。",
+          "status": "failed"
+        },
+        {
+          "action": "resume",
+          "notice": "继续原运行的第 2 项：跳过成功请求，等待该项完整成功后再调度汇合与第 2 轮。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:1/copy 完成请求 2，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/collect 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。",
+          "status": "succeeded"
+        }
+      ],
+      "final": {
+        "scenario": "failure",
+        "canvasParameter": "original",
+        "toolAvailable": true,
+        "run": {
+          "id": "selected-run",
+          "status": "succeeded",
+          "nodes": [
+            {
+              "id": "call-2",
+              "scope": "root/repeat/round:1/map/item:0/copy",
+              "deps": [],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-2-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-1.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-3",
+              "scope": "root/repeat/round:1/map/item:1/copy",
+              "deps": [],
+              "requests": 2,
+              "status": "succeeded",
+              "done": [
+                1,
+                2
+              ],
+              "outputs": [
+                "call-3-request-1.fasta",
+                "call-3-request-2.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-4",
+              "scope": "root/repeat/round:1/collect",
+              "deps": [
+                "call-2",
+                "call-3"
+              ],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-2-request-1.fasta",
+                "call-3-request-1.fasta",
+                "call-3-request-2.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "call-2-request-1.fasta",
+                  "call-3-request-1.fasta",
+                  "call-3-request-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-5",
+              "scope": "root/repeat/round:2/copy",
+              "deps": [
+                "call-4"
+              ],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-5-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "call-2-request-1.fasta",
+                  "call-3-request-1.fasta",
+                  "call-3-request-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-1",
+              "scope": "root/independent",
+              "deps": [],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-1-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-1.fasta"
+                ]
+              },
+              "parameter": "original"
+            }
+          ],
+          "mode": "continue",
+          "queue": [],
+          "parameter": "original"
+        },
+        "notice": "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。",
+        "log": [
+          "已创建新运行并保存此次输入、工具和参数。",
+          "root/repeat/round:1/map/item:0/copy 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:1/map/item:1/copy 完成请求 1，使用参数 original。当前为部分成果。",
+          "第 2 项请求 2：轻量文件工具暂时不可用。停止此节点剩余请求，保留请求 1 的成果。",
+          "root/repeat/round:1/collect 因依赖未成功而未调用；部分成果没有进入下游。",
+          "root/repeat/round:2/copy 因依赖未成功而未调用；部分成果没有进入下游。",
+          "root/independent 完成请求 1，使用参数 original。已完整交付。",
+          "轻量文件工具恢复可用，尚未重新执行。",
+          "继续原运行的第 2 项：跳过成功请求，等待该项完整成功后再调度汇合与第 2 轮。",
+          "root/repeat/round:1/map/item:1/copy 完成请求 2，使用参数 original。已完整交付。",
+          "root/repeat/round:1/collect 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。"
+        ]
+      }
+    },
+    "success": {
+      "history": [
+        {
+          "action": "start",
+          "notice": "已创建新运行并保存此次输入、工具和参数。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:0/copy 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:1/copy 完成请求 1，使用参数 original。当前为部分成果。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/map/item:1/copy 完成请求 2，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:1/collect 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。",
+          "status": "running"
+        },
+        {
+          "action": "step",
+          "notice": "root/independent 完成请求 1，使用参数 original。已完整交付。",
+          "status": "succeeded"
+        },
+        {
+          "action": "resume",
+          "notice": "第 2 项没有可续算的已启动批次。",
+          "status": "succeeded"
+        }
+      ],
+      "final": {
+        "scenario": "success",
+        "canvasParameter": "original",
+        "toolAvailable": true,
+        "run": {
+          "id": "selected-run",
+          "status": "succeeded",
+          "nodes": [
+            {
+              "id": "call-2",
+              "scope": "root/repeat/round:1/map/item:0/copy",
+              "deps": [],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-2-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-1.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-3",
+              "scope": "root/repeat/round:1/map/item:1/copy",
+              "deps": [],
+              "requests": 2,
+              "status": "succeeded",
+              "done": [
+                1,
+                2
+              ],
+              "outputs": [
+                "call-3-request-1.fasta",
+                "call-3-request-2.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-4",
+              "scope": "root/repeat/round:1/collect",
+              "deps": [
+                "call-2",
+                "call-3"
+              ],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-2-request-1.fasta",
+                "call-3-request-1.fasta",
+                "call-3-request-2.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "call-2-request-1.fasta",
+                  "call-3-request-1.fasta",
+                  "call-3-request-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-5",
+              "scope": "root/repeat/round:2/copy",
+              "deps": [
+                "call-4"
+              ],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-5-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "call-2-request-1.fasta",
+                  "call-3-request-1.fasta",
+                  "call-3-request-2.fasta"
+                ]
+              },
+              "parameter": "original"
+            },
+            {
+              "id": "call-1",
+              "scope": "root/independent",
+              "deps": [],
+              "requests": 1,
+              "status": "succeeded",
+              "done": [
+                1
+              ],
+              "outputs": [
+                "call-1-request-1.fasta"
+              ],
+              "fixed": {
+                "parameter": "original",
+                "tool": "copy-existing-files",
+                "inputs": [
+                  "historical-1.fasta"
+                ]
+              },
+              "parameter": "original"
+            }
+          ],
+          "mode": "start",
+          "queue": [],
+          "parameter": "original"
+        },
+        "notice": "第 2 项没有可续算的已启动批次。",
+        "log": [
+          "已创建新运行并保存此次输入、工具和参数。",
+          "root/repeat/round:1/map/item:0/copy 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:1/map/item:1/copy 完成请求 1，使用参数 original。当前为部分成果。",
+          "root/repeat/round:1/map/item:1/copy 完成请求 2，使用参数 original。已完整交付。",
+          "root/repeat/round:1/collect 完成请求 1，使用参数 original。已完整交付。",
+          "root/repeat/round:2/copy 完成请求 1，使用参数 original。已完整交付。",
+          "root/independent 完成请求 1，使用参数 original。已完整交付。",
+          "第 2 项没有可续算的已启动批次。"
+        ]
+      }
+    }
+  }
+}

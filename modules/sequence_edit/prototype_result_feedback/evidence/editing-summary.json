@@ -1,0 +1,36 @@
+{
+  "status": "passed",
+  "selected_object_id": "feedback-candidate-1",
+  "input_manifest": "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/filtering/prototype_evaluation_handoff/evidence/PROTOTYPE_WIPE_ME/selected/manifest.json",
+  "input_structure": "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/filtering/prototype_evaluation_handoff/evidence/PROTOTYPE_WIPE_ME/selected/objects/candidate-1.pdb",
+  "executed": "same pure reducer embedded in index.html, invoked by export.cjs",
+  "source_length": 58,
+  "confirmed_target_length": 59,
+  "inserted_positions": [
+    12,
+    13
+  ],
+  "removed_source_position": 25,
+  "fixed_sequence_positions": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "coordinate_positions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+  ],
+  "cancel_restores_all_rows_and_conditions": true,
+  "sequence_only_target_length": 59
+}

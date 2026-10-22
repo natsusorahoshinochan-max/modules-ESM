@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hans"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原型：定位、取消与续算</title>
+<style>
+:root{font:15px/1.6 system-ui,sans-serif;color:#263331;background:#f4f6f3}body{max-width:1160px;margin:32px auto;padding:0 24px}h1{font-size:27px;margin-bottom:6px}h2{font-size:18px;margin:0 0 12px}p{margin:8px 0 16px}.card{background:white;border:1px solid #dae1dc;border-radius:10px;padding:20px;margin:18px 0}.note{color:#596a60;font-size:13px}.badge{display:inline-block;padding:2px 10px;background:#e4eee6;border-radius:14px;font-size:13px}button{font:inherit;background:#edf3ed;color:#244d39;border:1px solid #bdcdbf;border-radius:6px;padding:8px 12px;margin:4px 5px 4px 0;cursor:pointer}button:hover{background:#dceadd}button:disabled{opacity:.45;cursor:default}button.active{background:#256340;color:white}dl{display:grid;grid-template-columns:140px 1fr;gap:5px;margin:0}dt{color:#68766c}dd{margin:0}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #e2e8e3;vertical-align:top}th{color:#647568;font-weight:500}code{font-size:12px;word-break:break-all}.status{font-weight:600}.succeeded{color:#23623c}.failed,.blocked{color:#ad4c33}.cancelled{color:#8b6a2c}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.grid .card{margin:0}.log{max-height:190px;overflow:auto;padding-left:22px}.highlight{background:#f0f6ef;padding:10px;border-radius:6px}a{color:#256340}@media(max-width:760px){.grid{display:block}.grid .card{margin:18px 0}.table-wrap{overflow:auto}body{padding:0 12px}}
+</style>
+<h1>原型：定位、取消与续算</h1>
+<p>当流程包含轮次、逐项处理和节点内批次，用户能否找到未完成的位置，并只继续原调用中的剩余请求？</p>
+<p class="note">可丢弃逻辑演示 · 本页只在内存模拟状态。真实后端脚本另外调用现有 Start / Cancel / Continue，接收并读取实际文件；这里的按钮不会启动蛋白质模型。</p>
+<div class="card"><h2>当前运行</h2><div id="summary"></div><p id="notice" class="highlight" aria-live="polite"></p><div class="table-wrap"><table><thead><tr><th>调用位置</th><th>状态</th><th>已完成请求</th><th>可查看成果 / 下游交付</th><th>固定参数</th></tr></thead><tbody id="calls"></tbody></table></div></div>
+<div class="card"><h2>自由操作</h2><div id="controls"></div><p class="note">“推进一步”执行一个轻量文件请求或检查一次依赖。取消作用于整次运行；参数编辑只改变当前画布，继续旧运行使用该运行已保存的调用。</p></div>
+<div class="grid"><div class="card"><h2>引导演习</h2><div id="tabs"></div><p id="scenario"></p><div id="steps"></div></div><div class="card"><h2>本次动作记录</h2><ol id="log" class="log"></ol></div></div>
+<div class="card"><h2>与实际后端证据的关系</h2><p>脚本已将两条历史 ESM3 序列作为明确输入，用公开模块与工具接口执行文件复制。两个实际场景分别验证取消续算和工具暂时失败后的续算；最后实际读取了每个场景的 3 个 FASTA 文件。</p><p>现有执行器接收的是展开后的无环图。轮次和逐项位置在原型外层显式标注，尚无生产子流程调度。此页同样将两轮展开为有限节点，避免把状态演示说成已有原生循环。</p><p><a href="evidence/actual-host-run.json">实际调用、文件与核对证据</a> · <a href="README.md">问题、结论与运行方式</a></p></div>
+<script>
+// Pure prototype module: state transitions have no DOM or I/O dependency.
+const ResumePrototype = (() => {
+  const labels={idle:'尚未启动',running:'运行中',succeeded:'成功',failed:'失败',blocked:'依赖未成功',cancelled:'已取消',pending:'等待'};
+  function fresh(scenario='cancel') {
+    return {scenario,canvasParameter:'original',toolAvailable:scenario!=='failure',run:null,notice:'先启动，再逐步查看每个调用。',log:[]};
+  }
+  function createRun(state) {
+    const node=(id,scope,deps=[],requests=1)=>({id,scope,deps,requests,status:'pending',done:[],outputs:[],fixed:null,parameter:state.canvasParameter});
+    const independent=node('call-1','root/independent');
+    const nodes=[node('call-2','root/repeat/round:1/map/item:0/copy'),node('call-3','root/repeat/round:1/map/item:1/copy',[],2),node('call-4','root/repeat/round:1/collect',['call-2','call-3']),node('call-5','root/repeat/round:2/copy',['call-4'])];
+    if(state.scenario==='cancel')nodes.unshift(independent);else nodes.push(independent);
+    return {id:'selected-run',status:'running',nodes,mode:'start',queue:nodes.map(n=>n.id),parameter:state.canvasParameter};
+  }
+  function append(state,message){state.notice=message;state.log.push(message);return state;}
+  function finishIfNeeded(run){if(!run.queue.length)run.status=run.nodes.some(n=>['failed','blocked'].includes(n.status))?'failed':run.nodes.some(n=>n.status==='cancelled')?'cancelled':'succeeded';}
+  function reduce(previous,action) {
+    const s=JSON.parse(JSON.stringify(previous));
+    if(action==='reset')return fresh(s.scenario);
+    if(action==='start'){
+      if(s.run?.status==='running')return append(s,'当前运行尚未结束。');
+      s.run=createRun(s);return append(s,'已创建新运行并保存此次输入、工具和参数。');
+    }
+    if(action==='edit'){
+      if(s.run?.status==='running')return append(s,'运行期间画布锁定，不能修改。');
+      s.canvasParameter='edited-canvas';return append(s,'画布参数改为 edited-canvas；旧运行仍保留原调用。');
+    }
+    if(action==='restore'){s.toolAvailable=true;return append(s,'轻量文件工具恢复可用，尚未重新执行。');}
+    if(!s.run)return append(s,'请先启动一次运行。');
+    const run=s.run;
+    if(action==='cancel'){
+      if(run.status!=='running')return append(s,'没有正在执行的运行可取消。');
+      for(const node of run.nodes)if(['pending','running'].includes(node.status))node.status='cancelled';
+      run.queue=[];run.status='cancelled';return append(s,'整次运行已取消。成功成果保留；尚未启动的节点也已取消。部分成果只供查看。');
+    }
+    if(action==='resume'){
+      if(run.status==='running')return append(s,'当前运行仍在执行。');
+      const target=run.nodes.find(n=>n.id==='call-3');
+      if(!['failed','cancelled'].includes(target.status)||!target.fixed||target.done.length===target.requests)return append(s,'第 2 项没有可续算的已启动批次。');
+      target.status='pending';
+      run.queue=['call-3','call-4','call-5'];
+      for(const id of run.queue.slice(1)){const n=run.nodes.find(x=>x.id===id);if(n.status!=='succeeded')n.status='pending';}
+      run.status='running';run.mode='continue';return append(s,'继续原运行的第 2 项：跳过成功请求，等待该项完整成功后再调度汇合与第 2 轮。');
+    }
+    if(action==='step'){
+      if(run.status!=='running')return append(s,'运行已停止，可选择继续或启动新运行。');
+      const node=run.nodes.find(n=>n.id===run.queue[0]);
+      if(node.deps.some(id=>run.nodes.find(n=>n.id===id).status!=='succeeded')){
+        node.status='blocked';run.queue.shift();finishIfNeeded(run);return append(s,`${node.scope} 因依赖未成功而未调用；部分成果没有进入下游。`);
+      }
+      if(!node.fixed)node.fixed={parameter:node.parameter,tool:'copy-existing-files',inputs:node.deps.length?node.deps.flatMap(id=>run.nodes.find(n=>n.id===id).outputs):[node.id==='call-3'?'historical-2.fasta':'historical-1.fasta']};
+      const request=node.done.length+1;
+      if(node.id==='call-3'&&request===2&&!s.toolAvailable){node.status='failed';run.queue.shift();finishIfNeeded(run);return append(s,'第 2 项请求 2：轻量文件工具暂时不可用。停止此节点剩余请求，保留请求 1 的成果。');}
+      node.done.push(request);
+      node.outputs=node.id==='call-4'?node.fixed.inputs.slice():node.done.map(n=>`${node.id}-request-${n}.fasta`);
+      if(node.done.length===node.requests){node.status='succeeded';run.queue.shift();}else node.status='running';
+      finishIfNeeded(run);return append(s,`${node.scope} 完成请求 ${request}，使用参数 ${node.fixed.parameter}。${node.status==='running'?'当前为部分成果。':'已完整交付。'}`);
+    }
+    return s;
+  }
+  return {fresh,reduce,labels};
+})();
+</script>
+<script>
+const actions=[['start','启动新运行'],['step','推进一步'],['cancel','取消整次运行'],['edit','编辑画布参数'],['restore','工具恢复可用'],['resume','继续第 2 项旧调用'],['reset','重置']];
+const scenarios={
+ cancel:{name:'取消与固定调用',description:'独立分支先成功。第 2 项完成请求 1 后取消，修改画布参数，再继续旧运行。观察旧参数和下游等待。',steps:[['start','1 启动'],['step','2 独立分支成功'],['step','3 第 1 项成功'],['step','4 第 2 项完成首个请求'],['cancel','5 取消'],['edit','6 修改画布参数'],['resume','7 继续旧调用'],['step','8 仅执行请求 2'],['step','9 汇合完整结果'],['step','10 进入第 2 轮']]},
+ failure:{name:'失败与独立分支',description:'第 2 项的请求 2 遇到工具暂时失败。依赖它的节点跳过，独立分支继续。恢复工具后主动续算。',steps:[['start','1 启动'],['step','2 第 1 项成功'],['step','3 第 2 项首个请求成功'],['step','4 工具暂时失败'],['step','5 汇合等待'],['step','6 第 2 轮等待'],['step','7 独立分支成功'],['restore','8 工具恢复'],['resume','9 继续'],['step','10 仅执行请求 2'],['step','11 汇合'],['step','12 第 2 轮']]},
+ success:{name:'完整运行',description:'所有请求成功后才进入汇合和第 2 轮。随后尝试继续成功项，观察为何没有待续算请求。',steps:[['start','1 启动'],['step','2 第 1 项'],['step','3 第 2 项请求 1'],['step','4 第 2 项请求 2'],['step','5 汇合'],['step','6 第 2 轮'],['step','7 独立分支'],['resume','8 尝试继续已成功项']]}
+};
+let state=ResumePrototype.fresh(), guidedIndex=0;
+const escape=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+function act(action){state=ResumePrototype.reduce(state,action);render();}
+function render(){
+ const run=state.run;
+ document.getElementById('summary').innerHTML=`<dl><dt>选中运行</dt><dd>${run?'selected-run':'尚无'}</dd><dt>运行状态</dt><dd>${ResumePrototype.labels[run?.status||'idle']}</dd><dt>画布参数</dt><dd>${escape(state.canvasParameter)}</dd><dt>本运行参数</dt><dd>${escape(run?.parameter||'尚未固定')}</dd><dt>轻量工具</dt><dd>${state.toolAvailable?'可用':'暂时不可用（演习控制）'}</dd><dt>计算内容</dt><dd>已有历史序列文件的复制、合并；0 次模型计算</dd></dl>`;
+ document.getElementById('notice').textContent=state.notice;
+ document.getElementById('calls').innerHTML=(run?.nodes||[]).map(n=>`<tr><td><code>${escape(n.scope)}</code><br><span class="note">${n.id}</span></td><td class="status ${n.status}">${ResumePrototype.labels[n.status]}</td><td>${n.done.length} / ${n.requests}</td><td>${n.outputs.length?escape(n.outputs.join(', ')):'尚无'}<br><span class="note">${n.outputs.length&&n.status!=='succeeded'?'仅查看；尚未完整成功':n.status==='succeeded'?'可进入显式下游':'未交付下游'}</span></td><td>${escape(n.fixed?.parameter||'尚未调用')}</td></tr>`).join('');
+ document.getElementById('log').innerHTML=state.log.map(item=>`<li>${escape(item)}</li>`).join('');
+ document.getElementById('scenario').textContent=scenarios[state.scenario].description;
+ document.getElementById('steps').innerHTML='';
+ scenarios[state.scenario].steps.forEach(([action,label],index)=>{const button=document.createElement('button');button.textContent=label;button.disabled=index!==guidedIndex;button.onclick=()=>{guidedIndex++;act(action);};document.getElementById('steps').append(button);});
+ document.querySelectorAll('#tabs button').forEach(b=>b.className=b.dataset.scenario===state.scenario?'active':'');
+}
+for(const [action,label] of actions){const button=document.createElement('button');button.textContent=label;button.onclick=()=>{guidedIndex=-1;act(action);};document.getElementById('controls').append(button);}
+for(const [key,scenario] of Object.entries(scenarios)){const button=document.createElement('button');button.textContent=scenario.name;button.dataset.scenario=key;button.onclick=()=>{state=ResumePrototype.fresh(key);guidedIndex=0;render();};document.getElementById('tabs').append(button);}
+render();
+</script></html>

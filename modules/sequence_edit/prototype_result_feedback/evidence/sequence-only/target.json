@@ -1,0 +1,359 @@
+{
+  "chain": "A",
+  "positions": [
+    {
+      "target_position": 1,
+      "author_number": 1,
+      "amino_acid": "M",
+      "atoms": {}
+    },
+    {
+      "target_position": 2,
+      "author_number": 2,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 3,
+      "author_number": 3,
+      "amino_acid": "Y",
+      "atoms": {}
+    },
+    {
+      "target_position": 4,
+      "author_number": 4,
+      "amino_acid": "K",
+      "atoms": {}
+    },
+    {
+      "target_position": 5,
+      "author_number": 5,
+      "amino_acid": "L",
+      "atoms": {}
+    },
+    {
+      "target_position": 6,
+      "author_number": 6,
+      "amino_acid": "V",
+      "atoms": {}
+    },
+    {
+      "target_position": 7,
+      "author_number": 7,
+      "amino_acid": "I",
+      "atoms": {}
+    },
+    {
+      "target_position": 8,
+      "author_number": 8,
+      "amino_acid": "N",
+      "atoms": {}
+    },
+    {
+      "target_position": 9,
+      "author_number": 9,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 10,
+      "author_number": 10,
+      "amino_acid": "K",
+      "atoms": {}
+    },
+    {
+      "target_position": 11,
+      "author_number": 11,
+      "amino_acid": "N",
+      "atoms": {}
+    },
+    {
+      "target_position": 12,
+      "author_number": null,
+      "amino_acid": "X",
+      "atoms": {}
+    },
+    {
+      "target_position": 13,
+      "author_number": null,
+      "amino_acid": "X",
+      "atoms": {}
+    },
+    {
+      "target_position": 14,
+      "author_number": 12,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 15,
+      "author_number": 13,
+      "amino_acid": "G",
+      "atoms": {}
+    },
+    {
+      "target_position": 16,
+      "author_number": 14,
+      "amino_acid": "G",
+      "atoms": {}
+    },
+    {
+      "target_position": 17,
+      "author_number": 15,
+      "amino_acid": "K",
+      "atoms": {}
+    },
+    {
+      "target_position": 18,
+      "author_number": 16,
+      "amino_acid": "S",
+      "atoms": {}
+    },
+    {
+      "target_position": 19,
+      "author_number": 17,
+      "amino_acid": "G",
+      "atoms": {}
+    },
+    {
+      "target_position": 20,
+      "author_number": 18,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 21,
+      "author_number": 19,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 22,
+      "author_number": 20,
+      "amino_acid": "Q",
+      "atoms": {}
+    },
+    {
+      "target_position": 23,
+      "author_number": 21,
+      "amino_acid": "W",
+      "atoms": {}
+    },
+    {
+      "target_position": 24,
+      "author_number": 22,
+      "amino_acid": "E",
+      "atoms": {}
+    },
+    {
+      "target_position": 25,
+      "author_number": 23,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 26,
+      "author_number": 24,
+      "amino_acid": "S",
+      "atoms": {}
+    },
+    {
+      "target_position": 27,
+      "author_number": 26,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 28,
+      "author_number": 27,
+      "amino_acid": "S",
+      "atoms": {}
+    },
+    {
+      "target_position": 29,
+      "author_number": 28,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 30,
+      "author_number": 29,
+      "amino_acid": "K",
+      "atoms": {}
+    },
+    {
+      "target_position": 31,
+      "author_number": 30,
+      "amino_acid": "V",
+      "atoms": {}
+    },
+    {
+      "target_position": 32,
+      "author_number": 31,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 33,
+      "author_number": 32,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 34,
+      "author_number": 33,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 35,
+      "author_number": 34,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 36,
+      "author_number": 35,
+      "amino_acid": "Y",
+      "atoms": {}
+    },
+    {
+      "target_position": 37,
+      "author_number": 36,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 38,
+      "author_number": 37,
+      "amino_acid": "Q",
+      "atoms": {}
+    },
+    {
+      "target_position": 39,
+      "author_number": 38,
+      "amino_acid": "S",
+      "atoms": {}
+    },
+    {
+      "target_position": 40,
+      "author_number": 39,
+      "amino_acid": "N",
+      "atoms": {}
+    },
+    {
+      "target_position": 41,
+      "author_number": 40,
+      "amino_acid": "G",
+      "atoms": {}
+    },
+    {
+      "target_position": 42,
+      "author_number": 41,
+      "amino_acid": "I",
+      "atoms": {}
+    },
+    {
+      "target_position": 43,
+      "author_number": 42,
+      "amino_acid": "N",
+      "atoms": {}
+    },
+    {
+      "target_position": 44,
+      "author_number": 43,
+      "amino_acid": "G",
+      "atoms": {}
+    },
+    {
+      "target_position": 45,
+      "author_number": 44,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 46,
+      "author_number": 45,
+      "amino_acid": "W",
+      "atoms": {}
+    },
+    {
+      "target_position": 47,
+      "author_number": 46,
+      "amino_acid": "S",
+      "atoms": {}
+    },
+    {
+      "target_position": 48,
+      "author_number": 47,
+      "amino_acid": "Y",
+      "atoms": {}
+    },
+    {
+      "target_position": 49,
+      "author_number": 48,
+      "amino_acid": "N",
+      "atoms": {}
+    },
+    {
+      "target_position": 50,
+      "author_number": 49,
+      "amino_acid": "S",
+      "atoms": {}
+    },
+    {
+      "target_position": 51,
+      "author_number": 50,
+      "amino_acid": "A",
+      "atoms": {}
+    },
+    {
+      "target_position": 52,
+      "author_number": 51,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 53,
+      "author_number": 52,
+      "amino_acid": "N",
+      "atoms": {}
+    },
+    {
+      "target_position": 54,
+      "author_number": 53,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 55,
+      "author_number": 54,
+      "amino_acid": "Y",
+      "atoms": {}
+    },
+    {
+      "target_position": 56,
+      "author_number": 55,
+      "amino_acid": "T",
+      "atoms": {}
+    },
+    {
+      "target_position": 57,
+      "author_number": 56,
+      "amino_acid": "L",
+      "atoms": {}
+    },
+    {
+      "target_position": 58,
+      "author_number": 57,
+      "amino_acid": "K",
+      "atoms": {}
+    },
+    {
+      "target_position": 59,
+      "author_number": 58,
+      "amino_acid": "E",
+      "atoms": {}
+    }
+  ]
+}

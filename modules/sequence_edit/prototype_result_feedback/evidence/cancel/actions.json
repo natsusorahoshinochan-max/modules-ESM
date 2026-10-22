@@ -1,0 +1,28 @@
+{
+  "actions": [
+    {
+      "type": "choose",
+      "object_id": "feedback-candidate-1"
+    },
+    {
+      "type": "fix",
+      "regions": "1-5"
+    },
+    {
+      "type": "coords",
+      "regions": "1-5,30-35"
+    },
+    {
+      "type": "preview",
+      "after": 11,
+      "count": 2,
+      "delete_position": 27
+    },
+    {
+      "type": "cancel"
+    },
+    {
+      "type": "deliver"
+    }
+  ]
+}

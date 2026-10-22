@@ -1,0 +1,5120 @@
+{
+  "purpose": "Questions about explicit scopes and feedback; educational simulated protein values are separate from actual evaluation replay.",
+  "source": "index.html#prototype-logic",
+  "cases": [
+    {
+      "scenario": "teaching-per-item-filter",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "完整图",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "templates",
+            "kind": "literal",
+            "label": "明确模板包列表",
+            "packages": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          {
+            "id": "reference-input",
+            "kind": "literal",
+            "label": "明确参考包",
+            "packages": [
+              "package-3"
+            ]
+          },
+          {
+            "id": "imported",
+            "kind": "literal",
+            "label": "独立导入包列表",
+            "packages": []
+          },
+          {
+            "id": "repeat",
+            "kind": "repeat",
+            "label": "重复执行子流程",
+            "count": 2,
+            "body": {
+              "id": "round",
+              "label": "一次循环",
+              "inputPorts": [
+                "items",
+                "reference",
+                "imported"
+              ],
+              "outputPorts": [
+                "result",
+                "nextItems",
+                "nextReference"
+              ],
+              "nodes": [
+                {
+                  "id": "map",
+                  "kind": "map",
+                  "label": "逐项子流程",
+                  "inputPorts": [
+                    "items",
+                    "reference"
+                  ],
+                  "iteratePort": "items",
+                  "bindings": {
+                    "items": "item",
+                    "reference": "reference"
+                  },
+                  "body": {
+                    "id": "item",
+                    "label": "逐个输入包",
+                    "inputPorts": [
+                      "item",
+                      "reference"
+                    ],
+                    "outputPorts": [
+                      "result"
+                    ],
+                    "nodes": [
+                      {
+                        "id": "generate",
+                        "kind": "module",
+                        "op": "generate",
+                        "label": "生成 2 个教学候选",
+                        "params": {
+                          "count": 2
+                        }
+                      },
+                      {
+                        "id": "evaluate",
+                        "kind": "module",
+                        "op": "evaluate",
+                        "label": "按明确参考评价",
+                        "params": {}
+                      },
+                      {
+                        "id": "filter",
+                        "kind": "module",
+                        "op": "filter",
+                        "label": "筛选",
+                        "params": {
+                          "metric": "similarity",
+                          "method": "teaching-distance",
+                          "region_key": "whole-teaching-object",
+                          "threshold": 0,
+                          "direction": "desc",
+                          "limit": 1
+                        }
+                      }
+                    ],
+                    "edges": [
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "item"
+                        },
+                        "to": {
+                          "node": "generate",
+                          "port": "item"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "generate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "items"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "reference"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "reference"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "evaluate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "filter",
+                          "port": "items"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "filter",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "$out",
+                          "port": "result"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "import-evaluate",
+                  "kind": "module",
+                  "op": "evaluate",
+                  "label": "评价独立导入对象",
+                  "params": {}
+                },
+                {
+                  "id": "collect",
+                  "kind": "module",
+                  "op": "collect",
+                  "label": "合并明确输入",
+                  "params": {}
+                },
+                {
+                  "id": "split",
+                  "kind": "module",
+                  "op": "split",
+                  "label": "拆分为下一轮输入",
+                  "params": {}
+                },
+                {
+                  "id": "reference",
+                  "kind": "module",
+                  "op": "chooseReference",
+                  "label": "明确选第 1 项作参考",
+                  "params": {}
+                }
+              ],
+              "edges": [
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "items"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "imported"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "map",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "import-evaluate",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "split",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextItems"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "reference",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextReference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "collect",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "split",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "collect",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "reference",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "collect",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "result"
+                  }
+                }
+              ]
+            },
+            "feedback": [
+              {
+                "output": "nextItems",
+                "input": "items"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "templates",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "reference-input",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "reference"
+            }
+          },
+          {
+            "from": {
+              "node": "imported",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "imported"
+            }
+          },
+          {
+            "from": {
+              "node": "repeat",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "inputs": [
+            "模板 A",
+            "模板 B"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "模板 A.1",
+            "模板 B.1"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-1",
+              "label": "模板 A.1",
+              "position": 8.3,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.83
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-3",
+              "label": "模板 B.1",
+              "position": 4.3,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.43
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "inputs": [
+            "模板 A.1",
+            "模板 B.1"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "模板 A.1.1",
+            "模板 B.1.1"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-5",
+              "label": "模板 A.1.1",
+              "position": 8.600000000000001,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.86
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-7",
+              "label": "模板 B.1.1",
+              "position": 4.6,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.46
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "final": [
+        "模板 A.1.1",
+        "模板 B.1.1"
+      ],
+      "finalDetails": [
+        {
+          "id": "teaching-object-5",
+          "label": "模板 A.1.1",
+          "position": 8.600000000000001,
+          "scores": [
+            {
+              "reference": "REF",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.86
+              }
+            }
+          ]
+        },
+        {
+          "id": "teaching-object-7",
+          "label": "模板 B.1.1",
+          "position": 4.6,
+          "scores": [
+            {
+              "reference": "REF",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.46
+              }
+            }
+          ]
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/templates",
+          "node": "明确模板包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1",
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/reference-input",
+          "node": "明确参考包",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/imported",
+          "node": "独立导入包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": []
+          }
+        },
+        {
+          "callId": "root/repeat",
+          "node": "重复执行子流程",
+          "kind": "repeat",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ],
+            "imported": []
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-23"
+            ],
+            "nextItems": [
+              "package-24",
+              "package-25"
+            ],
+            "nextReference": [
+              "package-26"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-7",
+              "package-10"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-1"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-5"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-5"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-6"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 1
+          },
+          "outputs": {
+            "result": [
+              "package-7"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-8"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-9"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-9"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 1
+          },
+          "outputs": {
+            "result": [
+              "package-10"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-11"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-7",
+              "package-10",
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-12"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-12"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-13",
+              "package-14"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-12"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-15"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-13",
+              "package-14"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-18",
+              "package-21"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-13"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-16"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-16"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-17"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-17"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 1
+          },
+          "outputs": {
+            "result": [
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-14"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-19"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-19"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-20"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-20"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 1
+          },
+          "outputs": {
+            "result": [
+              "package-21"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-22"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-18",
+              "package-21",
+              "package-22"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-23"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-23"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-24",
+              "package-25"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-23"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-26"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "teaching-global-filter",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "完整图",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "templates",
+            "kind": "literal",
+            "label": "明确模板包列表",
+            "packages": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          {
+            "id": "reference-input",
+            "kind": "literal",
+            "label": "明确参考包",
+            "packages": [
+              "package-3"
+            ]
+          },
+          {
+            "id": "imported",
+            "kind": "literal",
+            "label": "独立导入包列表",
+            "packages": []
+          },
+          {
+            "id": "repeat",
+            "kind": "repeat",
+            "label": "重复执行子流程",
+            "count": 2,
+            "body": {
+              "id": "round",
+              "label": "一次循环",
+              "inputPorts": [
+                "items",
+                "reference",
+                "imported"
+              ],
+              "outputPorts": [
+                "result",
+                "nextItems",
+                "nextReference"
+              ],
+              "nodes": [
+                {
+                  "id": "map",
+                  "kind": "map",
+                  "label": "逐项子流程",
+                  "inputPorts": [
+                    "items",
+                    "reference"
+                  ],
+                  "iteratePort": "items",
+                  "bindings": {
+                    "items": "item",
+                    "reference": "reference"
+                  },
+                  "body": {
+                    "id": "item",
+                    "label": "逐个输入包",
+                    "inputPorts": [
+                      "item",
+                      "reference"
+                    ],
+                    "outputPorts": [
+                      "result"
+                    ],
+                    "nodes": [
+                      {
+                        "id": "generate",
+                        "kind": "module",
+                        "op": "generate",
+                        "label": "生成 2 个教学候选",
+                        "params": {
+                          "count": 2
+                        }
+                      },
+                      {
+                        "id": "evaluate",
+                        "kind": "module",
+                        "op": "evaluate",
+                        "label": "按明确参考评价",
+                        "params": {}
+                      }
+                    ],
+                    "edges": [
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "item"
+                        },
+                        "to": {
+                          "node": "generate",
+                          "port": "item"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "generate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "items"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "reference"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "reference"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "evaluate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "$out",
+                          "port": "result"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "import-evaluate",
+                  "kind": "module",
+                  "op": "evaluate",
+                  "label": "评价独立导入对象",
+                  "params": {}
+                },
+                {
+                  "id": "collect",
+                  "kind": "module",
+                  "op": "collect",
+                  "label": "合并明确输入",
+                  "params": {}
+                },
+                {
+                  "id": "filter",
+                  "kind": "module",
+                  "op": "filter",
+                  "label": "筛选",
+                  "params": {
+                    "metric": "similarity",
+                    "method": "teaching-distance",
+                    "region_key": "whole-teaching-object",
+                    "threshold": 0,
+                    "direction": "desc",
+                    "limit": 2
+                  }
+                },
+                {
+                  "id": "split",
+                  "kind": "module",
+                  "op": "split",
+                  "label": "拆分为下一轮输入",
+                  "params": {}
+                },
+                {
+                  "id": "reference",
+                  "kind": "module",
+                  "op": "chooseReference",
+                  "label": "明确选第 1 项作参考",
+                  "params": {}
+                }
+              ],
+              "edges": [
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "items"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "imported"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "map",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "import-evaluate",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "collect",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "filter",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "split",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "reference",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "result"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "split",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextItems"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "reference",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextReference"
+                  }
+                }
+              ]
+            },
+            "feedback": [
+              {
+                "output": "nextItems",
+                "input": "items"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "templates",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "reference-input",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "reference"
+            }
+          },
+          {
+            "from": {
+              "node": "imported",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "imported"
+            }
+          },
+          {
+            "from": {
+              "node": "repeat",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "inputs": [
+            "模板 A",
+            "模板 B"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "模板 A.1",
+            "模板 A.2"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-1",
+              "label": "模板 A.1",
+              "position": 8.3,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.83
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-2",
+              "label": "模板 A.2",
+              "position": 8.1,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.81
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "inputs": [
+            "模板 A.1",
+            "模板 A.2"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "模板 A.1.1",
+            "模板 A.1.2"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-5",
+              "label": "模板 A.1.1",
+              "position": 8.600000000000001,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.86
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-6",
+              "label": "模板 A.1.2",
+              "position": 8.4,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.84
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "final": [
+        "模板 A.1.1",
+        "模板 A.1.2"
+      ],
+      "finalDetails": [
+        {
+          "id": "teaching-object-5",
+          "label": "模板 A.1.1",
+          "position": 8.600000000000001,
+          "scores": [
+            {
+              "reference": "REF",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.86
+              }
+            }
+          ]
+        },
+        {
+          "id": "teaching-object-6",
+          "label": "模板 A.1.2",
+          "position": 8.4,
+          "scores": [
+            {
+              "reference": "REF",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.84
+              }
+            }
+          ]
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/templates",
+          "node": "明确模板包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1",
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/reference-input",
+          "node": "明确参考包",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/imported",
+          "node": "独立导入包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": []
+          }
+        },
+        {
+          "callId": "root/repeat",
+          "node": "重复执行子流程",
+          "kind": "repeat",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ],
+            "imported": []
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-21"
+            ],
+            "nextItems": [
+              "package-22",
+              "package-23"
+            ],
+            "nextReference": [
+              "package-24"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6",
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-1"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-5"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-5"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-7"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-7"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-9"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-6",
+              "package-8",
+              "package-9"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-10"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-10"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-11"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-12",
+              "package-13"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-14"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-12",
+              "package-13"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-16",
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-12"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-15"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-15"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-16"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-13"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-17"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-17"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-19"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-16",
+              "package-18",
+              "package-19"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-20"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-20"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-21"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-21"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-22",
+              "package-23"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-21"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-24"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "teaching-explicit-updated-reference",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "完整图",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "templates",
+            "kind": "literal",
+            "label": "明确模板包列表",
+            "packages": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          {
+            "id": "reference-input",
+            "kind": "literal",
+            "label": "明确参考包",
+            "packages": [
+              "package-3"
+            ]
+          },
+          {
+            "id": "imported",
+            "kind": "literal",
+            "label": "独立导入包列表",
+            "packages": []
+          },
+          {
+            "id": "repeat",
+            "kind": "repeat",
+            "label": "重复执行子流程",
+            "count": 2,
+            "body": {
+              "id": "round",
+              "label": "一次循环",
+              "inputPorts": [
+                "items",
+                "reference",
+                "imported"
+              ],
+              "outputPorts": [
+                "result",
+                "nextItems",
+                "nextReference"
+              ],
+              "nodes": [
+                {
+                  "id": "map",
+                  "kind": "map",
+                  "label": "逐项子流程",
+                  "inputPorts": [
+                    "items",
+                    "reference"
+                  ],
+                  "iteratePort": "items",
+                  "bindings": {
+                    "items": "item",
+                    "reference": "reference"
+                  },
+                  "body": {
+                    "id": "item",
+                    "label": "逐个输入包",
+                    "inputPorts": [
+                      "item",
+                      "reference"
+                    ],
+                    "outputPorts": [
+                      "result"
+                    ],
+                    "nodes": [
+                      {
+                        "id": "generate",
+                        "kind": "module",
+                        "op": "generate",
+                        "label": "生成 2 个教学候选",
+                        "params": {
+                          "count": 2
+                        }
+                      },
+                      {
+                        "id": "evaluate",
+                        "kind": "module",
+                        "op": "evaluate",
+                        "label": "按明确参考评价",
+                        "params": {}
+                      }
+                    ],
+                    "edges": [
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "item"
+                        },
+                        "to": {
+                          "node": "generate",
+                          "port": "item"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "generate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "items"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "reference"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "reference"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "evaluate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "$out",
+                          "port": "result"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "import-evaluate",
+                  "kind": "module",
+                  "op": "evaluate",
+                  "label": "评价独立导入对象",
+                  "params": {}
+                },
+                {
+                  "id": "collect",
+                  "kind": "module",
+                  "op": "collect",
+                  "label": "合并明确输入",
+                  "params": {}
+                },
+                {
+                  "id": "filter",
+                  "kind": "module",
+                  "op": "filter",
+                  "label": "筛选",
+                  "params": {
+                    "metric": "similarity",
+                    "method": "teaching-distance",
+                    "region_key": "whole-teaching-object",
+                    "threshold": 0,
+                    "direction": "desc",
+                    "limit": 2
+                  }
+                },
+                {
+                  "id": "split",
+                  "kind": "module",
+                  "op": "split",
+                  "label": "拆分为下一轮输入",
+                  "params": {}
+                },
+                {
+                  "id": "reference",
+                  "kind": "module",
+                  "op": "chooseReference",
+                  "label": "明确选第 1 项作参考",
+                  "params": {}
+                }
+              ],
+              "edges": [
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "items"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "imported"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "map",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "import-evaluate",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "collect",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "filter",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "split",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "reference",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "result"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "split",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextItems"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "reference",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextReference"
+                  }
+                }
+              ]
+            },
+            "feedback": [
+              {
+                "output": "nextItems",
+                "input": "items"
+              },
+              {
+                "output": "nextReference",
+                "input": "reference"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "templates",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "reference-input",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "reference"
+            }
+          },
+          {
+            "from": {
+              "node": "imported",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "imported"
+            }
+          },
+          {
+            "from": {
+              "node": "repeat",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "inputs": [
+            "模板 A",
+            "模板 B"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "模板 A.1",
+            "模板 A.2"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-1",
+              "label": "模板 A.1",
+              "position": 8.3,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.83
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-2",
+              "label": "模板 A.2",
+              "position": 8.1,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.81
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "inputs": [
+            "模板 A.1",
+            "模板 A.2"
+          ],
+          "references": [
+            "模板 A.1"
+          ],
+          "selected": [
+            "模板 A.1.2",
+            "模板 A.2.1"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-6",
+              "label": "模板 A.1.2",
+              "position": 8.4,
+              "scores": [
+                {
+                  "reference": "teaching-object-1",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.99
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-7",
+              "label": "模板 A.2.1",
+              "position": 8.4,
+              "scores": [
+                {
+                  "reference": "teaching-object-1",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.99
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "final": [
+        "模板 A.1.2",
+        "模板 A.2.1"
+      ],
+      "finalDetails": [
+        {
+          "id": "teaching-object-6",
+          "label": "模板 A.1.2",
+          "position": 8.4,
+          "scores": [
+            {
+              "reference": "teaching-object-1",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.99
+              }
+            }
+          ]
+        },
+        {
+          "id": "teaching-object-7",
+          "label": "模板 A.2.1",
+          "position": 8.4,
+          "scores": [
+            {
+              "reference": "teaching-object-1",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.99
+              }
+            }
+          ]
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/templates",
+          "node": "明确模板包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1",
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/reference-input",
+          "node": "明确参考包",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/imported",
+          "node": "独立导入包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": []
+          }
+        },
+        {
+          "callId": "root/repeat",
+          "node": "重复执行子流程",
+          "kind": "repeat",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ],
+            "imported": []
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-21"
+            ],
+            "nextItems": [
+              "package-22",
+              "package-23"
+            ],
+            "nextReference": [
+              "package-24"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6",
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-1"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-5"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-5"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-7"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-7"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-9"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-6",
+              "package-8",
+              "package-9"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-10"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-10"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-11"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-12",
+              "package-13"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-14"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-12",
+              "package-13"
+            ],
+            "reference": [
+              "package-14"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-16",
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-12"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-15"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-15"
+            ],
+            "reference": [
+              "package-14"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-16"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-13"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-17"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-17"
+            ],
+            "reference": [
+              "package-14"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-14"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-19"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-16",
+              "package-18",
+              "package-19"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-20"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-20"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-21"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-21"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-22",
+              "package-23"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-21"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-24"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "teaching-independent-import",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "完整图",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "templates",
+            "kind": "literal",
+            "label": "明确模板包列表",
+            "packages": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          {
+            "id": "reference-input",
+            "kind": "literal",
+            "label": "明确参考包",
+            "packages": [
+              "package-3"
+            ]
+          },
+          {
+            "id": "imported",
+            "kind": "literal",
+            "label": "独立导入包列表",
+            "packages": [
+              "package-4"
+            ]
+          },
+          {
+            "id": "repeat",
+            "kind": "repeat",
+            "label": "重复执行子流程",
+            "count": 2,
+            "body": {
+              "id": "round",
+              "label": "一次循环",
+              "inputPorts": [
+                "items",
+                "reference",
+                "imported"
+              ],
+              "outputPorts": [
+                "result",
+                "nextItems",
+                "nextReference"
+              ],
+              "nodes": [
+                {
+                  "id": "map",
+                  "kind": "map",
+                  "label": "逐项子流程",
+                  "inputPorts": [
+                    "items",
+                    "reference"
+                  ],
+                  "iteratePort": "items",
+                  "bindings": {
+                    "items": "item",
+                    "reference": "reference"
+                  },
+                  "body": {
+                    "id": "item",
+                    "label": "逐个输入包",
+                    "inputPorts": [
+                      "item",
+                      "reference"
+                    ],
+                    "outputPorts": [
+                      "result"
+                    ],
+                    "nodes": [
+                      {
+                        "id": "generate",
+                        "kind": "module",
+                        "op": "generate",
+                        "label": "生成 2 个教学候选",
+                        "params": {
+                          "count": 2
+                        }
+                      },
+                      {
+                        "id": "evaluate",
+                        "kind": "module",
+                        "op": "evaluate",
+                        "label": "按明确参考评价",
+                        "params": {}
+                      }
+                    ],
+                    "edges": [
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "item"
+                        },
+                        "to": {
+                          "node": "generate",
+                          "port": "item"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "generate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "items"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "reference"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "reference"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "evaluate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "$out",
+                          "port": "result"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "import-evaluate",
+                  "kind": "module",
+                  "op": "evaluate",
+                  "label": "评价独立导入对象",
+                  "params": {}
+                },
+                {
+                  "id": "collect",
+                  "kind": "module",
+                  "op": "collect",
+                  "label": "合并明确输入",
+                  "params": {}
+                },
+                {
+                  "id": "filter",
+                  "kind": "module",
+                  "op": "filter",
+                  "label": "筛选",
+                  "params": {
+                    "metric": "similarity",
+                    "method": "teaching-distance",
+                    "region_key": "whole-teaching-object",
+                    "threshold": 0,
+                    "direction": "desc",
+                    "limit": 2
+                  }
+                },
+                {
+                  "id": "split",
+                  "kind": "module",
+                  "op": "split",
+                  "label": "拆分为下一轮输入",
+                  "params": {}
+                },
+                {
+                  "id": "reference",
+                  "kind": "module",
+                  "op": "chooseReference",
+                  "label": "明确选第 1 项作参考",
+                  "params": {}
+                }
+              ],
+              "edges": [
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "items"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "imported"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "map",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "import-evaluate",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "collect",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "filter",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "split",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "reference",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "result"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "split",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextItems"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "reference",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextReference"
+                  }
+                }
+              ]
+            },
+            "feedback": [
+              {
+                "output": "nextItems",
+                "input": "items"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "templates",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "reference-input",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "reference"
+            }
+          },
+          {
+            "from": {
+              "node": "imported",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "imported"
+            }
+          },
+          {
+            "from": {
+              "node": "repeat",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "inputs": [
+            "模板 A",
+            "模板 B"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "独立导入对象",
+            "模板 A.1"
+          ],
+          "selectedDetails": [
+            {
+              "id": "IMPORTED",
+              "label": "独立导入对象",
+              "position": 9.5,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.95
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-1",
+              "label": "模板 A.1",
+              "position": 8.3,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.83
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "inputs": [
+            "独立导入对象",
+            "模板 A.1"
+          ],
+          "references": [
+            "用户指定参考"
+          ],
+          "selected": [
+            "独立导入对象.1",
+            "独立导入对象.2"
+          ],
+          "selectedDetails": [
+            {
+              "id": "teaching-object-5",
+              "label": "独立导入对象.1",
+              "position": 9.8,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.98
+                  }
+                }
+              ]
+            },
+            {
+              "id": "teaching-object-6",
+              "label": "独立导入对象.2",
+              "position": 9.6,
+              "scores": [
+                {
+                  "reference": "REF",
+                  "method": "teaching-distance",
+                  "metrics": {
+                    "similarity": 0.96
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "final": [
+        "独立导入对象.1",
+        "独立导入对象.2"
+      ],
+      "finalDetails": [
+        {
+          "id": "teaching-object-5",
+          "label": "独立导入对象.1",
+          "position": 9.8,
+          "scores": [
+            {
+              "reference": "REF",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.98
+              }
+            }
+          ]
+        },
+        {
+          "id": "teaching-object-6",
+          "label": "独立导入对象.2",
+          "position": 9.6,
+          "scores": [
+            {
+              "reference": "REF",
+              "method": "teaching-distance",
+              "metrics": {
+                "similarity": 0.96
+              }
+            }
+          ]
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/templates",
+          "node": "明确模板包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1",
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/reference-input",
+          "node": "明确参考包",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/imported",
+          "node": "独立导入包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-4"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat",
+          "node": "重复执行子流程",
+          "kind": "repeat",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ],
+            "imported": [
+              "package-4"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-21"
+            ],
+            "nextItems": [
+              "package-22",
+              "package-23"
+            ],
+            "nextReference": [
+              "package-24"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6",
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-1"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-5"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-5"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-7"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-7"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-4"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-9"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-6",
+              "package-8",
+              "package-9"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-10"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-10"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-11"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-12",
+              "package-13"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-11"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-14"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-12",
+              "package-13"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-16",
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-12"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-15"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-15"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-16"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-13"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-17"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-17"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-18"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-4"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-19"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-16",
+              "package-18",
+              "package-19"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-20"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/filter",
+          "node": "筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-20"
+            ]
+          },
+          "params": {
+            "metric": "similarity",
+            "method": "teaching-distance",
+            "region_key": "whole-teaching-object",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-21"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/split",
+          "node": "拆分为下一轮输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-21"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-22",
+              "package-23"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/reference",
+          "node": "明确选第 1 项作参考",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-21"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-24"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "custom-word-format",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "文字自定义格式",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "words",
+            "kind": "literal",
+            "label": "两个自定义格式包",
+            "packages": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          {
+            "id": "repeat",
+            "kind": "repeat",
+            "label": "重复文字子流程",
+            "count": 2,
+            "body": {
+              "id": "round",
+              "label": "文字一轮",
+              "inputPorts": [
+                "items"
+              ],
+              "outputPorts": [
+                "result",
+                "nextItems"
+              ],
+              "nodes": [
+                {
+                  "id": "map",
+                  "kind": "map",
+                  "label": "逐项子流程",
+                  "inputPorts": [
+                    "items"
+                  ],
+                  "iteratePort": "items",
+                  "bindings": {
+                    "items": "item"
+                  },
+                  "body": {
+                    "id": "item",
+                    "label": "文字逐项处理",
+                    "inputPorts": [
+                      "item"
+                    ],
+                    "outputPorts": [
+                      "result"
+                    ],
+                    "nodes": [
+                      {
+                        "id": "expand",
+                        "kind": "module",
+                        "op": "wordsExpand",
+                        "label": "添加标点",
+                        "params": {}
+                      }
+                    ],
+                    "edges": [
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "item"
+                        },
+                        "to": {
+                          "node": "expand",
+                          "port": "item"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "expand",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "$out",
+                          "port": "result"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "select",
+                  "kind": "module",
+                  "op": "wordsSelect",
+                  "label": "保留感叹号结尾",
+                  "params": {
+                    "limit": 2
+                  }
+                }
+              ],
+              "edges": [
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "items"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "map",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "select",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "select",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "result"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "select",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextItems"
+                  }
+                }
+              ]
+            },
+            "feedback": [
+              {
+                "output": "nextItems",
+                "input": "items"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "words",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "repeat",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "inputs": [
+            "red",
+            "blue"
+          ],
+          "references": [],
+          "selected": [
+            "red!",
+            "blue!"
+          ],
+          "selectedDetails": [
+            {
+              "label": "red!"
+            },
+            {
+              "label": "blue!"
+            }
+          ]
+        },
+        {
+          "round": 2,
+          "inputs": [
+            "red!",
+            "blue!"
+          ],
+          "references": [],
+          "selected": [
+            "red!!",
+            "blue!!"
+          ],
+          "selectedDetails": [
+            {
+              "label": "red!!"
+            },
+            {
+              "label": "blue!!"
+            }
+          ]
+        }
+      ],
+      "final": [
+        "red!!",
+        "blue!!"
+      ],
+      "finalDetails": [
+        {
+          "label": "red!!"
+        },
+        {
+          "label": "blue!!"
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/words",
+          "node": "两个自定义格式包",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1",
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat",
+          "node": "重复文字子流程",
+          "kind": "repeat",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-7"
+            ],
+            "nextItems": [
+              "package-7"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3",
+              "package-4"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/expand",
+          "node": "添加标点",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-1"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/expand",
+          "node": "添加标点",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-2"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-4"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/select",
+          "node": "保留感叹号结尾",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-3",
+              "package-4"
+            ]
+          },
+          "params": {
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-5"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-5"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/map/item:0/expand",
+          "node": "添加标点",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-5"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:2/select",
+          "node": "保留感叹号结尾",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-6"
+            ]
+          },
+          "params": {
+            "limit": 2
+          },
+          "outputs": {
+            "result": [
+              "package-7"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "user-disconnected-required-input",
+      "status": "failed",
+      "error": "筛选: 输入端口 items 尚未连线。",
+      "graph": {
+        "id": "root",
+        "label": "完整图",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "templates",
+            "kind": "literal",
+            "label": "明确模板包列表",
+            "packages": [
+              "package-1",
+              "package-2"
+            ]
+          },
+          {
+            "id": "reference-input",
+            "kind": "literal",
+            "label": "明确参考包",
+            "packages": [
+              "package-3"
+            ]
+          },
+          {
+            "id": "imported",
+            "kind": "literal",
+            "label": "独立导入包列表",
+            "packages": []
+          },
+          {
+            "id": "repeat",
+            "kind": "repeat",
+            "label": "重复执行子流程",
+            "count": 2,
+            "body": {
+              "id": "round",
+              "label": "一次循环",
+              "inputPorts": [
+                "items",
+                "reference",
+                "imported"
+              ],
+              "outputPorts": [
+                "result",
+                "nextItems",
+                "nextReference"
+              ],
+              "nodes": [
+                {
+                  "id": "map",
+                  "kind": "map",
+                  "label": "逐项子流程",
+                  "inputPorts": [
+                    "items",
+                    "reference"
+                  ],
+                  "iteratePort": "items",
+                  "bindings": {
+                    "items": "item",
+                    "reference": "reference"
+                  },
+                  "body": {
+                    "id": "item",
+                    "label": "逐个输入包",
+                    "inputPorts": [
+                      "item",
+                      "reference"
+                    ],
+                    "outputPorts": [
+                      "result"
+                    ],
+                    "nodes": [
+                      {
+                        "id": "generate",
+                        "kind": "module",
+                        "op": "generate",
+                        "label": "生成 2 个教学候选",
+                        "params": {
+                          "count": 2
+                        }
+                      },
+                      {
+                        "id": "evaluate",
+                        "kind": "module",
+                        "op": "evaluate",
+                        "label": "按明确参考评价",
+                        "params": {}
+                      }
+                    ],
+                    "edges": [
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "item"
+                        },
+                        "to": {
+                          "node": "generate",
+                          "port": "item"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "generate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "items"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "$in",
+                          "port": "reference"
+                        },
+                        "to": {
+                          "node": "evaluate",
+                          "port": "reference"
+                        }
+                      },
+                      {
+                        "from": {
+                          "node": "evaluate",
+                          "port": "result"
+                        },
+                        "to": {
+                          "node": "$out",
+                          "port": "result"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "import-evaluate",
+                  "kind": "module",
+                  "op": "evaluate",
+                  "label": "评价独立导入对象",
+                  "params": {}
+                },
+                {
+                  "id": "collect",
+                  "kind": "module",
+                  "op": "collect",
+                  "label": "合并明确输入",
+                  "params": {}
+                },
+                {
+                  "id": "filter",
+                  "kind": "module",
+                  "op": "filter",
+                  "label": "筛选",
+                  "params": {
+                    "metric": "similarity",
+                    "method": "teaching-distance",
+                    "region_key": "whole-teaching-object",
+                    "threshold": 0,
+                    "direction": "desc",
+                    "limit": 2
+                  }
+                },
+                {
+                  "id": "split",
+                  "kind": "module",
+                  "op": "split",
+                  "label": "拆分为下一轮输入",
+                  "params": {}
+                },
+                {
+                  "id": "reference",
+                  "kind": "module",
+                  "op": "chooseReference",
+                  "label": "明确选第 1 项作参考",
+                  "params": {}
+                }
+              ],
+              "edges": [
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "items"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "map",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "imported"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "$in",
+                    "port": "reference"
+                  },
+                  "to": {
+                    "node": "import-evaluate",
+                    "port": "reference"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "map",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "import-evaluate",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "collect",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "split",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "reference",
+                    "port": "items"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "filter",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "result"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "split",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextItems"
+                  }
+                },
+                {
+                  "from": {
+                    "node": "reference",
+                    "port": "result"
+                  },
+                  "to": {
+                    "node": "$out",
+                    "port": "nextReference"
+                  }
+                }
+              ]
+            },
+            "feedback": [
+              {
+                "output": "nextItems",
+                "input": "items"
+              }
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "templates",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "reference-input",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "reference"
+            }
+          },
+          {
+            "from": {
+              "node": "imported",
+              "port": "result"
+            },
+            "to": {
+              "node": "repeat",
+              "port": "imported"
+            }
+          },
+          {
+            "from": {
+              "node": "repeat",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [],
+      "final": [],
+      "finalDetails": [],
+      "calls": [
+        {
+          "callId": "root/templates",
+          "node": "明确模板包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1",
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/reference-input",
+          "node": "明确参考包",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/imported",
+          "node": "独立导入包列表",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": []
+          }
+        },
+        {
+          "callId": "root/repeat",
+          "node": "重复执行子流程",
+          "kind": "repeat",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ],
+            "imported": []
+          },
+          "params": {},
+          "outputs": null
+        },
+        {
+          "callId": "root/repeat/round:1/map",
+          "node": "逐项子流程",
+          "kind": "map",
+          "inputs": {
+            "items": [
+              "package-1",
+              "package-2"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6",
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-1"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-5"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:0/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-5"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-6"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/generate",
+          "node": "生成 2 个教学候选",
+          "kind": "module",
+          "inputs": {
+            "item": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "count": 2
+          },
+          "outputs": {
+            "result": [
+              "package-7"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/map/item:1/evaluate",
+          "node": "按明确参考评价",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-7"
+            ],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-8"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/import-evaluate",
+          "node": "评价独立导入对象",
+          "kind": "module",
+          "inputs": {
+            "items": [],
+            "reference": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-9"
+            ]
+          }
+        },
+        {
+          "callId": "root/repeat/round:1/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-6",
+              "package-8",
+              "package-9"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-10"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "real-round-1-evaluation-replay",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "真实评价回放",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "input",
+            "kind": "literal",
+            "label": "真实对象与评价",
+            "packages": [
+              "package-1"
+            ]
+          },
+          {
+            "id": "collect",
+            "kind": "module",
+            "op": "collect",
+            "label": "合并明确输入",
+            "params": {}
+          },
+          {
+            "id": "filter",
+            "kind": "module",
+            "op": "realFilter",
+            "label": "使用已计算评价筛选",
+            "params": {
+              "metric": "tm_reference",
+              "method": "TM-align",
+              "reference_id": "original-1pga",
+              "region_key": "full-chain-A",
+              "threshold": 0,
+              "direction": "desc",
+              "limit": 1
+            }
+          },
+          {
+            "id": "split",
+            "kind": "module",
+            "op": "split",
+            "label": "按对象拆分展示记录",
+            "params": {}
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "input",
+              "port": "result"
+            },
+            "to": {
+              "node": "collect",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "collect",
+              "port": "result"
+            },
+            "to": {
+              "node": "filter",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "filter",
+              "port": "result"
+            },
+            "to": {
+              "node": "split",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "split",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [],
+      "final": [
+        "历史序列 1 的 ESM3 生成结构"
+      ],
+      "finalDetails": [
+        {
+          "id": "feedback-candidate-1",
+          "label": "历史序列 1 的 ESM3 生成结构",
+          "scores": [
+            {
+              "reference": "original-1pga",
+              "method": {
+                "name": "TM-align",
+                "tmtools": "0.3.0",
+                "algorithm": "20210224",
+                "scope": "selected single protein chain C-alpha alignment; complete original structures retained, other components excluded from metrics",
+                "parameters": {}
+              },
+              "metrics": {
+                "tm_subject": {
+                  "value": 0.8033945427282406,
+                  "normalization": "selected subject protein residue count",
+                  "normalization_length": 58,
+                  "unit": "dimensionless"
+                },
+                "tm_reference": {
+                  "value": 0.8263003040517922,
+                  "normalization": "selected reference protein residue count",
+                  "normalization_length": 56,
+                  "unit": "dimensionless"
+                },
+                "rmsd": {
+                  "value": 1.220371614619266,
+                  "unit": "angstrom",
+                  "scope": "TM-align aligned C-alpha pairs",
+                  "aligned_pair_count": 55
+                }
+              }
+            },
+            {
+              "reference": "original-1pga",
+              "method": {
+                "name": "TM-align",
+                "tmtools": "0.3.0",
+                "algorithm": "20210224",
+                "scope": "selected single protein chain C-alpha alignment; complete original structures retained, other components excluded from metrics",
+                "parameters": {}
+              },
+              "metrics": {
+                "tm_subject": {
+                  "value": 0.4727877117703924,
+                  "normalization": "selected subject protein residue count",
+                  "normalization_length": 11,
+                  "unit": "dimensionless"
+                },
+                "tm_reference": {
+                  "value": 0.4727877117703924,
+                  "normalization": "selected reference protein residue count",
+                  "normalization_length": 11,
+                  "unit": "dimensionless"
+                },
+                "rmsd": {
+                  "value": 0.5380756195313842,
+                  "unit": "angstrom",
+                  "scope": "TM-align aligned C-alpha pairs",
+                  "aligned_pair_count": 9
+                }
+              }
+            },
+            {
+              "reference": "feedback-candidate-1",
+              "method": {
+                "name": "TM-align",
+                "tmtools": "0.3.0",
+                "algorithm": "20210224",
+                "scope": "selected single protein chain C-alpha alignment; complete original structures retained, other components excluded from metrics",
+                "parameters": {}
+              },
+              "metrics": {
+                "tm_subject": {
+                  "value": 1,
+                  "normalization": "selected subject protein residue count",
+                  "normalization_length": 58,
+                  "unit": "dimensionless"
+                },
+                "tm_reference": {
+                  "value": 1,
+                  "normalization": "selected reference protein residue count",
+                  "normalization_length": 58,
+                  "unit": "dimensionless"
+                },
+                "rmsd": {
+                  "value": 0,
+                  "unit": "angstrom",
+                  "scope": "TM-align aligned C-alpha pairs",
+                  "aligned_pair_count": 58
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/input",
+          "node": "真实对象与评价",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1"
+            ]
+          }
+        },
+        {
+          "callId": "root/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-1"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/filter",
+          "node": "使用已计算评价筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "metric": "tm_reference",
+            "method": "TM-align",
+            "reference_id": "original-1pga",
+            "region_key": "full-chain-A",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 1
+          },
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/split",
+          "node": "按对象拆分展示记录",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-4"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "real-round-2-evaluation-replay",
+      "status": "succeeded",
+      "graph": {
+        "id": "root",
+        "label": "真实评价回放",
+        "inputPorts": [],
+        "outputPorts": [
+          "result"
+        ],
+        "nodes": [
+          {
+            "id": "input",
+            "kind": "literal",
+            "label": "真实对象与评价",
+            "packages": [
+              "package-1"
+            ]
+          },
+          {
+            "id": "collect",
+            "kind": "module",
+            "op": "collect",
+            "label": "合并明确输入",
+            "params": {}
+          },
+          {
+            "id": "filter",
+            "kind": "module",
+            "op": "realFilter",
+            "label": "使用已计算评价筛选",
+            "params": {
+              "metric": "tm_reference",
+              "method": "TM-align",
+              "reference_id": "original-1pga",
+              "region_key": "full-chain-A",
+              "threshold": 0,
+              "direction": "desc",
+              "limit": 1
+            }
+          },
+          {
+            "id": "split",
+            "kind": "module",
+            "op": "split",
+            "label": "按对象拆分展示记录",
+            "params": {}
+          }
+        ],
+        "edges": [
+          {
+            "from": {
+              "node": "input",
+              "port": "result"
+            },
+            "to": {
+              "node": "collect",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "collect",
+              "port": "result"
+            },
+            "to": {
+              "node": "filter",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "filter",
+              "port": "result"
+            },
+            "to": {
+              "node": "split",
+              "port": "items"
+            }
+          },
+          {
+            "from": {
+              "node": "split",
+              "port": "result"
+            },
+            "to": {
+              "node": "$out",
+              "port": "result"
+            }
+          }
+        ]
+      },
+      "rounds": [],
+      "final": [
+        "第2轮序列 2 的 ESM3 生成结构"
+      ],
+      "finalDetails": [
+        {
+          "id": "feedback-round2-candidate-2",
+          "label": "第2轮序列 2 的 ESM3 生成结构",
+          "scores": [
+            {
+              "reference": "original-1pga",
+              "method": {
+                "name": "TM-align",
+                "tmtools": "0.3.0",
+                "algorithm": "20210224",
+                "scope": "selected single protein chain C-alpha alignment; complete original structures retained, other components excluded from metrics",
+                "parameters": {}
+              },
+              "metrics": {
+                "tm_subject": {
+                  "value": 0.5890921522600375,
+                  "normalization": "selected subject protein residue count",
+                  "normalization_length": 59,
+                  "unit": "dimensionless"
+                },
+                "tm_reference": {
+                  "value": 0.6137247185464406,
+                  "normalization": "selected reference protein residue count",
+                  "normalization_length": 56,
+                  "unit": "dimensionless"
+                },
+                "rmsd": {
+                  "value": 2.346936700519352,
+                  "unit": "angstrom",
+                  "scope": "TM-align aligned C-alpha pairs",
+                  "aligned_pair_count": 46
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "calls": [
+        {
+          "callId": "root/input",
+          "node": "真实对象与评价",
+          "kind": "literal",
+          "inputs": {},
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-1"
+            ]
+          }
+        },
+        {
+          "callId": "root/collect",
+          "node": "合并明确输入",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-1"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-2"
+            ]
+          }
+        },
+        {
+          "callId": "root/filter",
+          "node": "使用已计算评价筛选",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-2"
+            ]
+          },
+          "params": {
+            "metric": "tm_reference",
+            "method": "TM-align",
+            "reference_id": "original-1pga",
+            "region_key": "full-chain-A",
+            "threshold": 0,
+            "direction": "desc",
+            "limit": 1
+          },
+          "outputs": {
+            "result": [
+              "package-3"
+            ]
+          }
+        },
+        {
+          "callId": "root/split",
+          "node": "按对象拆分展示记录",
+          "kind": "module",
+          "inputs": {
+            "items": [
+              "package-3"
+            ]
+          },
+          "params": {},
+          "outputs": {
+            "result": [
+              "package-4"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

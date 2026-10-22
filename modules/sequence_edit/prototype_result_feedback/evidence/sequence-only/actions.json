@@ -1,0 +1,24 @@
+{
+  "actions": [
+    {
+      "type": "sequence_only",
+      "object_id": "feedback-candidate-1"
+    },
+    {
+      "type": "fix",
+      "regions": "1-5"
+    },
+    {
+      "type": "preview",
+      "after": 11,
+      "count": 2,
+      "delete_position": 27
+    },
+    {
+      "type": "confirm"
+    },
+    {
+      "type": "deliver"
+    }
+  ]
+}

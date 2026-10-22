@@ -1,0 +1,28 @@
+{
+  "selected_object_id": "feedback-candidate-1",
+  "chain": "A",
+  "sequence_conditions": [
+    {
+      "target_index": 0,
+      "amino_acid": "M"
+    },
+    {
+      "target_index": 1,
+      "amino_acid": "T"
+    },
+    {
+      "target_index": 2,
+      "amino_acid": "Y"
+    },
+    {
+      "target_index": 3,
+      "amino_acid": "K"
+    },
+    {
+      "target_index": 4,
+      "amino_acid": "L"
+    }
+  ],
+  "coordinate_conditions": [],
+  "sequence_file": "target.json"
+}

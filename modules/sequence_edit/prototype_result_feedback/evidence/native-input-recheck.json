@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "final_cif_native_coordinates_equal_actual_generation_input": true,
+  "target_length": 59,
+  "inserted_label_positions": [
+    12,
+    13
+  ],
+  "target_label_31_retains_source_author_30": true,
+  "removed_source_author_25_absent": true,
+  "scope": "Final CIF preserves original author numbers; native inputs are unchanged from the completed generation."
+}

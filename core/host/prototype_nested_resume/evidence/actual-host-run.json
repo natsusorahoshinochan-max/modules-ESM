@@ -1,0 +1,817 @@
+{
+  "question": "Can explicit nested call locations reuse fixed calls and actual package delivery?",
+  "execution": "Real host APIs; lightweight file operations; zero new model inference",
+  "scratch": "/var/folders/sq/mdbyg1wx06b43y22c042zs3c0000gn/T/PROTOTYPE-nested-resume-wipe-me-_citlv8y",
+  "source": "modules/esm3/prototype_file_input/evidence/generation.json",
+  "scenarios": {
+    "cancel": {
+      "flow_kind": "explicitly expanded two-round DAG; no native nested scheduler",
+      "before_continuation": {
+        "id": "17995f36753249a997092ea61f328a2e",
+        "status": "cancelled",
+        "calls": {
+          "6480824adf1143cb92dfea249aa7733d": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "independent",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "fefcde9dc91345969f6e3e0b90f2005a": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "item-0",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "e5980d32f0a7426e81dd067523108faa": {
+            "inputs": {
+              "item": [
+                "e6900515bf1d4b938fe957c2019850dd"
+              ]
+            },
+            "parameters": {
+              "label": "item-1",
+              "requests": 2,
+              "pause_after_first": true,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          }
+        },
+        "nodes": [
+          {
+            "call_id": "6480824adf1143cb92dfea249aa7733d",
+            "scope": "root/independent",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "1d790207c71e4cda8290c0d424ce199e"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "fefcde9dc91345969f6e3e0b90f2005a",
+            "scope": "root/repeat/round:1/map/item:0/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "8c3ae50b9410457e9ab42e346d14d518"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "e5980d32f0a7426e81dd067523108faa",
+            "scope": "root/repeat/round:1/map/item:1/copy",
+            "status": "cancelled",
+            "outputs": {
+              "result": [
+                "e8d7bdb248e240f79697794140d1fe2a"
+              ]
+            },
+            "diagnostics": [
+              "User cancelled the whole run between requests"
+            ],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "418d79d5360a41d28c1a869eb69b5652",
+            "scope": "root/repeat/round:1/collect",
+            "status": "cancelled",
+            "outputs": {},
+            "diagnostics": [
+              "Run cancelled before this node started"
+            ],
+            "continuation": null
+          },
+          {
+            "call_id": "8c4c1f4996314d928cece20d6d3a7a32",
+            "scope": "root/repeat/round:2/copy",
+            "status": "cancelled",
+            "outputs": {},
+            "diagnostics": [
+              "Run cancelled before this node started"
+            ],
+            "continuation": null
+          }
+        ]
+      },
+      "after_continuation": {
+        "id": "17995f36753249a997092ea61f328a2e",
+        "status": "succeeded",
+        "calls": {
+          "6480824adf1143cb92dfea249aa7733d": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "independent",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "fefcde9dc91345969f6e3e0b90f2005a": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "item-0",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "e5980d32f0a7426e81dd067523108faa": {
+            "inputs": {
+              "item": [
+                "e6900515bf1d4b938fe957c2019850dd"
+              ]
+            },
+            "parameters": {
+              "label": "item-1",
+              "requests": 2,
+              "pause_after_first": true,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "418d79d5360a41d28c1a869eb69b5652": {
+            "inputs": {
+              "items": [
+                "8c3ae50b9410457e9ab42e346d14d518",
+                "bcf56e97ee164739a7a806d1ac4ab347"
+              ]
+            },
+            "parameters": {},
+            "tool_parameters": {},
+            "tools": {}
+          },
+          "8c4c1f4996314d928cece20d6d3a7a32": {
+            "inputs": {
+              "item": [
+                "ab79aae19d22433babfba1d54feabda8"
+              ]
+            },
+            "parameters": {
+              "label": "round-2",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          }
+        },
+        "nodes": [
+          {
+            "call_id": "6480824adf1143cb92dfea249aa7733d",
+            "scope": "root/independent",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "1d790207c71e4cda8290c0d424ce199e"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "fefcde9dc91345969f6e3e0b90f2005a",
+            "scope": "root/repeat/round:1/map/item:0/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "8c3ae50b9410457e9ab42e346d14d518"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "e5980d32f0a7426e81dd067523108faa",
+            "scope": "root/repeat/round:1/map/item:1/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "bcf56e97ee164739a7a806d1ac4ab347"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1",
+                "request-2"
+              ]
+            },
+            "progress": [
+              "request-2 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "418d79d5360a41d28c1a869eb69b5652",
+            "scope": "root/repeat/round:1/collect",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "ab79aae19d22433babfba1d54feabda8"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": null,
+            "progress": []
+          },
+          {
+            "call_id": "8c4c1f4996314d928cece20d6d3a7a32",
+            "scope": "root/repeat/round:2/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "41e1eb46026c404abaa87c6c6cfee4e5"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          }
+        ]
+      },
+      "before_events": [
+        {
+          "call": "independent",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "item-0",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "item-1",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        }
+      ],
+      "continuation_events": [
+        {
+          "call": "item-1",
+          "request": "request-2",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "round-2",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        }
+      ],
+      "partial_files_read_before_continuation": [
+        {
+          "package_id": "e8d7bdb248e240f79697794140d1fe2a",
+          "key": "request-1/sequence.fasta",
+          "content": ">historical_esm3_all_coords_false\nMTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE\n"
+        }
+      ],
+      "actual_delivered_files": [
+        {
+          "package_id": "41e1eb46026c404abaa87c6c6cfee4e5",
+          "key": "manifest.json",
+          "bytes": 274,
+          "content": "{\n  \"operation\": \"copy existing historical files; no scientific computation\",\n  \"parameter\": \"original\",\n  \"completed\": [\n    \"request-1\"\n  ],\n  \"files\": [\n    \"request-1/input-0-file-1.fasta\",\n    \"request-1/input-1-file-1.fasta\",\n    \"request-1/input-1-file-2.fasta\"\n  ]\n}"
+        },
+        {
+          "package_id": "41e1eb46026c404abaa87c6c6cfee4e5",
+          "key": "request-1/input-0-file-1.fasta",
+          "bytes": 100,
+          "content": ">historical_esm3_all_coords_default_true\nMTYKLVINAKNTGGKSGTTQWEASDASAKVAAAAYAQSNGINGTWSYNSATNTYTLKE\n"
+        },
+        {
+          "package_id": "41e1eb46026c404abaa87c6c6cfee4e5",
+          "key": "request-1/input-1-file-1.fasta",
+          "bytes": 93,
+          "content": ">historical_esm3_all_coords_false\nMTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE\n"
+        },
+        {
+          "package_id": "41e1eb46026c404abaa87c6c6cfee4e5",
+          "key": "request-1/input-1-file-2.fasta",
+          "bytes": 93,
+          "content": ">historical_esm3_all_coords_false\nMTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE\n"
+        }
+      ],
+      "checks": {
+        "first_item_succeeded": true,
+        "independent_succeeded": true,
+        "target_partial_one_request": true,
+        "downstream_not_called": true,
+        "continued_run_succeeded": true,
+        "target_retries_only_request_2": true,
+        "success_nodes_not_repeated": true,
+        "old_parameters_preserved": true,
+        "old_input_tool_call_preserved": true,
+        "join_waited_for_two_successes": true,
+        "round_2_used_explicit_feedback": true,
+        "actual_final_fasta_files_readable": true,
+        "partial_file_readable_before_continue": true,
+        "final_files_match_selected_inputs": true
+      }
+    },
+    "temporary_tool_failure": {
+      "flow_kind": "explicitly expanded two-round DAG; no native nested scheduler",
+      "before_continuation": {
+        "id": "72426e47cc6249fd97c9f65096828af7",
+        "status": "failed",
+        "calls": {
+          "d394c3d9797f4c278e821d542c9feba3": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "item-0",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "02aa7822a8134432813fd83c69991216": {
+            "inputs": {
+              "item": [
+                "e6900515bf1d4b938fe957c2019850dd"
+              ]
+            },
+            "parameters": {
+              "label": "item-1",
+              "requests": 2,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "625cca111d9f499798c13aa732c5ed4b": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "independent",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          }
+        },
+        "nodes": [
+          {
+            "call_id": "d394c3d9797f4c278e821d542c9feba3",
+            "scope": "root/repeat/round:1/map/item:0/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "74e6eb4e05084f04b708521f08dc3a81"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "02aa7822a8134432813fd83c69991216",
+            "scope": "root/repeat/round:1/map/item:1/copy",
+            "status": "failed",
+            "outputs": {
+              "result": [
+                "6e6d7b5ddc4b492399c962a5fc899c64"
+              ]
+            },
+            "diagnostics": [
+              "PROTOTYPE file-copy tool temporarily unavailable"
+            ],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "b3063b6cf9084f2d92ce0aaf39aa88ea",
+            "scope": "root/repeat/round:1/collect",
+            "status": "blocked",
+            "outputs": {},
+            "diagnostics": [
+              "An upstream node did not succeed"
+            ],
+            "continuation": null
+          },
+          {
+            "call_id": "fd291d1d99d94ecd9e3f358737cb7eb2",
+            "scope": "root/repeat/round:2/copy",
+            "status": "blocked",
+            "outputs": {},
+            "diagnostics": [
+              "An upstream node did not succeed"
+            ],
+            "continuation": null
+          },
+          {
+            "call_id": "625cca111d9f499798c13aa732c5ed4b",
+            "scope": "root/independent",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "dbe25869f00846f4b452a798389f4de1"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          }
+        ]
+      },
+      "after_continuation": {
+        "id": "72426e47cc6249fd97c9f65096828af7",
+        "status": "succeeded",
+        "calls": {
+          "d394c3d9797f4c278e821d542c9feba3": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "item-0",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "02aa7822a8134432813fd83c69991216": {
+            "inputs": {
+              "item": [
+                "e6900515bf1d4b938fe957c2019850dd"
+              ]
+            },
+            "parameters": {
+              "label": "item-1",
+              "requests": 2,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "625cca111d9f499798c13aa732c5ed4b": {
+            "inputs": {
+              "item": [
+                "fdbb1e667eca4d46ab1e3a81f1d8820b"
+              ]
+            },
+            "parameters": {
+              "label": "independent",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          },
+          "b3063b6cf9084f2d92ce0aaf39aa88ea": {
+            "inputs": {
+              "items": [
+                "74e6eb4e05084f04b708521f08dc3a81",
+                "fcdabaf43e664b0996f2e082b2a68456"
+              ]
+            },
+            "parameters": {},
+            "tool_parameters": {},
+            "tools": {}
+          },
+          "fd291d1d99d94ecd9e3f358737cb7eb2": {
+            "inputs": {
+              "item": [
+                "22136e874e1345ff9ba54b31add87650"
+              ]
+            },
+            "parameters": {
+              "label": "round-2",
+              "requests": 1,
+              "pause_after_first": false,
+              "label_parameter": "original"
+            },
+            "tool_parameters": {},
+            "tools": {
+              "files": "prototype.nested_resume.copy"
+            }
+          }
+        },
+        "nodes": [
+          {
+            "call_id": "d394c3d9797f4c278e821d542c9feba3",
+            "scope": "root/repeat/round:1/map/item:0/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "74e6eb4e05084f04b708521f08dc3a81"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "02aa7822a8134432813fd83c69991216",
+            "scope": "root/repeat/round:1/map/item:1/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "fcdabaf43e664b0996f2e082b2a68456"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1",
+                "request-2"
+              ]
+            },
+            "progress": [
+              "request-2 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "b3063b6cf9084f2d92ce0aaf39aa88ea",
+            "scope": "root/repeat/round:1/collect",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "22136e874e1345ff9ba54b31add87650"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": null,
+            "progress": []
+          },
+          {
+            "call_id": "fd291d1d99d94ecd9e3f358737cb7eb2",
+            "scope": "root/repeat/round:2/copy",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "7fc8126819bc44a78508d88dc5c74771"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          },
+          {
+            "call_id": "625cca111d9f499798c13aa732c5ed4b",
+            "scope": "root/independent",
+            "status": "succeeded",
+            "outputs": {
+              "result": [
+                "dbe25869f00846f4b452a798389f4de1"
+              ]
+            },
+            "diagnostics": [],
+            "continuation": {
+              "completed": [
+                "request-1"
+              ]
+            },
+            "progress": [
+              "request-1 copied existing files; no inference"
+            ]
+          }
+        ]
+      },
+      "before_events": [
+        {
+          "call": "item-0",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "item-1",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "item-1",
+          "request": "request-2",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "independent",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        }
+      ],
+      "continuation_events": [
+        {
+          "call": "item-1",
+          "request": "request-2",
+          "parameter": "original",
+          "event": "attempt"
+        },
+        {
+          "call": "round-2",
+          "request": "request-1",
+          "parameter": "original",
+          "event": "attempt"
+        }
+      ],
+      "partial_files_read_before_continuation": [
+        {
+          "package_id": "6e6d7b5ddc4b492399c962a5fc899c64",
+          "key": "request-1/sequence.fasta",
+          "content": ">historical_esm3_all_coords_false\nMTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE\n"
+        }
+      ],
+      "actual_delivered_files": [
+        {
+          "package_id": "7fc8126819bc44a78508d88dc5c74771",
+          "key": "manifest.json",
+          "bytes": 274,
+          "content": "{\n  \"operation\": \"copy existing historical files; no scientific computation\",\n  \"parameter\": \"original\",\n  \"completed\": [\n    \"request-1\"\n  ],\n  \"files\": [\n    \"request-1/input-0-file-1.fasta\",\n    \"request-1/input-1-file-1.fasta\",\n    \"request-1/input-1-file-2.fasta\"\n  ]\n}"
+        },
+        {
+          "package_id": "7fc8126819bc44a78508d88dc5c74771",
+          "key": "request-1/input-0-file-1.fasta",
+          "bytes": 100,
+          "content": ">historical_esm3_all_coords_default_true\nMTYKLVINAKNTGGKSGTTQWEASDASAKVAAAAYAQSNGINGTWSYNSATNTYTLKE\n"
+        },
+        {
+          "package_id": "7fc8126819bc44a78508d88dc5c74771",
+          "key": "request-1/input-1-file-1.fasta",
+          "bytes": 93,
+          "content": ">historical_esm3_all_coords_false\nMTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE\n"
+        },
+        {
+          "package_id": "7fc8126819bc44a78508d88dc5c74771",
+          "key": "request-1/input-1-file-2.fasta",
+          "bytes": 93,
+          "content": ">historical_esm3_all_coords_false\nMTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE\n"
+        }
+      ],
+      "checks": {
+        "first_item_succeeded": true,
+        "independent_succeeded": true,
+        "target_partial_one_request": true,
+        "downstream_not_called": true,
+        "continued_run_succeeded": true,
+        "target_retries_only_request_2": true,
+        "success_nodes_not_repeated": true,
+        "old_parameters_preserved": true,
+        "old_input_tool_call_preserved": true,
+        "join_waited_for_two_successes": true,
+        "round_2_used_explicit_feedback": true,
+        "actual_final_fasta_files_readable": true,
+        "partial_file_readable_before_continue": true,
+        "final_files_match_selected_inputs": true
+      }
+    }
+  },
+  "passed": true
+}

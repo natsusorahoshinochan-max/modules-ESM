@@ -1,0 +1,25 @@
+{
+  "actions": [
+    {
+      "action": "open standalone file",
+      "observed": "两个候选分别交付；尚未合并。"
+    },
+    {
+      "action": "merge/filter/extract primary",
+      "observed": "1 个对象，3 项评价，2 个明确参考，15 个文件。\n\n结构与序列保持对象身份；评价保留参考、区域、方法、归一化及对应。每项比较的原始两侧结构和叠合数据一起交付。\n\n包内文件"
+    },
+    {
+      "action": "change evaluation",
+      "extractionDisabled": true
+    },
+    {
+      "action": "filter discontinuous region",
+      "observed": "筛选完成：保留 1 个对象。"
+    },
+    {
+      "action": "strict empty walkthrough",
+      "observed": "0 个对象，0 项评价，0 个明确参考，0 个文件。\n\n结构与序列保持对象身份；评价保留参考、区域、方法、归一化及对应。每项比较的原始两侧结构和叠合数据一起交付。\n\n包内文件"
+    }
+  ],
+  "page_errors": []
+}

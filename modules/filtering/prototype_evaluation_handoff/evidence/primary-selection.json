@@ -1,0 +1,17 @@
+{
+  "parameters": {
+    "score_key": "original-full:tm_reference",
+    "operator": "ge",
+    "threshold": 0.0,
+    "direction": "descending",
+    "limit": 1
+  },
+  "values": {
+    "feedback-candidate-1": 0.8263003040517922,
+    "feedback-candidate-2": 0.24736964768578332
+  },
+  "selected_ids": [
+    "feedback-candidate-1"
+  ],
+  "independent_calculation": "Python sort by descending native value, stable input order; threshold before limit"
+}

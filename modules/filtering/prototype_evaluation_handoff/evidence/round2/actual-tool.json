@@ -1,0 +1,5 @@
+{
+  "entry": "modules.structure_comparison.api.compare",
+  "tmtools": "0.3.0",
+  "calls": 2
+}

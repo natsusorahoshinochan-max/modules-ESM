@@ -1,0 +1,16 @@
+Waiting for model resource: /tmp/protein-workbench-model-validation.lock
+Model resource acquired
+Traceback (most recent call last):
+  File "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/sequence_edit/prototype_result_feedback/run.py", line 221, in <module>
+    main()
+  File "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/sequence_edit/prototype_result_feedback/run.py", line 212, in main
+    feedback(output)
+  File "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/sequence_edit/prototype_result_feedback/run.py", line 147, in feedback
+    atoms = {(int(row[0]) - 1, row[1]): list(map(float, row[2:])) for row in block.find("_atom_site.", ["label_seq_id", "label_atom_id", "Cartn_x", "Cartn_y", "Cartn_z"])}
+                                                        ~~~^^^^
+TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+    1. __getitem__(self, arg: int, /) -> str
+    2. __getitem__(self, arg: str, /) -> str
+
+Invoked with types: gemmi.cif.Row, slice
+Model processes exited; resource released

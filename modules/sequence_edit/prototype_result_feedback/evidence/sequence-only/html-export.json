@@ -1,0 +1,4714 @@
+{
+  "delivery": {
+    "request": {
+      "selected_object_id": "feedback-candidate-1",
+      "chain": "A",
+      "sequence_conditions": [
+        {
+          "target_index": 0,
+          "amino_acid": "M"
+        },
+        {
+          "target_index": 1,
+          "amino_acid": "T"
+        },
+        {
+          "target_index": 2,
+          "amino_acid": "Y"
+        },
+        {
+          "target_index": 3,
+          "amino_acid": "K"
+        },
+        {
+          "target_index": 4,
+          "amino_acid": "L"
+        }
+      ],
+      "coordinate_conditions": [],
+      "sequence_file": "target.json"
+    },
+    "target": {
+      "chain": "A",
+      "positions": [
+        {
+          "target_position": 1,
+          "author_number": 1,
+          "amino_acid": "M",
+          "atoms": {}
+        },
+        {
+          "target_position": 2,
+          "author_number": 2,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 3,
+          "author_number": 3,
+          "amino_acid": "Y",
+          "atoms": {}
+        },
+        {
+          "target_position": 4,
+          "author_number": 4,
+          "amino_acid": "K",
+          "atoms": {}
+        },
+        {
+          "target_position": 5,
+          "author_number": 5,
+          "amino_acid": "L",
+          "atoms": {}
+        },
+        {
+          "target_position": 6,
+          "author_number": 6,
+          "amino_acid": "V",
+          "atoms": {}
+        },
+        {
+          "target_position": 7,
+          "author_number": 7,
+          "amino_acid": "I",
+          "atoms": {}
+        },
+        {
+          "target_position": 8,
+          "author_number": 8,
+          "amino_acid": "N",
+          "atoms": {}
+        },
+        {
+          "target_position": 9,
+          "author_number": 9,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 10,
+          "author_number": 10,
+          "amino_acid": "K",
+          "atoms": {}
+        },
+        {
+          "target_position": 11,
+          "author_number": 11,
+          "amino_acid": "N",
+          "atoms": {}
+        },
+        {
+          "target_position": 12,
+          "author_number": null,
+          "amino_acid": "X",
+          "atoms": {}
+        },
+        {
+          "target_position": 13,
+          "author_number": null,
+          "amino_acid": "X",
+          "atoms": {}
+        },
+        {
+          "target_position": 14,
+          "author_number": 12,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 15,
+          "author_number": 13,
+          "amino_acid": "G",
+          "atoms": {}
+        },
+        {
+          "target_position": 16,
+          "author_number": 14,
+          "amino_acid": "G",
+          "atoms": {}
+        },
+        {
+          "target_position": 17,
+          "author_number": 15,
+          "amino_acid": "K",
+          "atoms": {}
+        },
+        {
+          "target_position": 18,
+          "author_number": 16,
+          "amino_acid": "S",
+          "atoms": {}
+        },
+        {
+          "target_position": 19,
+          "author_number": 17,
+          "amino_acid": "G",
+          "atoms": {}
+        },
+        {
+          "target_position": 20,
+          "author_number": 18,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 21,
+          "author_number": 19,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 22,
+          "author_number": 20,
+          "amino_acid": "Q",
+          "atoms": {}
+        },
+        {
+          "target_position": 23,
+          "author_number": 21,
+          "amino_acid": "W",
+          "atoms": {}
+        },
+        {
+          "target_position": 24,
+          "author_number": 22,
+          "amino_acid": "E",
+          "atoms": {}
+        },
+        {
+          "target_position": 25,
+          "author_number": 23,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 26,
+          "author_number": 24,
+          "amino_acid": "S",
+          "atoms": {}
+        },
+        {
+          "target_position": 27,
+          "author_number": 26,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 28,
+          "author_number": 27,
+          "amino_acid": "S",
+          "atoms": {}
+        },
+        {
+          "target_position": 29,
+          "author_number": 28,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 30,
+          "author_number": 29,
+          "amino_acid": "K",
+          "atoms": {}
+        },
+        {
+          "target_position": 31,
+          "author_number": 30,
+          "amino_acid": "V",
+          "atoms": {}
+        },
+        {
+          "target_position": 32,
+          "author_number": 31,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 33,
+          "author_number": 32,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 34,
+          "author_number": 33,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 35,
+          "author_number": 34,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 36,
+          "author_number": 35,
+          "amino_acid": "Y",
+          "atoms": {}
+        },
+        {
+          "target_position": 37,
+          "author_number": 36,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 38,
+          "author_number": 37,
+          "amino_acid": "Q",
+          "atoms": {}
+        },
+        {
+          "target_position": 39,
+          "author_number": 38,
+          "amino_acid": "S",
+          "atoms": {}
+        },
+        {
+          "target_position": 40,
+          "author_number": 39,
+          "amino_acid": "N",
+          "atoms": {}
+        },
+        {
+          "target_position": 41,
+          "author_number": 40,
+          "amino_acid": "G",
+          "atoms": {}
+        },
+        {
+          "target_position": 42,
+          "author_number": 41,
+          "amino_acid": "I",
+          "atoms": {}
+        },
+        {
+          "target_position": 43,
+          "author_number": 42,
+          "amino_acid": "N",
+          "atoms": {}
+        },
+        {
+          "target_position": 44,
+          "author_number": 43,
+          "amino_acid": "G",
+          "atoms": {}
+        },
+        {
+          "target_position": 45,
+          "author_number": 44,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 46,
+          "author_number": 45,
+          "amino_acid": "W",
+          "atoms": {}
+        },
+        {
+          "target_position": 47,
+          "author_number": 46,
+          "amino_acid": "S",
+          "atoms": {}
+        },
+        {
+          "target_position": 48,
+          "author_number": 47,
+          "amino_acid": "Y",
+          "atoms": {}
+        },
+        {
+          "target_position": 49,
+          "author_number": 48,
+          "amino_acid": "N",
+          "atoms": {}
+        },
+        {
+          "target_position": 50,
+          "author_number": 49,
+          "amino_acid": "S",
+          "atoms": {}
+        },
+        {
+          "target_position": 51,
+          "author_number": 50,
+          "amino_acid": "A",
+          "atoms": {}
+        },
+        {
+          "target_position": 52,
+          "author_number": 51,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 53,
+          "author_number": 52,
+          "amino_acid": "N",
+          "atoms": {}
+        },
+        {
+          "target_position": 54,
+          "author_number": 53,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 55,
+          "author_number": 54,
+          "amino_acid": "Y",
+          "atoms": {}
+        },
+        {
+          "target_position": 56,
+          "author_number": 55,
+          "amino_acid": "T",
+          "atoms": {}
+        },
+        {
+          "target_position": 57,
+          "author_number": 56,
+          "amino_acid": "L",
+          "atoms": {}
+        },
+        {
+          "target_position": 58,
+          "author_number": 57,
+          "amino_acid": "K",
+          "atoms": {}
+        },
+        {
+          "target_position": 59,
+          "author_number": 58,
+          "amino_acid": "E",
+          "atoms": {}
+        }
+      ]
+    },
+    "actions": [
+      {
+        "type": "sequence_only",
+        "object_id": "feedback-candidate-1"
+      },
+      {
+        "type": "fix",
+        "regions": "1-5"
+      },
+      {
+        "type": "preview",
+        "after": 11,
+        "count": 2,
+        "delete_position": 27
+      },
+      {
+        "type": "confirm"
+      },
+      {
+        "type": "deliver"
+      }
+    ]
+  },
+  "snapshots": [
+    {
+      "action": {
+        "type": "sequence_only",
+        "object_id": "feedback-candidate-1"
+      },
+      "state": {
+        "selected": "feedback-candidate-1",
+        "mode": "sequence",
+        "rows": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-25",
+            "amino_acid": "D",
+            "source_number": 25,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "preview": null,
+        "undo": null,
+        "delivery": null,
+        "log": [
+          {
+            "type": "sequence_only",
+            "object_id": "feedback-candidate-1"
+          }
+        ],
+        "message": "已明确采用 历史序列 1 的 ESM3 生成结构 的序列。"
+      }
+    },
+    {
+      "action": {
+        "type": "fix",
+        "regions": "1-5"
+      },
+      "state": {
+        "selected": "feedback-candidate-1",
+        "mode": "sequence",
+        "rows": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-25",
+            "amino_acid": "D",
+            "source_number": 25,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "preview": null,
+        "undo": null,
+        "delivery": null,
+        "log": [
+          {
+            "type": "sequence_only",
+            "object_id": "feedback-candidate-1"
+          },
+          {
+            "type": "fix",
+            "regions": "1-5"
+          }
+        ],
+        "message": "已按当前目标位置设置序列条件。"
+      }
+    },
+    {
+      "action": {
+        "type": "preview",
+        "after": 11,
+        "count": 2,
+        "delete_position": 27
+      },
+      "state": {
+        "selected": "feedback-candidate-1",
+        "mode": "sequence",
+        "rows": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-25",
+            "amino_acid": "D",
+            "source_number": 25,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "preview": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "new-2-0",
+            "amino_acid": "X",
+            "source_number": null,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "new-2-1",
+            "amino_acid": "X",
+            "source_number": null,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "undo": null,
+        "delivery": null,
+        "log": [
+          {
+            "type": "sequence_only",
+            "object_id": "feedback-candidate-1"
+          },
+          {
+            "type": "fix",
+            "regions": "1-5"
+          },
+          {
+            "type": "preview",
+            "after": 11,
+            "count": 2,
+            "delete_position": 27
+          }
+        ],
+        "message": "预览已显示；确认前已采用模板保持原状。"
+      }
+    },
+    {
+      "action": {
+        "type": "confirm"
+      },
+      "state": {
+        "selected": "feedback-candidate-1",
+        "mode": "sequence",
+        "rows": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "new-2-0",
+            "amino_acid": "X",
+            "source_number": null,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "new-2-1",
+            "amino_acid": "X",
+            "source_number": null,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "preview": null,
+        "undo": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-25",
+            "amino_acid": "D",
+            "source_number": 25,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "delivery": null,
+        "log": [
+          {
+            "type": "sequence_only",
+            "object_id": "feedback-candidate-1"
+          },
+          {
+            "type": "fix",
+            "regions": "1-5"
+          },
+          {
+            "type": "preview",
+            "after": 11,
+            "count": 2,
+            "delete_position": 27
+          },
+          {
+            "type": "confirm"
+          }
+        ],
+        "message": "已采用已预览的实际位置和条件。"
+      }
+    },
+    {
+      "action": {
+        "type": "deliver"
+      },
+      "state": {
+        "selected": "feedback-candidate-1",
+        "mode": "sequence",
+        "rows": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "new-2-0",
+            "amino_acid": "X",
+            "source_number": null,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "new-2-1",
+            "amino_acid": "X",
+            "source_number": null,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "preview": null,
+        "undo": [
+          {
+            "key": "position-1",
+            "amino_acid": "M",
+            "source_number": 1,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-2",
+            "amino_acid": "T",
+            "source_number": 2,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-3",
+            "amino_acid": "Y",
+            "source_number": 3,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-4",
+            "amino_acid": "K",
+            "source_number": 4,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-5",
+            "amino_acid": "L",
+            "source_number": 5,
+            "atoms": {},
+            "sequence_fixed": true,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-6",
+            "amino_acid": "V",
+            "source_number": 6,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-7",
+            "amino_acid": "I",
+            "source_number": 7,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-8",
+            "amino_acid": "N",
+            "source_number": 8,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-9",
+            "amino_acid": "A",
+            "source_number": 9,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-10",
+            "amino_acid": "K",
+            "source_number": 10,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-11",
+            "amino_acid": "N",
+            "source_number": 11,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-12",
+            "amino_acid": "T",
+            "source_number": 12,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-13",
+            "amino_acid": "G",
+            "source_number": 13,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-14",
+            "amino_acid": "G",
+            "source_number": 14,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-15",
+            "amino_acid": "K",
+            "source_number": 15,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-16",
+            "amino_acid": "S",
+            "source_number": 16,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-17",
+            "amino_acid": "G",
+            "source_number": 17,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-18",
+            "amino_acid": "T",
+            "source_number": 18,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-19",
+            "amino_acid": "T",
+            "source_number": 19,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-20",
+            "amino_acid": "Q",
+            "source_number": 20,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-21",
+            "amino_acid": "W",
+            "source_number": 21,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-22",
+            "amino_acid": "E",
+            "source_number": 22,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-23",
+            "amino_acid": "A",
+            "source_number": 23,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-24",
+            "amino_acid": "S",
+            "source_number": 24,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-25",
+            "amino_acid": "D",
+            "source_number": 25,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-26",
+            "amino_acid": "A",
+            "source_number": 26,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-27",
+            "amino_acid": "S",
+            "source_number": 27,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-28",
+            "amino_acid": "A",
+            "source_number": 28,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-29",
+            "amino_acid": "K",
+            "source_number": 29,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-30",
+            "amino_acid": "V",
+            "source_number": 30,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-31",
+            "amino_acid": "A",
+            "source_number": 31,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-32",
+            "amino_acid": "A",
+            "source_number": 32,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-33",
+            "amino_acid": "A",
+            "source_number": 33,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-34",
+            "amino_acid": "A",
+            "source_number": 34,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-35",
+            "amino_acid": "Y",
+            "source_number": 35,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-36",
+            "amino_acid": "A",
+            "source_number": 36,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-37",
+            "amino_acid": "Q",
+            "source_number": 37,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-38",
+            "amino_acid": "S",
+            "source_number": 38,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-39",
+            "amino_acid": "N",
+            "source_number": 39,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-40",
+            "amino_acid": "G",
+            "source_number": 40,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-41",
+            "amino_acid": "I",
+            "source_number": 41,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-42",
+            "amino_acid": "N",
+            "source_number": 42,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-43",
+            "amino_acid": "G",
+            "source_number": 43,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-44",
+            "amino_acid": "T",
+            "source_number": 44,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-45",
+            "amino_acid": "W",
+            "source_number": 45,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-46",
+            "amino_acid": "S",
+            "source_number": 46,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-47",
+            "amino_acid": "Y",
+            "source_number": 47,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-48",
+            "amino_acid": "N",
+            "source_number": 48,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-49",
+            "amino_acid": "S",
+            "source_number": 49,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-50",
+            "amino_acid": "A",
+            "source_number": 50,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-51",
+            "amino_acid": "T",
+            "source_number": 51,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-52",
+            "amino_acid": "N",
+            "source_number": 52,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-53",
+            "amino_acid": "T",
+            "source_number": 53,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-54",
+            "amino_acid": "Y",
+            "source_number": 54,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-55",
+            "amino_acid": "T",
+            "source_number": 55,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-56",
+            "amino_acid": "L",
+            "source_number": 56,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-57",
+            "amino_acid": "K",
+            "source_number": 57,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          },
+          {
+            "key": "position-58",
+            "amino_acid": "E",
+            "source_number": 58,
+            "atoms": {},
+            "sequence_fixed": false,
+            "coordinates_selected": false
+          }
+        ],
+        "delivery": {
+          "request": {
+            "selected_object_id": "feedback-candidate-1",
+            "chain": "A",
+            "sequence_conditions": [
+              {
+                "target_index": 0,
+                "amino_acid": "M"
+              },
+              {
+                "target_index": 1,
+                "amino_acid": "T"
+              },
+              {
+                "target_index": 2,
+                "amino_acid": "Y"
+              },
+              {
+                "target_index": 3,
+                "amino_acid": "K"
+              },
+              {
+                "target_index": 4,
+                "amino_acid": "L"
+              }
+            ],
+            "coordinate_conditions": [],
+            "sequence_file": "target.json"
+          },
+          "target": {
+            "chain": "A",
+            "positions": [
+              {
+                "target_position": 1,
+                "author_number": 1,
+                "amino_acid": "M",
+                "atoms": {}
+              },
+              {
+                "target_position": 2,
+                "author_number": 2,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 3,
+                "author_number": 3,
+                "amino_acid": "Y",
+                "atoms": {}
+              },
+              {
+                "target_position": 4,
+                "author_number": 4,
+                "amino_acid": "K",
+                "atoms": {}
+              },
+              {
+                "target_position": 5,
+                "author_number": 5,
+                "amino_acid": "L",
+                "atoms": {}
+              },
+              {
+                "target_position": 6,
+                "author_number": 6,
+                "amino_acid": "V",
+                "atoms": {}
+              },
+              {
+                "target_position": 7,
+                "author_number": 7,
+                "amino_acid": "I",
+                "atoms": {}
+              },
+              {
+                "target_position": 8,
+                "author_number": 8,
+                "amino_acid": "N",
+                "atoms": {}
+              },
+              {
+                "target_position": 9,
+                "author_number": 9,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 10,
+                "author_number": 10,
+                "amino_acid": "K",
+                "atoms": {}
+              },
+              {
+                "target_position": 11,
+                "author_number": 11,
+                "amino_acid": "N",
+                "atoms": {}
+              },
+              {
+                "target_position": 12,
+                "author_number": null,
+                "amino_acid": "X",
+                "atoms": {}
+              },
+              {
+                "target_position": 13,
+                "author_number": null,
+                "amino_acid": "X",
+                "atoms": {}
+              },
+              {
+                "target_position": 14,
+                "author_number": 12,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 15,
+                "author_number": 13,
+                "amino_acid": "G",
+                "atoms": {}
+              },
+              {
+                "target_position": 16,
+                "author_number": 14,
+                "amino_acid": "G",
+                "atoms": {}
+              },
+              {
+                "target_position": 17,
+                "author_number": 15,
+                "amino_acid": "K",
+                "atoms": {}
+              },
+              {
+                "target_position": 18,
+                "author_number": 16,
+                "amino_acid": "S",
+                "atoms": {}
+              },
+              {
+                "target_position": 19,
+                "author_number": 17,
+                "amino_acid": "G",
+                "atoms": {}
+              },
+              {
+                "target_position": 20,
+                "author_number": 18,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 21,
+                "author_number": 19,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 22,
+                "author_number": 20,
+                "amino_acid": "Q",
+                "atoms": {}
+              },
+              {
+                "target_position": 23,
+                "author_number": 21,
+                "amino_acid": "W",
+                "atoms": {}
+              },
+              {
+                "target_position": 24,
+                "author_number": 22,
+                "amino_acid": "E",
+                "atoms": {}
+              },
+              {
+                "target_position": 25,
+                "author_number": 23,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 26,
+                "author_number": 24,
+                "amino_acid": "S",
+                "atoms": {}
+              },
+              {
+                "target_position": 27,
+                "author_number": 26,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 28,
+                "author_number": 27,
+                "amino_acid": "S",
+                "atoms": {}
+              },
+              {
+                "target_position": 29,
+                "author_number": 28,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 30,
+                "author_number": 29,
+                "amino_acid": "K",
+                "atoms": {}
+              },
+              {
+                "target_position": 31,
+                "author_number": 30,
+                "amino_acid": "V",
+                "atoms": {}
+              },
+              {
+                "target_position": 32,
+                "author_number": 31,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 33,
+                "author_number": 32,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 34,
+                "author_number": 33,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 35,
+                "author_number": 34,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 36,
+                "author_number": 35,
+                "amino_acid": "Y",
+                "atoms": {}
+              },
+              {
+                "target_position": 37,
+                "author_number": 36,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 38,
+                "author_number": 37,
+                "amino_acid": "Q",
+                "atoms": {}
+              },
+              {
+                "target_position": 39,
+                "author_number": 38,
+                "amino_acid": "S",
+                "atoms": {}
+              },
+              {
+                "target_position": 40,
+                "author_number": 39,
+                "amino_acid": "N",
+                "atoms": {}
+              },
+              {
+                "target_position": 41,
+                "author_number": 40,
+                "amino_acid": "G",
+                "atoms": {}
+              },
+              {
+                "target_position": 42,
+                "author_number": 41,
+                "amino_acid": "I",
+                "atoms": {}
+              },
+              {
+                "target_position": 43,
+                "author_number": 42,
+                "amino_acid": "N",
+                "atoms": {}
+              },
+              {
+                "target_position": 44,
+                "author_number": 43,
+                "amino_acid": "G",
+                "atoms": {}
+              },
+              {
+                "target_position": 45,
+                "author_number": 44,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 46,
+                "author_number": 45,
+                "amino_acid": "W",
+                "atoms": {}
+              },
+              {
+                "target_position": 47,
+                "author_number": 46,
+                "amino_acid": "S",
+                "atoms": {}
+              },
+              {
+                "target_position": 48,
+                "author_number": 47,
+                "amino_acid": "Y",
+                "atoms": {}
+              },
+              {
+                "target_position": 49,
+                "author_number": 48,
+                "amino_acid": "N",
+                "atoms": {}
+              },
+              {
+                "target_position": 50,
+                "author_number": 49,
+                "amino_acid": "S",
+                "atoms": {}
+              },
+              {
+                "target_position": 51,
+                "author_number": 50,
+                "amino_acid": "A",
+                "atoms": {}
+              },
+              {
+                "target_position": 52,
+                "author_number": 51,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 53,
+                "author_number": 52,
+                "amino_acid": "N",
+                "atoms": {}
+              },
+              {
+                "target_position": 54,
+                "author_number": 53,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 55,
+                "author_number": 54,
+                "amino_acid": "Y",
+                "atoms": {}
+              },
+              {
+                "target_position": 56,
+                "author_number": 55,
+                "amino_acid": "T",
+                "atoms": {}
+              },
+              {
+                "target_position": 57,
+                "author_number": 56,
+                "amino_acid": "L",
+                "atoms": {}
+              },
+              {
+                "target_position": 58,
+                "author_number": 57,
+                "amino_acid": "K",
+                "atoms": {}
+              },
+              {
+                "target_position": 59,
+                "author_number": 58,
+                "amino_acid": "E",
+                "atoms": {}
+              }
+            ]
+          },
+          "actions": [
+            {
+              "type": "sequence_only",
+              "object_id": "feedback-candidate-1"
+            },
+            {
+              "type": "fix",
+              "regions": "1-5"
+            },
+            {
+              "type": "preview",
+              "after": 11,
+              "count": 2,
+              "delete_position": 27
+            },
+            {
+              "type": "confirm"
+            }
+          ]
+        },
+        "log": [
+          {
+            "type": "sequence_only",
+            "object_id": "feedback-candidate-1"
+          },
+          {
+            "type": "fix",
+            "regions": "1-5"
+          },
+          {
+            "type": "preview",
+            "after": 11,
+            "count": 2,
+            "delete_position": 27
+          },
+          {
+            "type": "confirm"
+          },
+          {
+            "type": "deliver"
+          }
+        ],
+        "message": "已生成交付预览；浏览器中没有执行模型调用。"
+      }
+    }
+  ]
+}
