@@ -1,0 +1,125 @@
+{
+  "selected": "canonical protein chain A",
+  "excluded": [
+    {
+      "chain": "A",
+      "author_number": 57,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 58,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 59,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 60,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 61,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 62,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 63,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 64,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 65,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 66,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 67,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 68,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 69,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 70,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 71,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 72,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 73,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 74,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 75,
+      "insertion_code": "",
+      "name": "HOH"
+    },
+    {
+      "chain": "A",
+      "author_number": 76,
+      "insertion_code": "",
+      "name": "HOH"
+    }
+  ]
+}

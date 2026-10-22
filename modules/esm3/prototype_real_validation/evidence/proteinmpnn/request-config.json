@@ -1,0 +1,36 @@
+{
+  "settings": {
+    "python": "/Users/sorachan/Documents/modules-ESM/.venv/bin/python",
+    "source": "/Users/sorachan/Documents/modules-ESM/repositories/ProteinMPNN",
+    "weights": "/Users/sorachan/Documents/modules-ESM/.models/proteinmpnn",
+    "device": "cpu"
+  },
+  "design": {
+    "seed": 42,
+    "num_seq_per_target": 2,
+    "batch_size": 1,
+    "sampling_temp": [
+      0.1
+    ],
+    "fixed_positions": {
+      "A": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  },
+  "independent_score": {
+    "seed": 43,
+    "num_seq_per_target": 1,
+    "batch_size": 1
+  },
+  "fixed_position_semantics": "native one-based chain order; A1-5 explicit here",
+  "selection": "canonical protein residues of chain A; original complete PDB retained in fixtures",
+  "score_semantics": {
+    "design": "NLL on design_mask (positions 6-56)",
+    "independent": "NLL on all 56 positions; new seed and decoding order"
+  }
+}

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>一次性原型 · 操作与工具边界</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7f8;color:#182d38;font:15px/1.6 system-ui,sans-serif}main{max-width:1250px;margin:30px auto;padding:0 24px}h1{font-size:27px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px;margin:15px 0 8px}p{margin:8px 0}.tag{color:#006e78;font-size:12px;font-weight:700;letter-spacing:.08em}.card{padding:21px;background:white;border:1px solid #d7e0e4;border-radius:12px;margin:18px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.grid .card{margin:0}.muted{color:#5b6e78;font-size:13px}.status{background:#e2f3f2;border-left:4px solid #007d83;padding:12px;margin:15px 0}.error{background:#fff0e9;border-color:#ba4818;color:#783416}button,select{font:inherit;border:1px solid #b7c9cd;border-radius:6px;padding:8px 12px;background:white;color:#174451;margin:4px 5px 4px 0;cursor:pointer}button:hover{background:#e5f3f3}button.active{background:#006f78;color:white}button:disabled{opacity:.42;cursor:default}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;border-bottom:1px solid #e3e9eb;padding:8px;vertical-align:top}th{background:#f1f6f7}code{background:#edf3f5;padding:1px 4px;border-radius:3px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f0f5f6;padding:12px;font-size:12px;max-height:360px;overflow:auto}dl{display:grid;grid-template-columns:150px 1fr;gap:8px;margin:0}dt{color:#647780}dd{margin:0}.steps{display:flex;flex-wrap:wrap}.steps button{max-width:270px;text-align:left}.pill{border:1px solid #bed7d9;border-radius:5px;padding:1px 6px;display:inline-block;margin:2px}.scroll{overflow:auto}@media(max-width:850px){.grid{grid-template-columns:1fr}main{padding:0 12px}dl{grid-template-columns:115px 1fr}}
+</style></head><body><main>
+<div class="tag">THROWAWAY PROTOTYPE · 逻辑演习 · 数据仅在内存</div>
+<h1>原生请求应该在哪里编译？</h1>
+<p>把同一份编辑条件交给两条正确实现：① 操作模块编译模型原生请求；② 工具模块接收任务约定并编译。观察残基增删、替换工具、两种任务与异常输出分别影响哪个边界。</p>
+<p class="muted">ESM3 字段形状依据固定 SDK。所有“执行”都是明确的模拟响应，无模型加载、无真实推理。SparseSeq 是虚构的对照接口。六个位置以内的坐标是教学数据。</p>
+<section class="card"><h2>当前条件</h2><div id="summary"></div><div class="scroll" id="positions"></div><div id="status" class="status" aria-live="polite"></div></section>
+<section class="card"><h2>自由操作</h2><div>
+<label>工具 <select id="tool"><option value="esm3">ESM3 · 原生字段模拟</option><option value="sparse">SparseSeq · 虚构序列工具</option></select></label>
+<label>任务 <select id="task"><option value="complete_sequence">补全序列</option><option value="generate_structure">生成结构条件轨道</option></select></label>
+</div><div id="actions"></div><p class="muted">“仅使用序列条件”会明确清除本次请求中的坐标、二级结构和 SASA 条件，原始观察数据仍可查看。切换工具本身不会清除条件。</p></section>
+<div class="grid"><section class="card"><h2>① 操作侧编译</h2><p>操作了解所选模型的字段、原子顺序和输出映射；工具接收原生请求并执行。</p><div id="native-side"></div></section><section class="card"><h2>② 工具侧编译</h2><p>操作交付位置与任务条件；所选工具检查适用性、编译、执行并交回任务结果。</p><div id="task-side"></div></section></div>
+<section class="card"><h2>引导演习</h2><div id="tabs" role="tablist"></div><p id="walk-description"></p><div id="steps" class="steps"></div></section>
+<section class="card"><h2>边界观察</h2><table><thead><tr><th>事项</th><th>操作侧编译</th><th>工具侧编译</th></tr></thead><tbody><tr><td>位置与条件增删</td><td colspan="2">编辑模块产生一致的当前条件；本次编译只读取它</td></tr><tr><td>原子列、掩码、原生参数</td><td>操作需要模型专用编译和解码实现</td><td>工具实现维护；任务接口需要完整表达科学含义</td></tr><tr><td>更换工具</td><td>同时提供相应操作侧编译器和工具执行器</td><td>提供符合该任务约定的工具实现</td></tr><tr><td>同一工具服务两项任务</td><td>各操作选择原生 track，并共享显式编译代码</td><td>工具提供两个任务入口，共享原生编译及执行代码</td></tr><tr><td>不能支持的输入</td><td colspan="2">实际工具的适用性检查明确拒绝；不存在静默丢弃</td></tr></tbody></table><p class="muted">此演习验证调用边界和可表达性。候选方案的工程代价还需独立作者、真实 SDK、真实推理及批次续算实验。</p></section>
+</main>
+<script id="prototype-core">
+globalThis.ToolBoundary = (() => {
+  const ATOM37 = ['N','CA','C','CB','O','CG','CG1','CG2','OG','OG1','SG','CD','CD1','CD2','ND1','ND2','OD1','OD2','SD','CE','CE1','CE2','CE3','NE','NE1','NE2','OE1','OE2','CH2','NH1','NH2','OH','CZ','CZ2','CZ3','NZ','OXT'];
+  const AMINO = 'ACDEFGHIKLMNPQRSTVWY';
+  const copy = x => structuredClone(x);
+  const fail = message => { throw new Error(message); };
+  const atoms = x => ({N:[x,0,0],CA:[x+1,1,0],C:[x+2,0,1]});
+  function initial() {
+    return {object:'sample-input',frame:'sample-frame',positions:['K','A','G','V','T'].map((aa,i)=>({key:'p'+(i+1),source:{chain:'A',number:10+i,insertion:''},observed:{sequence:aa,atoms:atoms(i*4),secondary:i===2?'E':null,sasa:i===2?12:null},condition:{sequence:i===0||i===4?aa:null,atoms:i===0||i===4?atoms(i*4):{},secondary:i===2?'E':null,sasa:i===2?12:null}}))};
+  }
+  function edit(data, action) {
+    const next=copy(data);
+    if(action==='insert') {
+      let n=1; while(next.positions.some(p=>p.key==='added'+n)) n++;
+      next.positions.splice(2,0,{key:'added'+n,source:null,observed:{sequence:null,atoms:{},secondary:null,sasa:null},condition:{sequence:null,atoms:{},secondary:null,sasa:null}});
+    } else if(action==='delete') {
+      const at=next.positions.findIndex(p=>p.key==='p2');
+      if(at<0) fail('原位置 p2 已删除；本次没有再次删除其他位置。');
+      next.positions.splice(at,1);
+    } else if(action==='sequence_only') {
+      for(const p of next.positions){p.condition.atoms={};p.condition.secondary=null;p.condition.sasa=null;}
+    } else if(action==='fix_sequence') {
+      for(const p of next.positions) p.condition.sequence=p.observed.sequence || 'G';
+    } else if(action==='restore_conditions') return initial();
+    else fail('未知编辑');
+    return next;
+  }
+  function request(data, task='complete_sequence') {
+    return {task,frame:data.frame,positions:data.positions.map(p=>({key:p.key,source:copy(p.source),condition:copy(p.condition)}))};
+  }
+  function validate(req) {
+    if(!['complete_sequence','generate_structure'].includes(req.task)) fail('任务约定不支持该任务');
+    if(!Array.isArray(req.positions)||!req.positions.length) fail('需要非空有序位置');
+    if(new Set(req.positions.map(p=>p.key)).size!==req.positions.length) fail('位置标识必须唯一');
+    for(const p of req.positions) {
+      if(typeof p.key!=='string'||!p.key) fail('位置标识必须非空');
+      const c=p.condition;
+      if(c && Object.keys(c).some(k=>!['sequence','atoms','secondary','sasa'].includes(k))) fail('任务约定不接受未声明的条件轨道');
+      if(!c || (c.sequence!==null && (typeof c.sequence!=='string'||c.sequence.length!==1||!AMINO.includes(c.sequence)))) fail('序列条件须为单个氨基酸或空');
+      if(c.secondary!==null && (typeof c.secondary!=='string'||c.secondary.length!==1||!'GHITEBSC'.includes(c.secondary))) fail('二级结构条件须为 DSSP8 符号或空');
+      if(c.sasa!==null && !Number.isFinite(c.sasa)) fail('SASA 条件须为有限数值或空');
+      if(!c.atoms || typeof c.atoms!=='object'||Array.isArray(c.atoms)) fail('需要明确的具名原子条件');
+      for(const point of Object.values(c.atoms)) if(!Array.isArray(point)||point.length!==3||point.some(v=>!Number.isFinite(v))) fail('原子坐标需要有限 XYZ');
+      if(Object.keys(c.atoms).length && !req.frame) fail('坐标条件需要明确坐标系');
+    }
+    return req;
+  }
+  function compileESM(req) {
+    validate(req);
+    const coordinates=req.positions.map(p=> {
+      for(const atom of Object.keys(p.condition.atoms)) if(!ATOM37.includes(atom)) fail('ESM3 不支持原子 '+atom+'；不能丢弃');
+      return ATOM37.map(atom=>copy(p.condition.atoms[atom] || [NaN,NaN,NaN]));
+    });
+    const sequence=req.positions.map(p=>p.condition.sequence || '_').join('');
+    return {payload:{protein:{sequence,coordinates,secondary_structure:req.positions.map(p=>p.condition.secondary || '_').join(''),sasa:req.positions.map(p=>p.condition.sasa)},generation:{track:req.task==='complete_sequence'?'sequence':'structure',num_steps:8,temperature:0.7}},binding:{keys:req.positions.map(p=>p.key),order:'preserved',frame:req.frame},codec:'esm3'};
+  }
+  function compileSparse(req) {
+    validate(req);
+    if(req.task!=='complete_sequence') fail('SparseSeq 模拟工具只实现序列补全');
+    for(const p of req.positions) if(Object.keys(p.condition.atoms).length||p.condition.secondary!==null||p.condition.sasa!==null) fail('SparseSeq 模拟工具不支持坐标、二级结构或 SASA 条件；请明确修改输入或选择其他工具');
+    return {payload:{length:req.positions.length,fixed_residues:req.positions.flatMap((p,i)=>p.condition.sequence?[{index:i,residue:p.condition.sequence}]:[])},binding:{keys:req.positions.map(p=>p.key),order:'explicit_output_indices',frame:req.frame},codec:'sparse'};
+  }
+  function simulate(payload, codec) {
+    const alphabet='GASVT';
+    if(codec==='esm3') {
+      const seq=payload.protein.sequence;
+      const sequence=[...seq].map((c,i)=>c==='_'?alphabet[i%alphabet.length]:c).join('');
+      return payload.generation.track==='sequence'?{sequence}:{sequence:seq,coordinates:[...seq].map((_,i)=>ATOM37.map((a,j)=>j<3?[i*3,j,0]:[NaN,NaN,NaN]))};
+    }
+    const byIndex=new Map(payload.fixed_residues.map(r=>[r.index,r.residue]));
+    return {residues:Array.from({length:payload.length},(_,i)=>({index:i,residue:byIndex.get(i)||alphabet[i%alphabet.length]})).reverse()};
+  }
+  function decode(compiled, native, req) {
+    validate(req);
+    const keys=req.positions.map(p=>p.key);
+    if(JSON.stringify(keys)!==JSON.stringify(compiled.binding.keys)) fail('编译时的位置与当前请求不同；无法映射输出');
+    if(req.task==='complete_sequence') {
+      let sequence;
+      if(compiled.codec==='esm3') {
+        sequence=native.sequence;
+        if(typeof sequence!=='string'||sequence.length!==keys.length) fail('原生序列长度改变；工具未提供位置对应');
+      } else {
+        if(!Array.isArray(native.residues)||native.residues.length!==keys.length||new Set(native.residues.map(r=>r.index)).size!==keys.length) fail('原生输出位置数量或唯一性错误');
+        const mapped=new Map(native.residues.map(r=>[r.index,r.residue]));
+        if(keys.some((key,i)=>!mapped.has(i))) fail('原生输出缺少显式对应位置');
+        sequence=keys.map((key,i)=>mapped.get(i)).join('');
+      }
+      if(sequence.length!==keys.length||[...sequence].some(c=>!AMINO.includes(c))) fail('原生序列含无效或缺失残基');
+      req.positions.forEach((p,i)=>{if(p.condition.sequence && sequence[i]!==p.condition.sequence) fail('原生输出改变固定序列条件 '+p.key);});
+      return {task:req.task,simulated:true,positions:keys.map((key,i)=>({key,sequence:sequence[i]}))};
+    }
+    if(!Array.isArray(native.coordinates)||native.coordinates.length!==keys.length) fail('原生坐标长度改变；工具未提供位置对应');
+    const positions=native.coordinates.map((row,i)=> {
+      if(!Array.isArray(row)||row.length!==37) fail('ESM3 坐标原子列数错误');
+      const result={};
+      row.forEach((point,j)=>{if(!Array.isArray(point)||point.length!==3) fail('原生原子坐标形状错误');if(point.every(Number.isFinite)) result[ATOM37[j]]=copy(point);else if(!point.every(Number.isNaN)) fail('原生原子坐标含部分缺失或无效数值');});
+      if(!['N','CA','C'].every(a=>result[a])) fail('结构生成输出缺少本任务要求的骨架原子');
+      return {key:keys[i],atoms:result};
+    });
+    return {task:req.task,simulated:true,frame:'simulated-output-frame',positions};
+  }
+  // Both paths execute the same native semantics. Only responsibility changes.
+  function runModelShaped(req, compiler, transport=simulate) {
+    validate(req);
+    const compiled=compiler(copy(req));
+    const output=transport(copy(compiled.payload),compiled.codec);
+    return {publicInput:copy(compiled.payload),compiled,result:decode(compiled,output,req),nativeOutput:output};
+  }
+  function makeTaskTool(compiler, transport=simulate) {
+    return taskRequest=>{const compiled=compiler(copy(taskRequest));const output=transport(copy(compiled.payload),compiled.codec);return {result:decode(compiled,output,taskRequest),compiled,nativeOutput:output};};
+  }
+  function runTaskShaped(req, implementation) {
+    validate(req);
+    return {publicInput:copy(req),...implementation(copy(req))};
+  }
+  return {ATOM37,initial,edit,request,validate,compileESM,compileSparse,simulate,decode,runModelShaped,makeTaskTool,runTaskShaped};
+})();
+</script>
+<script>
+(() => {
+  const P=ToolBoundary; let data=P.initial(),tool='esm3',task='complete_sequence',outputs=null,error='',note='原始 5 个位置；两端序列与骨架参与条件，中间存在独立二级结构和 SASA 条件。',walk=0,step=0;
+  const $=id=>document.getElementById(id);
+  const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const show=v=>JSON.stringify(v,(k,x)=>typeof x==='number'&&Number.isNaN(x)?'NaN（缺失）':x,2);
+  const actions=[['insert','在第 2 位后插入'],['delete','删除原位置 p2'],['sequence_only','仅使用序列条件'],['fix_sequence','固定当前观察序列'],['compare','两条边界分别执行（模拟）'],['bad_output','注入长度错误输出'],['reset','重置']];
+  const walks=[
+    {name:'增删与对齐',description:'修改当前长度后，观察 p3 的二级结构与 SASA 是否仍跟随 p3；两种路径应产生相同结果。',steps:[['insert','插入一个位置'],['delete','删除原 p2'],['compare','比较两种边界']]},
+    {name:'工具替换',description:'更换工具不改变输入。先看能力拒绝，再明确改为序列条件，观察反序返回的 SparseSeq 输出如何按明确索引接回。',steps:[['sparse','选择 SparseSeq'],['compare','尝试原条件：应拒绝'],['sequence_only','明确只用序列条件'],['compare','两种边界再次执行']]},
+    {name:'同一工具、两个任务',description:'ESM3 的两个任务入口共享编译器；选择生成轨道归于任务与工具的交接。这里的结构坐标是模拟值。',steps:[['compare','序列补全'],['structure','选择结构生成任务'],['compare','结构生成']]},
+    {name:'输出对应失败',description:'即使模型字段可编译，输出也不能靠猜测接回。注入少一个残基的响应，观察工具边界拒绝。',steps:[['insert','改变输入长度'],['bad_output','注入长度错误'],['compare','恢复正确模拟响应']]}
+  ];
+  function act(action) {
+    error='';outputs=null;
+    try {
+      if(action==='reset'){data=P.initial();tool='esm3';task='complete_sequence';note='恢复原始条件。';}
+      else if(action==='sparse'){tool='sparse';note='只切换工具，条件未修改。';}
+      else if(action==='structure'){tool='esm3';task='generate_structure';note='同一 ESM3 实现切换为结构生成任务。';}
+      else if(action==='compare'||action==='bad_output') {
+        const req=P.request(data,task),compiler=tool==='esm3'?P.compileESM:P.compileSparse;
+        let transport=P.simulate;
+        if(action==='bad_output') transport=(payload,codec)=>{const out=P.simulate(payload,codec);if(out.sequence && task==='complete_sequence')out.sequence=out.sequence.slice(1);else if(out.coordinates)out.coordinates=out.coordinates.slice(1);else out.residues=out.residues.slice(1);return out;};
+        const run=fn=>{try{return fn();}catch(e){return {error:e.message};}};
+        outputs=[run(()=>P.runModelShaped(req,compiler,transport)),run(()=>P.runTaskShaped(req,P.makeTaskTool(compiler,transport)))];
+        if(outputs.some(o=>o.error)){error=outputs.map((o,i)=>`${i+1}：${o.error||'成功'}`).join('；');note='检查边界明确拒绝。输入保持不变。';}
+        else {const same=show(outputs[0].result)===show(outputs[1].result);note=`两条路径均完成模拟：结果${same?'相同':'不同'}。检查公开交接与编译结果。`;}
+      } else {data=P.edit(data,action);note=actions.find(a=>a[0]===action)?.[1]+'：已更新当前条件。';}
+    } catch(e){error=e.message;}
+    render();
+  }
+  function outputPanel(result,nativeSide) {
+    if(!result)return '<p class="muted">尚未执行。下方演习或“分别执行”按钮会展示公开交接与结果。</p>';
+    if(result.error)return '<div class="status error">'+escape(result.error)+'</div>';
+    const comp=result.compiled,protein=comp.payload.protein;
+    return `<dl><dt>公开交接</dt><dd>${nativeSide?'原生字段请求；映射由操作持有':'任务名＋有序位置＋具名条件'}</dd><dt>编译者</dt><dd>${nativeSide?'操作模块':'工具模块'}</dd><dt>实际任务</dt><dd>${escape(result.result.task)}</dd><dt>原生布局</dt><dd>${protein?`序列 ${escape(protein.sequence)}；坐标 ${protein.coordinates.length} × 37 × 3；SS ${escape(protein.secondary_structure)}`:`长度 ${comp.payload.length}；固定位置 ${comp.payload.fixed_residues.map(r=>r.index+':'+r.residue).join(', ')}`}</dd><dt>输出对应</dt><dd>${escape(comp.binding.order)} → ${escape(result.result.positions.map(p=>p.key).join(' → '))}</dd></dl><h3>返回任务结果</h3><table><tr><th>位置</th><th>结果</th></tr>${result.result.positions.map(p=>`<tr><td>${escape(p.key)}</td><td>${p.sequence?escape(p.sequence):escape(Object.entries(p.atoms).map(([a,v])=>a+' ['+v+']').join('；'))}</td></tr>`).join('')}</table><details><summary>完整公开输入</summary><pre>${escape(show(result.publicInput))}</pre></details><details><summary>完整原生请求、绑定和输出</summary><pre>${escape(show({compiled:comp,nativeOutput:result.nativeOutput}))}</pre></details>`;
+  }
+  function render() {
+    $('tool').value=tool;$('task').value=task;
+    $('summary').innerHTML=`<p>当前长度 <strong>${data.positions.length}</strong> · 工具 <strong>${tool==='esm3'?'ESM3':'SparseSeq'}</strong> · 任务 <strong>${task==='complete_sequence'?'补全序列':'结构生成'}</strong> · 坐标系 <code>${escape(data.frame)}</code></p>`;
+    $('positions').innerHTML='<table><thead><tr><th>当前序号 / 标识</th><th>来源</th><th>观察序列</th><th>序列条件</th><th>坐标条件（具名原子）</th><th>其他条件</th><th>原始观察</th></tr></thead><tbody>'+data.positions.map((p,i)=>`<tr><td>${i+1} / ${escape(p.key)}</td><td>${p.source?escape(p.source.chain+':'+p.source.number+p.source.insertion):'插入的新位置'}</td><td>${p.observed.sequence||'未知'}</td><td>${p.condition.sequence||'待设计'}</td><td>${Object.entries(p.condition.atoms).map(([a,v])=>escape(a+' ['+v+']')).join('<br>')||'无'}</td><td>SS：${p.condition.secondary||'无'}<br>SASA：${p.condition.sasa??'无'}</td><td><details><summary>展开</summary><pre>${escape(show(p.observed))}</pre></details></td></tr>`).join('')+'</tbody></table>';
+    $('status').className='status'+(error?' error':'');$('status').textContent=error||note;
+    $('native-side').innerHTML=outputPanel(outputs?.[0],true);$('task-side').innerHTML=outputPanel(outputs?.[1],false);
+    $('tabs').innerHTML=walks.map((w,i)=>`<button role="tab" aria-selected="${walk===i}" class="${walk===i?'active':''}" data-walk="${i}">${w.name}</button>`).join('');
+    $('walk-description').textContent=walks[walk].description;
+    $('steps').innerHTML=walks[walk].steps.map(([action,label],i)=>`<button data-step="${i}" class="${step===i?'active':''}" ${step!==i?'disabled':''}>${i<step?'✓':i+1} ${label}</button>`).join('');
+  }
+  $('actions').innerHTML=actions.map(([action,label])=>`<button data-action="${action}">${label}</button>`).join('');
+  $('actions').onclick=e=>{if(e.target.dataset.action)act(e.target.dataset.action);};
+  $('tool').onchange=e=>{tool=e.target.value;outputs=null;error='';note='工具选择已修改，科学条件保持当前内容。';render();};
+  $('task').onchange=e=>{task=e.target.value;outputs=null;error='';note='任务选择已修改。';render();};
+  $('tabs').onclick=e=>{if(e.target.dataset.walk!==undefined){walk=Number(e.target.dataset.walk);step=0;act('reset');}};
+  $('steps').onclick=e=>{if(e.target.dataset.step!==undefined){const i=Number(e.target.dataset.step);if(i!==step)return;step++;act(walks[walk].steps[i][0]);}};
+  render();
+})();
+</script></body></html>

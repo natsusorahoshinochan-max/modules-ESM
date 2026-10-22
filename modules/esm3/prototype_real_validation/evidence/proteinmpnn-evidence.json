@@ -1,0 +1,60 @@
+{
+  "executed": "real CPU ProteinMPNN sampling and independent model score pass",
+  "checks": [
+    {
+      "check": "real ProteinMPNN returns two requested candidates",
+      "status": "passed"
+    },
+    {
+      "check": "candidate 1 chain length and fixed residues",
+      "status": "passed"
+    },
+    {
+      "check": "candidate 1 actual per-residue scores",
+      "status": "passed"
+    },
+    {
+      "check": "candidate 1 native mask honors fixed positions",
+      "status": "passed"
+    },
+    {
+      "check": "candidate 2 chain length and fixed residues",
+      "status": "passed"
+    },
+    {
+      "check": "candidate 2 actual per-residue scores",
+      "status": "passed"
+    },
+    {
+      "check": "candidate 2 native mask honors fixed positions",
+      "status": "passed"
+    },
+    {
+      "check": "same shared tool performs independent score-only operation",
+      "status": "passed"
+    },
+    {
+      "check": "independent scoring uses supplied candidate unchanged",
+      "status": "passed"
+    },
+    {
+      "check": "independent score covers all explicitly requested positions",
+      "status": "passed"
+    },
+    {
+      "check": "actual MPNN adapter rejects length-changing score without matching backbone",
+      "status": "passed",
+      "diagnostic": "Scoring requires complete chain sequence correspondence; no prefix or native-tail repair"
+    },
+    {
+      "check": "actual MPNN adapter rejects an incomplete backbone",
+      "status": "passed",
+      "diagnostic": "ProteinMPNN requires one unambiguous O atom at A:(11, '')"
+    },
+    {
+      "check": "operation refuses edited incomplete conditions before ProteinMPNN call",
+      "status": "passed",
+      "diagnostic": "Backbone design requires complete N/CA/C/O at every current position; missing at p59"
+    }
+  ]
+}

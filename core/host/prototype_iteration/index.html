@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一次性原型 · 批次与循环边界</title>
+<style>
+body{font:16px/1.6 system-ui,sans-serif;color:#202a38;background:#f5f7fa;max-width:1180px;margin:auto;padding:28px}h1{font-size:27px;margin-bottom:6px}h2{font-size:20px}h3{font-size:16px;margin-top:0}p{margin:8px 0}.badge{background:#fff0cd;color:#765000;padding:5px 10px;display:inline-block;border-radius:5px}.panel{background:white;border:1px solid #dce2ea;padding:20px;margin:18px 0;border-radius:8px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.stats{display:flex;gap:20px;flex-wrap:wrap}.stats strong{font-size:22px;display:block;color:#245fb4}button,select{font:inherit;padding:7px 11px;border:1px solid #abb9cb;border-radius:5px;background:white;color:#243850;margin:4px 5px 4px 0;cursor:pointer}button:hover{border-color:#245fb4;background:#f0f5fe}button.active{background:#245fb4;color:white}button:disabled{opacity:.45;cursor:default}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;border-bottom:1px solid #e1e6ec;padding:7px;vertical-align:top}th{background:#f5f7fa}code{font-size:12px}small,.muted{color:#607088}.scroll{overflow:auto;max-height:410px}.message{border-left:4px solid #245fb4;padding:8px 12px;background:#eef4fd}.error{color:#963719}label{display:inline-block;margin:5px 14px 5px 0}details{margin:12px 0}pre{white-space:pre-wrap;font-size:12px}.tabs{border-bottom:1px solid #ccd5e2;padding-bottom:8px}@media(max-width:760px){.grid{grid-template-columns:1fr}body{padding:14px}}
+</style>
+<body>
+<span class="badge">THROWAWAY · 一次性逻辑原型 · 科学结果全部模拟</span>
+<h1>任务批次在哪里结束，通用编排从哪里开始？</h1>
+<p>比较两种执行组织：任务模块一次接收两个模板，或载体对明确的包列表逐项调用。每个模板生成三个候选，再评价、筛选并执行两轮。观察相同条件下的结果、调用身份、失败隔离及续算。</p>
+<p class="muted">数值仅用于验证控制逻辑：模板初值 2、8，每个子项加 −1、0、1；参考值 6；得分 = 10 − |候选值 − 参考值|。阈值 ≥ 7，全局最多 2 项或每模板最多 1 项。这里没有调用模型，也没有科学质量结论。</p>
+<section class="panel">
+<h2>当前演习</h2>
+<div id="summary" class="stats"></div><p id="message" class="message" aria-live="polite"></p>
+<div class="grid"><div><h3>实际对象与输出</h3><div id="objects" class="scroll"></div></div><div><h3>固定调用与循环交接</h3><div id="bindings"></div></div></div>
+<details open><summary>实际调用记录：运行 / 轮次 / 条目 / 节点</summary><div id="calls" class="scroll"></div></details>
+<details><summary>任务私有的内部请求进度</summary><div id="requests"></div></details>
+<details><summary>明确的接口边界</summary>
+<p><b>载体</b>只接收格式名、包标识、有序包列表、参数、终态与私有续算内容。重复执行按具名输入输出交接，读取科学内容的函数只存在于模拟任务模块。</p>
+<p><b>任务模块</b>解释模板、生成数量、工具请求计划、评价、分组和筛选。模型自己的张量批处理仍在工具内部。本演习的载体 map 按包调用任务；一个 map 条目内部仍生成三个候选。</p>
+<p>本演习采用串行 map 与成功汇合点；失败后暂停尚未开始的调用。独立分支的调度没有在这里实现。部分结果可查看，只有整个阶段成功才交给下一节点。此调度设置用于比较，具体公共接口仍待生产实现验证。</p>
+</details>
+</section>
+<section class="panel"><h2>自由操作</h2>
+<label>组织方式 <select id="mode"><option value="task-batch">任务模块拥有整批</option><option value="host-map">载体逐包调用任务</option></select></label>
+<label>筛选位置 <select id="selection"><option value="global">汇合后全局最多 2 项</option><option value="per-template">模块内每模板最多 1 项</option></select></label>
+<label>参考输入 <select id="reference"><option value="fixed">固定参考 6</option><option value="carried">每轮首个选中项作为下轮参考</option></select></label>
+<div><button data-action="new">按选项开始新运行</button><button data-action="advance">推进一个阶段</button><button data-action="finish">执行到结束或失败</button><button data-action="fail">下一轮注入一次请求失败</button><button data-action="cancel">下一轮请求中途取消</button><button data-action="resume">继续未完成请求</button><button data-action="draft">修改画布草稿参数</button><button data-action="empty">下一次筛选使用空集场景</button><button data-action="scalar">运行非蛋白标量任务</button></div>
+<small>“修改草稿”只把下一次新运行的每模板数量改成 5；旧运行固定为原参数。“空集”建立新的阈值为 99 的演习运行，避免在旧运行中改参数。</small>
+</section>
+<section class="panel"><h2>引导演习</h2><div id="tabs" class="tabs"></div><p id="guideDescription"></p><div id="steps"></div><p id="guideStatus" class="muted"></p></section>
+<script id="prototype-logic">
+'use strict';
+globalThis.IterationPrototype = (() => {
+  const copy = value => JSON.parse(JSON.stringify(value));
+  const freeze = value => { if(value && typeof value === 'object'){Object.freeze(value);Object.values(value).forEach(freeze);}return value; };
+
+  // This is the entire generic host surface. It never opens a package or parses a continuation.
+  const Host = {
+    calls(runId, iteration, node, inputGroups, parameters) {
+      return inputGroups.map((inputs, index) => ({
+        id: `${runId}/r${iteration}/i${index}/${node}`, runId, iteration, item: index, node,
+        inputs: Object.fromEntries(Object.entries(inputs).map(([port, packets]) => [port, [...packets]])),
+        parameters: freeze(copy(parameters)), status: 'pending', attempts: 0, outputs: [], previous: null,
+      }));
+    },
+    drive(calls, invoke) {
+      const next = [...calls];
+      for(let index = 0; index < next.length; index++) {
+        const call = next[index];
+        if(call.status === 'succeeded') continue;
+        const outcome = invoke(call);
+        next[index] = {...call, status: outcome.status, attempts: call.attempts + 1,
+          outputs: [...outcome.outputs], previous: outcome.continuation ?? null,
+          diagnostic: outcome.diagnostic ?? ''};
+        if(outcome.status !== 'succeeded') break;
+      }
+      return next;
+    },
+    release(calls) {
+      if(calls.some(call => call.status !== 'succeeded')) return null;
+      return calls.flatMap(call => call.outputs);
+    },
+    carry(boundaryOutputs, bindings) {
+      return Object.fromEntries(Object.entries(bindings).map(([input, output]) => [input, [...boundaryOutputs[output]]]));
+    },
+  };
+
+  // Only these demonstration task functions read or write the scientific package contents.
+  const Tasks = {
+    put(state, format, body) {
+      const packet = freeze({packageId: `package-${state.nextPackage++}`, format});
+      state.packages[packet.packageId] = copy(body);
+      return packet;
+    },
+    read(state, packet) { return state.packages[packet.packageId]; },
+    generate(state, call) {
+      const progress = call.previous ? copy(call.previous) : {requests: call.inputs.templates.flatMap(template =>
+        Array.from({length: call.parameters.children}, (_, child) => ({template, child, status:'pending', attempts:0, result:null})))};
+      for(const request of progress.requests) {
+        if(request.status === 'succeeded') continue;
+        const source = Tasks.read(state, request.template);
+        if(state.cancel && !state.cancel.consumed && state.cancel.round === call.iteration &&
+          source.label === state.cancel.template && request.child === state.cancel.child) {
+          state.cancel.consumed = true;
+          return {status:'cancelled', outputs:progress.requests.filter(r=>r.result).map(r=>r.result), continuation:progress,
+            diagnostic:'模拟取消：停止尚未开始的请求'};
+        }
+        request.attempts++;
+        if(state.fault && !state.fault.consumed && state.fault.round === call.iteration &&
+          source.label === state.fault.template && request.child === state.fault.child) {
+          request.status = 'failed'; state.fault.consumed = true;
+          return {status:'failed', outputs:progress.requests.filter(r=>r.result).map(r=>r.result), continuation:progress,
+            diagnostic:`模拟请求失败：${source.label} 的第 ${request.child + 1} 个候选`};
+        }
+        const child = Tasks.put(state, 'demo.protein-candidate', {
+          label:`${source.label}.${request.child + 1}`, value:source.value + request.child - 1,
+          template:request.template.packageId, round:call.iteration,
+        });
+        request.result = child; request.status = 'succeeded';
+      }
+      return {status:'succeeded', outputs:progress.requests.map(r=>r.result), continuation:progress};
+    },
+    evaluate(state, call) {
+      const reference = Tasks.read(state, call.inputs.reference[0]);
+      return {status:'succeeded', outputs:call.inputs.candidates.map(candidate => {
+        const body = Tasks.read(state, candidate);
+        return Tasks.put(state, 'demo.scored-candidate', {...body, candidate: candidate.packageId,
+          reference:call.inputs.reference[0].packageId, referenceValue:reference.value, score:10-Math.abs(body.value-reference.value)});
+      })};
+    },
+    select(state, call) {
+      const groups = [];
+      for(const packet of call.inputs.scored) {
+        const body = Tasks.read(state, packet);
+        const key = call.parameters.selection === 'per-template' ? body.template : 'all';
+        let group = groups.find(item=>item.key===key);
+        if(!group){group={key, packets:[]};groups.push(group);}
+        group.packets.push(packet);
+      }
+      const outputs = groups.flatMap(group => group.packets
+        .filter(packet => Tasks.read(state, packet).score >= call.parameters.threshold)
+        .sort((a,b)=>Tasks.read(state,b).score-Tasks.read(state,a).score)
+        .slice(0, call.parameters.selection === 'per-template' ? call.parameters.perTemplateLimit : call.parameters.globalLimit));
+      return {status:'succeeded', outputs};
+    },
+    scalar(state, call) {
+      return {status:'succeeded',outputs:call.inputs.values.map(packet=>
+        Tasks.put(state,'external.scalar',{number:Tasks.read(state,packet).number + call.parameters.add}))};
+    },
+  };
+
+  const defaults = {mode:'task-batch', selection:'global', reference:'fixed', children:3, rounds:2, threshold:7, perTemplateLimit:1, globalLimit:2};
+  function create(options = {}, runId = 'run-1') {
+    const config = freeze({...defaults,...options});
+    const state = {runId, config, draft:copy(config), round:1, phase:'ready', status:'running',
+      nextPackage:1, packages:{}, calls:[], currentCalls:[], templates:[], reference:[], fixedReference:[],
+      generated:[], scored:[], selected:[], history:[], released:false, fault:null, cancel:null,
+      message:'运行已固定输入和参数；点击推进开始生成。', scalarResult:[], scalarRuns:0};
+    state.templates=[Tasks.put(state,'demo.protein-template',{label:'A',value:2}),Tasks.put(state,'demo.protein-template',{label:'B',value:8})];
+    state.reference=[Tasks.put(state,'demo.protein-reference',{label:'参考',value:6})];
+    state.fixedReference=[...state.reference];
+    return state;
+  }
+  function recordCalls(state, calls) {
+    const identities = new Set(calls.map(call=>call.id));
+    state.calls = [...state.calls.filter(call=>!identities.has(call.id)),...calls];
+    state.currentCalls = calls;
+  }
+  function generation(state, resume) {
+    const groups = state.config.mode==='task-batch' ? [{templates:state.templates}] : state.templates.map(template=>({templates:[template]}));
+    const calls = resume ? state.currentCalls : Host.calls(state.runId,state.round,'generate',groups,{children:state.config.children});
+    const executed=Host.drive(calls,call=>Tasks.generate(state,call));
+    recordCalls(state,executed);
+    const released=Host.release(executed);
+    state.generated=executed.flatMap(call=>call.outputs);
+    state.released=released!==null;
+    const blocked=executed.find(call=>['failed','cancelled'].includes(call.status));
+    state.phase=released===null?blocked.status:'generated';
+    state.status=released===null?blocked.status:'running';
+    state.message=released===null?'已有结果仅供查看；评价没有执行。续算将使用本次运行的固定参数。':`生成阶段成功交付 ${released.length} 个包。`;
+  }
+  function advance(state) {
+    if(state.phase==='ready'){generation(state,false);return;}
+    if(state.phase==='generated') {
+      const calls=Host.drive(Host.calls(state.runId,state.round,'evaluate',[{candidates:state.generated,reference:state.reference}],{}),call=>Tasks.evaluate(state,call));
+      recordCalls(state,calls);state.scored=Host.release(calls);state.phase='evaluated';
+      state.message=`评价模块读取 ${state.scored.length} 项，明确参考值为 ${Tasks.read(state,state.reference[0]).value}。`;return;
+    }
+    if(state.phase==='evaluated') {
+      const calls=Host.drive(Host.calls(state.runId,state.round,'filter',[{scored:state.scored}],{selection:state.config.selection,threshold:state.config.threshold,perTemplateLimit:state.config.perTemplateLimit,globalLimit:state.config.globalLimit}),call=>Tasks.select(state,call));
+      recordCalls(state,calls);state.selected=Host.release(calls);state.phase='selected';
+      state.message=`筛选交付 ${state.selected.length} 项；排序并列沿用输入顺序。`;return;
+    }
+    if(state.phase==='selected') {
+      state.history.push({round:state.round,reference:[...state.reference],selected:[...state.selected],generated:[...state.generated]});
+      if(state.round>=state.config.rounds){state.phase='complete';state.status='succeeded';state.message='两轮演习结束。';return;}
+      const ref=state.config.reference==='carried'&&state.selected.length ? [state.selected[0]] : state.reference;
+      const ports=Host.carry({nextItems:state.selected,nextReference:ref},{templates:'nextItems',reference:'nextReference'});
+      state.templates=ports.templates;state.reference=state.config.reference==='fixed'?[...state.fixedReference]:ports.reference;
+      state.round++;state.generated=[];state.scored=[];state.selected=[];state.currentCalls=[];state.released=false;state.phase='ready';
+      state.message='仅将具名输出包交给下一轮；空列表也按相同调用约定传递。';return;
+    }
+    state.message=['failed','cancelled'].includes(state.phase)?'当前已停止，需要明确继续未完成请求。':'本次运行已结束；修改选项后可以开始新运行。';
+  }
+  function dispatch(previous, action) {
+    const state=copy(previous);
+    state.config=freeze(state.config);
+    if(action.type==='advance') advance(state);
+    if(action.type==='finish') {
+      for(let count=0;count<30&&!['failed','cancelled','complete'].includes(state.phase);count++)advance(state);
+    }
+    if(action.type==='fail') {
+      if(state.phase!=='ready'){state.message='故障注入只在生成阶段开始前设置。';return state;}
+      const template=state.templates[1]??state.templates[0];
+      if(!template){state.message='当前没有模板可注入请求失败。';return state;}
+      state.fault={round:state.round,template:Tasks.read(state,template).label,child:1,consumed:false};
+      state.message='将让第二个模板的第二个请求失败一次；成功请求保留，后续请求停止。';
+    }
+    if(action.type==='cancel') {
+      if(state.phase!=='ready'){state.message='取消演习只在生成开始前设置。';return state;}
+      const template=state.templates[1]??state.templates[0];
+      if(!template){state.message='当前没有模板可注入取消。';return state;}
+      state.cancel={round:state.round,template:Tasks.read(state,template).label,child:1,consumed:false};
+      state.message='将在第二模板第二请求开始前取消；已成功内容保留供查看。';
+    }
+    if(action.type==='resume') {
+      if(['failed','cancelled'].includes(state.phase))generation(state,true);else state.message='当前没有停止的生成阶段需要继续。';
+    }
+    if(action.type==='draft') {
+      if(!['failed','cancelled','complete'].includes(state.phase)){state.message='运行期间画布保持锁定；失败、取消或结束后才能修改草稿。';return state;}
+      state.draft.children=5;state.message='画布草稿每模板数量改为 5；旧运行每模板数量仍为 '+state.config.children+'。';
+    }
+    if(action.type==='scalar') {
+      const inputs=[Tasks.put(state,'external.scalar',{number:1}),Tasks.put(state,'external.scalar',{number:7})];
+      const calls=Host.drive(Host.calls(`${state.runId}-scalar-${++state.scalarRuns}`,0,'external-add',inputs.map(value=>({values:[value]})),{add:10}),call=>Tasks.scalar(state,call));
+      state.scalarResult=Host.release(calls);state.calls.push(...calls);
+      state.message='同一载体调用函数执行外部标量操作：1 + 10 = 11，7 + 10 = 17；包内无蛋白字段。';
+    }
+    return state;
+  }
+  function view(state, packets) {return packets.map(packet=>({packageId:packet.packageId,format:packet.format,...copy(Tasks.read(state,packet))}));}
+  return {Host,Tasks,create,dispatch,view,defaults};
+})();
+</script>
+<script>
+(() => {
+  const P=globalThis.IterationPrototype;let serial=1,state=P.create(),guide=0,step=0;
+  const escape=value=>String(value??'—').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const phaseNames={ready:'等待生成',generated:'已生成，待评价',evaluated:'已评价，待筛选',selected:'已筛选，待轮次交接',failed:'生成失败，等待续算',cancelled:'已取消，等待续算',complete:'执行完成'};
+  const modes={'task-batch':'任务拥有整批','host-map':'载体逐包调用'};
+  const scenarios=[
+    {name:'两种批次边界',description:'先完成任务整批模式，再用同样输入执行逐包模式。最终数值都应为 6、7，实际调用数量不同。',options:{},steps:[['整批完成两轮','finish'],['开始逐包模式','new',{mode:'host-map'}],['逐包完成两轮','finish']]},
+    {name:'筛选放在哪里',description:'全局最多两项：首轮为 7、8；每模板最多一项：首轮为 3、7。模块负责分组含义，载体的包调用保持相同。',options:{mode:'host-map',selection:'per-template'},steps:[['生成两个模板的子项','advance'],['与参考 6 评价','advance'],['每模板选一项','advance'],['完成第二轮','finish']]},
+    {name:'不同集合大小',description:'把本次演习阈值改为 6，每模板最多 2 项，首轮得到 3、2、7、8 共四项；同一阈值全局最多 2 项只得到 7、8。筛选模块决定集合内容，载体按实际列表调用。',options:{mode:'host-map',selection:'per-template',threshold:6,perTemplateLimit:2},steps:[['生成六项','advance'],['评价六项','advance'],['每模板选择两项','advance'],['完成下一轮','finish']]},
+    {name:'固定与携带参考',description:'携带参考时第一轮选中值 7、8，下一轮参考改成 7，最终选中 7、7。固定参考时最终为 6、7。',options:{reference:'carried'},steps:[['执行到最后','finish']]},
+    {name:'失败与固定续算',description:'第二个模板的第二个请求失败。第一模板全部成功，第二模板仅一项成功。查看部分结果、修改画布，再继续旧调用；最后每模板仍只生成三项。',options:{mode:'host-map'},steps:[['注入一次失败','fail'],['执行到失败','finish'],['修改画布草稿数量','draft'],['继续旧运行','resume'],['完成两轮','finish']]},
+    {name:'取消与继续',description:'生成中途取消后保留四个已完成结果。评价等待完整成功交付，继续时成功请求各仍只执行一次。',options:{mode:'host-map'},steps:[['安排中途取消','cancel'],['执行至取消','finish'],['继续剩余请求','resume'],['完成两轮','finish']]},
+    {name:'空集合交接',description:'本演习阈值 99，使第一轮选择为空。第二轮接收空包列表，结果仍为空；没有自动补齐候选或改变阈值。',options:{threshold:99},steps:[['完成空集合两轮','finish']]},
+    {name:'非蛋白模块',description:'同一通用调用器接收 external.scalar 格式，执行两个加十任务。载体不读取 number 字段。',options:{},steps:[['执行外部标量操作','scalar']]},
+  ];
+  function reset(options={}){state=P.create(options,`run-${++serial}`);syncControls();}
+  function syncControls(){document.querySelector('#mode').value=state.config.mode;document.querySelector('#selection').value=state.config.selection;document.querySelector('#selection option[value="per-template"]').textContent=`模块内每模板最多 ${state.config.perTemplateLimit} 项`;document.querySelector('#reference').value=state.config.reference;}
+  function table(headers,rows){return '<table><thead><tr>'+headers.map(x=>'<th>'+escape(x)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map(x=>'<td>'+escape(x)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';}
+  function render(){
+    document.querySelector('#summary').innerHTML=[['组织',modes[state.config.mode]],['当前轮次',`${state.round} / ${state.config.rounds}`],['阶段',phaseNames[state.phase]],['下游交付',state.released?'生成已成功交付':'尚未成功交付']].map(([k,v])=>`<span>${k}<strong>${escape(v)}</strong></span>`).join('');
+    document.querySelector('#message').textContent=state.message;
+    const current=state.scored.length?state.scored:state.generated;
+    const shown=current.length?current:state.templates;
+    const selected=new Set(state.selected.map(x=>x.packageId));
+    document.querySelector('#objects').innerHTML=table(['对象','演算值','分数','已选','包标识'],P.view(state,shown).map(o=>[o.label,o.value,o.score,selected.has(o.packageId)?'✓':'',o.packageId]));
+    if(state.scalarResult.length)document.querySelector('#objects').innerHTML+='<h3>外部标量结果</h3>'+table(['格式','数值'],P.view(state,state.scalarResult).map(o=>[o.format,o.number]));
+    const ref=P.view(state,state.reference)[0];
+    document.querySelector('#bindings').innerHTML=table(['字段','本次实际值'],[['运行',state.runId],['固定每模板数量',state.config.children],['画布草稿每模板数量',state.draft.children],['固定阈值',state.config.threshold],['筛选上限',state.config.selection==='per-template'?`每模板 ${state.config.perTemplateLimit}`:`全局 ${state.config.globalLimit}`],['参考方式',state.config.reference==='fixed'?'固定输入':'显式携带上一轮首项'],['当前参考',ref?`${ref.value} (${ref.packageId})`:'空'],['下一轮输入来源','filter 输出包列表'],['已结束轮次',state.history.map(h=>`${h.round}: ${P.view(state,h.selected).map(o=>o.value).join(', ')||'空'}`).join('；')||'无']]);
+    document.querySelector('#calls').innerHTML=table(['调用身份','输入包','参数','状态','调用次数','输出包数'],state.calls.map(c=>[c.id,Object.entries(c.inputs).map(([k,v])=>`${k}: ${v.map(x=>x.packageId).join(', ')||'空'}`).join('\n'),JSON.stringify(c.parameters),c.status,c.attempts,c.outputs.length]));
+    document.querySelector('#requests').innerHTML=table(['所属调用','模板包 / 子项','状态','请求次数','结果包'],state.calls.flatMap(c=>(c.previous?.requests||[]).map(r=>[c.id,`${r.template.packageId} / ${r.child+1}`,r.status,r.attempts,r.result?.packageId])));
+    document.querySelector('#tabs').innerHTML=scenarios.map((s,i)=>`<button class="${i===guide?'active':''}" data-guide="${i}">${escape(s.name)}</button>`).join('');
+    document.querySelector('#guideDescription').textContent=scenarios[guide].description;
+    document.querySelector('#steps').innerHTML=scenarios[guide].steps.map((s,i)=>`<button data-step="${i}" ${i!==step?'disabled':''}>${i+1}. ${escape(s[0])}</button>`).join('');
+    document.querySelector('#guideStatus').textContent=step>=scenarios[guide].steps.length?'本演习完成；点击其他标签会重置。':`下一步：${step+1} / ${scenarios[guide].steps.length}`;
+  }
+  function act(type,options){if(type==='new')reset(options??{...state.draft,mode:document.querySelector('#mode').value,selection:document.querySelector('#selection').value,reference:document.querySelector('#reference').value});else if(type==='empty')reset({...state.config,threshold:99});else state=P.dispatch(state,{type});render();}
+  document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.action)act(button.dataset.action);if(button.dataset.guide!==undefined){guide=Number(button.dataset.guide);step=0;reset(scenarios[guide].options);render();}if(button.dataset.step!==undefined){const selectedStep=scenarios[guide].steps[step];step++;act(selectedStep[1],selectedStep[2]);}});
+  render();
+})();
+</script>
+</body></html>

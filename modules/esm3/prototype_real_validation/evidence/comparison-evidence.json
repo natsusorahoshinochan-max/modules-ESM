@@ -1,0 +1,43 @@
+{
+  "executed": "real NumPy SVD Kabsch and native TM-align through one prototype comparison operation",
+  "caveat": "Kabsch optimizes supplied pairs; TM-align determines structural correspondence. RMSD scope remains explicit. No interchangeable scientific scores are assumed.",
+  "checks": [
+    {
+      "check": "NumPy Kabsch least-squares rigid fit rigid-transform RMSD near zero",
+      "status": "passed"
+    },
+    {
+      "check": "NumPy Kabsch least-squares rigid fit paired all residues",
+      "status": "passed"
+    },
+    {
+      "check": "TM-align via tmtools 0.3.0 rigid-transform RMSD near zero",
+      "status": "passed"
+    },
+    {
+      "check": "TM-align via tmtools 0.3.0 paired all residues",
+      "status": "passed"
+    },
+    {
+      "check": "Kabsch does not fabricate optional TM-score",
+      "status": "passed"
+    },
+    {
+      "check": "TM-align emits actual optional normalized TM-scores",
+      "status": "passed"
+    },
+    {
+      "check": "NumPy Kabsch least-squares rigid fit handles 55 vs 56 residues",
+      "status": "passed"
+    },
+    {
+      "check": "TM-align via tmtools 0.3.0 handles 55 vs 56 residues",
+      "status": "passed"
+    },
+    {
+      "check": "TM-align rejects unsupported explicit-mapping option rather than ignoring it",
+      "status": "passed",
+      "diagnostic": "This TM-align prototype accepts no extra tool parameters"
+    }
+  ]
+}

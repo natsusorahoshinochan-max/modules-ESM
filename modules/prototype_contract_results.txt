@@ -1,0 +1,36 @@
+✔ portable core has no DOM, network, process, or production module dependency (0.912042ms)
+✔ both responsibility assignments execute equivalent native semantics (2.082709ms)
+✔ insert and delete preserve independent track contents at the same position key (0.431583ms)
+✔ ESM native coordinates use atom name mapping with missing values, not flattened observations (0.25225ms)
+✔ each boundary leaves frozen input and independent observations untouched (0.736541ms)
+✔ transport sees native fields only, without task position keys or module state (0.63975ms)
+✔ capability mismatch rejects in both paths without changing conditions (0.2995ms)
+✔ unselected observed coordinates do not become unsupported conditions (0.489083ms)
+✔ one ESM implementation supports two task contracts through one compiler (0.863291ms)
+✔ unexpected output length, changed fixed residue and wrong compilation map fail (0.319417ms)
+✔ explicit native indices map reversed rows; duplicated, missing, and foreign indices fail (0.263875ms)
+✔ undeclared condition, unsupported atom, malformed coordinate and duplicate key are rejected (0.143792ms)
+✔ structure output must have full mapping and promised backbone atoms (0.307209ms)
+✔ 两种正确实现的初始交付内容完全一致 (1.43825ms)
+✔ rows: 插入、突变、重排保留内容身份、原编号及轨道 (0.41775ms)
+✔ rows: 删除被引用位置须明确清理，不留下悬空引用 (0.430666ms)
+✔ rows: 清除条件和突变不改写来源观察或移植原分数 (0.727625ms)
+✔ rows: 独立等长输入没有映射仍拒绝；显式映射按内容交接 (0.474584ms)
+✔ rows: 新位置可以继续编辑删除，ID 不重用 (0.285833ms)
+✔ tracks: 插入、突变、重排保留内容身份、原编号及轨道 (0.331125ms)
+✔ tracks: 删除被引用位置须明确清理，不留下悬空引用 (0.325791ms)
+✔ tracks: 清除条件和突变不改写来源观察或移植原分数 (0.32575ms)
+✔ tracks: 独立等长输入没有映射仍拒绝；显式映射按内容交接 (0.47775ms)
+✔ tracks: 新位置可以继续编辑删除，ID 不重用 (0.316042ms)
+✔ 组合动作搜索：可执行和拒绝的结果均保持两种表示等价 (52.628042ms)
+✔ 独立轨道表示明确检测缺失轨道，不按位置补默认值 (0.130875ms)
+✔ 显式输入夹具经同一编辑核心导出，保留实际来源和选择的原子 (0.390458ms)
+✔ 命令行桥接实际执行HTML核心并只在成功时写出完整交付 (47.427792ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 144.081958

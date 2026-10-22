@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "checks": 722,
+  "bridge_checks": 1,
+  "total_checks": 723,
+  "source_commit": "3c1e496c693abd14bd469bc8af84ae9e65a7913f",
+  "reports": {
+    "esm3": {
+      "executed": "real pinned native ESMProtein, tokenizers, and learned structure encoder checkpoint",
+      "checks": 694
+    },
+    "proteinmpnn": {
+      "executed": "real CPU ProteinMPNN sampling and independent model score pass",
+      "checks": 13
+    },
+    "comparison": {
+      "executed": "real NumPy SVD Kabsch and native TM-align through one prototype comparison operation",
+      "checks": 9
+    },
+    "tool-boundary": {
+      "executed": "actual tool-boundary HTML compiler into pinned ESMProtein, GenerationConfig, and sequence/SS/SASA tokenizers",
+      "checks": 6
+    }
+  },
+  "not_executed": [
+    "full ESM3 sequence generation",
+    "ESM3 structure generation",
+    "folding candidate sequences",
+    "application end-to-end loop"
+  ],
+  "verdicts": [
+    "Conditions need explicit ordered positions and edit-owned correspondence.",
+    "Native encoding and masks remain model adapter responsibility.",
+    "ProteinMPNN design and independent scoring can share a tool implementation with separate task scope.",
+    "Comparison tool replacement works only with explicit method, mapping policy, scope, and optional outputs."
+  ],
+  "open_seams": [
+    {
+      "observation": "Missing coordinates yielded codebook tokens instead of mask tokens. The native encoder output is preserved unchanged.",
+      "actual_missing_tokens": [
+        2246,
+        2246,
+        2246
+      ],
+      "native_mask_id": 4096,
+      "source_inspection": {
+        "file": "repositories/esm/esm/utils/generation.py",
+        "lines": [
+          368,
+          369
+        ],
+        "behavior": "With condition_on_coordinates_only=True and coordinates present, iterative sampling clears the entire structure token track before generation."
+      },
+      "not_yet_validated": "Full generation with partial coordinates, for both coordinate-only settings, and its scientifically intended masking behavior."
+    }
+  ]
+}

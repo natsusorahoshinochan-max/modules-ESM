@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一次性原型：条件跟随位置</title>
+<style>
+body{font:15px/1.65 system-ui,sans-serif;max-width:1450px;margin:28px auto;padding:0 24px;color:#18242d;background:#f6f8fa}h1{font-size:25px}h2{font-size:19px}h3{font-size:16px}p{max-width:1050px}button{font:inherit;border:1px solid #b8c7d0;border-radius:6px;padding:7px 12px;margin:4px;background:white;cursor:pointer}button:hover,button[aria-selected=true]{background:#e0f1f5;border-color:#19788a}button:disabled{opacity:.45;cursor:default}.card{background:white;border:1px solid #d9e1e5;border-radius:10px;padding:16px;margin:15px 0}.columns{display:grid;grid-template-columns:1fr 1fr;gap:16px}.tag{color:#176e7e;font-weight:600}.status{border-left:4px solid #17798a;padding:10px 15px;background:#e9f5f7}.error{border-color:#bd5537;background:#fff0e9}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;vertical-align:top;padding:6px;border-bottom:1px solid #e6ebef}code{font-size:13px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f6f8fa;padding:12px}small{color:#526873}.scroll{overflow-x:auto}ul{padding-left:22px}@media(max-width:1000px){.columns{grid-template-columns:1fr}}
+</style>
+<h1>条件跟随位置：两种表示的比较原型</h1>
+<p><span class="tag">一次性逻辑原型 · 合成数据 · 无模型推理</span><br>问题：把每个位置的条件放在同一行，或把条件分成独立轨道，能否在插入、删除、突变和重排后交付相同的科学含义？两者都使用稳定位置标识。观察原子、选择的坐标条件、区域成员和成对约束如何变化。</p>
+<p>下方坐标与分数是人工夹具，专门用于追踪内容对应。初始来源包含真实编号样式 A:11A。区域采用明确成员列表，新插入位置不会自动加入。原对象的评价始终留在原对象旁。</p>
+<div id="notice" class="status" role="status"></div>
+<div class="columns"><section class="card"><h2>A：条件随行保存</h2><div id="rows-state"></div></section><section class="card"><h2>B：有序位置＋独立条件轨道</h2><div id="tracks-state"></div></section></div>
+<section class="card"><h2>自由操作</h2><p>每次操作同时作用于两个方案；“对比交付”检查两边对外输出的内容。失败操作保留输入。</p><div id="free"></div></section>
+<section class="card"><h2>引导演练</h2><div id="tabs" role="tablist" aria-label="演练场景"></div><div id="guide"></div></section>
+<section class="card"><h2>模块边界观察</h2><ul><li>编辑模块维护位置、条件及引用一致性；已知编辑直接更新对应。</li><li>独立输入的对应由显式映射提供；等长、相同名称或同一顺序都不会代替映射。</li><li>操作模块读取有序的模型无关交付；工具 Adapter 另行解释掩码、特殊 token 和原子布局。</li><li>两种内部表示都能交付同一内容。区域和成对约束都需要跨位置引用；行表示也不能省略稳定位置身份。</li></ul><details><summary>查看完整内存状态和模型无关交付</summary><pre id="raw"></pre></details></section>
+<script id="prototype-logic">
+globalThis.ConditionsPrototype = (() => {
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const trackNames = ['sequence', 'coordinates', 'secondary', 'sasa'];
+  const fail = message => { throw new Error(message); };
+  const sourceRows = () => ['K', 'A', 'D', 'G'].map((residue, i) => ({
+    id: `p${i + 1}`, residue,
+    source: {objectId: 'source-structure', chain: 'A', authorNumber: 10 + i, insertionCode: i === 1 ? 'A' : ''},
+    observed: {residue, coordinates: {frame: 'source-frame', atoms: {N: [i * 10, 1, 2], CA: [i * 10 + 3, 4, 5]}}, secondary: ['H','E','C','H'][i], sasa: [0.1,0.2,0.3,0.4][i]},
+    condition: {sequence: i === 0 || i === 3 ? residue : null,
+      coordinates: i === 0 || i === 3 ? {frame: 'source-frame', atoms: {CA: [i * 10 + 3, 4, 5]}} : null,
+      secondary: ['H','E','C','H'][i], sasa: [0.1,0.2,0.3,0.4][i]}
+  }));
+  function fromSeed(kind, seed) {
+    if (!['rows','tracks'].includes(kind)) fail('未知表示');
+    const rows = clone(seed.positions);
+    if (!rows.every(row=>/^p[1-9][0-9]*$/.test(row.id))) fail('原型位置身份须采用 p 加正整数');
+    const nextPosition = Math.max(0,...rows.map(row=>Number(row.id.slice(1)))) + 1;
+    const common = {kind, objectId: 'edited-0', nextPosition, nextObject: 1,
+      regions: clone(seed.regions || []), pairs: clone(seed.pairs || []),
+      original: {objectId: seed.objectId, positions: clone(rows.map(({condition, ...position}) => position)),
+        evaluations: clone(seed.evaluations || [])}};
+    if (kind === 'rows') return validate({...common, rows});
+    const positions = {}, tracks = Object.fromEntries(trackNames.map(name => [name, {}]));
+    for (const {condition, ...position} of rows) {
+      positions[position.id] = position;
+      for (const name of trackNames) tracks[name][position.id] = clone(condition[name]);
+    }
+    return validate({...common, order: rows.map(row => row.id), positions, tracks});
+  }
+  function initial(kind) {
+    return fromSeed(kind, {objectId:'source-structure',positions:sourceRows(),
+      regions:[{id:'motif',members:['p1','p2','p4']}],
+      pairs:[{id:'contact',members:['p2','p4'],maxDistance:9}],
+      evaluations:[{subjectId:'source-structure',method:'synthetic-fixture',value:0.77}]});
+  }
+  const ids = state => state.kind === 'rows' ? state.rows.map(row => row.id) : [...state.order];
+  function rowAt(state, id) {
+    if (!ids(state).includes(id)) fail(`位置 ${id} 已不存在`);
+    if (state.kind === 'rows') return clone(state.rows.find(row => row.id === id));
+    return {...clone(state.positions[id]), condition: Object.fromEntries(trackNames.map(name => [name, clone(state.tracks[name][id])]))};
+  }
+  function setRow(state, row) {
+    if (state.kind === 'rows') state.rows[state.rows.findIndex(item => item.id === row.id)] = row;
+    else {
+      const {condition, ...position} = row;
+      state.positions[row.id] = position;
+      for (const name of trackNames) state.tracks[name][row.id] = condition[name];
+    }
+  }
+  function validate(state) {
+    const order = ids(state), valid = new Set(order);
+    if (valid.size !== order.length) fail('重复位置身份');
+    if (state.kind === 'tracks') {
+      const expected = [...order].sort().join('|');
+      if (Object.keys(state.positions).sort().join('|') !== expected) fail('位置表与顺序不一致');
+      for (const name of trackNames) if (Object.keys(state.tracks[name]).sort().join('|') !== expected) fail(`轨道 ${name} 与位置不一致`);
+    }
+    for (const region of state.regions) for (const id of region.members) if (!valid.has(id)) fail(`区域 ${region.id} 引用缺失位置 ${id}`);
+    for (const pair of state.pairs) for (const id of pair.members) if (!valid.has(id)) fail(`成对约束 ${pair.id} 引用缺失位置 ${id}`);
+    for (const id of order) {
+      const row = rowAt(state, id);
+      for (const name of trackNames) if (!(name in row.condition)) fail(`位置 ${id} 缺少轨道 ${name}`);
+    }
+    return state;
+  }
+  function exportRequest(state) {
+    validate(state);
+    return {objectId: state.objectId, positions: ids(state).map((id, index) => ({index, ...rowAt(state, id)})),
+      regions: clone(state.regions), pairs: clone(state.pairs)};
+  }
+  function apply(state, action) {
+    validate(state);
+    const next = clone(state), order = ids(next);
+    if (action.type === 'insert') {
+      if (!order.includes(action.after)) fail('插入锚点不存在');
+      const id = `p${next.nextPosition++}`;
+      const row = {id, residue: action.residue || 'G', source: null, observed: null,
+        condition: {sequence: null, coordinates: null, secondary: null, sasa: null}};
+      const index = order.indexOf(action.after) + 1;
+      if (next.kind === 'rows') next.rows.splice(index, 0, row);
+      else {
+        next.order.splice(index, 0, id);
+        const {condition, ...position} = row;
+        next.positions[id] = position;
+        for (const name of trackNames) next.tracks[name][id] = condition[name];
+      }
+    } else if (action.type === 'delete' || action.type === 'deleteAndPruneReferences') {
+      rowAt(next, action.id);
+      const refs = [...next.regions, ...next.pairs].filter(item => item.members.includes(action.id));
+      if (refs.length && action.type === 'delete') fail(`位置 ${action.id} 被 ${refs.map(item => item.id).join('、')} 引用；请明确使用“删除并清理引用”`);
+      if (next.kind === 'rows') next.rows = next.rows.filter(row => row.id !== action.id);
+      else {
+        next.order = next.order.filter(id => id !== action.id);
+        delete next.positions[action.id];
+        for (const name of trackNames) delete next.tracks[name][action.id];
+      }
+      next.regions = next.regions.map(region => ({...region, members: region.members.filter(id => id !== action.id)}));
+      next.pairs = next.pairs.filter(pair => !pair.members.includes(action.id));
+    } else if (action.type === 'mutateAndFixSequence') {
+      if (!/^[ACDEFGHIKLMNPQRSTVWY]$/.test(action.residue)) fail('此原型只接受标准氨基酸字母');
+      const row = rowAt(next, action.id);
+      row.residue = action.residue;
+      row.condition.sequence = action.residue;
+      setRow(next, row);
+    } else if (action.type === 'makeVariable' || action.type === 'clearCoordinateCondition') {
+      const row = rowAt(next, action.id);
+      row.condition[action.type === 'makeVariable' ? 'sequence' : 'coordinates'] = null;
+      setRow(next, row);
+    } else if (action.type === 'reverse') {
+      if (next.kind === 'rows') next.rows.reverse(); else next.order.reverse();
+    } else if (action.type === 'attachIndependentCoordinates') {
+      const incoming = action.input;
+      if (!action.mapping) fail('独立结构缺少明确位置映射；长度相同不能建立对应');
+      const incomingIds = new Set(incoming.positions.map(position => position.id));
+      if (incomingIds.size !== incoming.positions.length) fail('独立输入存在重复位置身份');
+      const mappedSource = new Set(), mappedTarget = new Set();
+      for (const pair of action.mapping) {
+        if (!incomingIds.has(pair.source) || !order.includes(pair.target)) fail('显式映射引用不存在的位置');
+        if (mappedSource.has(pair.source) || mappedTarget.has(pair.target)) fail('此原型要求显式一对一映射');
+        mappedSource.add(pair.source); mappedTarget.add(pair.target);
+      }
+      if (mappedSource.size !== incomingIds.size) fail('独立结构映射不完整；请明确选择输入区域');
+      for (const pair of action.mapping) {
+        const row = rowAt(next, pair.target), position = incoming.positions.find(item => item.id === pair.source);
+        row.condition.coordinates = {frame: incoming.frame, atoms: clone(position.atoms)};
+        setRow(next, row);
+      }
+    } else fail(`不支持的操作 ${action.type}`);
+    next.objectId = `edited-${next.nextObject++}`;
+    return validate(next);
+  }
+  const independent = () => ({objectId:'independent-structure',frame:'independent-frame',positions:[1,2,3,4].map(i=>({id:`q${i}`,atoms:{CA:[i*100,2,3]}}))});
+  const explicitMapping = () => [1,2,3,4].map(i=>({source:`q${i}`,target:`p${5-i}`}));
+  const actions = {
+    insert: {label:'在 p2 后插入可变 G',action:{type:'insert',after:'p2',residue:'G'}},
+    mutate: {label:'p2 突变为 W，并固定序列条件',action:{type:'mutateAndFixSequence',id:'p2',residue:'W'}},
+    variable: {label:'把 p2 序列条件设为可变',action:{type:'makeVariable',id:'p2'}},
+    reverse: {label:'反转当前位置顺序',action:{type:'reverse'}},
+    delete: {label:'尝试直接删除被引用的 p2',action:{type:'delete',id:'p2'}},
+    prune: {label:'删除 p2，并清理区域与成对引用',action:{type:'deleteAndPruneReferences',id:'p2'}},
+    clear: {label:'清除 p1 坐标条件，保留原观察',action:{type:'clearCoordinateCondition',id:'p1'}},
+    unmapped: {label:'尝试接入独立坐标，不提供映射',action:{type:'attachIndependentCoordinates',input:independent()}},
+    mapped: {label:'接入独立坐标，使用明确反向映射',action:{type:'attachIndependentCoordinates',input:independent(),mapping:explicitMapping()}}
+  };
+  const scenarios = [
+    {title:'变长与重排',description:'插入位置没有来源与坐标。随后突变和重排：检查原 A:11A 的二级结构 E、SASA 0.2 与来源仍然跟随 p2；区域保持原成员。',steps:['insert','mutate','reverse']},
+    {title:'跨位置引用',description:'p2 同时属于区域与成对约束。普通删除必须失败；明确删除并清理后，区域移除 p2，涉及 p2 的成对约束整体移除。',steps:['delete','prune','reverse']},
+    {title:'观察与条件',description:'清除坐标条件不删除原坐标。突变不会把来源结构中的 A 改为 W，也不会把原对象的评分归给新对象。',steps:['clear','mutate','variable']},
+    {title:'独立输入对应',description:'即使两个输入都为四个位置，也需要显式映射。第二步提供反向映射：q1 的 CA=100 应交给 p4，而不是 p1。',steps:['unmapped','mapped','reverse']}
+  ];
+  return {initial,fromSeed,apply,exportRequest,validate,ids,rowAt,actions,scenarios,independent,explicitMapping};
+})();
+</script>
+<script>
+(() => {
+  const P = ConditionsPrototype;
+  let states = {rows:P.initial('rows'),tracks:P.initial('tracks')}, history=[], selected=0, step=0;
+  const el=id=>document.getElementById(id), esc=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const coords=value=>value ? `${esc(value.frame)} · ${Object.entries(value.atoms).map(([atom,xyz])=>`${esc(atom)} [${xyz.join(', ')}]`).join('; ')}` : '未选择';
+  const source=value=>value?`${esc(value.chain)}:${esc(value.authorNumber)}${esc(value.insertionCode)}`:'新增位置';
+  function renderState(kind) {
+    const state=states[kind], request=P.exportRequest(state);
+    el(`${kind}-state`).innerHTML=`<p><strong>当前对象：</strong>${esc(state.objectId)}<br><strong>当前序列：</strong>${request.positions.map(p=>p.residue).join('')} (${request.positions.length})<br><strong>序列条件：</strong>${request.positions.map(p=>p.condition.sequence||'_').join('')}</p><div class="scroll"><table><thead><tr><th>顺序 / 位置</th><th>当前 / 原观察</th><th>来源</th><th>序列条件</th><th>坐标条件</th><th>SS / SASA 条件</th></tr></thead><tbody>${request.positions.map(p=>`<tr><td>${p.index+1} / ${esc(p.id)}</td><td>${p.residue} / ${p.observed?.residue||'无'}</td><td>${source(p.source)}</td><td>${p.condition.sequence||'可变'}</td><td>${coords(p.condition.coordinates)}</td><td>${p.condition.secondary??'无'} / ${p.condition.sasa??'无'}</td></tr>`).join('')}</tbody></table></div><p><strong>区域：</strong>${request.regions.map(r=>`${r.id} = [${r.members.join(', ')}]`).join('; ')||'无'}<br><strong>成对约束：</strong>${request.pairs.map(p=>`${p.id}: ${p.members.join(' ↔ ')} ≤ ${p.maxDistance}`).join('; ')||'无'}</p><details><summary>完整来源观察（不随条件清除或编辑丢失）</summary><ul>${state.original.positions.map(p=>`<li>${p.id} · ${source(p.source)} · ${p.observed.residue} · ${coords(p.observed.coordinates)} · SS ${p.observed.secondary} / SASA ${p.observed.sasa}</li>`).join('')}</ul></details><p><strong>原对象评价：</strong>source-structure · synthetic-fixture = 0.77<br><strong>当前对象评价：</strong>无（交付仅含编辑条件）</p><small>${kind==='rows'?'内部：一个位置的观察和四种条件集中在一行。':'内部：顺序列表、位置表、四个条件轨道分别维护。'}</small>`;
+  }
+  function render() {
+    renderState('rows'); renderState('tracks');
+    const a=P.exportRequest(states.rows),b=P.exportRequest(states.tracks);
+    el('raw').textContent=JSON.stringify({rowState:states.rows,trackState:states.tracks,neutralExport:a,exportsEqual:JSON.stringify(a)===JSON.stringify(b)},null,2);
+    el('tabs').innerHTML='';
+    P.scenarios.forEach((s,index)=>{const button=document.createElement('button');button.textContent=s.title;button.setAttribute('role','tab');button.setAttribute('aria-selected',index===selected);button.onclick=()=>{selected=index;reset();};el('tabs').append(button);});
+    const scenario=P.scenarios[selected];el('guide').innerHTML=`<p>${esc(scenario.description)}</p>`;
+    scenario.steps.forEach((key,index)=>{const button=document.createElement('button');button.textContent=`${index+1}. ${P.actions[key].label}`;button.disabled=index!==step;button.onclick=()=>{act(key);step++;render();};el('guide').append(button);});
+  }
+  function notice(message,error=false){el('notice').textContent=message;el('notice').className=`status${error?' error':''}`;}
+  function reset(){states={rows:P.initial('rows'),tracks:P.initial('tracks')};history=[];step=0;notice('已恢复起点。两个方案的模型无关交付相同。');render();}
+  function act(key){
+    const outcomes=Object.fromEntries(['rows','tracks'].map(kind=>{try{return[kind,{state:P.apply(states[kind],P.actions[key].action)}];}catch(error){return[kind,{error:error.message}];}}));
+    if(outcomes.rows.error||outcomes.tracks.error){notice(`操作未执行。A：${outcomes.rows.error||'接受'}；B：${outcomes.tracks.error||'接受'}`,true);}
+    else{history.push(states);states={rows:outcomes.rows.state,tracks:outcomes.tracks.state};const equal=JSON.stringify(P.exportRequest(states.rows))===JSON.stringify(P.exportRequest(states.tracks));notice(`${P.actions[key].label}。两个方案交付${equal?'完全一致':'出现差异'}。`,!equal);}
+    render();
+  }
+  for(const [key,value] of Object.entries(P.actions)){const button=document.createElement('button');button.textContent=value.label;button.onclick=()=>act(key);el('free').append(button);}
+  for(const [label,callback] of [['重置',reset],['撤销上次成功操作',()=>{if(history.length){states=history.pop();notice('已恢复上次完整状态，包括来源、条件与引用。');render();}else notice('没有可以撤销的操作。');}],['对比交付',()=>notice(JSON.stringify(P.exportRequest(states.rows))===JSON.stringify(P.exportRequest(states.tracks))?'两个方案交付完全一致。':'两个方案交付出现差异。')]]){const button=document.createElement('button');button.textContent=label;button.onclick=callback;el('free').append(button);}
+  reset();
+})();
+</script></html>

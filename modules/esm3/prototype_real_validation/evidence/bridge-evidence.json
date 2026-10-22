@@ -1,0 +1,8 @@
+{
+  "checks": [
+    {
+      "check": "both actual JavaScript representations export identical real-structure conditions",
+      "status": "passed"
+    }
+  ]
+}

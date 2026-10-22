@@ -1,0 +1,1696 @@
+{
+  "reference": {
+    "id": "1PGA-chain-A",
+    "sequence": "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE",
+    "positions": [
+      {
+        "chain": "A",
+        "author_number": 1,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 2,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 3,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 4,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 5,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 6,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 7,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 8,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 9,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 10,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 11,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 12,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 13,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 14,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 15,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 16,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 17,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 18,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 19,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 20,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 21,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 22,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 23,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 24,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 25,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 26,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 27,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 28,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 29,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 30,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 31,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 32,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 33,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 34,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 35,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 36,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 37,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 38,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 39,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 40,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 41,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 42,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 43,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 44,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 45,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 46,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 47,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 48,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 49,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 50,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 51,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 52,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 53,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 54,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 55,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 56,
+        "insertion_code": ""
+      }
+    ],
+    "coordinates": [
+      [
+        26.659,
+        32.769,
+        36.242
+      ],
+      [
+        28.716,
+        29.848,
+        34.951
+      ],
+      [
+        26.925,
+        27.439,
+        32.581
+      ],
+      [
+        27.88,
+        24.053,
+        31.245
+      ],
+      [
+        27.287,
+        22.492,
+        27.893
+      ],
+      [
+        27.234,
+        18.718,
+        27.43
+      ],
+      [
+        27.753,
+        17.891,
+        23.727
+      ],
+      [
+        26.607,
+        14.472,
+        22.512
+      ],
+      [
+        27.19,
+        14.807,
+        18.805
+      ],
+      [
+        28.097,
+        12.053,
+        16.383
+      ],
+      [
+        31.651,
+        13.369,
+        15.973
+      ],
+      [
+        32.24,
+        15.708,
+        18.937
+      ],
+      [
+        31.559,
+        14.806,
+        22.513
+      ],
+      [
+        32.551,
+        16.607,
+        25.608
+      ],
+      [
+        31.885,
+        19.251,
+        28.169
+      ],
+      [
+        32.59,
+        22.952,
+        28.314
+      ],
+      [
+        31.337,
+        25.872,
+        30.369
+      ],
+      [
+        30.648,
+        29.569,
+        29.782
+      ],
+      [
+        30.112,
+        32.696,
+        31.87
+      ],
+      [
+        26.954,
+        34.653,
+        31.011
+      ],
+      [
+        24.428,
+        37.125,
+        32.548
+      ],
+      [
+        21.526,
+        34.808,
+        32.082
+      ],
+      [
+        20.561,
+        31.551,
+        30.43
+      ],
+      [
+        19.237,
+        33.239,
+        27.218
+      ],
+      [
+        22.642,
+        34.663,
+        26.595
+      ],
+      [
+        24.499,
+        31.366,
+        27.438
+      ],
+      [
+        22.101,
+        29.59,
+        25.062
+      ],
+      [
+        23.18,
+        31.932,
+        22.177
+      ],
+      [
+        26.885,
+        31.515,
+        22.924
+      ],
+      [
+        26.606,
+        27.707,
+        23.121
+      ],
+      [
+        24.465,
+        27.362,
+        20.003
+      ],
+      [
+        27.009,
+        29.365,
+        18.127
+      ],
+      [
+        29.773,
+        27.206,
+        19.679
+      ],
+      [
+        27.92,
+        24.046,
+        18.545
+      ],
+      [
+        27.274,
+        25.513,
+        15.161
+      ],
+      [
+        30.915,
+        26.41,
+        14.554
+      ],
+      [
+        31.91,
+        22.848,
+        15.442
+      ],
+      [
+        29.514,
+        21.139,
+        13.029
+      ],
+      [
+        26.982,
+        20.057,
+        15.673
+      ],
+      [
+        23.273,
+        20.165,
+        14.911
+      ],
+      [
+        21.07,
+        18.388,
+        17.442
+      ],
+      [
+        18.281,
+        18.573,
+        20.025
+      ],
+      [
+        18.773,
+        20.83,
+        23.024
+      ],
+      [
+        17.568,
+        20.872,
+        26.6
+      ],
+      [
+        18.383,
+        23.292,
+        29.382
+      ],
+      [
+        18.189,
+        22.395,
+        33.084
+      ],
+      [
+        18.172,
+        25.408,
+        35.266
+      ],
+      [
+        18.486,
+        23.283,
+        38.379
+      ],
+      [
+        22.029,
+        22.47,
+        37.333
+      ],
+      [
+        22.552,
+        25.343,
+        34.873
+      ],
+      [
+        23.221,
+        22.742,
+        32.156
+      ],
+      [
+        22.568,
+        22.724,
+        28.431
+      ],
+      [
+        22.885,
+        19.561,
+        26.411
+      ],
+      [
+        22.856,
+        19.172,
+        22.598
+      ],
+      [
+        22.364,
+        15.731,
+        21.085
+      ],
+      [
+        22.553,
+        14.567,
+        17.468
+      ]
+    ]
+  },
+  "rigid_subject": {
+    "id": "1PGA-rigid-transformed",
+    "sequence": "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE",
+    "positions": [
+      {
+        "chain": "A",
+        "author_number": 1,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 2,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 3,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 4,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 5,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 6,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 7,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 8,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 9,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 10,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 11,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 12,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 13,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 14,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 15,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 16,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 17,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 18,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 19,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 20,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 21,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 22,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 23,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 24,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 25,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 26,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 27,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 28,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 29,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 30,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 31,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 32,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 33,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 34,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 35,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 36,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 37,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 38,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 39,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 40,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 41,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 42,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 43,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 44,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 45,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 46,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 47,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 48,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 49,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 50,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 51,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 52,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 53,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 54,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 55,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 56,
+        "insertion_code": ""
+      }
+    ],
+    "coordinates": [
+      [
+        -22.769,
+        46.659,
+        31.241999999999997
+      ],
+      [
+        -19.848,
+        48.716,
+        29.951
+      ],
+      [
+        -17.439,
+        46.925,
+        27.581000000000003
+      ],
+      [
+        -14.053,
+        47.879999999999995,
+        26.245
+      ],
+      [
+        -12.492,
+        47.287,
+        22.893
+      ],
+      [
+        -8.718,
+        47.234,
+        22.43
+      ],
+      [
+        -7.890999999999998,
+        47.753,
+        18.727
+      ],
+      [
+        -4.4719999999999995,
+        46.607,
+        17.512
+      ],
+      [
+        -4.807,
+        47.19,
+        13.805
+      ],
+      [
+        -2.053000000000001,
+        48.097,
+        11.383
+      ],
+      [
+        -3.3689999999999998,
+        51.650999999999996,
+        10.973
+      ],
+      [
+        -5.708,
+        52.24,
+        13.937000000000001
+      ],
+      [
+        -4.805999999999999,
+        51.559,
+        17.513
+      ],
+      [
+        -6.606999999999999,
+        52.551,
+        20.608
+      ],
+      [
+        -9.251000000000001,
+        51.885000000000005,
+        23.169
+      ],
+      [
+        -12.952000000000002,
+        52.59,
+        23.314
+      ],
+      [
+        -15.872,
+        51.337,
+        25.369
+      ],
+      [
+        -19.569,
+        50.647999999999996,
+        24.782
+      ],
+      [
+        -22.695999999999998,
+        50.111999999999995,
+        26.87
+      ],
+      [
+        -24.653,
+        46.954,
+        26.011
+      ],
+      [
+        -27.125,
+        44.428,
+        27.548000000000002
+      ],
+      [
+        -24.808,
+        41.525999999999996,
+        27.082
+      ],
+      [
+        -21.551,
+        40.561,
+        25.43
+      ],
+      [
+        -23.238999999999997,
+        39.236999999999995,
+        22.218
+      ],
+      [
+        -24.662999999999997,
+        42.641999999999996,
+        21.595
+      ],
+      [
+        -21.366,
+        44.498999999999995,
+        22.438
+      ],
+      [
+        -19.59,
+        42.101,
+        20.062
+      ],
+      [
+        -21.932,
+        43.18,
+        17.177
+      ],
+      [
+        -21.515,
+        46.885000000000005,
+        17.924
+      ],
+      [
+        -17.707,
+        46.606,
+        18.121
+      ],
+      [
+        -17.362,
+        44.465,
+        15.003
+      ],
+      [
+        -19.365,
+        47.009,
+        13.126999999999999
+      ],
+      [
+        -17.206,
+        49.772999999999996,
+        14.678999999999998
+      ],
+      [
+        -14.046,
+        47.92,
+        13.545000000000002
+      ],
+      [
+        -15.513000000000002,
+        47.274,
+        10.161
+      ],
+      [
+        -16.41,
+        50.915,
+        9.554
+      ],
+      [
+        -12.847999999999999,
+        51.91,
+        10.442
+      ],
+      [
+        -11.139,
+        49.513999999999996,
+        8.029
+      ],
+      [
+        -10.056999999999999,
+        46.982,
+        10.673
+      ],
+      [
+        -10.165,
+        43.272999999999996,
+        9.911
+      ],
+      [
+        -8.388000000000002,
+        41.07,
+        12.442
+      ],
+      [
+        -8.573,
+        38.281,
+        15.024999999999999
+      ],
+      [
+        -10.829999999999998,
+        38.772999999999996,
+        18.024
+      ],
+      [
+        -10.872,
+        37.568,
+        21.6
+      ],
+      [
+        -13.292000000000002,
+        38.382999999999996,
+        24.382
+      ],
+      [
+        -12.395,
+        38.189,
+        28.084000000000003
+      ],
+      [
+        -15.408000000000001,
+        38.172,
+        30.266
+      ],
+      [
+        -13.283000000000001,
+        38.486000000000004,
+        33.379
+      ],
+      [
+        -12.469999999999999,
+        42.028999999999996,
+        32.333
+      ],
+      [
+        -15.343,
+        42.552,
+        29.872999999999998
+      ],
+      [
+        -12.742,
+        43.221000000000004,
+        27.156
+      ],
+      [
+        -12.724,
+        42.568,
+        23.431
+      ],
+      [
+        -9.561,
+        42.885000000000005,
+        21.411
+      ],
+      [
+        -9.172,
+        42.856,
+        17.598
+      ],
+      [
+        -5.731,
+        42.364000000000004,
+        16.085
+      ],
+      [
+        -4.567,
+        42.553,
+        12.468
+      ]
+    ]
+  },
+  "deleted_residue_subject": {
+    "id": "1PGA-rigid-transformed-delete-A25",
+    "sequence": "MTYKLILNGKTLKGETTTEAVDAAAEKVFKQYANDNGVDGEWTYDDATKTFTVTE",
+    "positions": [
+      {
+        "chain": "A",
+        "author_number": 1,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 2,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 3,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 4,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 5,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 6,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 7,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 8,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 9,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 10,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 11,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 12,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 13,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 14,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 15,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 16,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 17,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 18,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 19,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 20,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 21,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 22,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 23,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 24,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 26,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 27,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 28,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 29,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 30,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 31,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 32,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 33,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 34,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 35,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 36,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 37,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 38,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 39,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 40,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 41,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 42,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 43,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 44,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 45,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 46,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 47,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 48,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 49,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 50,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 51,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 52,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 53,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 54,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 55,
+        "insertion_code": ""
+      },
+      {
+        "chain": "A",
+        "author_number": 56,
+        "insertion_code": ""
+      }
+    ],
+    "coordinates": [
+      [
+        -22.769,
+        46.659,
+        31.241999999999997
+      ],
+      [
+        -19.848,
+        48.716,
+        29.951
+      ],
+      [
+        -17.439,
+        46.925,
+        27.581000000000003
+      ],
+      [
+        -14.053,
+        47.879999999999995,
+        26.245
+      ],
+      [
+        -12.492,
+        47.287,
+        22.893
+      ],
+      [
+        -8.718,
+        47.234,
+        22.43
+      ],
+      [
+        -7.890999999999998,
+        47.753,
+        18.727
+      ],
+      [
+        -4.4719999999999995,
+        46.607,
+        17.512
+      ],
+      [
+        -4.807,
+        47.19,
+        13.805
+      ],
+      [
+        -2.053000000000001,
+        48.097,
+        11.383
+      ],
+      [
+        -3.3689999999999998,
+        51.650999999999996,
+        10.973
+      ],
+      [
+        -5.708,
+        52.24,
+        13.937000000000001
+      ],
+      [
+        -4.805999999999999,
+        51.559,
+        17.513
+      ],
+      [
+        -6.606999999999999,
+        52.551,
+        20.608
+      ],
+      [
+        -9.251000000000001,
+        51.885000000000005,
+        23.169
+      ],
+      [
+        -12.952000000000002,
+        52.59,
+        23.314
+      ],
+      [
+        -15.872,
+        51.337,
+        25.369
+      ],
+      [
+        -19.569,
+        50.647999999999996,
+        24.782
+      ],
+      [
+        -22.695999999999998,
+        50.111999999999995,
+        26.87
+      ],
+      [
+        -24.653,
+        46.954,
+        26.011
+      ],
+      [
+        -27.125,
+        44.428,
+        27.548000000000002
+      ],
+      [
+        -24.808,
+        41.525999999999996,
+        27.082
+      ],
+      [
+        -21.551,
+        40.561,
+        25.43
+      ],
+      [
+        -23.238999999999997,
+        39.236999999999995,
+        22.218
+      ],
+      [
+        -21.366,
+        44.498999999999995,
+        22.438
+      ],
+      [
+        -19.59,
+        42.101,
+        20.062
+      ],
+      [
+        -21.932,
+        43.18,
+        17.177
+      ],
+      [
+        -21.515,
+        46.885000000000005,
+        17.924
+      ],
+      [
+        -17.707,
+        46.606,
+        18.121
+      ],
+      [
+        -17.362,
+        44.465,
+        15.003
+      ],
+      [
+        -19.365,
+        47.009,
+        13.126999999999999
+      ],
+      [
+        -17.206,
+        49.772999999999996,
+        14.678999999999998
+      ],
+      [
+        -14.046,
+        47.92,
+        13.545000000000002
+      ],
+      [
+        -15.513000000000002,
+        47.274,
+        10.161
+      ],
+      [
+        -16.41,
+        50.915,
+        9.554
+      ],
+      [
+        -12.847999999999999,
+        51.91,
+        10.442
+      ],
+      [
+        -11.139,
+        49.513999999999996,
+        8.029
+      ],
+      [
+        -10.056999999999999,
+        46.982,
+        10.673
+      ],
+      [
+        -10.165,
+        43.272999999999996,
+        9.911
+      ],
+      [
+        -8.388000000000002,
+        41.07,
+        12.442
+      ],
+      [
+        -8.573,
+        38.281,
+        15.024999999999999
+      ],
+      [
+        -10.829999999999998,
+        38.772999999999996,
+        18.024
+      ],
+      [
+        -10.872,
+        37.568,
+        21.6
+      ],
+      [
+        -13.292000000000002,
+        38.382999999999996,
+        24.382
+      ],
+      [
+        -12.395,
+        38.189,
+        28.084000000000003
+      ],
+      [
+        -15.408000000000001,
+        38.172,
+        30.266
+      ],
+      [
+        -13.283000000000001,
+        38.486000000000004,
+        33.379
+      ],
+      [
+        -12.469999999999999,
+        42.028999999999996,
+        32.333
+      ],
+      [
+        -15.343,
+        42.552,
+        29.872999999999998
+      ],
+      [
+        -12.742,
+        43.221000000000004,
+        27.156
+      ],
+      [
+        -12.724,
+        42.568,
+        23.431
+      ],
+      [
+        -9.561,
+        42.885000000000005,
+        21.411
+      ],
+      [
+        -9.172,
+        42.856,
+        17.598
+      ],
+      [
+        -5.731,
+        42.364000000000004,
+        16.085
+      ],
+      [
+        -4.567,
+        42.553,
+        12.468
+      ]
+    ]
+  }
+}

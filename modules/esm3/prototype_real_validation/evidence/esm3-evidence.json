@@ -1,0 +1,2831 @@
+{
+  "executed": "real pinned native ESMProtein, tokenizers, and learned structure encoder checkpoint",
+  "sequence_generation_executed": false,
+  "structure_generation_executed": false,
+  "synthetic_condition_tracks": [
+    "secondary_structure",
+    "sasa",
+    "function_annotations"
+  ],
+  "synthetic_condition_note": "Test conditions exercise correspondence; these are not biological annotations measured for 1PGA.",
+  "open_seam": {
+    "observation": "Missing coordinates yielded codebook tokens instead of mask tokens. The native encoder output is preserved unchanged.",
+    "actual_missing_tokens": [
+      2246,
+      2246,
+      2246
+    ],
+    "native_mask_id": 4096,
+    "source_inspection": {
+      "file": "repositories/esm/esm/utils/generation.py",
+      "lines": [
+        368,
+        369
+      ],
+      "behavior": "With condition_on_coordinates_only=True and coordinates present, iterative sampling clears the entire structure token track before generation."
+    },
+    "not_yet_validated": "Full generation with partial coordinates, for both coordinate-only settings, and its scientifically intended masking behavior."
+  },
+  "checks": [
+    {
+      "check": "edited length 56 + 3 - 1 = 58",
+      "status": "passed"
+    },
+    {
+      "check": "native ESMProtein coordinates shape",
+      "status": "passed"
+    },
+    {
+      "check": "p1 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p1:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p1:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p1:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p1:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p1 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p1 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p1 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p2 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p2:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p2:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p2:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p2:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p2 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p2 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p2 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p3 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p3:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p3:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p3:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p3:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p3 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p3 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p3 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p4 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p4:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p4:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p4:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p4:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p4 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p4 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p4 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p5 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p5:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p5:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p5:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p5:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p5 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p5 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p5 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p6 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p6:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p6:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p6:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p6:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p6 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p6 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p6 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p7 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p7:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p7:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p7:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p7:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p7 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p7 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p7 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p8 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p8:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p8:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p8:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p8:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p8 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p8 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p8 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p9 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p9:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p9:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p9:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p9:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p9 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p9 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p9 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p10 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p10:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p10:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p10:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p10:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p10 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p10 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p10 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p11 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p11:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p11:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p11:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p11:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p11 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p11 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p11 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "inserted p59 has no fabricated coordinates",
+      "status": "passed"
+    },
+    {
+      "check": "inserted p58 has no fabricated coordinates",
+      "status": "passed"
+    },
+    {
+      "check": "inserted p57 has no fabricated coordinates",
+      "status": "passed"
+    },
+    {
+      "check": "p12 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p12:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p12:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p12:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p12:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p12 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p12 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p12 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p13 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p13:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p13:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p13:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p13:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p13 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p13 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p13 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p14 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p14:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p14:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p14:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p14:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p14 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p14 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p14 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p15 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p15:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p15:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p15:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p15:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p15 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p15 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p15 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p16 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p16:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p16:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p16:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p16:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p16 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p16 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p16 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p17 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p17:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p17:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p17:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p17:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p17 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p17 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p17 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p18 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p18:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p18:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p18:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p18:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p18 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p18 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p18 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p19 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p19:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p19:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p19:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p19:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p19 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p19 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p19 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p20 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p20:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p20:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p20:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p20:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p20 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p20 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p20 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p21 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p21:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p21:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p21:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p21:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p21 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p21 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p21 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p22 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p22:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p22:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p22:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p22:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p22 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p22 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p22 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p23 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p23:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p23:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p23:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p23:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p23 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p23 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p23 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p24 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p24:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p24:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p24:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p24:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p24 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p24 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p24 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p26 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p26:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p26:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p26:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p26:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p26 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p26 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p26 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p27 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p27:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p27:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p27:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p27:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p27 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p27 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p27 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p28 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p28:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p28:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p28:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p28:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p28 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p28 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p28 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p29 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p29:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p29:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p29:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p29:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p29 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p29 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p29 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p30 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p30:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p30:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p30:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p30:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p30 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p30 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p30 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p31 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p31:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p31:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p31:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p31:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p31 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p31 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p31 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p32 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p32:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p32:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p32:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p32:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p32 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p32 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p32 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p33 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p33:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p33:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p33:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p33:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p33 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p33 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p33 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p34 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p34:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p34:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p34:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p34:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p34 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p34 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p34 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p35 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p35:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p35:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p35:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p35:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p35 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p35 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p35 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p36 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p36:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p36:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p36:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p36:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p36 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p36 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p36 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p37 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p37:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p37:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p37:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p37:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p37 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p37 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p37 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p38 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p38:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p38:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p38:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p38:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p38 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p38 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p38 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p39 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p39:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p39:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p39:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p39:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p39 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p39 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p39 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p40 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p40:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p40:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p40:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p40:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p40 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p40 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p40 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p41 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p41:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p41:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p41:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p41:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p41 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p41 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p41 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p42 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p42:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p42:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p42:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p42:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p42 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p42 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p42 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p43 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p43:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p43:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p43:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p43:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p43 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p43 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p43 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p44 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p44:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p44:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p44:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p44:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p44 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p44 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p44 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p45 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p45:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p45:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p45:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p45:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p45 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p45 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p45 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p46 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p46:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p46:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p46:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p46:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p46 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p46 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p46 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p47 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p47:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p47:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p47:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p47:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p47 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p47 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p47 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p48 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p48:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p48:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p48:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p48:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p48 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p48 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p48 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p49 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p49:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p49:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p49:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p49:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p49 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p49 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p49 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p50 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p50:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p50:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p50:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p50:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p50 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p50 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p50 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p51 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p51:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p51:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p51:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p51:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p51 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p51 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p51 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p52 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p52:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p52:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p52:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p52:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p52 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p52 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p52 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p53 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p53:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p53:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p53:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p53:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p53 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p53 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p53 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p54 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p54:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p54:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p54:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p54:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p54 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p54 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p54 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p55 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p55:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p55:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p55:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p55:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p55 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p55 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p55 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p56 source identity preserved",
+      "status": "passed"
+    },
+    {
+      "check": "p56:N atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p56:CA atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p56:C atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p56:O atom content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p56 observed sequence retained",
+      "status": "passed"
+    },
+    {
+      "check": "p56 secondary condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "p56 SASA condition follows source position",
+      "status": "passed"
+    },
+    {
+      "check": "deleted source A25 absent",
+      "status": "passed"
+    },
+    {
+      "check": "sequence observations independent of masking",
+      "status": "passed"
+    },
+    {
+      "check": "only selected backbone atoms used as conditions",
+      "status": "passed"
+    },
+    {
+      "check": "native function tokenizer rejects unsupported labels",
+      "status": "passed",
+      "diagnostic": "Unknown label in FunctionAnnotation: binding"
+    },
+    {
+      "check": "sequence native token length includes BOS/EOS",
+      "status": "passed",
+      "shape": [
+        60
+      ]
+    },
+    {
+      "check": "secondary_structure native token length includes BOS/EOS",
+      "status": "passed",
+      "shape": [
+        60
+      ]
+    },
+    {
+      "check": "sasa native token length includes BOS/EOS",
+      "status": "passed",
+      "shape": [
+        60
+      ]
+    },
+    {
+      "check": "function native token length includes BOS/EOS",
+      "status": "passed",
+      "shape": [
+        60,
+        8
+      ]
+    },
+    {
+      "check": "residue_annotations native token length includes BOS/EOS",
+      "status": "passed",
+      "shape": [
+        60,
+        16
+      ]
+    },
+    {
+      "check": "p1 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p1 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p1 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p2 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p2 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p2 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p3 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p3 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p3 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p4 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p4 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p4 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p5 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p5 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p5 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p6 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p6 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p6 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p7 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p7 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p7 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p8 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p8 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p8 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p9 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p9 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p9 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p10 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p10 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p10 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p11 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p11 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p11 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p59 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p59 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p59 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p58 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p58 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p58 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p57 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p57 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p57 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p12 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p12 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p12 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p13 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p13 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p13 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p14 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p14 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p14 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p15 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p15 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p15 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p16 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p16 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p16 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p17 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p17 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p17 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p18 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p18 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p18 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p19 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p19 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p19 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p20 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p20 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p20 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p21 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p21 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p21 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p22 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p22 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p22 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p23 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p23 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p23 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p24 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p24 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p24 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p26 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p26 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p26 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p27 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p27 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p27 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p28 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p28 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p28 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p29 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p29 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p29 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p30 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p30 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p30 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p31 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p31 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p31 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p32 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p32 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p32 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p33 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p33 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p33 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p34 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p34 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p34 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p35 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p35 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p35 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p36 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p36 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p36 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p37 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p37 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p37 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p38 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p38 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p38 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p39 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p39 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p39 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p40 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p40 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p40 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p41 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p41 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p41 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p42 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p42 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p42 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p43 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p43 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p43 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p44 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p44 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p44 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p45 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p45 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p45 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p46 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p46 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p46 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p47 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p47 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p47 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p48 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p48 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p48 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p49 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p49 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p49 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p50 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p50 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p50 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p51 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p51 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p51 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p52 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p52 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p52 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p53 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p53 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p53 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p54 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p54 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p54 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p55 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p55 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p55 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p56 sequence token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p56 secondary token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "p56 SASA token maps to current index + 1",
+      "status": "passed"
+    },
+    {
+      "check": "function interval members survive insertion without expanding",
+      "status": "passed"
+    },
+    {
+      "check": "p1 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p2 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p3 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p4 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p5 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p6 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p7 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p8 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p9 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p10 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p11 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p59 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p58 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p57 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p12 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p13 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p14 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p15 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p16 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p17 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p18 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p19 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p20 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p21 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p22 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p23 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p24 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p26 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p27 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p28 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p29 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p30 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p31 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p32 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p33 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p34 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p35 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p36 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p37 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p38 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p39 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p40 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p41 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p42 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p43 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p44 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p45 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p46 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p47 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p48 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p49 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p50 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p51 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p52 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p53 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p54 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p55 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "p56 function token content correspondence",
+      "status": "passed"
+    },
+    {
+      "check": "sequence special tokens are native BOS/EOS",
+      "status": "passed"
+    },
+    {
+      "check": "learned structure encoder returns length + 2 tokens",
+      "status": "passed"
+    },
+    {
+      "check": "structure tokens native BOS/EOS",
+      "status": "passed"
+    },
+    {
+      "check": "structure encoding preserves coordinate order and missing values",
+      "status": "passed"
+    },
+    {
+      "check": "structure coordinate special tokens padded with infinity",
+      "status": "passed"
+    },
+    {
+      "check": "native missing-coordinate positions receive codebook tokens, not structure masks",
+      "status": "passed",
+      "actual_tokens": [
+        2246,
+        2246,
+        2246
+      ],
+      "mask_token_id": 4096
+    },
+    {
+      "check": "native GenerationConfig defaults to coordinate-only conditioning",
+      "status": "passed"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "executed": "actual tool-boundary HTML compiler into pinned ESMProtein, GenerationConfig, and sequence/SS/SASA tokenizers",
+  "generation_executed": false,
+  "checks": [
+    {
+      "check": "actual HTML compiler coordinates match conditions-to-adapter path",
+      "status": "passed"
+    },
+    {
+      "check": "actual HTML compiler sequence tokens match conditions-to-adapter path",
+      "status": "passed"
+    },
+    {
+      "check": "actual HTML compiler secondary tokens match conditions-to-adapter path",
+      "status": "passed"
+    },
+    {
+      "check": "actual HTML compiler SASA tokens match conditions-to-adapter path",
+      "status": "passed"
+    },
+    {
+      "check": "actual HTML compiler binding preserves current positions",
+      "status": "passed"
+    },
+    {
+      "check": "actual HTML compiler config accepted by pinned GenerationConfig",
+      "status": "passed"
+    }
+  ]
+}

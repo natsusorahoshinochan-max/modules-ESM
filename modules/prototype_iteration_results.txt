@@ -1,0 +1,20 @@
+PASS 确定性演算：初始六项及独立得分预期
+PASS 整批与逐包：相同结果，实际调用边界不同
+PASS 筛选作用域由模块表达：每模板第一名改变后续输入
+PASS 实际列表基数：每模板两项共四项，全局两项共两项
+PASS 固定参考与显式携带参考产生不同的第二轮排名
+PASS 并列保留输入顺序，相同数值的新对象各自存在
+PASS task-batch：失败保留四项但禁止交给下游，续算跳过成功项
+PASS task-batch：空选择原样传入第二轮，无补足候选
+PASS task-batch：取消在请求边界停止，继续仅执行未完成项
+PASS host-map：失败保留四项但禁止交给下游，续算跳过成功项
+PASS host-map：空选择原样传入第二轮，无补足候选
+PASS host-map：取消在请求边界停止，继续仅执行未完成项
+PASS 相同输入分别启动两次，两个运行都实际执行
+PASS 状态转换不修改前态或来源模板
+PASS 运行中拒绝修改画布，停止后允许修改而不改变旧调用
+PASS 载体只传递不透明包与私有续算内容
+PASS 载体串行汇合暂停尚未开始项；续算不重跑成功调用
+PASS 标量变体复用同一载体；不会覆盖失败运行的续算位置
+
+18 prototype checks passed; scientific generation remains simulated.

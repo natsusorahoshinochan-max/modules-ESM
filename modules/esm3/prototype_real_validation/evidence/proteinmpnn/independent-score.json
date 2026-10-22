@@ -1,0 +1,561 @@
+{
+  "positions": [
+    {
+      "chain": "A",
+      "author_number": 1,
+      "insertion_code": "",
+      "tool_position": 1
+    },
+    {
+      "chain": "A",
+      "author_number": 2,
+      "insertion_code": "",
+      "tool_position": 2
+    },
+    {
+      "chain": "A",
+      "author_number": 3,
+      "insertion_code": "",
+      "tool_position": 3
+    },
+    {
+      "chain": "A",
+      "author_number": 4,
+      "insertion_code": "",
+      "tool_position": 4
+    },
+    {
+      "chain": "A",
+      "author_number": 5,
+      "insertion_code": "",
+      "tool_position": 5
+    },
+    {
+      "chain": "A",
+      "author_number": 6,
+      "insertion_code": "",
+      "tool_position": 6
+    },
+    {
+      "chain": "A",
+      "author_number": 7,
+      "insertion_code": "",
+      "tool_position": 7
+    },
+    {
+      "chain": "A",
+      "author_number": 8,
+      "insertion_code": "",
+      "tool_position": 8
+    },
+    {
+      "chain": "A",
+      "author_number": 9,
+      "insertion_code": "",
+      "tool_position": 9
+    },
+    {
+      "chain": "A",
+      "author_number": 10,
+      "insertion_code": "",
+      "tool_position": 10
+    },
+    {
+      "chain": "A",
+      "author_number": 11,
+      "insertion_code": "",
+      "tool_position": 11
+    },
+    {
+      "chain": "A",
+      "author_number": 12,
+      "insertion_code": "",
+      "tool_position": 12
+    },
+    {
+      "chain": "A",
+      "author_number": 13,
+      "insertion_code": "",
+      "tool_position": 13
+    },
+    {
+      "chain": "A",
+      "author_number": 14,
+      "insertion_code": "",
+      "tool_position": 14
+    },
+    {
+      "chain": "A",
+      "author_number": 15,
+      "insertion_code": "",
+      "tool_position": 15
+    },
+    {
+      "chain": "A",
+      "author_number": 16,
+      "insertion_code": "",
+      "tool_position": 16
+    },
+    {
+      "chain": "A",
+      "author_number": 17,
+      "insertion_code": "",
+      "tool_position": 17
+    },
+    {
+      "chain": "A",
+      "author_number": 18,
+      "insertion_code": "",
+      "tool_position": 18
+    },
+    {
+      "chain": "A",
+      "author_number": 19,
+      "insertion_code": "",
+      "tool_position": 19
+    },
+    {
+      "chain": "A",
+      "author_number": 20,
+      "insertion_code": "",
+      "tool_position": 20
+    },
+    {
+      "chain": "A",
+      "author_number": 21,
+      "insertion_code": "",
+      "tool_position": 21
+    },
+    {
+      "chain": "A",
+      "author_number": 22,
+      "insertion_code": "",
+      "tool_position": 22
+    },
+    {
+      "chain": "A",
+      "author_number": 23,
+      "insertion_code": "",
+      "tool_position": 23
+    },
+    {
+      "chain": "A",
+      "author_number": 24,
+      "insertion_code": "",
+      "tool_position": 24
+    },
+    {
+      "chain": "A",
+      "author_number": 25,
+      "insertion_code": "",
+      "tool_position": 25
+    },
+    {
+      "chain": "A",
+      "author_number": 26,
+      "insertion_code": "",
+      "tool_position": 26
+    },
+    {
+      "chain": "A",
+      "author_number": 27,
+      "insertion_code": "",
+      "tool_position": 27
+    },
+    {
+      "chain": "A",
+      "author_number": 28,
+      "insertion_code": "",
+      "tool_position": 28
+    },
+    {
+      "chain": "A",
+      "author_number": 29,
+      "insertion_code": "",
+      "tool_position": 29
+    },
+    {
+      "chain": "A",
+      "author_number": 30,
+      "insertion_code": "",
+      "tool_position": 30
+    },
+    {
+      "chain": "A",
+      "author_number": 31,
+      "insertion_code": "",
+      "tool_position": 31
+    },
+    {
+      "chain": "A",
+      "author_number": 32,
+      "insertion_code": "",
+      "tool_position": 32
+    },
+    {
+      "chain": "A",
+      "author_number": 33,
+      "insertion_code": "",
+      "tool_position": 33
+    },
+    {
+      "chain": "A",
+      "author_number": 34,
+      "insertion_code": "",
+      "tool_position": 34
+    },
+    {
+      "chain": "A",
+      "author_number": 35,
+      "insertion_code": "",
+      "tool_position": 35
+    },
+    {
+      "chain": "A",
+      "author_number": 36,
+      "insertion_code": "",
+      "tool_position": 36
+    },
+    {
+      "chain": "A",
+      "author_number": 37,
+      "insertion_code": "",
+      "tool_position": 37
+    },
+    {
+      "chain": "A",
+      "author_number": 38,
+      "insertion_code": "",
+      "tool_position": 38
+    },
+    {
+      "chain": "A",
+      "author_number": 39,
+      "insertion_code": "",
+      "tool_position": 39
+    },
+    {
+      "chain": "A",
+      "author_number": 40,
+      "insertion_code": "",
+      "tool_position": 40
+    },
+    {
+      "chain": "A",
+      "author_number": 41,
+      "insertion_code": "",
+      "tool_position": 41
+    },
+    {
+      "chain": "A",
+      "author_number": 42,
+      "insertion_code": "",
+      "tool_position": 42
+    },
+    {
+      "chain": "A",
+      "author_number": 43,
+      "insertion_code": "",
+      "tool_position": 43
+    },
+    {
+      "chain": "A",
+      "author_number": 44,
+      "insertion_code": "",
+      "tool_position": 44
+    },
+    {
+      "chain": "A",
+      "author_number": 45,
+      "insertion_code": "",
+      "tool_position": 45
+    },
+    {
+      "chain": "A",
+      "author_number": 46,
+      "insertion_code": "",
+      "tool_position": 46
+    },
+    {
+      "chain": "A",
+      "author_number": 47,
+      "insertion_code": "",
+      "tool_position": 47
+    },
+    {
+      "chain": "A",
+      "author_number": 48,
+      "insertion_code": "",
+      "tool_position": 48
+    },
+    {
+      "chain": "A",
+      "author_number": 49,
+      "insertion_code": "",
+      "tool_position": 49
+    },
+    {
+      "chain": "A",
+      "author_number": 50,
+      "insertion_code": "",
+      "tool_position": 50
+    },
+    {
+      "chain": "A",
+      "author_number": 51,
+      "insertion_code": "",
+      "tool_position": 51
+    },
+    {
+      "chain": "A",
+      "author_number": 52,
+      "insertion_code": "",
+      "tool_position": 52
+    },
+    {
+      "chain": "A",
+      "author_number": 53,
+      "insertion_code": "",
+      "tool_position": 53
+    },
+    {
+      "chain": "A",
+      "author_number": 54,
+      "insertion_code": "",
+      "tool_position": 54
+    },
+    {
+      "chain": "A",
+      "author_number": 55,
+      "insertion_code": "",
+      "tool_position": 55
+    },
+    {
+      "chain": "A",
+      "author_number": 56,
+      "insertion_code": "",
+      "tool_position": 56
+    }
+  ],
+  "samples": [
+    {
+      "chains": {
+        "A": "MTYKLIIEGKKVKGEITTEAENEEEAKKKFTKYVKDKGINGTWTFDPSTKTFTVKE"
+      },
+      "score": 0.9807106852531433,
+      "global_score": 0.9807106852531433,
+      "residue_nll": {
+        "A": [
+          2.7039778232574463,
+          1.5759844779968262,
+          0.21602214872837067,
+          1.4320192337036133,
+          0.12602895498275757,
+          1.2378010749816895,
+          0.8652570843696594,
+          2.5860800743103027,
+          0.1036151796579361,
+          0.4654996991157532,
+          1.7492769956588745,
+          1.243835210800171,
+          0.6611321568489075,
+          0.10579616576433182,
+          0.765395998954773,
+          1.80182683467865,
+          0.8725669980049133,
+          1.8120312690734863,
+          0.5261273980140686,
+          0.12188874930143356,
+          1.7971444129943848,
+          0.3335513472557068,
+          0.8892421126365662,
+          0.9922143220901489,
+          1.075782060623169,
+          0.09538529813289642,
+          1.5253939628601074,
+          0.9675531387329102,
+          2.462000608444214,
+          0.1035749763250351,
+          2.672151565551758,
+          1.966335415840149,
+          1.0872880220413208,
+          1.1464335918426514,
+          0.6530541181564331,
+          1.3676998615264893,
+          1.6023316383361816,
+          0.16451768577098846,
+          0.5248475670814514,
+          1.2984179258346558,
+          0.07631880044937134,
+          2.1346523761749268,
+          0.3421390950679779,
+          0.759019136428833,
+          0.6069587469100952,
+          0.3153090476989746,
+          1.5455554723739624,
+          1.7200675010681152,
+          0.40238627791404724,
+          0.8214366436004639,
+          0.507524311542511,
+          0.24584710597991943,
+          0.5772255659103394,
+          0.8264486193656921,
+          0.2714977562427521,
+          0.07033153623342514
+        ]
+      },
+      "design_mask": {
+        "A": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "coordinate_mask": {
+        "A": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "recovery": 1.0,
+      "temperature": null,
+      "batch_index": 0,
+      "tool_chain_order": [
+        "A"
+      ]
+    }
+  ],
+  "actual_seed": 43,
+  "parameters": {
+    "model_name": "v_48_020",
+    "use_soluble_model": false,
+    "backbone_noise": 0.0,
+    "seed": 43,
+    "num_seq_per_target": 1,
+    "batch_size": 1,
+    "sampling_temp": [
+      0.1
+    ],
+    "designed_chains": [
+      "A"
+    ],
+    "fixed_positions": {},
+    "tied_positions": [],
+    "omit_AAs": "X",
+    "bias_AA": {},
+    "bias_by_res": {},
+    "omit_AA": {},
+    "pssm": {},
+    "pssm_multi": 0.0,
+    "pssm_threshold": 0.0,
+    "pssm_log_odds_flag": false,
+    "pssm_bias_flag": false
+  }
+}
