@@ -1,0 +1,11 @@
+{
+  "mmcif_chain_ids": [
+    "TARGET_LONG"
+  ],
+  "direct_pdb_conversion": {
+    "status": "raised",
+    "error": "RuntimeError",
+    "message": "chain name too long for the PDB format: TARGET_LONG",
+    "warnings": []
+  }
+}

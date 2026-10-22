@@ -1,0 +1,283 @@
+{
+  "type": "RuntimeError",
+  "message": "expected m1 and m2 to have the same dtype, but got: c10::BFloat16 != float",
+  "checks_before_failure": [
+    {
+      "check": "file-only import contains 56 observed residues and no sequence masks",
+      "passed": true
+    },
+    {
+      "check": "target mapping creates 58 positions",
+      "passed": true
+    },
+    {
+      "check": "inserted positions have no fabricated coordinates",
+      "passed": true
+    },
+    {
+      "check": "deleted source A25 is absent",
+      "passed": true
+    },
+    {
+      "check": "only five selected sequence letters become fixed",
+      "passed": true
+    },
+    {
+      "check": "all mapped target positions receive chosen three backbone atoms",
+      "passed": true
+    },
+    {
+      "check": "target 0 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 1 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 2 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 3 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 4 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 5 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 6 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 7 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 8 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 9 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 10 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 14 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 15 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 16 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 17 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 18 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 19 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 20 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 21 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 22 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 23 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 24 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 25 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 26 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 27 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 28 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 29 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 30 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 31 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 32 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 33 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 34 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 35 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 36 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 37 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 38 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 39 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 40 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 41 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 42 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 43 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 44 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 45 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 46 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 47 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 48 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 49 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 50 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 51 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 52 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 53 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 54 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 55 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 56 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 57 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "coordinate selection changes without changing sequence conditions",
+      "passed": true
+    },
+    {
+      "check": "sequence selection changes without changing coordinate conditions",
+      "passed": true
+    },
+    {
+      "check": "naive atom-only edited PDB is reimported as 55 positions, losing three target slots",
+      "passed": true,
+      "reimported_sequence": "MTYKLILNGKTLKGETTTEAVDAAAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
+    },
+    {
+      "check": "new position cannot pretend it has source coordinates",
+      "passed": true,
+      "diagnostic": "Inserted position has no source coordinates"
+    },
+    {
+      "check": "missing source identity is refused instead of guessed",
+      "passed": true,
+      "diagnostic": "Source residue does not exist: (999, '')"
+    },
+    {
+      "check": "learned encoder gives a codebook token to absent coordinates",
+      "passed": true,
+      "actual": [
+        2246,
+        2246,
+        2246
+      ],
+      "native_mask_id": 4096
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "executed": "actual native ESM parsing, ProteinChain conversion and geometric-frame construction; no model weights needed",
+  "checks": [
+    {
+      "check": "native geometric conditioning sees 55 complete backbone frames",
+      "passed": true
+    },
+    {
+      "check": "CA-only coordinates provide zero native geometric frames",
+      "passed": true
+    },
+    {
+      "check": "adapter refuses a CA-only condition that cannot form native geometry",
+      "passed": true,
+      "diagnostic": "This ESM coordinate-condition operation requires the complete N/CA/C backbone frame"
+    },
+    {
+      "check": "adapter refuses unsupported or duplicate coordinate selection ['O']",
+      "passed": true,
+      "diagnostic": "This ESM coordinate-condition operation requires the complete N/CA/C backbone frame"
+    },
+    {
+      "check": "adapter refuses unsupported or duplicate coordinate selection ['N', 'CA', 'C', 'CA']",
+      "passed": true,
+      "diagnostic": "This ESM coordinate-condition operation requires the complete N/CA/C backbone frame"
+    },
+    {
+      "check": "copied standalone file and request reproduce native input without producer paths",
+      "passed": true
+    },
+    {
+      "check": "native ESMProtein convenience import does not retain residue identity field",
+      "passed": true
+    },
+    {
+      "check": "native structure conversion refuses 58 sequence with 56 coordinate rows",
+      "passed": true,
+      "error_type": "AssertionError",
+      "diagnostic": "((56, 37, 3), 58)"
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "question": "What does standard-file transport preserve, and what must a receiving adapter select or map explicitly?",
+  "execution": "Actual ESM SDK loaders, ProteinMPNN parser and featurizer, Gemmi and Bio.PDB; no model inference.",
+  "dependencies": {
+    "gemmi": "0.7.3",
+    "biotite": "1.2.0",
+    "torch": "2.11.0",
+    "esm_source": "/Users/sorachan/Documents/modules-ESM/repositories/esm",
+    "mpnn_source": "/Users/sorachan/Documents/modules-ESM/repositories/ProteinMPNN"
+  },
+  "scenarios": [
+    {
+      "id": "01-baseline",
+      "title": "原始 PDB 与 mmCIF 可直接交给实际 loader",
+      "observed": [
+        "PDB ESM、mmCIF ESM、PDB ProteinMPNN 均读取 56 个蛋白位置。"
+      ],
+      "design_implication": "结构文件可成为公开交接载体；atom37 留在实际 SDK 内部。",
+      "evidence": "01-baseline.json"
+    },
+    {
+      "id": "02-namespaces",
+      "title": "同一 mmCIF 的 label 与 author 命名空间",
+      "observed": [
+        "Bio.PDB 读取同一文件得到 author 链 H/残基 101 或 label 链 A/序列位置 1。",
+        "ESM 指定 author 链 H 成功；把 label 链 A 直接传入会报错。"
+      ],
+      "design_implication": "选择参数必须明确命名空间；适配器依据文件中的对应关系转换。",
+      "evidence": "02-namespaces.json"
+    },
+    {
+      "id": "03-unmodeled-residue",
+      "title": "保留完整序列但移除 A25 原子的同一结构",
+      "observed": [
+        "ESM from_pdb 返回 55 位，忽略仍在文件中的 SEQRES 完整序列。",
+        "ESM from_mmcif 返回 56 位，保留 A25 氨基酸且坐标缺失。",
+        "ProteinMPNN PDB parser 返回 56 位，A25 变成 '-'，不是原有氨基酸。"
+      ],
+      "design_implication": "文件格式相同或可转换不足以保证位置相同；接收模块要校验真实读取后的序列及位置。",
+      "evidence": "03-unmodeled-residue.json"
+    },
+    {
+      "id": "04-insertion-code",
+      "title": "同一 author 编号带插入码的真实 loader 差异",
+      "observed": [
+        "PDB 的 A11 和 A11A 被 ESM 与 ProteinMPNN 保留为两个位置。",
+        "当前固定 ESM mmCIF loader 将第二个 author 11 改为 12，仍带插入码 A，导致该位置坐标全丢失。"
+      ],
+      "design_implication": "不能把 SDK 文件读取当成无损承诺；该 mmCIF 路径需显式校验或修正适配后再接入。",
+      "evidence": "04-insertion-code.json"
+    },
+    {
+      "id": "05-numbering-gap",
+      "title": "只有 author 编号跳跃，实际原子没有少",
+      "observed": [
+        "把 A25…A56 改为 A125…A156：ESM 仍有 56 位，ProteinMPNN 扩成 156 位，额外补 100 个 '-'。"
+      ],
+      "design_implication": "工具的链内索引由真实 parser 决定；不能把 author 编号当作连续目标序列位置。",
+      "evidence": "05-numbering-gap.json"
+    },
+    {
+      "id": "06-missing-backbone",
+      "title": "缺少一个 O 原子并不会让原生 parser 报错",
+      "observed": [
+        "ProteinMPNN parser 接受 56 位输入；实际 featurizer 将 A11 的整残基 mask 置 0。",
+        "使用其原生 mask 输出序列时，A11 消失，剩余 55 位。"
+      ],
+      "design_implication": "承诺完整骨架设计的适配器应在调用前指出缺失的必需原子，不能默默缩短结果。",
+      "evidence": "06-missing-backbone.json"
+    },
+    {
+      "id": "07-altloc",
+      "title": "占有率更高的构象并非自动采用",
+      "observed": [
+        "A11 CA 的 A 构象 occupancy=0.2、B=0.8；ESM 和 ProteinMPNN 都选文件中先出现的 A。"
+      ],
+      "design_implication": "需要明确 altloc 选择，随后输出已选择的单构象文件；不能让不同 loader 默认值替用户选择。",
+      "evidence": "07-altloc.json"
+    },
+    {
+      "id": "08-multiple-models",
+      "title": "ProteinMPNN 合并两个 MODEL 的原子",
+      "observed": [
+        "模型 1 缺少 A11 O；模型 2 全体原子平移 100 Å。",
+        "ESM 只读模型 1；ProteinMPNN 保留模型 1 的 CA，却从模型 2 补入 O，形成不存在于任何原模型的混合骨架。"
+      ],
+      "design_implication": "多构象文件必须先明确选择一个模型，再给只接受单构象的工具。",
+      "evidence": "08-multiple-models.json"
+    },
+    {
+      "id": "09-components",
+      "title": "文件可保留配体和水，模型 loader 仍会过滤",
+      "observed": [
+        "Gemmi 保留 20 个水及人为加入的 2 原子 LIG；ESM/ProteinMPNN 输入对象只剩 56 位蛋白。"
+      ],
+      "design_implication": "适配器必须明确本次任务选择的组分，并拒绝所选工具无法接纳的组分；原文件独立保留。",
+      "evidence": "09-components.json"
+    },
+    {
+      "id": "10-long-chain",
+      "title": "mmCIF 长链标识不能直接写入传统 PDB",
+      "observed": [
+        "TARGET_LONG 在 mmCIF 中读取成功；Gemmi 直接写 PDB 抛错。"
+      ],
+      "design_implication": "转换需显式改名并输出位置对应；无法无损转出的内容应报告。",
+      "evidence": "10-long-chain.json"
+    },
+    {
+      "id": "11-explicit-selection-and-mapping",
+      "title": "一个小型显式准备操作修复四种交接歧义",
+      "observed": [
+        "明确模型/author 链/蛋白组分后，输出连续工具编号 PDB 和真实位置映射。",
+        "编号跳跃、长链名、选择模型 2、插入码四种输入均回读为 56 位；所选全部原子坐标及来源位置均验证保留。",
+        "用映射把固定 A11A 转成 ProteinMPNN fixed_positions 的第 12 位，原生 featurizer 确认只固定 A11A、未误固定 A11。"
+      ],
+      "design_implication": "文件 + 具体选择参数 + 必要位置映射足够处理这些病例，无需公共 atom37 数据层。",
+      "evidence": "11-explicit-selection-and-mapping.json"
+    }
+  ],
+  "scenario_count": 11,
+  "limitations": [
+    "只执行真实 parser、文件转换和 ProteinMPNN featurizer，没有调用生成模型。",
+    "挑战结构仅用于暴露接口行为，插入码、altloc、模型平移和配体均为程序变换。",
+    "小型显式转换仅针对已选择的蛋白单链；没有实现一般性的多组分格式转换器。",
+    "原始结构完整保存；工具临时 PDB 是显式蛋白选择后的输入。"
+  ]
+}

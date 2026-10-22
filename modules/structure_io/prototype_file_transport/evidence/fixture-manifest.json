@@ -1,0 +1,54 @@
+[
+  {
+    "path": "challenge-added-ligand.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-altloc-A11-CA.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-author-H101-label-A1.cif",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-author-numbering-gap.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-insertion-A11A.cif",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-insertion-A11A.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-long-chain.cif",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-missing-O-A11.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-two-model-hybrid.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-unmodeled-A25.cif",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "challenge-unmodeled-A25.pdb",
+    "kind": "programmatically transformed challenge fixture"
+  },
+  {
+    "path": "original-1PGA.cif",
+    "kind": "archived RCSB source"
+  },
+  {
+    "path": "original-1PGA.pdb",
+    "kind": "archived RCSB source"
+  }
+]

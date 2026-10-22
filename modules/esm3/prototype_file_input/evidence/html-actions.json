@@ -1,0 +1,10 @@
+{
+  "actions": [
+    {
+      "type": "insert3"
+    },
+    {
+      "type": "delete25"
+    }
+  ]
+}

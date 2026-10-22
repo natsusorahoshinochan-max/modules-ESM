@@ -9,20 +9,22 @@
 <body>
 <span class="tag">PROTOTYPE · 可丢弃的逻辑实验</span>
 <h1>模块之间，究竟交接什么？</h1>
-<p>三组原型分别检验条件表示、工具调用和循环调度。每组对照使用相同输入，并显示操作后的状态。长流程用来暴露交接问题；研究策略由用户配置。</p>
+<p>四组原型分别检验条件表示、工具调用、循环调度和标准文件交接。每组显示操作后的状态。长流程用来暴露交接问题；研究策略由用户配置。</p>
 <div class="grid">
  <article class="card"><span class="number">实验 01 · 数据表示</span><h2>长度改变，条件如何跟随？</h2><p>比较逐位置保存条件与按位置键分离轨道。观察增删、重排、区域和位置对约束如何交接。</p><a href="sequence_edit/prototype_conditions/index.html">打开条件原型 →</a></article>
  <article class="card"><span class="number">实验 02 · 工具边界</span><h2>谁编译模型的输入？</h2><p>比较操作侧编译原生请求与工具侧编译任务请求。观察换工具、缺失能力和输出对应。</p><a href="esm3/prototype_tool_boundary/index.html">打开工具原型 →</a></article>
  <article class="card"><span class="number">实验 03 · 执行边界</span><h2>批次与循环怎样分工？</h2><p>比较任务整批调用与载体逐项调用。观察多轮、筛选范围、失败和续算。</p><a href="../core/host/prototype_iteration/index.html">打开迭代原型 →</a></article>
+ <article class="card"><span class="number">实验 04 · 标准文件交接</span><h2>PDB/mmCIF 还需要带什么？</h2><p>原始结构文件配合小型任务参数，表达 56→58 的编辑和条件选择；真实工具实验检查编号、构象、缺失坐标和模型输入。</p><a href="sequence_edit/prototype_file_handoff/index.html">打开文件交接原型 →</a></article>
 </div>
 <section><h2>怎样使用</h2><p>每个原型都可以单独双击打开。先跟随场景按钮，再自由操作，检查每一步的对象、条件和执行状态。页面内的模型输出使用明确标注的模拟数据；真实工具执行另存证据。</p></section>
 <section id="evidence"><h2>已经实际执行</h2><table><thead><tr><th>路径</th><th>证据</th><th>当前界限</th></tr></thead><tbody>
-<tr><td>条件编辑 → ESM-3</td><td>真实 1PGA 的 56 个位置经两套编辑核心变成 58 位；原生多轨 tokenizer 与学习式结构编码器完成计算，保存实际坐标与 token。</td><td>尚未执行完整 ESM-3 序列或结构生成。</td></tr>
+<tr><td>条件编辑 → ESM-3</td><td>真实 1PGA 的 56 个位置变成 58 位；标准文件加 HTML 导出的任务参数进入完整 ESM3 模型，三种条件配置均实际生成 58 位序列，保留指定前五位。</td><td>单步序列生成用于检查输入交接；尚未生成结构、折叠或评价生物学效果。</td></tr>
+<tr><td>PDB / mmCIF → 实际工具</td><td>11 个场景运行 ESM loader、ProteinMPNN parser/featurizer、Gemmi 与 Bio.PDB；发现缺失位置、插入码、编号跳跃、多构象混用等差异。显式选择和小型映射修复四种交接。</td><td>挑战文件由真实 1PGA 程序变换；修复只覆盖明确选择的单链蛋白。</td></tr>
 <tr><td>ProteinMPNN</td><td>CPU 实际生成两个 56 位候选、保留指定前五位，再对一个候选独立评分。缺失骨架与不完整对应明确拒绝。</td><td>这条真实路径使用完整骨架，未将缺坐标的 58 位条件冒充可用输入。</td></tr>
 <tr><td>同一比较操作 → 两种实现</td><td>NumPy Kabsch 与原生 TM-align 均处理刚体变换及 55 对 56 位的比较。方法、对应范围及可选指标分别保留。</td><td>两种方法的分数含义分别记录。</td></tr>
 <tr><td>批次与循环</td><td>自动检查与浏览器引导演习覆盖两轮、不同筛选范围、参考交接、失败、取消、续算和非蛋白任务。</td><td>科学数值使用确定性模拟，尚未接入应用执行器。</td></tr>
 </tbody></table><p>重现命令见 <a href="esm3/prototype_real_validation/README.md">真实验证说明</a>，执行范围见 <a href="esm3/prototype_real_validation/evidence/summary.json">原始汇总</a>。</p></section>
-<section><h2>一个会改变接口设计的实测发现</h2><p>本次 ESM-3 结构编码中，新增位置的坐标为 NaN，但其结构 token 为 2246，原生 mask ID 为 4096。坐标缺失与生成时的掩码处理需要分别表达，并依据实际生成接口验证。长度和张量尺寸正确，只是检查的一部分。</p></section>
+<section><h2>文件优先：新的真实证据</h2><p>标准结构文件能承载坐标，工具内部仍需明确解析和适配。当前固定 ESM 的 mmCIF 插入码读取会丢坐标；ProteinMPNN 会把编号跳跃补成额外位置，也会合并多 MODEL 原子。原始文件加明确选择、目标对应和条件参数可以处理本轮已验证病例。</p><p>完整 ESM3 采样已验证：新增位置编码为 2246；默认坐标条件模式在实际 forward 中将全部结构 token 换成 4096 mask，同时保留选中的坐标。关闭该模式则保留 2246，实际 logits 与生成序列均改变。条件解释应封装在 Adapter 内。</p><p>重现说明：<a href="structure_io/prototype_file_transport/README.md">11 个文件场景</a> · <a href="esm3/prototype_file_input/README.md">完整 ESM3 序列生成</a>。</p></section>
 <section><h2>这轮实验支持怎样的设计？</h2><p>两种条件存储形式都能正确交接，内部表示仍可选择。任务形状的工具接口能把模型专属编解码集中到工具实现。载体逐项调用与任务内部批次可以同时存在；轮次交接必须保持明确的调用身份与成功边界。</p><p>并行调度、文件提交与续算的原子性、独立作者接入，以及完整真实生成—预测—筛选循环，仍需后续验证。</p></section>
 <footer>此页面用于审查候选设计。原型位于独立实验分支，正式模块的接口需根据实验结果进一步确定。</footer>
 </body></html>

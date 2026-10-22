@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>原型：结构文件还需要带什么？</title>
+<style>
+body{font:15px/1.65 system-ui,sans-serif;max-width:1280px;margin:32px auto;padding:0 24px;background:#f4f7f6;color:#21332f}h1{font-size:30px;line-height:1.3}h2{font-size:20px}p{max-width:95ch}button{font:inherit;padding:8px 12px;margin:4px;border:1px solid #9aafa6;border-radius:6px;background:white;color:inherit;cursor:pointer}button[aria-selected=true],button:hover{background:#e0f0e9}button:disabled{opacity:.5;cursor:default}.card{background:white;padding:20px;border:1px solid #d5e0da;border-radius:10px;margin:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.tag{color:#176947;font-weight:650}.status{border-left:4px solid #24815d;padding:12px 16px;background:#e7f3ec}.error{border-color:#a93b2b;background:#fff0ed}.scroll{overflow:auto;max-height:430px}table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 9px;border-bottom:1px solid #e2e8e4;white-space:nowrap}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f1f5f3;padding:14px}code{overflow-wrap:anywhere}small{color:#53675e}summary{cursor:pointer}a{color:#176947}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style>
+<body><span class="tag">PROTOTYPE · 可丢弃 · 文件交接逻辑</span>
+<h1>结构文件还需要带什么？</h1>
+<p>问题：传递真实 1PGA 结构文件时，增加哪些任务参数，才能在长度编辑后准确表达序列和坐标条件？这里仅演练交接，不在浏览器运行模型。原文件保留 56 个残基的观测结构；目标长度、来源对应、序列条件和坐标选择随编辑变化。所有内部下标从 0 开始，表格展示从 1 开始。</p>
+<div id="notice" class="status" role="status"></div>
+<div class="grid"><section class="card"><h2>文件交接</h2><div id="file-state"></div></section><section class="card"><h2>任务参数</h2><div id="task-state"></div></section></div>
+<section class="card"><h2>当前位置与条件</h2><p>“来源”只说明坐标从哪里读取；序列和坐标是否作为条件分别选择。插入的新位置没有来源，文件不需要填入虚构坐标。</p><div class="scroll"><table><thead><tr><th>目标位置</th><th>来源残基</th><th>原始氨基酸</th><th>序列条件</th><th>坐标条件</th></tr></thead><tbody id="positions"></tbody></table></div></section>
+<section class="card"><h2>自由操作</h2><div id="free"></div><p><small>动作直接改变上方状态。自由操作会退出当前引导；非法操作保留原状态。重置后可从头尝试。</small></p></section>
+<section class="card"><h2>引导演习</h2><div id="tabs" role="tablist" aria-label="文件交接场景"></div><div id="guide"></div></section>
+<section class="card"><h2>实际交付内容</h2><p id="handoff-note"></p><details open><summary>任务参数（不含坐标数组或模型 token）</summary><pre id="request"></pre></details><details><summary>完整编辑内存状态</summary><pre id="state"></pre></details></section>
+<section class="card" id="native-evidence"><h2>真实工具证据</h2><p>此页面导出的任务参数由命令行桥接交给真实 ESM SDK。实验说明：<a href="../../esm3/prototype_file_input/README.md">ESM 文件输入</a>；<a href="../../structure_io/prototype_file_transport/README.md">PDB/mmCIF 解析与转换</a>。上方引导演习是可交互的逻辑运行；以下为已保存的真实工具执行结果。</p><table><thead><tr><th>实际执行</th><th>观察</th></tr></thead><tbody><tr><td>完整 ESM3 序列生成</td><td>三种条件配置均生成 58 位序列，固定前五位 MTYKL；实际 forward 只接收选择的 55 或 5 位骨架。</td></tr><tr><td>ESM3 条件模式</td><td>默认坐标模式使用 4096 掩码；关闭后保留新增位置的 2246 编码，实际 logits 和序列均改变。</td></tr><tr><td>11 个文件交接场景</td><td>复现插入码丢坐标、编号跳跃补位置、多构象原子混用等差异；四种输入经显式选择和小映射正确回读。</td></tr></tbody></table><p><small>此处没有结构生成或折叠评价。生成结果中原样携带的坐标仍是输入条件。单步采样用于验证交接和模型输入，生物学效果尚待评价。</small></p></section>
+<script id="prototype-logic">
+globalThis.FileHandoffPrototype = (() => {
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const sequence = 'MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE';
+  const fail = message => { throw new Error(message); };
+  function initial() {
+    return {structure_file:'1PGA.pdb',chain:'A',fileOnly:false,positions:[...sequence].map((aa,i)=>({
+      source:{author_number:i+1,insertion_code:''},observed:aa,
+      sequence_condition:i<5?aa:null,coordinate_atoms:['N','CA','C']
+    }))};
+  }
+  function validate(s) {
+    if (s.structure_file!=='1PGA.pdb'||s.chain!=='A') fail('此实验只使用明确的 1PGA A 链');
+    if(!s.positions.length) fail('没有目标位置');
+    for(const p of s.positions){
+      if(p.source && (!Number.isInteger(p.source.author_number)||p.source.author_number<1||p.source.author_number>56||p.source.insertion_code!=='')) fail('来源不属于此实验文件');
+      if(p.sequence_condition!==null&&!/^[ACDEFGHIKLMNPQRSTVWY]$/.test(p.sequence_condition)) fail('序列条件必须是一个标准氨基酸');
+      if(p.coordinate_atoms.some(a=>!['N','CA','C'].includes(a))||new Set(p.coordinate_atoms).size!==p.coordinate_atoms.length) fail('坐标原子选择无效');
+      if(p.coordinate_atoms.length&&!p.source) fail('新插入位置没有来源坐标，不能直接选作坐标条件');
+    }
+    return s;
+  }
+  function request(s) {
+    validate(s);
+    return {structure_file:s.structure_file,chain:s.chain,
+      target_to_source:s.positions.map(p=>clone(p.source)),
+      sequence_conditions:s.positions.flatMap((p,i)=>p.sequence_condition===null?[]:[{target_index:i,amino_acid:p.sequence_condition}]),
+      coordinate_conditions:s.positions.flatMap((p,i)=>p.coordinate_atoms.length?[{target_index:i,atoms:[...p.coordinate_atoms]}]:[])};
+  }
+  function sourceIndex(s,number) {
+    const i=s.positions.findIndex(p=>p.source?.author_number===number);
+    if(i<0) fail(`来源 A${number} 已删除`);
+    return i;
+  }
+  function apply(s,a) {
+    if(a.type==='reset') return initial();
+    const n=clone(s);
+    if(a.type==='insert3') {
+      const i=sourceIndex(n,11);
+      n.positions.splice(i+1,0,...Array.from({length:3},()=>({source:null,observed:null,sequence_condition:null,coordinate_atoms:[]})));
+    } else if(a.type==='delete25') n.positions.splice(sourceIndex(n,25),1);
+    else if(a.type==='releaseCoordinates') n.positions.forEach(p=>p.coordinate_atoms=[]);
+    else if(a.type==='motifCoordinates') n.positions.forEach(p=>p.coordinate_atoms=p.source&&[10,11,12,13].includes(p.source.author_number)?['N','CA','C']:[]);
+    else if(a.type==='fix12') n.positions[sourceIndex(n,12)].sequence_condition='G';
+    else if(a.type==='releaseSequence') n.positions.forEach(p=>p.sequence_condition=null);
+    else if(a.type==='conditionNewPosition') {
+      const p=n.positions.find(p=>p.source===null);
+      if(!p) fail('先插入新位置');
+      p.coordinate_atoms=['N','CA','C'];
+    } else if(a.type==='fileOnly') n.fileOnly=true;
+    else if(a.type==='withParameters') n.fileOnly=false;
+    else fail('未知操作');
+    return validate(n);
+  }
+  const payload=s=>s.fileOnly?{structure_file:s.structure_file,chain:s.chain}:request(s);
+  return {initial,apply,request,payload,sequence};
+})();
+</script>
+<script>
+(() => {
+  const P=FileHandoffPrototype, $=id=>document.getElementById(id);
+  const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const labels={reset:'重置为原始 56 位',insert3:'在原 A11 后插入 3 位',delete25:'删除原 A25',releaseCoordinates:'清除全部坐标条件',motifCoordinates:'仅选择原 A10–13 骨架',fix12:'将原 A12 的序列条件设为 G',releaseSequence:'清除全部序列条件',conditionNewPosition:'尝试采用新位置的来源坐标',fileOnly:'只交付文件',withParameters:'交付文件＋任务参数'};
+  const scenarios=[
+    {title:'01 · 长度改变',text:'插入和删除后，文件仍有 56 位，但目标有 58 位；旧 A12 跟随到目标第 15 位。',steps:['insert3','delete25','withParameters']},
+    {title:'02 · 只传文件会怎样',text:'任务不同，原结构可以完全相同。去掉参数后，交付中已经没有目标长度、编辑对应和条件选择。此处展示数据丢失，不模拟工具猜测。',steps:['insert3','delete25','fileOnly','withParameters']},
+    {title:'03 · 两种条件分别选择',text:'文件含有完整坐标；任务只选择一个片段的骨架，同时可以改变或释放序列条件。',steps:['insert3','delete25','motifCoordinates','fix12','releaseSequence']},
+    {title:'04 · 拒绝虚构坐标',text:'新位置没有来源，尝试从文件采用它的坐标必须失败；之前的编辑保留。',steps:['insert3','conditionNewPosition','withParameters']}
+  ];
+  let state=P.initial(),guide=null,step=0,message='已载入真实 1PGA A 链的 56 位序列；坐标仍在结构文件内。',error=false;
+  function counts(){const r=P.request(state);return {length:state.positions.length,mapped:state.positions.filter(p=>p.source).length,sequence:r.sequence_conditions.length,coordinates:r.coordinate_conditions.length};}
+  function render(){
+    const c=counts();$('notice').textContent=message;$('notice').className='status'+(error?' error':'');
+    $('file-state').innerHTML='<p><strong>1PGA.pdb · 链 A · 单模型</strong></p><p>来源蛋白：56 位。文件内容保持原样。读取范围明确选择标准氨基酸；原文件中的水保留在文件中。</p><p>此次交付：<strong>'+(state.fileOnly?'仅文件与链选择':'文件与任务参数')+'</strong></p>';
+    $('task-state').innerHTML=`<p><strong>${c.length} 个目标位置</strong> · ${c.mapped} 个来源对应 · ${c.length-c.mapped} 个新增位置</p><p>固定序列：${c.sequence} 位；采用骨架坐标：${c.coordinates} 位。</p><p>目标位置决定顺序，来源标识定位文件内残基。</p>`;
+    $('positions').innerHTML=state.positions.map((p,i)=>`<tr><td>${i+1}</td><td>${p.source?'A'+p.source.author_number:'新增，无来源'}</td><td>${p.observed||'—'}</td><td>${p.sequence_condition||'待生成'}</td><td>${esc(p.coordinate_atoms.join(' / ')||'未选择')}</td></tr>`).join('');
+    $('request').textContent=JSON.stringify(P.payload(state),null,2);$('state').textContent=JSON.stringify(state,null,2);
+    $('handoff-note').textContent=state.fileOnly?'仅文件载荷缺少上述编辑和条件选择；消费者无法从这份交付确定本次任务。':'对应表的长度就是目标长度。每个条件显式指向当前目标位置；真实坐标只存放在结构文件内。';
+    $('tabs').innerHTML=scenarios.map((s,i)=>`<button role="tab" aria-selected="${guide===i}" data-tab="${i}">${s.title}</button>`).join('');
+    $('guide').innerHTML=guide===null?'<p>选择一个场景会重置状态；也可直接使用自由操作。</p>':`<p>${scenarios[guide].text}</p>`+scenarios[guide].steps.map((t,i)=>`<button data-step="${i}" ${i===step?'':'disabled'}>${i+1}. ${labels[t]}${i<step?' ✓':''}</button>`).join('')+(step===scenarios[guide].steps.length?'<p>本场景完成。可切换场景或继续自由操作。</p>':'');
+  }
+  function act(type,guided=false){try{state=P.apply(state,{type});message=labels[type]+'。';error=false;}catch(e){message=e.message+'；原状态保留。';error=true;}if(guided)step++;else guide=null;render();}
+  $('free').innerHTML=Object.entries(labels).map(([t,l])=>`<button data-action="${t}">${l}</button>`).join('');
+  $('free').addEventListener('click',e=>{const b=e.target.closest('button[data-action]');if(b)act(b.dataset.action);});
+  $('tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-tab]');if(!b)return;guide=Number(b.dataset.tab);step=0;state=P.initial();message='场景已重置，请按顺序操作。';error=false;render();});
+  $('guide').addEventListener('click',e=>{const b=e.target.closest('button[data-step]');if(b&&!b.disabled&&guide!==null)act(scenarios[guide].steps[step],true);});
+  render();
+})();
+</script></body></html>

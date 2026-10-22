@@ -1,0 +1,20 @@
+{
+  "case": "all_coords_false",
+  "sequence": "MTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE",
+  "length": 58,
+  "seconds": 12.164031749824062,
+  "condition_on_coordinates_only": false,
+  "input_structure_tokens_at_insertions": [
+    2246,
+    2246,
+    2246
+  ],
+  "actual_forward_structure_tokens_at_insertions": [
+    2246,
+    2246,
+    2246
+  ],
+  "actual_forward_structure_mask_count": 0,
+  "actual_forward_coordinate_position_count": 55,
+  "output": "sequence only; carried input coordinates are conditions, not a generated/predicted structure"
+}

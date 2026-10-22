@@ -1,0 +1,293 @@
+{
+  "structure_file": "1PGA.pdb",
+  "chain": "A",
+  "target_to_source": [
+    {
+      "author_number": 1,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 2,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 3,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 4,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 5,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 6,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 7,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 8,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 9,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 10,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 11,
+      "insertion_code": ""
+    },
+    null,
+    null,
+    null,
+    {
+      "author_number": 12,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 13,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 14,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 15,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 16,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 17,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 18,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 19,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 20,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 21,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 22,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 23,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 24,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 26,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 27,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 28,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 29,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 30,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 31,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 32,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 33,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 34,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 35,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 36,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 37,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 38,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 39,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 40,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 41,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 42,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 43,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 44,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 45,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 46,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 47,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 48,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 49,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 50,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 51,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 52,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 53,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 54,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 55,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 56,
+      "insertion_code": ""
+    }
+  ],
+  "sequence_conditions": [
+    {
+      "target_index": 0,
+      "amino_acid": "M"
+    },
+    {
+      "target_index": 1,
+      "amino_acid": "T"
+    },
+    {
+      "target_index": 2,
+      "amino_acid": "Y"
+    },
+    {
+      "target_index": 3,
+      "amino_acid": "K"
+    },
+    {
+      "target_index": 4,
+      "amino_acid": "L"
+    }
+  ],
+  "coordinate_conditions": [
+    {
+      "target_index": 0,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 1,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 2,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 3,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 4,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    }
+  ]
+}

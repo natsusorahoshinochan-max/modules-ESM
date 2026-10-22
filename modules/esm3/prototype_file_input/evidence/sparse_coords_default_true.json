@@ -1,0 +1,20 @@
+{
+  "case": "sparse_coords_default_true",
+  "sequence": "MTYKLIFVDRIVGTKIKAIQKEVKANTLLVATAPYATSDELNAGGYVGLALSVELLSK",
+  "length": 58,
+  "seconds": 11.742017083102837,
+  "condition_on_coordinates_only": true,
+  "input_structure_tokens_at_insertions": [
+    2246,
+    2246,
+    2246
+  ],
+  "actual_forward_structure_tokens_at_insertions": [
+    4096,
+    4096,
+    4096
+  ],
+  "actual_forward_structure_mask_count": 58,
+  "actual_forward_coordinate_position_count": 5,
+  "output": "sequence only; carried input coordinates are conditions, not a generated/predicted structure"
+}

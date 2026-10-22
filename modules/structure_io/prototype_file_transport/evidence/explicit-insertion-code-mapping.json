@@ -1,0 +1,457 @@
+{
+  "selected": {
+    "model": 1,
+    "author_chain": "A",
+    "components": "protein"
+  },
+  "positions": [
+    {
+      "tool_chain": "A",
+      "tool_position": 1,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 1,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 2,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 2,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 3,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 3,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 4,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 4,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 5,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 5,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 6,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 6,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 7,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 7,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 8,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 8,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 9,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 9,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 10,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 10,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 11,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 11,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 12,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 11,
+      "source_insertion_code": "A"
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 13,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 12,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 14,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 13,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 15,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 14,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 16,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 15,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 17,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 16,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 18,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 17,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 19,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 18,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 20,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 19,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 21,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 20,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 22,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 21,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 23,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 22,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 24,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 23,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 25,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 24,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 26,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 25,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 27,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 26,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 28,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 27,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 29,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 28,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 30,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 29,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 31,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 30,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 32,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 31,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 33,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 32,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 34,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 33,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 35,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 34,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 36,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 35,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 37,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 36,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 38,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 37,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 39,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 38,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 40,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 39,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 41,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 40,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 42,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 41,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 43,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 42,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 44,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 43,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 45,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 44,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 46,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 45,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 47,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 46,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 48,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 47,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 49,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 48,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 50,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 49,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 51,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 50,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 52,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 51,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 53,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 52,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 54,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 53,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 55,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 54,
+      "source_insertion_code": ""
+    },
+    {
+      "tool_chain": "A",
+      "tool_position": 56,
+      "source_model": 1,
+      "source_author_chain": "A",
+      "source_author_number": 55,
+      "source_insertion_code": ""
+    }
+  ]
+}

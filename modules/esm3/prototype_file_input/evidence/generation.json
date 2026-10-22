@@ -1,0 +1,475 @@
+{
+  "status": "passed",
+  "model": "esm3_sm_open_v1",
+  "device": "cpu",
+  "parameter_dtype": "torch.float32",
+  "precision": "pretrained bf16 weights converted exactly to float32 in anonymous mmap; native CPU float32 forward",
+  "entrypoint": "ESM3.generate(ESMProteinTensor, GenerationConfig); native sequence tokenizer decode",
+  "seed": 42,
+  "num_steps": 1,
+  "temperature": 0.5,
+  "memory_before": {
+    "total": 17179869184,
+    "available": 2487418880,
+    "percent": 85.5,
+    "used": 9424355328,
+    "free": 83001344,
+    "active": 2427830272,
+    "inactive": 2377318400,
+    "wired": 6996525056
+  },
+  "process_rss_after": 2251276288,
+  "seconds_total": 53.54016850003973,
+  "cases": [
+    {
+      "case": "all_coords_default_true",
+      "sequence": "MTYKLVINAKNTGGKSGTTQWEASDASAKVAAAAYAQSNGINGTWSYNSATNTYTLKE",
+      "length": 58,
+      "seconds": 11.94134124997072,
+      "condition_on_coordinates_only": true,
+      "input_structure_tokens_at_insertions": [
+        2246,
+        2246,
+        2246
+      ],
+      "actual_forward_structure_tokens_at_insertions": [
+        4096,
+        4096,
+        4096
+      ],
+      "actual_forward_structure_mask_count": 58,
+      "actual_forward_coordinate_position_count": 55,
+      "output": "sequence only; carried input coordinates are conditions, not a generated/predicted structure"
+    },
+    {
+      "case": "all_coords_false",
+      "sequence": "MTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE",
+      "length": 58,
+      "seconds": 12.164031749824062,
+      "condition_on_coordinates_only": false,
+      "input_structure_tokens_at_insertions": [
+        2246,
+        2246,
+        2246
+      ],
+      "actual_forward_structure_tokens_at_insertions": [
+        2246,
+        2246,
+        2246
+      ],
+      "actual_forward_structure_mask_count": 0,
+      "actual_forward_coordinate_position_count": 55,
+      "output": "sequence only; carried input coordinates are conditions, not a generated/predicted structure"
+    },
+    {
+      "case": "sparse_coords_default_true",
+      "sequence": "MTYKLIFVDRIVGTKIKAIQKEVKANTLLVATAPYATSDELNAGGYVGLALSVELLSK",
+      "length": 58,
+      "seconds": 11.742017083102837,
+      "condition_on_coordinates_only": true,
+      "input_structure_tokens_at_insertions": [
+        2246,
+        2246,
+        2246
+      ],
+      "actual_forward_structure_tokens_at_insertions": [
+        4096,
+        4096,
+        4096
+      ],
+      "actual_forward_structure_mask_count": 58,
+      "actual_forward_coordinate_position_count": 5,
+      "output": "sequence only; carried input coordinates are conditions, not a generated/predicted structure"
+    }
+  ],
+  "checks": [
+    {
+      "check": "file-only import contains 56 observed residues and no sequence masks",
+      "passed": true
+    },
+    {
+      "check": "target mapping creates 58 positions",
+      "passed": true
+    },
+    {
+      "check": "inserted positions have no fabricated coordinates",
+      "passed": true
+    },
+    {
+      "check": "deleted source A25 is absent",
+      "passed": true
+    },
+    {
+      "check": "only five selected sequence letters become fixed",
+      "passed": true
+    },
+    {
+      "check": "all mapped target positions receive chosen three backbone atoms",
+      "passed": true
+    },
+    {
+      "check": "target 0 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 1 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 2 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 3 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 4 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 5 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 6 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 7 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 8 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 9 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 10 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 14 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 15 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 16 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 17 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 18 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 19 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 20 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 21 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 22 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 23 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 24 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 25 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 26 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 27 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 28 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 29 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 30 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 31 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 32 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 33 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 34 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 35 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 36 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 37 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 38 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 39 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 40 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 41 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 42 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 43 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 44 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 45 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 46 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 47 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 48 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 49 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 50 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 51 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 52 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 53 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 54 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 55 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 56 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "target 57 retains exact source backbone coordinates",
+      "passed": true
+    },
+    {
+      "check": "coordinate selection changes without changing sequence conditions",
+      "passed": true
+    },
+    {
+      "check": "sequence selection changes without changing coordinate conditions",
+      "passed": true
+    },
+    {
+      "check": "naive atom-only edited PDB is reimported as 55 positions, losing three target slots",
+      "passed": true,
+      "reimported_sequence": "MTYKLILNGKTLKGETTTEAVDAAAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
+    },
+    {
+      "check": "new position cannot pretend it has source coordinates",
+      "passed": true,
+      "diagnostic": "Inserted position has no source coordinates"
+    },
+    {
+      "check": "missing source identity is refused instead of guessed",
+      "passed": true,
+      "diagnostic": "Source residue does not exist: (999, '')"
+    },
+    {
+      "check": "native geometric conditioning sees 55 complete backbone frames",
+      "passed": true
+    },
+    {
+      "check": "CA-only coordinates provide zero native geometric frames",
+      "passed": true
+    },
+    {
+      "check": "adapter refuses a CA-only condition that cannot form native geometry",
+      "passed": true,
+      "diagnostic": "This ESM coordinate-condition operation requires the complete N/CA/C backbone frame"
+    },
+    {
+      "check": "adapter refuses unsupported or duplicate coordinate selection ['O']",
+      "passed": true,
+      "diagnostic": "This ESM coordinate-condition operation requires the complete N/CA/C backbone frame"
+    },
+    {
+      "check": "adapter refuses unsupported or duplicate coordinate selection ['N', 'CA', 'C', 'CA']",
+      "passed": true,
+      "diagnostic": "This ESM coordinate-condition operation requires the complete N/CA/C backbone frame"
+    },
+    {
+      "check": "copied standalone file and request reproduce native input without producer paths",
+      "passed": true
+    },
+    {
+      "check": "native ESMProtein convenience import does not retain residue identity field",
+      "passed": true
+    },
+    {
+      "check": "native structure conversion refuses 58 sequence with 56 coordinate rows",
+      "passed": true,
+      "error_type": "AssertionError",
+      "diagnostic": "((56, 37, 3), 58)"
+    },
+    {
+      "check": "learned encoder gives a codebook token to absent coordinates",
+      "passed": true,
+      "actual": [
+        2246,
+        2246,
+        2246
+      ],
+      "native_mask_id": 4096
+    },
+    {
+      "check": "all_coords_default_true real native generation fills all target positions",
+      "passed": true,
+      "sequence": "MTYKLVINAKNTGGKSGTTQWEASDASAKVAAAAYAQSNGINGTWSYNSATNTYTLKE"
+    },
+    {
+      "check": "all_coords_default_true selected five sequence residues survive generation",
+      "passed": true
+    },
+    {
+      "check": "all_coords_default_true retained input coordinates are unchanged, not generated structure",
+      "passed": true
+    },
+    {
+      "check": "all_coords_default_true actual sampling forward masks entire structure-token track",
+      "passed": true
+    },
+    {
+      "check": "all_coords_default_true actual forward receives requested coordinate positions only",
+      "passed": true
+    },
+    {
+      "check": "all_coords_false real native generation fills all target positions",
+      "passed": true,
+      "sequence": "MTYKLVINARNTGSKSGTTQWEASDASAKVAAQAYAQSNGFNGTWSYNSATNTYTVKE"
+    },
+    {
+      "check": "all_coords_false selected five sequence residues survive generation",
+      "passed": true
+    },
+    {
+      "check": "all_coords_false retained input coordinates are unchanged, not generated structure",
+      "passed": true
+    },
+    {
+      "check": "all_coords_false actual sampling forward retains absent-coordinate codebook tokens",
+      "passed": true
+    },
+    {
+      "check": "all_coords_false actual forward receives requested coordinate positions only",
+      "passed": true
+    },
+    {
+      "check": "sparse_coords_default_true real native generation fills all target positions",
+      "passed": true,
+      "sequence": "MTYKLIFVDRIVGTKIKAIQKEVKANTLLVATAPYATSDELNAGGYVGLALSVELLSK"
+    },
+    {
+      "check": "sparse_coords_default_true selected five sequence residues survive generation",
+      "passed": true
+    },
+    {
+      "check": "sparse_coords_default_true retained input coordinates are unchanged, not generated structure",
+      "passed": true
+    },
+    {
+      "check": "sparse_coords_default_true actual sampling forward masks entire structure-token track",
+      "passed": true
+    },
+    {
+      "check": "sparse_coords_default_true actual forward receives requested coordinate positions only",
+      "passed": true
+    },
+    {
+      "check": "all_coords_default_true vs all_coords_false changes real model logits",
+      "passed": true,
+      "max_abs_logit_difference": 3.0107736587524414
+    },
+    {
+      "check": "all_coords_default_true vs sparse_coords_default_true changes real model logits",
+      "passed": true,
+      "max_abs_logit_difference": 11.586980819702148
+    }
+  ],
+  "scope": "Actual complete sequence generation, no structure/function decoder or folding/fitness evaluation. One sampling step validates transport and masks, not biological quality."
+}

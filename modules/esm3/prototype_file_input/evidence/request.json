@@ -1,0 +1,693 @@
+{
+  "structure_file": "1PGA.pdb",
+  "chain": "A",
+  "target_to_source": [
+    {
+      "author_number": 1,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 2,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 3,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 4,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 5,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 6,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 7,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 8,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 9,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 10,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 11,
+      "insertion_code": ""
+    },
+    null,
+    null,
+    null,
+    {
+      "author_number": 12,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 13,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 14,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 15,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 16,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 17,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 18,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 19,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 20,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 21,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 22,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 23,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 24,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 26,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 27,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 28,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 29,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 30,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 31,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 32,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 33,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 34,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 35,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 36,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 37,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 38,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 39,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 40,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 41,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 42,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 43,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 44,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 45,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 46,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 47,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 48,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 49,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 50,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 51,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 52,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 53,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 54,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 55,
+      "insertion_code": ""
+    },
+    {
+      "author_number": 56,
+      "insertion_code": ""
+    }
+  ],
+  "sequence_conditions": [
+    {
+      "target_index": 0,
+      "amino_acid": "M"
+    },
+    {
+      "target_index": 1,
+      "amino_acid": "T"
+    },
+    {
+      "target_index": 2,
+      "amino_acid": "Y"
+    },
+    {
+      "target_index": 3,
+      "amino_acid": "K"
+    },
+    {
+      "target_index": 4,
+      "amino_acid": "L"
+    }
+  ],
+  "coordinate_conditions": [
+    {
+      "target_index": 0,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 1,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 2,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 3,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 4,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 5,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 6,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 7,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 8,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 9,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 10,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 14,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 15,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 16,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 17,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 18,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 19,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 20,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 21,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 22,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 23,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 24,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 25,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 26,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 27,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 28,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 29,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 30,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 31,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 32,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 33,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 34,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 35,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 36,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 37,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 38,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 39,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 40,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 41,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 42,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 43,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 44,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 45,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 46,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 47,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 48,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 49,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 50,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 51,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 52,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 53,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 54,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 55,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 56,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    },
+    {
+      "target_index": 57,
+      "atoms": [
+        "N",
+        "CA",
+        "C"
+      ]
+    }
+  ]
+}

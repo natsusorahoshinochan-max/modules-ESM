@@ -1,0 +1,71 @@
+Waiting for model resource: /tmp/protein-workbench-model-validation.lock
+Model resource acquired
+/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/models/vqvae.py:172: UserWarning: Using a non-tuple sequence for multidimensional indexing is deprecated and will be changed in pytorch 2.9; use x[tuple(seq)] instead of x[seq]. In pytorch 2.9 this will be interpreted as tensor index, x[torch.tensor(seq)], which will result either in an error or a different result (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/python_variable_indexing.cpp:353.)
+  return data[ranges]
+Traceback (most recent call last):
+  File "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/esm3/prototype_file_input/run.py", line 311, in <module>
+    main()
+  File "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/esm3/prototype_file_input/run.py", line 304, in main
+    generation(source, output, *proteins)
+  File "/Users/sorachan/.codex/worktrees/module-boundary-prototypes/modules-ESM/modules/esm3/prototype_file_input/run.py", line 231, in generation
+    result = model.generate(attr.evolve(input_tokens), config)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/models/esm3.py", line 394, in generate
+    proteins = self.batch_generate([input], [config])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/models/esm3.py", line 420, in batch_generate
+    return iterative_sampling_tokens(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/utils/generation.py", line 410, in iterative_sampling_tokens
+    forward_out = _batch_forward(client, batched_tokens)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/utils/generation.py", line 538, in _batch_forward
+    return client.logits(
+           ^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/models/esm3.py", line 542, in logits
+    output = self(
+             ^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1885, in _call_impl
+    return inner()
+           ^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1833, in inner
+    result = forward_call(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/models/esm3.py", line 381, in forward
+    x, embedding, _, attentions = self.transformer(
+                                  ^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/layers/transformer_stack.py", line 102, in forward
+    x, attn_weights = block(
+                      ^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/layers/blocks.py", line 158, in forward
+    r2 = self.geom_attn(x, frames, frames_mask, sequence_id, chain_id)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/layers/geom_attention.py", line 79, in forward
+    .apply(rearrange(vec_rot, "... (h c) -> ... h c", c=3))
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sorachan/Documents/modules-ESM/repositories/esm/esm/utils/structure/affine3d.py", line 172, in apply
+    return p @ self._rots.transpose(-1, -2).squeeze(-3)
+           ~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+RuntimeError: expected m1 and m2 to have the same dtype, but got: c10::BFloat16 != float
+Model processes exited; resource released
