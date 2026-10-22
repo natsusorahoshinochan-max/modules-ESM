@@ -1,12 +1,16 @@
-# Throwaway：结构文件与最少任务参数
+# Throwaway：同一次编辑的两种完整交接
 
-问题：原始结构文件保持不变时，如何交付变长编辑后的目标顺序，以及彼此独立的序列和坐标条件？
+问题：原结构加附加位置映射，与完整目标 mmCIF，能否表达同一次变长编辑和相同生成条件？
 
-双击 `index.html`，先运行四个引导演习，再使用自由操作。页面自包含、无需服务器、所有编辑只在内存中。展示原始 1PGA A 链真实序列；浏览器不解析结构或运行模型。
+双击 `index.html`，先运行三个引导演习，再使用自由操作。页面自包含、无需服务器、所有编辑只在内存中。展示原始 1PGA A 链真实序列；浏览器预览交付内容，不写结构文件或运行模型。
 
-`target_to_source` 的长度为目标长度，元素为本次选择的单模型、单链内的 author number 与 insertion code，新增位置为 null。`sequence_conditions` 和 `coordinate_conditions` 使用从零开始的目标下标。原子坐标保留在文件中。此请求只供本次单链实验使用，多模型、多个链及其他条件须由实际任务明确表达。
+方案 A：`target_to_source` 长度为目标长度，元素是原始 PDB 单链内的 author number 与 insertion code，新增位置为 null。坐标留在原文件。
 
-在原 A11 后插入三个未知位置，再删除原 A25，目标为 58 位，包含 55 个来源对应和三个新位置。坐标选择独立于序列条件；纯逻辑拒绝从没有来源的新位置采用原始坐标。文件身份、解析能力与坐标实际存在性由接收工具验证。
+方案 B：`edited.cif` 的 `_entity_poly_seq` 定义完整目标，`_atom_site.label_seq_id` 对应当前目标位置。B 的请求不附带 `target_to_source`；`chain` 选择 label 链。实际 CIF 由相邻 Python 实验写出并独立读取。
+
+两者的 `sequence_conditions` 和 `coordinate_conditions` 相同，均使用从零开始的目标下标。本次只比较明确选择的单模型、单链蛋白任务。
+
+在原 A11 后插入三个未知位置，再删除原 A25，目标为 58 位，包含 55 个观测残基和三个无坐标位置。坐标选择独立于序列条件。操作链路只包含实际编辑与载体选择。
 
 命令行桥接执行 HTML 中的同一段纯逻辑：
 
@@ -20,4 +24,4 @@ node modules/sequence_edit/prototype_file_handoff/export.cjs CASE.json OUTPUT.js
 {"actions":[{"type":"insert3"},{"type":"delete25"}]}
 ```
 
-ESM 实验见 `../../esm3/prototype_file_input/README.md`；格式与解析实验见 `../../structure_io/prototype_file_transport/README.md`。标准文件中的来源信息和任务指定的目标位置共同决定实际工具输入；载体只传递文件和参数。
+追加 `{"type":"useCif"}` 可预览 B 请求；默认导出 A 请求。实际文件和双路线编译见 `../prototype_cif_handoff/README.md`。上轮 A 的真实生成证据见 `../../esm3/prototype_file_input/README.md`。

@@ -10,4 +10,4 @@ const P=scope.FileHandoffPrototype;
 const input=JSON.parse(readFileSync(process.argv[2],'utf8'));
 const state=input.actions.reduce((s,a)=>P.apply(s,a),P.initial());
 writeFileSync(process.argv[3],JSON.stringify(P.payload(state),null,2)+'\n');
-process.stdout.write(`Exported ${state.positions.length} target positions; mode=${state.fileOnly?'file only':'file and parameters'}.\n`);
+process.stdout.write(`Exported ${state.positions.length} target positions; representation=${state.representation}.\n`);

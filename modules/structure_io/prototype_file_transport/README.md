@@ -1,6 +1,10 @@
-# 标准结构文件交接实验（一次性原型）
+# 上游文件读取探针（一次性原型）
 
 运行真实 ESM SDK loader、ProteinMPNN parser/featurizer、Gemmi 和 Bio.PDB，观察标准文件经过工具读取后的序列、位置和坐标。这里没有生成模型推理。
+
+这些探针直接调用上游入口。当前 [ProteinMPNN Adapter](../../proteinmpnn/adapters.py) 用 Gemmi 按实际残基构造输入，再交给 featurizer；它避开编号展开，并提前拒绝多 MODEL、缺骨架原子、本实验中的骨架 altloc 和非支持组分。相关原生 parser 行为不能作为当前用户流程的失败证据。
+
+插入码、命名空间和未建模残基可用于评估实际选定的读取路径。场景 11 只验证一个候选准备实现能工作。两种完整交接的比较见 [目标 mmCIF 实验](../../sequence_edit/prototype_cif_handoff/README.md)。原始观察数据保留，适用范围按本说明解释。
 
 从此工作树根目录运行：
 
