@@ -15,8 +15,8 @@ installing or calling their producers:
 | Input | Existing values used |
 | --- | --- |
 | `workbench.metric_analysis` | Explicit saved `mean`, `minimum`, `maximum`, `count` statistics; analysis method and region remain separate from the original source method and region |
-| [`workbench.proteinmpnn_design`](../proteinmpnn/FORMAT.md) | Natural whole-design `score`, `global_score` and optional `recovery`, retaining every chain, original backbone and native masks |
-| [`workbench.esm3_generation`](../esm3/FORMAT.md) | Native whole-generation pTM scalar; local single-invocation pTM with its declared size-1 batch axis |
+| [`workbench.proteinmpnn_design`](../generation/FORMAT.md#workbenchproteinmpnn_design) | Natural whole-design `score`, `global_score` and optional `recovery`, retaining every chain, original backbone and native masks |
+| [`workbench.esm3_generation`](../generation/FORMAT.md#workbenchesm3_generation) | Native whole-generation pTM scalar; local single-invocation pTM with its declared size-1 batch axis |
 | [`workbench.structure_confidence`](../structure_confidence/FORMAT.md) | Explicit evaluation `values` scalars; `per_position` JSON `positions` / `plddt` |
 | [`workbench.prediction`](../folding/FORMAT.md#workbenchprediction) | Source-generation pLDDT fractions and whole-prediction pTM |
 | [`workbench.comparison`](../structure_comparison/FORMAT.md) | Saved native TM-scores and aligned-pair RMSD, with their original normalization/scope |

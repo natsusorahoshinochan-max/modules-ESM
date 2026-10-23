@@ -1,6 +1,19 @@
 # Independent structure comparison
 
-Factory: `modules.structure_comparison:module`. The `workbench.compare` node reads one `workbench.prediction` or `workbench.structure_set` subject and one independently selected `workbench.reference` or `workbench.structure_set`. Imported structure sets follow the [complete structure format](../structure_io/FORMAT.md); each input must contain exactly one selected candidate. It reads the [prediction file format](../folding/FORMAT.md) directly; the prediction producer need not be installed or registered. A reference has no required generation relationship to the subject.
+Factory: `modules.structure_comparison:module`. The `workbench.compare` node reads
+ordered `subject` packages (`cardinality: many`) in `workbench.prediction` or
+`workbench.structure_set`, and one independently chosen `reference` package in
+`workbench.reference`, `workbench.structure_set` or `workbench.prediction`. It
+compares every subject object in package/item order with exactly one reference
+object. An empty subject collection returns no comparison packages. Each result is
+one complete `workbench.comparison` on the `comparison` output (`cardinality: many`).
+Use the [collection operations](../collection/FORMAT.md) to merge results, select
+objects or split an object collection for a subflow. Reference packages with
+multiple objects require explicit selection before comparison.
+
+The prediction reader uses the [published file format](../folding/FORMAT.md)
+directly; the producer need not be installed or registered. A reference has no
+required generation relationship to the subject.
 
 ## Reference input: workbench.reference
 
@@ -22,9 +35,9 @@ Node parameters `subject_selection` and `reference_selection` independently sele
 {"subject_selection":{"chains":["A"]},"reference_selection":{"positions":[{"chain":"R","author_number":12,"insertion_code":"A"},{"chain":"R","author_number":16,"insertion_code":""},{"chain":"R","author_number":20,"insertion_code":""}]}}
 ```
 
-A chain selection names exactly one chain. A position selection contains unique actual residue positions on exactly one chain; every selected component must be a canonical protein residue. The node editor provides complete/chain/discontinuous scope controls, a chain name and comma-separated actual residue numbers with insertion codes, such as `12, 12A, 16` (or `12:1` for numeric insertion codes). Apply each side's selection, then save and run. Users do not supply a residue index map or object IDs. Import or export one candidate when a source package contains multiple candidates.
+A chain selection names exactly one chain. A position selection contains unique actual residue positions on exactly one chain; every selected component must be a canonical protein residue. The node editor provides complete/chain/discontinuous scope controls, a chain name and comma-separated actual residue numbers with insertion codes, such as `12, 12A, 16` (or `12:1` for numeric insertion codes). Apply each side's selection, then save and run. Users do not supply a residue index map or object IDs. The same explicit selections apply independently to every subject object. Use a per-object subflow when different candidates need different regions.
 
-Selection resolves against the full original coordinate file, retaining author numbering and insertion codes. Selected residues enter TM-align in coordinate-file order as one Cα/sequence stream, giving one rigid transform for all selected regions together. A selection never crops either saved original. Prediction sequence is validated against the complete observed canonical protein stream before regional evaluation. Each selected residue requires one unambiguous Cα without alternate locations. Complete/whole-chain selections also require any declared entity sequence to match resolved residues; explicit residue selection can evaluate observed positions despite unresolved positions elsewhere. Numbering gaps alone do not establish missing residues.
+Selection resolves against the full original coordinate file, retaining author numbering and insertion codes. Selected residues enter TM-align in coordinate-file order as one Cα/sequence stream, giving one rigid transform for all selected regions together. A selection never crops either saved original. Any supplied prediction or structure-set sequence is validated against the complete observed canonical protein stream before regional evaluation and retained in the result. Each selected residue requires one unambiguous Cα without alternate locations. Complete/whole-chain selections also require any declared entity sequence to match resolved residues; explicit residue selection can evaluate observed positions despite unresolved positions elsewhere. Numbering gaps alone do not establish missing residues.
 
 Missing or ambiguous real positions, repeated positions, modified or unknown selected protein residues, missing selected Cα and incomplete prediction sequence correspondence fail. Selected nucleic acids are unsupported. Ligands, metals, water, unselected chains and other unselected components remain in the original files and all-atom overlay; only the selected canonical protein stream enters the metric calculation.
 
@@ -47,7 +60,7 @@ The viewer uses only these delivered files and its supplied React runtime. Its o
 
 ## Public execution reuse
 
-`modules.structure_comparison.api` provides `StructureInput(object_id, content, format, sequence=None, label=None, generation=None)`, `read_prediction(package)`, `read_reference(package)`, `read_structure_set(package)`, `read_comparison_input(package)` and `comparison_parameters(parameters)` and `compare(subject, reference, runtime, *, subject_selection=None, reference_selection=None)`. `StructureInput` is frozen; `content` is the complete original bytes. Supplying `sequence` requests exact sequence/residue validation. `compare` returns a public `Outcome` on port `comparison`, writing all delivered files inside `runtime.workdir`. Cancellation is checked before parsing and after the synchronous lightweight TM-align call. Errors stop the operation with a specific exception; input bytes remain unchanged.
+`modules.structure_comparison.api` provides `StructureInput(object_id, content, format, sequence=None, label=None, generation=None)`, `read_prediction(package)`, `read_reference(package)`, `read_structure_set(package)`, `read_comparison_input(package)`, `read_comparison_inputs(package)` and `comparison_parameters(parameters)` and `compare(subject, reference, runtime, *, subject_selection=None, reference_selection=None)`. `read_comparison_inputs` reads all objects; the singular readers require exactly one. `StructureInput` is frozen; `content` is the complete original bytes. Supplying `sequence` requests exact sequence/residue validation. `compare` returns a public `Outcome` on port `comparison`, writing all delivered files inside `runtime.workdir`. Cancellation is checked before parsing and after the synchronous lightweight TM-align call. Errors stop the operation with a specific exception; input bytes remain unchanged.
 
 Comparison voluntarily imports only `parse` and `resolve_selection` from the public `modules.structure_io` entry. Installing comparison therefore requires the `protein-workbench` distribution containing structure processing; `gemmi==0.7.3`, `numpy==2.5.1` and `tmtools==0.3.0` are pinned distribution dependencies. No private structure processing or host scientific code is imported. The structure processing module need not be enabled to read comparison output files.
 

@@ -21,8 +21,8 @@ test('viewer displays actual numeric page, source insertion codes and unnamed lo
   const { createRoot } = await import('react-dom/client');
   const root = createRoot(document.getElementById('root'));
   const columns = [{ index: 0, name: '<cls>' }, ...Array.from({ length: 33 }, (_, index) => ({ index: index + 1 }))];
-  const descriptor = { dtype: 'float32', shape: [2, 34], pages: [{ file: 'page0.bin', start: 0, rows: 1 }, { file: 'page1.bin', start: 1, rows: 1 }], columns, semantics: 'raw logits; not probabilities' };
-  const manifest = { tool: { id: 'workbench.esmc.biohub', parameters: { model: 'esmc-6b-2024-12' } }, objects: [{ input: { id: 'original', positions: [{ sequence_index: 1, chain: 'B', author_number: 12, insertion_code: 'A' }] }, tokens: [{ index: 0, id: 0, name: '<cls>' }, { index: 1, id: 5, name: 'A', sequence_index: 1 }], logits: descriptor }] };
+  const descriptor = { dtype: 'float32', shape: [3, 34], pages: [{ file: 'page0.bin', start: 0, rows: 1 }, { file: 'page1.bin', start: 1, rows: 1 }, { file: 'page2.bin', start: 2, rows: 1 }], columns, semantics: 'raw logits; not probabilities' };
+  const manifest = { tool: { id: 'workbench.esmc.biohub', parameters: { model: 'esmc-6b-2024-12' } }, objects: [{ input: { id: 'original', positions: [{ sequence_index: 1, chain: 'B', author_number: 12, insertion_code: 'A', label_position: { chain: 'X', position: 3 } }, { sequence_index: 2, label_position: { chain: 'X', position: 4 } }] }, tokens: [{ index: 0, id: 0, name: '<cls>' }, { index: 1, id: 5, name: 'A', sequence_index: 1 }, { index: 2, id: 6, name: 'G', sequence_index: 2 }], logits: descriptor }] };
   const reads = [];
   const host = { readFile: async (id, key) => { reads.push(key); return key === 'manifest.json' ? new Blob([JSON.stringify(manifest)]) : new Blob([new Float32Array(Array.from({ length: 34 }, (_, index) => (key === 'page0.bin' ? -17.25 : -29.5) + index))]); } };
   const Viewer = register({ React }).viewers[0].component;
@@ -33,8 +33,11 @@ test('viewer displays actual numeric page, source insertion codes and unnamed lo
     await React.act(async () => { const select = [...document.querySelectorAll('label')].find(label => label.textContent.startsWith('Columns')).querySelector('select'); select.value = '32'; select.dispatchEvent(new window.Event('change', { bubbles: true })); });
     assert.deepEqual([...document.querySelectorAll('thead th')].map(cell => cell.textContent), ['Token / source position', '32', '33']);
     await React.act(async () => { const select = [...document.querySelectorAll('label')].find(label => label.textContent.startsWith('Page')).querySelector('select'); select.value = '1'; select.dispatchEvent(new window.Event('change', { bubbles: true })); });
-    assert.match(document.body.textContent, /B:12A/);
+    assert.match(document.body.textContent, /author B:12A; label X:3/);
     assert.match(document.body.textContent, /2.5/);
     assert.deepEqual(reads, ['manifest.json', 'page0.bin', 'page1.bin']);
+    await React.act(async () => { const select = [...document.querySelectorAll('label')].find(label => label.textContent.startsWith('Page')).querySelector('select'); select.value = '2'; select.dispatchEvent(new window.Event('change', { bubbles: true })); });
+    assert.match(document.querySelector('tbody th').textContent, /residue 2; label X:4/);
+    assert.doesNotMatch(document.querySelector('tbody th').textContent, /author|undefined/);
   } finally { await React.act(async () => root.unmount()); dom.window.close(); }
 });

@@ -1,16 +1,32 @@
-import type { Edge, FlowNode, PackageInfo, InteractionPreview } from '@protein-workbench/module-ui'
-export interface Project { id: string; name: string; tutorial?: boolean; flow: { nodes: FlowNode[]; edges: Edge[] }; layout: Record<string, { x: number; y: number }>; missing_modules?: string[]; running?: boolean }
+import type { Flow, PackageInfo, InteractionPreview } from '@protein-workbench/module-ui'
+export interface Project { id: string; name: string; tutorial?: boolean; flow: Flow; layout: Record<string, { x: number; y: number }>; missing_modules?: string[]; running?: boolean }
 export interface NodeDeclaration { id: string; module_id: string; name: string; inputs: Record<string, { accepts: string[]; cardinality: string; required: boolean }>; outputs: Record<string, { format: string; cardinality: string }>; parameters: Record<string, unknown>; tools?: Record<string, { id: string; name: string }> }
 export interface ToolDeclaration { id: string; name: string; module_id: string; slot: string; parameters: Record<string, unknown>; capabilities: Record<string, unknown> }
 export interface ModuleRecord { installation_id: string; ui_url: string | null; available?: boolean; load_error?: string; id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }
 export interface Catalog { nodes: NodeDeclaration[]; modules: ModuleRecord[]; tools?: ToolDeclaration[] }
-export interface Run { id: string; status: string; diagnostics: string[]; calls?: Record<string, unknown>; nodes: Record<string, { status: string; outputs: Record<string, string[]>; diagnostics: string[] }> }
+export interface RunNode { status: string; outputs: Record<string, string[]>; diagnostics: string[]; kind?: 'node' | 'scope'; location?: { parent_scope: string; node_id: string; round?: number; item?: number } }
+export interface Run { id: string; status: string; diagnostics: string[]; flow?: Flow; calls?: Record<string, unknown>; nodes: Record<string, RunNode>; scopes?: Record<string, { iterations: { index: number; nodes: Record<string, string> }[] }> }
 async function json<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', keepalive = false): Promise<T> {
   const response = await fetch('/api' + path, { method, keepalive, headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
   const result = await response.json()
   if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : JSON.stringify(result.detail))
   return result as T
 }
+function receivedProject(project: Project): Project {
+  function flowDefaults(flow: Flow): Flow {
+    return {...flow, edges: flow.edges ?? [], nodes: (flow.nodes ?? []).map(node => ({
+      ...node, parameters: node.parameters ?? {}, inputs: node.inputs ?? {},
+      ...(node.scope ? {scope: {...node.scope,
+        inputs: Object.fromEntries(Object.entries(node.scope.inputs ?? {}).map(([name, port]) => [name, {...port, cardinality: port.cardinality ?? 'one', required: port.required ?? true}])),
+        outputs: Object.fromEntries(Object.entries(node.scope.outputs ?? {}).map(([name, port]) => [name, {...port, cardinality: port.cardinality ?? 'one'}])),
+        input_bindings: node.scope.input_bindings ?? [], output_bindings: node.scope.output_bindings ?? [],
+        body: flowDefaults(node.scope.body ?? {nodes: [], edges: []}),
+      }} : {}),
+    }))}
+  }
+  return {...project, flow: flowDefaults(project.flow)}
+}
+const projectJson = (path: string, body?: unknown, method?: string) => json<Project>(path, body, method).then(receivedProject)
 export const client = {
   beginInteraction: (project: string, interaction: string, inputs: Record<string, string[]>, parameters: Record<string, unknown>) => json<{id:string}>(`/projects/${encodeURIComponent(project)}/interactions`, {interaction, inputs, parameters}),
   executeInteraction: (id: string) => json<InteractionPreview>(`/interactions/${encodeURIComponent(id)}/execute`, {}),
@@ -22,14 +38,14 @@ export const client = {
   },
   cancelInteraction: (id: string) => json(`/interactions/${encodeURIComponent(id)}`, undefined, 'DELETE', true),
   acceptInteraction: (id: string, output: string) => json<PackageInfo>(`/interactions/${encodeURIComponent(id)}/accept`, {output}),
-  tutorial: () => json<Project>('/tutorial'),
-  copy: (project: Project, name: string) => json<Project>(`/projects/${project.id}/copies`, { name, flow: project.flow, layout: project.layout }),
+  tutorial: () => projectJson('/tutorial'),
+  copy: (project: Project, name: string, inputPackages: string[] = []) => projectJson(`/projects/${project.id}/copies`, { name, flow: project.flow, layout: project.layout, ...(inputPackages.length ? { input_packages: inputPackages } : {}) }),
   discardDraftInput: (id: string) => json(`/draft-inputs/${encodeURIComponent(id)}`, undefined, 'DELETE', true),
   catalog: () => json<Catalog>('/catalog'),
-  projects: () => json<Project[]>('/projects'),
-  createProject: (name: string) => json<Project>('/projects', { name }),
-  project: (id: string) => json<Project>(`/projects/${id}`),
-  save: (project: Project) => json<Project>(`/projects/${project.id}`, { flow: project.flow, layout: project.layout }, 'PUT'),
+  projects: () => json<Project[]>('/projects').then(projects => projects.map(receivedProject)),
+  createProject: (name: string) => projectJson('/projects', { name }),
+  project: (id: string) => projectJson(`/projects/${id}`),
+  save: (project: Project) => projectJson(`/projects/${project.id}`, { flow: project.flow, layout: project.layout }, 'PUT'),
   installPackage: async (file: File, entry_point: string) => {
     const query = new URLSearchParams({ filename: file.name, entry_point })
     const response = await fetch('/api/module-packages?' + query, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Workbench-Module-Package': 'wheel' }, body: file })

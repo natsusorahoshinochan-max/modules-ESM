@@ -24,6 +24,30 @@ def prepare_structure(request, workdir):
     path = Path(request.structure_path)
     if path.is_absolute() or not (workdir / path).resolve().is_relative_to(workdir.resolve()):
         raise ValueError('ProteinMPNN structure must be inside runtime.workdir')
+    if request.complete_target:
+        from modules.structure_io.target import read_target
+        if request.structure_format != 'mmcif':
+            raise ValueError('Complete target requires mmCIF')
+        target = read_target((workdir / path).read_bytes())
+        author_chains = {row['author_chain'] for row in target['positions']}
+        if len(author_chains) != 1 or not next(iter(author_chains)):
+            raise ValueError('ProteinMPNN complete target requires one unambiguous author chain')
+        chain = next(iter(author_chains))
+        entry = {'name': 'target', 'num_of_chains': 1, 'seq': target['sequence'], 'seq_chain_' + chain: target['sequence']}
+        coords = {atom + '_chain_' + chain: [] for atom in ('N', 'CA', 'C', 'O')}
+        positions = []
+        for row in target['positions']:
+            for atom in ('N', 'CA', 'C', 'O'):
+                if atom not in row['atoms']:
+                    raise ValueError(f"ProteinMPNN target position {row['position']} requires {atom} coordinates; no position is omitted")
+                coords[atom + '_chain_' + chain].append(row['atoms'][atom])
+            if row['residue'] not in ALPHABET[:-1] or type(row['author_number']) is not int:
+                raise ValueError('ProteinMPNN complete target requires canonical residues and explicit author numbers')
+            positions.append({'chain': chain, 'author_number': row['author_number'], 'insertion_code': row['insertion_code'], 'tool_position': row['position']})
+        entry['coords_chain_' + chain] = coords
+        if len({(row['author_number'], row['insertion_code']) for row in positions}) != len(positions):
+            raise ValueError('ProteinMPNN complete target requires unique real residue numbering')
+        return entry, positions
     if request.structure_format == 'pdb':
         content = (workdir / path).read_bytes()
         structure = gemmi.read_pdb_string(content)
@@ -87,6 +111,25 @@ def create_local(settings):
         if runtime.cancelled:
             raise ValueError('ProteinMPNN cancelled')
         entry, positions = prepare_structure(request, runtime.workdir)
+        parameters = dict(parameters)
+        if request.conditions is not None:
+            if not request.complete_target or set(request.conditions) != {'sequence', 'coordinates'}:
+                raise ValueError('ProteinMPNN conditions require a complete target')
+            chains = [key.removeprefix('seq_chain_') for key in entry if key.startswith('seq_chain_')]
+            chain, sequence = chains[0], entry['seq_chain_' + chains[0]]
+            coordinate_rows = request.conditions['coordinates']
+            if not isinstance(coordinate_rows, list) or len(coordinate_rows) != len(sequence) or {row.get('position') for row in coordinate_rows} != set(range(1, len(sequence) + 1)) or any(not isinstance(row.get('atoms'), list) or set(row['atoms']) != {'N','CA','C','O'} or len(row['atoms']) != 4 for row in coordinate_rows):
+                raise ValueError('ProteinMPNN uses the full N/CA/C/O backbone; select every target position and all four atoms')
+            fixed = []
+            for row in request.conditions['sequence']:
+                position = row.get('position')
+                if type(position) is not int or not 1 <= position <= len(sequence) or position in fixed or row.get('residue') != sequence[position - 1]:
+                    raise ValueError('ProteinMPNN fixed residues must match unique target positions')
+                fixed.append(position)
+            native_fixed = parameters.get('fixed_positions', {})
+            if not isinstance(native_fixed, dict):
+                raise ValueError('ProteinMPNN fixed_positions must map chains to positions')
+            parameters['fixed_positions'] = {**native_fixed, chain: list(dict.fromkeys([*native_fixed.get(chain, []), *fixed]))}
         values = parameters_for(parameters, entry, request.sequences)
         if request.random_seed is not None and (type(request.random_seed) is not int or not 0 <= request.random_seed <= 2**32 - 1):
             raise ValueError('random_seed must be an actual unsigned 32-bit seed')

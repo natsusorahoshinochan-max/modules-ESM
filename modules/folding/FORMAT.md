@@ -1,20 +1,6 @@
 # Prediction data packages
 
-These formats are owned by the prediction module. Consumers read only package files and need no producer installation.
-
-## workbench.sequence
-
-The JSON entry contains `objects`, one or more ordered objects, each with a nonempty string `id`, a canonical protein `sequence`, and optional text `label`. IDs are unique within the batch. Example: `sample/sequence.json`. Prediction rejects additional components, conditions, modified residues and multi-chain computational inputs.
-
-Optional `source` contains explicitly supplied text fields `name`, `record` and/or `text`. Sequence/FASTA import records the selected filename when present, the FASTA header as `record`, and the original input text unchanged. Headers remain descriptive text; chain IDs and author numbering come from explicit correspondence.
-
-Optional `positions` contains exactly one entry per sequence residue, in sequence order. Every entry has a one-based `sequence_index`. An explicit source-residue correspondence additionally supplies all three fields `chain` (text), `author_number` (integer) and `insertion_code` (text, empty when absent). Repeated residue identities or incomplete supplied correspondence fail. Plain sequence/FASTA imports supply only sequence indices. This example retains an insertion and a numbering gap:
-
-```json
-{"objects":[{"id":"source-fragment","sequence":"ACD","source":{"name":"selection.json"},"positions":[{"sequence_index":1,"chain":"Z","author_number":12,"insertion_code":""},{"sequence_index":2,"chain":"Z","author_number":12,"insertion_code":"A"},{"sequence_index":3,"chain":"Z","author_number":19,"insertion_code":""}]}]}
-```
-
-The sequence action accepts single sequence/FASTA, explicit batch FASTA, or sequence JSON. Single mode directs multi-record FASTA to batch import. JSON preserves supplied object identities, source and correspondence. `modules.folding.formats.read_sequences(package)` is the optional public Python reader; independent consumers may read the format directly. Missing content required by a selected operation produces an error.
+The prediction module consumes the [sequence format](../sequence_io/FORMAT.md). Consumers of prediction results read only package files and need no producer installation.
 
 ## workbench.prediction
 

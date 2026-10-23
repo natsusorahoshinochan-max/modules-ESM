@@ -9,7 +9,7 @@ from tests.run_helpers import wait_run
 
 def joint_app(tmp_path, monkeypatch):
     from core.host import Workbench
-    from modules.esm3.contract import ESM3Result
+    from modules.generation.contract import GenerateResult
     calls, failure = [], {'structure': True}
     def create(settings):
         def generate(request, parameters, runtime):
@@ -24,20 +24,24 @@ def joint_app(tmp_path, monkeypatch):
                 tracks.pop('coordinates')
             filename = f'values-{len(calls)}.json'
             (runtime.workdir / filename).write_text(json.dumps({'tracks': tracks, 'metrics': {'ptm': [.7], 'pae': [[[1., 2.], [3., 4.]]]}}))
-            return ESM3Result({'sequence': sequence}, filename, parameters, parameters.get('seed'))
+            return GenerateResult({'sequence': sequence}, filename, parameters, parameters.get('seed'), 'generated_structure' if request.track == 'structure' and 'coordinates' in tracks else 'input_conditions' if request.track == 'sequence' else 'absent')
         return generate
     monkeypatch.setattr('tests.fixtures.esm3_tool.create', create)
     app = Workbench(tmp_path / 'data')
     app.install('modules.esm3:module')
-    app.install('modules.joint_generation:module')
+    app.install('modules.generation:module')
     app.install('tests.fixtures.esm3_tool:module')
     project = app.create_project('Joint generation')
     workdir = app.new_workdir()
     document = {'id': 'edited', 'sequence': 'AC', 'positions': [
         {'id': 'fixed', 'residue': 'A', 'prompt': 'A', 'fixed': True, 'coordinates': {'CA': [1., 2., 3.]}, 'structure_position': {'structure': 'input-structure', 'position': {'model': '1', 'chain': 'Q', 'author_number': 92, 'insertion_code': 'B', 'residue_name': 'ALA'}}},
         {'id': 'variable', 'residue': 'C', 'prompt': '_', 'fixed': False, 'coordinates': None}], 'random_operations': []}
-    (workdir / 'input.json').write_text(json.dumps(document))
-    package = app.create_input(project['id'], Delivery('workbench.sequence_conditions', 'input', {'input': 'input.json'}), workdir)
+    from tests.fixtures.sequence_conditions import condition_files
+    contents = condition_files(document)
+    for key, content in contents.items():
+        (workdir / key).write_bytes(content)
+    files = {'input': 'edited.json', 'target.cif': 'target.cif'}
+    package = app.create_input(project['id'], Delivery('workbench.sequence_conditions', 'input', files), workdir)
     flow = {'nodes': [{'id': 'joint', 'type': 'workbench.joint_generation', 'inputs': {'source': [package['id']]}, 'parameters': {'samples': 2, 'conditions': {'secondary_structure': 'H_'}}, 'tools': {'esm3': 'lab.esm3'}, 'tool_parameters': {'esm3': {'num_steps': 2, 'seed': 0}}}], 'edges': []}
     app.save_project(project['id'], flow, {})
     return app, project, flow, calls, failure
@@ -49,7 +53,8 @@ def test_sequence_phase_survives_structure_failure_and_continues_original_call(t
     assert first['status'] == 'failed', first
     assert [request.track for request, _ in calls] == ['sequence', 'structure']
     assert calls[0][0].tracks['sequence'] == 'A_'
-    assert calls[1][0].tracks == {'sequence': 'AX', 'secondary_structure': 'H_', 'coordinates': [{'CA': [1., 2., 3.]}, None]}
+    assert calls[1][0].tracks == {'sequence': 'AX', 'secondary_structure': 'H_'}
+    assert calls[1][0].conditions['coordinates'] == [{'position': 1, 'atoms': ['CA']}]
     package = app.package(first['nodes']['joint']['outputs']['generated'][0])
     with package.open(package.entry) as stream:
         partial = json.load(stream)
@@ -66,7 +71,8 @@ def test_sequence_phase_survives_structure_failure_and_continues_original_call(t
     assert resumed['status'] == 'succeeded', resumed
     assert [request.track for request, _ in calls] == ['sequence', 'structure', 'structure', 'sequence', 'structure']
     assert calls[2][1]['seed'] == 0
-    assert calls[2][0] == calls[1][0]
+    assert calls[2][0].tracks == calls[1][0].tracks
+    assert calls[2][0].conditions == calls[1][0].conditions
     package = app.package(resumed['nodes']['joint']['outputs']['generated'][0])
     with package.open(package.entry) as stream:
         complete = json.load(stream)
@@ -76,7 +82,7 @@ def test_sequence_phase_survives_structure_failure_and_continues_original_call(t
     target = app.create_project('Independent reader')
     adopted = app.adopt(target['id'], package.id)
     app.delete_project(project['id'])
-    app.uninstall('workbench.joint_generation')
+    app.uninstall('workbench.generation')
     app.uninstall('workbench.esm3')
     independent = app.package(adopted['id'])
     with independent.open(complete['objects'][0]['native']['file']) as stream:
@@ -120,7 +126,7 @@ def test_explicit_stage_conversion_uses_existing_sequence_consumer_after_produce
     assert converted['nodes']['sequence']['status'] == 'failed', converted
     native = app.package(converted['nodes']['stage']['outputs']['generated'][0])
     app.delete_project(project['id'])
-    app.uninstall('workbench.joint_generation')
+    app.uninstall('workbench.generation')
     with native.open(native.entry) as stream:
         document = json.load(stream)
     assert document['objects'][0]['sequence'] == 'AX'
@@ -202,10 +208,12 @@ def test_unsupported_remote_input_stops_before_provider(tmp_path, monkeypatch, u
         original = app.package(flow['nodes'][0]['inputs']['source'][0])
         with original.open(original.entry) as stream:
             document = json.load(stream)
-        document['positions'][0]['coordinates']['ZN'] = [4., 5., 6.]
+        document['conditions']['coordinates'][0]['atoms'].append('ZN')
         workdir = app.new_workdir()
         (workdir / 'input.json').write_text(json.dumps(document))
-        package = app.create_input(project['id'], Delivery('workbench.sequence_conditions', 'input', {'input': 'input.json'}), workdir)
+        with original.open('target.cif') as stream:
+            (workdir / 'target.cif').write_bytes(stream.read())
+        package = app.create_input(project['id'], Delivery('workbench.sequence_conditions', 'input', {'input': 'input.json', 'target.cif': 'target.cif'}), workdir)
         flow['nodes'][0]['inputs']['source'] = [package['id']]
     monkeypatch.setattr('tests.fixtures.esm3_tool.create', lambda settings: create_remote(settings, client_factory=lambda _: pytest.fail('Unsupported whole input reached provider')))
     app.save_project(project['id'], flow, {})
@@ -222,12 +230,12 @@ def test_missing_structure_output_retains_only_successful_sequence_phase(tmp_pat
     failure['omit_coordinates'] = True
     first = wait_run(app, app.start(project['id']))
     assert first['status'] == 'failed', first
-    assert 'actual native atom37 coordinates' in first['nodes']['joint']['diagnostics'][0]
+    assert 'actual generated structure output' in first['nodes']['joint']['diagnostics'][0]
     package = app.package(first['nodes']['joint']['outputs']['generated'][0])
     with package.open(package.entry) as stream:
         partial = json.load(stream)
     assert partial['objects'] == [] and partial['pending_sequence']['sequence'] == 'AX'
-    assert len(package.files) == 2  # only accepted sequence file and manifest
+    assert len(package.files) == 3  # accepted sequence, target conditions and manifest
     failure.clear()
     resumed = wait_run(app, app.continue_run(first['id'], 'joint'))
     assert resumed['status'] == 'succeeded', resumed
@@ -238,7 +246,7 @@ def test_explicit_structure_conversion_reaches_structure_view_and_both_export_fo
     from core.host import Workbench
     from modules.structure_io import read_structure, atoms
     app = Workbench(tmp_path / 'data')
-    app.install('modules.joint_generation:module')
+    app.install('modules.generation:module')
     app.install('modules.structure_io:module')
     project = app.create_project('Native structure conversion')
     workdir = app.new_workdir()
@@ -247,10 +255,14 @@ def test_explicit_structure_conversion_reaches_structure_view_and_both_export_fo
     coords[1][1] = [4.125, 5.25, 6.5]
     native = {'tracks': {'sequence': 'AC', 'coordinates': coords}, 'metrics': {'ptm': .8}}
     original = {'id': 'actual-generated', 'sequence': 'AC', 'positions': [{'sequence_index': 1, 'edit_position': 'original-a', 'source': {'object': 'input-sequence', 'sequence_index': 4, 'position': {'chain': 'Z', 'author_number': 42, 'insertion_code': 'A'}}, 'structure_position': {'structure': 'input-structure', 'position': {'model': '1', 'chain': 'K', 'author_number': 92, 'insertion_code': 'B', 'residue_name': 'ALA'}}}, {'sequence_index': 2, 'edit_position': 'inserted-c'}], 'native': {'file': 'native.json'}, 'generation': {'input': 'editing', 'sample': 1, 'sequence_object': 'actual-sequence'}, 'tool': {'parameters': {'seed': 0}, 'actual_seed': 0}, 'sequence_stage': {'id': 'actual-sequence', 'sequence': 'AC', 'native': {'file': 'sequence.json'}}}
+    from modules.esm3.adapters import write_structure
+    from types import SimpleNamespace
+    structure_file = write_structure(native['tracks'], SimpleNamespace(workdir=workdir))
+    original.update(structure={'file': structure_file, 'format': 'mmcif'}, coordinate_role='generated_structure')
     manifest = {'objects': [original], 'pending_sequence': None, 'batch': {'completed': 1, 'sequence_completed': 1, 'total': 1, 'status': 'succeeded'}, 'tool': {'id': 'workbench.esm3.local', 'parameters': {'seed': 0}, 'structure_parameters': {}}}
     for key, value in [('input.json', manifest), ('native.json', native), ('sequence.json', {'tracks': {'sequence': 'AC'}, 'metrics': {}})]:
         (workdir / key).write_text(json.dumps(value))
-    package = app.create_input(project['id'], Delivery('workbench.joint_generation', 'input.json', {key: key for key in ('input.json', 'native.json', 'sequence.json')}), workdir)
+    package = app.create_input(project['id'], Delivery('workbench.joint_generation', 'input.json', {key: key for key in ('input.json', 'native.json', 'sequence.json', structure_file)}), workdir)
     flow = {'nodes': [{'id': 'convert', 'type': 'workbench.joint_structure', 'inputs': {'generated': [package['id']]}, 'parameters': {'chain': 'Q', 'start_number': 17}}], 'edges': []}
     app.save_project(project['id'], flow, {})
     result = wait_run(app, app.start(project['id']))
@@ -274,7 +286,7 @@ def test_explicit_structure_conversion_reaches_structure_view_and_both_export_fo
     target = app.create_project('Independent structure consumer')
     adopted = app.adopt(target['id'], output.id)
     app.delete_project(project['id'])
-    app.uninstall('workbench.joint_generation')
+    app.uninstall('workbench.generation')
     independent = app.package(adopted['id'])
     assert len(atoms(read_structure(independent, obj['id']))) == 2
     with independent.open('native.json') as stream:
@@ -285,7 +297,7 @@ def test_explicit_structure_conversion_reaches_structure_view_and_both_export_fo
 def test_structure_conversion_refuses_unrepresentable_native_results_without_changing_them(tmp_path, sequence, missing, match):
     from core.host import Workbench
     app = Workbench(tmp_path / 'data')
-    app.install('modules.joint_generation:module')
+    app.install('modules.generation:module')
     project = app.create_project('Explicit conversion limits')
     workdir = app.new_workdir()
     coords = [[[None, None, None] for _ in range(37)] for _ in sequence]

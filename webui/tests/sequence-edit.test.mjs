@@ -178,3 +178,51 @@ test('global coordinate frame fits full geometry and CSS-scaled dragging keeps a
   await React.act(async()=>finish({id:'stale-drag',data:{document:documentValue},outputs:['edited']}))
  }finally{await React.act(async()=>root.unmount());container.remove()}
 })
+
+test('a selected structure establishes and previews a template without per-position mapping',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ const calls=[],updates=[]
+ const current={...base,structures:[{id:'retained',object:'structure'}]}
+ const context={projectId:'p',nodeId:'edit',revision:0,parameters:{selection:{chains:['X']},regions:'12A,30'},bindings:{source:['structure-input']},edges:[],inputs:{source:{packages:[{id:'structure-input',format:'workbench.structure_set'}]}},host:{
+  async preview(id,inputs,parameters){calls.push({id,inputs,parameters});return{id:'structure-preview',data:{document:current},outputs:['edited']}},async cancelPreview(){}},async update(change){updates.push(change)}}
+ const click=async text=>React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent===text).click())
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters:context.parameters,readOnly:false})))
+  await click('Preview template from structure')
+  assert.deepEqual(calls[0],{id:'workbench.sequence_edit',inputs:{source:['structure-input']},parameters:{selection:{chains:['X']},regions:'12A,30',tracks:['fixed','coordinates']}})
+  assert.match(container.textContent,/Sequence: AC/)
+  assert.equal(container.querySelectorAll('tbody tr').length,2)
+  assert.equal(updates.length,0)
+  await click('Confirm edit and replace source input')
+  assert.deepEqual(updates[0].delivery,{interaction:'structure-preview',output:'edited',port:'source'})
+  assert.equal(container.querySelector('[role=alert]'),null)
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})
+
+test('reusable template configuration preserves the incoming connection and stores current-position rules',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container),updates=[]
+ const parameters={selection:{chains:['X']},regions:'12A,30',operations:[{kind:'insert',index:1,sequence:'__'},{kind:'delete',indices:[3]}],template_conditions:{fixed_positions:[1],coordinate_positions:[1],atoms:['CA']}}
+ const context={projectId:'p',nodeId:'edit',revision:0,parameters,bindings:{},edges:[{source:'upstream',source_port:'structures',target:'edit',target_port:'source'}],inputs:{source:{packages:[],unavailable:'Input will be delivered by the connected node'}},host:{async cancelPreview(){}},async update(change){updates.push(change)}}
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters,readOnly:false})))
+  await React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='Save reusable template configuration').click())
+  assert.deepEqual(updates,[{parameters:{...parameters,tracks:[]}}])
+  assert.equal(container.querySelector('[role=alert]'),null)
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})
+
+test('recipe object selection initializes from the node and follows external draft changes',async()=>{
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container),updates=[]
+ const parameters={object:'chosen-first',selection:{chains:['X']},regions:'12A',operations:[],template_conditions:{fixed_positions:[1],coordinate_positions:[]}}
+ const context={projectId:'p',nodeId:'edit',revision:0,parameters,bindings:{source:['batch']},edges:[],inputs:{source:{packages:[{id:'batch',format:'workbench.structure_set'}]}},host:{async cancelPreview(){}},async update(change){updates.push(change)}}
+ const save=async()=>React.act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='Save reusable template configuration').click())
+ try{
+  await React.act(async()=>root.render(React.createElement(Editor,{context,parameters,readOnly:false})))
+  await save()
+  assert.equal(updates[0].parameters.object,'chosen-first')
+  const changed={...parameters,object:'chosen-second',selection:{chains:['Y']},regions:'30',operations:[{kind:'insert',index:1,sequence:'_'}],template_conditions:{fixed_positions:[2],coordinate_positions:[2],atoms:['CA']}}
+  await React.act(async()=>root.render(React.createElement(Editor,{context:{...context,revision:1,parameters:changed},parameters:changed,readOnly:false})))
+  await save()
+  assert.deepEqual(updates[1],{parameters:{...changed,tracks:[]}})
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})

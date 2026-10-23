@@ -125,13 +125,141 @@ function button(text) {
   return element
 }
 async function click(text) { await act(async () => button(text).click()) }
+const nodePicker = () => [...container.querySelectorAll('label')].find(label=>label.firstChild?.textContent==='Add node')?.querySelector('select')
 async function addNode(type = 'test.one') {
-  const select = container.querySelector('label > select')
+  if (![...(nodePicker()?.options??[])].some(option=>option.value===type)) await act(async()=>new Promise(resolve=>setTimeout(resolve,100)))
+  const select = nodePicker()
   assert.ok(select)
+  assert.ok([...select.options].some(option=>option.value===type),`Operation ${type} must be loaded before selection`)
   await act(async () => { select.value = type; select.dispatchEvent(new window.Event('change', { bubbles: true })) })
 }
 const title = () => container.querySelector('.toolbar h2').textContent
 const nodeCount = () => container.querySelectorAll('.canvas article').length
+
+async function chooseScope(label, value) {
+  const select=container.querySelector(`select[aria-label="${label}"]`)
+  assert.ok(select,`Missing select ${label}`)
+  await act(async()=>{select.value=value;select.dispatchEvent(new window.Event('change',{bubbles:true}))})
+}
+async function typeLabel(label, value) {
+  const input=[...container.querySelectorAll('label')].find(item=>item.firstChild?.textContent===label)?.querySelector('input')
+  assert.ok(input,`Missing input ${label}`)
+  await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(input,value);input.dispatchEvent(new window.Event('input',{bubbles:true}))})
+}
+
+test('canvas drag and keyboard movement save both coordinates and visual ports create the declared connection',async()=>{
+  await addNode();await addNode()
+  const handle=container.querySelector('[aria-label="Move node 1"]')
+  async function pointer(type,x,y){await act(async()=>{const event=new window.MouseEvent(type,{bubbles:true,clientX:x,clientY:y,button:0});Object.defineProperty(event,'pointerId',{value:7});handle.dispatchEvent(event)})}
+  await pointer('pointerdown',50,70);await pointer('pointermove',200,190);await pointer('pointerup',200,190)
+  await act(async()=>handle.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})))
+  assert.ok(container.querySelector('[aria-label="Connect from node 1 output output"]'), container.querySelector('.canvas').textContent)
+  await act(async()=>container.querySelector('[aria-label="Connect from node 1 output output"]').click())
+  await act(async()=>container.querySelector('[aria-label="Connect to node 2 input input"]').click())
+  assert.equal(container.querySelectorAll('.canvas .wire').length,1)
+  await click('Save project')
+  const [first,second]=savedFlows.at(-1).flow.nodes
+  assert.deepEqual(savedFlows.at(-1).layout[first.id],{x:178,y:164})
+  assert.deepEqual(savedFlows.at(-1).flow.edges,[{source:first.id,source_port:'output',target:second.id,target_port:'input'}])
+})
+
+test('a user constructs a Repeat body, declares ports, connects feedback, and copies independent child identities',async()=>{
+  await click('Add Repeat subflow');await click('Open subflow');await addNode()
+  await typeLabel('Input name','seed');await typeLabel('Accepted formats (comma separated)','test.format');await click('Add scope input')
+  await typeLabel('Output name','result');await typeLabel('Output format','test.format');await click('Add scope output')
+  const child=container.querySelector('select[aria-label="Input binding child"]').options[1].value
+  await chooseScope('Boundary input','seed');await chooseScope('Input binding child',child);await chooseScope('Child input','input');await click('Bind scope input')
+  await chooseScope('Output binding child',child);await chooseScope('Child output','output');await chooseScope('Boundary output','result');await click('Bind scope output')
+  await chooseScope('Feedback for seed','result');await typeLabel('Number of rounds','3')
+  await click('Save project')
+  const scope=savedFlows.at(-1).flow.nodes[0].scope
+  assert.equal(scope.body.nodes.length,1);assert.equal(scope.rounds,3)
+  assert.deepEqual(scope.input_bindings,[{input:'seed',node:child,port:'input'}])
+  assert.deepEqual(scope.output_bindings,[{output:'result',node:child,port:'output'}])
+  assert.deepEqual(scope.feedback,{seed:'result'})
+  await click('Root canvas');await click('Copy node');await click('Save project')
+  const copied=savedFlows.at(-1).flow.nodes[1].scope
+  assert.notEqual(copied.body.nodes[0].id,child)
+  assert.equal(copied.input_bindings[0].node,copied.body.nodes[0].id)
+  assert.equal(copied.output_bindings[0].node,copied.body.nodes[0].id)
+  assert.deepEqual(copied.feedback,{seed:'result'})
+})
+
+test('Map boundary passes one explicit item to its child and child removal clears its boundary bindings',async()=>{
+  await click('Add Map subflow');await click('Open subflow');await addNode()
+  await typeLabel('Input name','items');await typeLabel('Accepted formats (comma separated)','test.format')
+  const multiple=container.querySelector('.scope-columns fieldset input[type=checkbox]')
+  await act(async()=>multiple.click());await click('Add scope input');await chooseScope('Per-item input','items')
+  const child=container.querySelector('select[aria-label="Input binding child"]').options[1].value
+  await chooseScope('Boundary input','items');await chooseScope('Input binding child',child);await chooseScope('Child input','input');await click('Bind scope input')
+  assert.equal(container.querySelector('.scope-editor [role=alert]'),null)
+  await click('Save project')
+  assert.equal(savedFlows.at(-1).flow.nodes[0].scope.inputs.items.cardinality,'many')
+  assert.equal(savedFlows.at(-1).flow.nodes[0].scope.input_bindings[0].node,child)
+  await click('Remove node');await click('Save project')
+  assert.deepEqual(savedFlows.at(-1).flow.nodes[0].scope.input_bindings,[])
+})
+
+test('removing nested scope ports clears their parent bindings in the same draft',async()=>{
+  const input = {accepts:['test.format'],cardinality:'one',required:false}
+  const output = {format:'test.format',cardinality:'one'}
+  const inner = {...node('inner','host.repeat'),scope:{
+    inputs:{input,keep:input},outputs:{output,keep:output},body:{nodes:[node('leaf')],edges:[]},
+    input_bindings:[{input:'input',node:'leaf',port:'input'}],output_bindings:[{output:'output',node:'leaf',port:'output'}],rounds:2,feedback:{input:'output'},
+  }}
+  records[0].flow={nodes:[{...node('outer','host.repeat'),scope:{
+    inputs:{input,keep:input},outputs:{output,keep:output},body:{nodes:[inner],edges:[]},input_bindings:[{input:'input',node:'inner',port:'input'},{input:'keep',node:'inner',port:'keep'}],
+    output_bindings:[{output:'output',node:'inner',port:'output'},{output:'keep',node:'inner',port:'keep'}],rounds:2,feedback:{},
+  }}],edges:[]}
+  await click('Project A');await click('Open subflow');await click('Open subflow')
+  await act(async()=>container.querySelector('[aria-label="Remove scope input input"]').click())
+  await act(async()=>container.querySelector('[aria-label="Remove scope output output"]').click())
+  await click('Save project')
+  const parent=savedFlows.at(-1).flow.nodes[0].scope
+  assert.deepEqual(parent.input_bindings,[{input:'keep',node:'inner',port:'keep'}])
+  assert.deepEqual(parent.output_bindings,[{output:'keep',node:'inner',port:'keep'}])
+  assert.deepEqual(parent.body.edges,[])
+  assert.deepEqual(parent.body.nodes[0].inputs,{})
+  assert.deepEqual(parent.body.nodes[0].scope.input_bindings,[])
+  assert.deepEqual(parent.body.nodes[0].scope.output_bindings,[])
+  assert.deepEqual(parent.body.nodes[0].scope.feedback,{})
+})
+
+test('an author action pending in a child scope cannot add its node to the root after navigation',async()=>{
+  await click('Add Repeat subflow');await click('Open subflow');await click('Prepare delayed node')
+  await click('Root canvas');await click('Finish delayed node')
+  assert.match(container.textContent,/Subflow changed/)
+  await click('Save project')
+  assert.equal(savedFlows.at(-1).flow.nodes.length,1)
+  assert.deepEqual(savedFlows.at(-1).flow.nodes[0].scope.body.nodes,[])
+})
+
+test('nested run results show round and item and continue only the selected recorded call',async()=>{
+  const inner={...node('map','host.map'),scope:{inputs:{},outputs:{},body:{nodes:[node('leaf')],edges:[]},input_bindings:[],output_bindings:[],item_input:'items'}}
+  records[0].flow={nodes:[{...node('repeat','host.repeat'),scope:{inputs:{},outputs:{},body:{nodes:[inner],edges:[]},input_bindings:[],output_bindings:[],rounds:2,feedback:{}}}],edges:[]}
+  const history={id:'nested-run',status:'failed',diagnostics:[],calls:{'leaf-call':{}},nodes:{repeat:{kind:'scope',status:'failed',outputs:{},diagnostics:[]},'map-call':{kind:'scope',status:'failed',outputs:{},diagnostics:[],location:{parent_scope:'repeat',node_id:'map',round:2}},'leaf-call':{kind:'node',status:'failed',outputs:{output:['partial']},diagnostics:['Temporary failure'],location:{parent_scope:'map-call',node_id:'leaf',item:2}}},scopes:{repeat:{iterations:[{index:2,nodes:{map:'map-call'}}]},'map-call':{iterations:[{index:2,nodes:{leaf:'leaf-call'}}]}}}
+  packages.a.push({id:'partial',project_id:'a',format:'test.format',entry:'data',files:['data']})
+  const fetch=globalThis.fetch, continued=[]
+  globalThis.fetch=async(url,options={})=>{if(url==='/api/projects/a/runs')return Response.json([history]);if(url==='/api/runs/nested-run/nodes/leaf-call/continue'){continued.push(options);return Response.json({...history,status:'succeeded'})}return fetch(url,options)}
+  await click('Project A')
+  assert.match(container.textContent,/Round 2.*Item 2.*leaf/)
+  assert.equal([...container.querySelectorAll('button')].filter(item=>item.textContent.startsWith('Continue ')).length,1)
+  await click('Locate node leaf')
+  assert.equal(container.querySelectorAll('.scope-navigation button').length,3)
+  assert.match(container.querySelector('.canvas .located-call').textContent,/Round 2.*Item 2.*failed/)
+  await click('View output result 1')
+  assert.equal(container.querySelector('[aria-label="Data package"]').value,'partial')
+  await click('Continue leaf-call with original inputs and parameters')
+  assert.equal(continued.length,1);assert.equal(continued[0].body,undefined)
+})
+
+test('a cancelled scope offers explicit scheduling continuation between completed items',async()=>{
+  const history={id:'paused',status:'cancelled',diagnostics:[],calls:{},nodes:{scope:{kind:'scope',status:'cancelled',outputs:{},diagnostics:[]}},scopes:{scope:{iterations:[]}}}
+  const fetch=globalThis.fetch,continued=[]
+  globalThis.fetch=async(url,options={})=>{if(url==='/api/projects/a/runs')return Response.json([history]);if(url==='/api/runs/paused/nodes/scope/continue'){continued.push(options);return Response.json({...history,status:'succeeded'})}return fetch(url,options)}
+  await click('Project A');await click('Continue scheduling scope')
+  assert.equal(continued.length,1);assert.equal(continued[0].body,undefined)
+})
 
 test('accepted coordinate editing sends only explicit package and small deltas through App client', async () => {
   const current = {id:'document',sequence:'A',positions:[{id:'a',residue:'A',prompt:'A',fixed:true,coordinates:{CA:[100,20,30]}}],random_operations:[]}
@@ -342,10 +470,9 @@ test('canvas edits preserve other flow and layout fields in the saved project', 
   records[0].flow = { nodes: [node('positioned')], edges: [], annotation: { title: 'Keep this note' } }
   records[0].layout = { positioned: { x: 20, y: 57, color: 'blue' } }
   await click('Project A')
-  const position = container.querySelector('input[type=range]')
+  const position = container.querySelector('[aria-label="Move node 1"]')
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(position, '120')
-    position.dispatchEvent(new window.Event('input', { bubbles: true }))
+    position.dispatchEvent(new window.KeyboardEvent('keydown', { key:'ArrowRight', shiftKey:true, bubbles: true }))
   })
   await click('Remove node')
   await click('Save project')
@@ -1018,6 +1145,37 @@ test('teaching file edits remain available in the draft and are released when di
   assert.deepEqual(discardedDraftInputs, ['a-input'])
 })
 
+for (const saveAction of ['Save project','Copy project']) test(`independently imported teaching sequences survive ${saveAction} without adding a node`,async()=>{
+  await click('Teaching example')
+  if(![...container.querySelectorAll('button')].some(item=>item.textContent==='Import sequences')) await act(async()=>new Promise(resolve=>setTimeout(resolve,100)))
+  const originalFetch=globalThis.fetch, requests=[]
+  globalThis.fetch=async(url,options={})=>{
+    const response=await originalFetch(url,options)
+    if(String(url)==='/api/projects/tutorial/copies'){
+      const request=JSON.parse(options.body);requests.push(request)
+      packages.copied=(request.input_packages??[]).map(id=>({id:`copied-${id}`,project_id:'copied',format:'workbench.sequence',entry:'manifest.json',files:['manifest.json']}))
+    }
+    return response
+  }
+  const textarea=[...container.querySelectorAll('label')].find(label=>label.firstChild?.textContent==='Single sequence or FASTA')?.querySelector('textarea')
+  assert.ok(textarea)
+  await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set.call(textarea,'>independent\nACDE');textarea.dispatchEvent(new window.Event('input',{bubbles:true}))})
+  await click('Import sequences')
+  assert.equal(nodeCount(),1)
+  assert.equal(title(),'Teaching example · unsaved')
+  let prompts=0
+  window.confirm=()=>{prompts++;return false}
+  await click('Project B')
+  assert.equal(prompts,1);assert.equal(title(),'Teaching example · unsaved')
+  assert.deepEqual(discardedDraftInputs,[])
+  await click(saveAction)
+  assert.deepEqual(requests[0].input_packages,['a-input'])
+  assert.equal(nodeCount(),1)
+  assert.equal(title(),'Research project')
+  assert.ok([...container.querySelector('[aria-label="Data package"]').options].some(option=>option.value==='copied-a-input'))
+  assert.deepEqual(discardedDraftInputs,['a-input'])
+})
+
 test('leaving the page releases teaching draft inputs after native leave confirmation', async () => {
   await click('Teaching example')
   await click('Upload and add node')
@@ -1053,9 +1211,9 @@ test('first teaching save freezes its draft until one user project owns the save
   await click('Teaching example')
   pendingSave = deferred()
   await click('Save project')
-  assert.equal(container.querySelector('label > select').disabled, true)
+  assert.equal(nodePicker().disabled, true)
   assert.equal(container.querySelector('.canvas textarea').disabled, true)
-  assert.equal(container.querySelector('.canvas input[type=range]').disabled, true)
+  assert.equal(container.querySelector('.canvas .node-drag-handle').disabled, true)
   assert.equal(container.querySelector('.canvas label select').disabled, true)
   await click('Add connected pair')
   assert.equal(nodeCount(), 1)

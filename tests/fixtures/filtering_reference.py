@@ -56,6 +56,21 @@ with TemporaryDirectory() as directory:
                         manifest=json.load(reader)
                     contents={key:client.get('/api/packages/'+output+'/file',params={'key':key}).text for key in package.files}
                     data={'manifest':manifest,'files':contents}
+                elif request['action']=='new_candidate':
+                    # A later invocation can change its object and explicitly supplied reference.
+                    next_document = json.loads(json.dumps(document))
+                    next_document['subject']['id'] = 'next-round-subject'
+                    if 'reference_id' in request:
+                        next_document['reference']['id'] = request['reference_id']
+                    next_candidate = upload(client, project, 'workbench.structure_set', {
+                        'manifest.json': json.dumps({'objects': [next_document['subject']]}).encode(),
+                        'subject.pdb': pdb(),
+                    })
+                    next_evaluation = upload(client, project, 'workbench.comparison', {
+                        'manifest.json': json.dumps(next_document).encode(),
+                        'subject.pdb': pdb(), 'reference.pdb': b'REMARK actual reference 2\n' + pdb(),
+                    })
+                    data = {'candidates': [next_candidate['id']], 'evaluations': [next_evaluation['id']]}
                 else:
                     raise ValueError('Unknown fixture command')
                 print(json.dumps({'id':request['id'],'data':data}),flush=True)

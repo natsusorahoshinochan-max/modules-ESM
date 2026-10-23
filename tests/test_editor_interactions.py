@@ -1,5 +1,6 @@
 """Temporary editing through the public HTTP interaction and delivery entry."""
 from fastapi.testclient import TestClient
+from tests.fixtures.sequence_conditions import assert_manifest
 from protein_workbench_public.bootstrap import create_application
 
 
@@ -17,7 +18,7 @@ def test_edit_preview_is_temporary_and_confirm_receives_exact_preview(tmp_path):
         assert client.get(f'/api/projects/{project}/packages').json() == []
         accepted = client.post(f'/api/interactions/{token}/accept', json={'output': 'edited'}).json()
         document = client.get(f"/api/packages/{accepted['id']}/file", params={'key': accepted['entry']}).json()
-        assert document == preview['data']['document']
+        assert_manifest(preview['data']['document'], document)
         assert client.get(f'/api/projects/{project}/runs').json() == []
         assert client.get(f'/api/projects/{project}').json()['flow'] == {'nodes': [], 'edges': []}
         assert client.post(f'/api/interactions/{token}/execute').status_code == 400
@@ -92,7 +93,7 @@ def test_edited_input_survives_source_removal_and_runs_without_reapplying_random
         assert result['status'] == 'succeeded', result
         package = result['outputs']['edited'][0]
         actual = client.get(f'/api/packages/{package}/file', params={'key': 'edited.json'}).json()
-        assert actual == document
+        assert_manifest(document, actual)
 
 
 def test_independent_interaction_inputs_settings_missing_files_and_cancel_cleanup(tmp_path):
@@ -156,7 +157,7 @@ def test_preview_files_are_readable_until_cancel_or_accept(tmp_path):
         path = f'/api/interactions/{token}/file'
         response = client.get(path, params={'output': 'edited', 'key': 'edited.json'})
         assert response.status_code == 200, response.text
-        assert response.json() == expected
+        assert_manifest(expected, response.json())
         assert client.get(path, params={'output': 'edited', 'key': '../edited.json'}).status_code == 400
         client.delete(f'/api/interactions/{token}').raise_for_status()
         assert client.get(path, params={'output': 'edited', 'key': 'edited.json'}).status_code == 400
@@ -164,7 +165,7 @@ def test_preview_files_are_readable_until_cancel_or_accept(tmp_path):
         token, expected = preview(client, project, {'sequence': 'AC'})
         accepted = client.post(f'/api/interactions/{token}/accept', json={'output': 'edited'})
         accepted.raise_for_status()
-        assert client.get(f"/api/packages/{accepted.json()['id']}/file", params={'key': 'edited.json'}).json() == expected
+        assert_manifest(expected, client.get(f"/api/packages/{accepted.json()['id']}/file", params={'key': 'edited.json'}).json())
         assert list((tmp_path / 'work').iterdir()) == []
 
 

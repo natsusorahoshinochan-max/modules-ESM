@@ -29,6 +29,9 @@ def parse(content, encoding):
             if any(value not in ('?', '.') and len(gemmi.cif.as_string(value)) > 1 for value in block.find_values('_atom_site.' + tag)):
                 raise ValueError('Structure reader cannot preserve multi-character alternate-location or insertion codes')
         structure = gemmi.make_structure_from_block(block)
+        scheme = block.get_mmcif_category('_pdbx_poly_seq_scheme.')
+        if scheme:
+            structure.info['_workbench_polymer_scheme'] = json.dumps(scheme)
         if sum(model.count_atom_sites() for model in structure) != len(block.find_values('_atom_site.auth_seq_id')):
             raise ValueError('mmCIF coordinate rows could not all be read as atoms')
     else:
@@ -67,7 +70,11 @@ def atoms(structure):
 
 def encode(structure, encoding):
     if encoding == 'mmcif':
-        return structure.make_mmcif_document().as_string().encode()
+        document = structure.make_mmcif_document()
+        scheme = structure.info['_workbench_polymer_scheme'] if '_workbench_polymer_scheme' in structure.info else None
+        if scheme:
+            document.sole_block().set_mmcif_category('_pdbx_poly_seq_scheme.', json.loads(scheme))
+        return document.as_string().encode()
     if encoding != 'pdb':
         raise ValueError('Export format must be pdb or mmcif')
     if structure[0].count_atom_sites() > 99999:
@@ -240,6 +247,10 @@ def resolve_selection(structure, selection=None):
 
 def _fragment_entities(structure):
     """Project current polymer declarations from retained actual residue groups."""
+    # Fragment labels and polymer contents are rebuilt below; original full-chain
+    # correspondence is retained only in the separately copied source file.
+    if '_workbench_polymer_scheme' in structure.info:
+        del structure.info['_workbench_polymer_scheme']
     fragments = {}
     entities = list(structure.entities)
     for model in structure:
@@ -459,3 +470,62 @@ def module():
              inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'))}, outputs={'structures': OutputPort('workbench.structure_set')},
              parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'atoms': {'description': 'Optional actual atom indices'}}),
     ), ui=str(Path(__file__).with_name('ui.js').resolve()))
+
+
+def polymer_positions(source, object_id, chain_name):
+    """Read a complete selected polymer chain, retaining coordinate-free positions.
+
+mmCIF sequence labels establish correspondence. PDB SEQRES without an explicit
+complete residue correspondence is rejected when observed and declared lengths
+are different, rather than guessing how author numbering crosses missing atoms.
+"""
+    _, obj, structure = _read_object(source, object_id)
+    actual = [row for row in positions(structure) if row['chain'] == chain_name]
+    if not actual:
+        raise ValueError('Selected chain has no actual structure positions')
+    if any(not gemmi.find_tabulated_residue(row['residue_name']).is_amino_acid() for row in actual):
+        raise ValueError('Select amino-acid positions explicitly when a chain contains other components')
+    if obj['structure']['format'] == 'pdb':
+        entities = [entity for entity in structure.entities if entity.name == chain_name and entity.full_sequence]
+        if entities and any(len(entity.full_sequence) != len(actual) for entity in entities):
+            raise ValueError('PDB SEQRES does not supply correspondence for unobserved positions; provide mmCIF with explicit polymer position labels or select actual residues')
+        return actual
+    with source.open(obj['structure']['file']) as reader:
+        block = gemmi.cif.read_string(reader.read().decode()).sole_block()
+    declared = {gemmi.cif.as_string(row[0]):gemmi.cif.as_string(row[1]) for row in block.find('_struct_asym.', ['id','entity_id'])}
+    polymer = {}
+    for row in block.find('_entity_poly_seq.', ['entity_id','num','mon_id']):
+        polymer.setdefault(gemmi.cif.as_string(row[0]), []).append((int(row[1]),gemmi.cif.as_string(row[2])))
+    if not polymer:
+        return actual
+    source_chain = structure[0][chain_name]
+    subchains = {residue.subchain for residue in source_chain}
+    candidates = [(subchain, declared[subchain]) for subchain in subchains if subchain in declared and declared[subchain] in polymer]
+    if len(candidates) != 1:
+        raise ValueError('Selected chain requires one explicit polymer entity and label correspondence')
+    subchain, entity = candidates[0]
+    complete = polymer[entity]
+    if [index for index, _ in complete] != list(range(1, len(complete) + 1)):
+        raise ValueError('Source polymer sequence requires complete unique ordered positions')
+    mapped = {}
+    for residue, row in zip(source_chain, actual):
+        if residue.subchain != subchain or residue.label_seq is None or residue.label_seq in mapped:
+            raise ValueError('Observed residues require unique explicit sequence labels for complete-chain templates')
+        mapped[residue.label_seq] = row
+    if set(mapped) - set(range(1,len(complete)+1)):
+        raise ValueError('Observed residue labels exceed the declared complete polymer')
+    scheme = {}
+    for row in block.find('_pdbx_poly_seq_scheme.', ['asym_id','seq_id','auth_seq_num','pdb_strand_id','pdb_ins_code']):
+        if gemmi.cif.as_string(row[0]) == subchain:
+            scheme[int(row[1])] = {'author_number':int(row[2]) if row[2] not in ('.','?') else None,
+                'insertion_code':gemmi.cif.as_string(row[4]) if row[4] not in ('.','?') else ''}
+    result = []
+    for label, monomer in complete:
+        if label in mapped:
+            row = dict(mapped[label])
+        else:
+            row = {'model':structure[0].num, 'chain':chain_name,
+                   'author_number':None, 'insertion_code':'', 'residue_name':monomer, 'atoms':[], **scheme.get(label,{})}
+        row['label_position'] = {'chain':subchain, 'position':label}
+        result.append(row)
+    return result

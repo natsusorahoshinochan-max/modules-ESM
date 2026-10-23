@@ -43,7 +43,7 @@ export function register({ React }) {
   }
   function ComparisonEditor({ parameters, onChange, readOnly }) {
     return h('section', null,
-      h('p', null, 'Choose independent subject and reference inputs on the canvas. TM-align fits the selected Cα streams with one rigid transform, retaining both complete original structures and every atom in the overlay. It supports one canonical protein chain per selected scope and at least three residues. Multichain full structures require an explicit single-chain selection.'),
+      h('p', null, 'Choose subject packages and one independent reference on the canvas. Every subject object is compared separately in package order; the same explicit regions apply to each object. TM-align fits the selected Cα streams with one rigid transform, retaining both complete original structures and every atom in the overlay. It supports one canonical protein chain per selected scope and at least three residues. Multichain full structures require an explicit single-chain selection.'),
       ...['subject', 'reference'].map(side => h(Region, { key: side, side: side === 'subject' ? 'Subject' : 'Reference', selection: parameters[`${side}_selection`], readOnly,
         onChange: selection => onChange({ ...parameters, [`${side}_selection`]: selection }) })),
       h('p', null, 'Region positions follow coordinate-file order. Numbering gaps and insertion codes are retained; unavailable positions stop the operation. TM-scores are normalized by each selected region length. Region selection changes this evaluation only.'));
@@ -64,7 +64,7 @@ export function register({ React }) {
           'manifest.json': new Blob([JSON.stringify(manifest)], { type: 'application/json' }), [key]: file,
         } });
         await host.addNode({ type: 'workbench.compare', parameters: {}, inputs: { reference: [pkg.id] } });
-        setStatus('Reference added. Connect a prediction result to the subject port, or choose a historical prediction package as subject.');
+        setStatus('Reference added. Connect subject structure or prediction packages. Each candidate is compared with this explicit reference.');
       } catch (failure) { setError(String(failure)); }
       finally { setBusy(false); }
     }

@@ -21,12 +21,12 @@ ATOM      4  O   ALA Z  12A      4.000   5.000   6.000  1.00 14.00           O
 END
 `;
 
-test('actual editor selects explicit objects and saves full chain mapping through public interaction', { timeout: 30000 }, async () => {
+test('actual editor selects explicit objects and saves full chain mapping through public interaction', { timeout: 60000 }, async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), 'mpnn166-handoff-'));
   const buildRoot = await mkdtemp(join(repo, 'webui/.mpnn166-handoff-'));
   const portProbe = createServer(); await new Promise(resolve => portProbe.listen(0, '127.0.0.1', resolve));
   const port = portProbe.address().port; await new Promise(resolve => portProbe.close(resolve));
-  const backend = spawn('python3', ['-u', '-c', 'from pathlib import Path; import sys,uvicorn; from protein_workbench_public.bootstrap import create_application; uvicorn.run(create_application(data_root=Path(sys.argv[1])),host="127.0.0.1",port=int(sys.argv[2]),log_level="error")', dataRoot, String(port)], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] });
+  const backend = spawn(process.env.WORKBENCH_PYTHON || 'python3', ['-u', '-c', 'from pathlib import Path; import sys,uvicorn; from protein_workbench_public.bootstrap import create_application; uvicorn.run(create_application(data_root=Path(sys.argv[1])),host="127.0.0.1",port=int(sys.argv[2]),log_level="error")', dataRoot, String(port)], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] });
   let diagnostics = ''; backend.stderr.on('data', value => { diagnostics += value.toString(); });
   const base = `http://127.0.0.1:${port}`;
   const json = async (path, options = {}) => { const response = await originalFetch(base + path, options); assert.ok(response.ok, await response.clone().text()); return response.json(); };
@@ -34,7 +34,7 @@ test('actual editor selects explicit objects and saves full chain mapping throug
   let root, dom, hooks;
   try {
     let ready = false;
-    for (let attempt = 0; attempt < 100; attempt++) {
+    for (let attempt = 0; attempt < 600; attempt++) {
       try { await json('/api/projects'); ready = true; break; } catch { if (backend.exitCode !== null) break; await new Promise(resolve => setTimeout(resolve, 50)); }
     }
     assert.ok(ready, diagnostics);

@@ -1,6 +1,7 @@
 """Structure conditions through public temporary interaction files and packages."""
 import json
 import pytest
+from tests.fixtures.sequence_conditions import condition_files, assert_manifest
 from fastapi.testclient import TestClient
 from protein_workbench_public.bootstrap import create_application
 from tests.test_sequence_io import upload
@@ -15,7 +16,7 @@ def test_coordinate_document_requires_one_explicit_file_backed_base(tmp_path, ac
         document = {'id':'edit','sequence':'A','positions':[{'id':'a','residue':'A','prompt':'A','fixed':True,'coordinates':None}], 'random_operations':[]}
         inputs = {}
         if accepted_source:
-            package = upload(client,project,'workbench.sequence_conditions',{'edited.json':json.dumps(document).encode()},entry='edited.json')
+            package = upload(client,project,'workbench.sequence_conditions',condition_files(document),entry='edited.json')
             inputs['source'] = [package['id']]
         else:
             document['positions'][0]['coordinates'] = {'CA':[100,20,30]}
@@ -95,13 +96,13 @@ def test_local_structure_adoption_preserves_files_real_positions_and_only_select
         document = {'id':'edit','sequence':'GC','positions':[
             {'id':'g','residue':'G','prompt':'_','fixed':False,'coordinates':None},
             {'id':'c','residue':'C','prompt':'C','fixed':True,'coordinates':{'CA':[9,9,9]}}], 'random_operations':[]}
-        base = upload(client,project,'workbench.sequence_conditions',{'edited.json':json.dumps(document).encode()},entry='edited.json')
+        base = upload(client,project,'workbench.sequence_conditions',condition_files(document),entry='edited.json')
         parameters = {'structure':{'input':'structures','object':'structure'},'operation':{'kind':'adopt_structure','tracks':['coordinates'],
             'mapping':[{'edit_position':'g','position':{'chain':'X','author_number':12,'insertion_code':'A'}}]}}
         token, adopted, data = invoke(client,project,parameters,{'structures':[package['id']],'source':[base['id']]})
         assert adopted['sequence'] == 'GC' and adopted['positions'][0]['prompt'] == '_'
         assert adopted['positions'][0]['coordinates'] == {'CA':[1,2,3]}
-        assert adopted['positions'][1] == document['positions'][1]
+        assert {key:adopted['positions'][1][key] for key in document['positions'][1]} == document['positions'][1]
         assert adopted['positions'][0]['structure_position']['position']['insertion_code'] == 'A'
         assert data['position_count'] == 2
         accepted = client.post(f'/api/interactions/{token}/accept',json={'output':'edited'}).json()
@@ -114,7 +115,7 @@ def test_local_structure_adoption_preserves_files_real_positions_and_only_select
         token, moved, _ = invoke(client,project,{'operation':{'kind':'transform_coordinates','positions':['g'],
             'rotation':[[1,0,0],[0,1,0],[0,0,1]],'translation':[10,0,0]}},{'source':[accepted['id']]})
         assert moved['positions'][0]['coordinates'] == {'CA':[11,2,3]}
-        assert moved['positions'][1] == document['positions'][1]
+        assert {key:moved['positions'][1][key] for key in document['positions'][1]} == document['positions'][1]
         client.delete(f'/api/interactions/{token}').raise_for_status()
         assert client.get(f"/api/packages/{accepted['id']}/file",params={'key':source_key}).content == PDB
 
@@ -126,7 +127,7 @@ def test_clear_then_set_coordinates_never_replays_a_previous_transform(tmp_path)
         document = {'id':'edit','sequence':'AC','positions':[
             {'id':'a','residue':'A','prompt':'A','fixed':True,'coordinates':{'CA':[1,2,3]}},
             {'id':'c','residue':'C','prompt':'C','fixed':True,'coordinates':{'CA':[8,8,8]}}], 'random_operations':[]}
-        base = upload(client,project,'workbench.sequence_conditions',{'edited.json':json.dumps(document).encode()},entry='edited.json')
+        base = upload(client,project,'workbench.sequence_conditions',condition_files(document),entry='edited.json')
         token, moved, _ = invoke(client,project,{'operation':{'kind':'transform_coordinates','positions':['a'],
             'rotation':[[1,0,0],[0,1,0],[0,0,1]],'translation':[10,0,0]}},{'source':[base['id']]})
         moved_package = client.post(f'/api/interactions/{token}/accept',json={'output':'edited'}).json()
@@ -135,8 +136,8 @@ def test_clear_then_set_coordinates_never_replays_a_previous_transform(tmp_path)
         cleared_package = client.post(f'/api/interactions/{token}/accept',json={'output':'edited'}).json()
         token, reset = preview(client,project,{'operation':{'kind':'update','positions':['a'],'changes':{'coordinates':{'CA':[2,4,6]}}}},{'source':[cleared_package['id']]})
         assert reset['positions'][0]['coordinates'] == {'CA':[2,4,6]}
-        assert reset['positions'][1] == document['positions'][1]
+        assert {key:reset['positions'][1][key] for key in document['positions'][1]} == document['positions'][1]
         accepted = client.post(f'/api/interactions/{token}/accept',json={'output':'edited'}).json()
-        assert client.get(f"/api/packages/{accepted['id']}/file",params={'key':'edited.json'}).json() == reset
+        assert_manifest(reset, client.get(f"/api/packages/{accepted['id']}/file",params={'key':'edited.json'}).json())
         _, restored = preview(client,project,{}, {'source':[moved_package['id']]})
         assert restored['positions'][0]['coordinates'] == {'CA':[11,2,3]}

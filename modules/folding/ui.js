@@ -1,22 +1,6 @@
 /** Prediction UI uses only the public host interface and supplied React 19. */
 export const runtime = { react: 19 };
 
-export function parseSequence(text) {
-  const lines = text.trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const headers = lines.filter(line => line.startsWith('>'));
-  if (headers.length > 1) throw new Error('Multiple FASTA records: use batch import.');
-  if (headers.length && !lines[0].startsWith('>')) throw new Error('FASTA must start with a header.');
-  const sequence = (headers.length ? lines.slice(1) : lines).join('').replace(/\s/g, '').toUpperCase();
-  if (!sequence || !/^[ACDEFGHIKLMNPQRSTVWY]+$/.test(sequence)) throw new Error('Enter one protein sequence using the 20 standard amino acid letters.');
-  return { sequence, ...(headers.length && lines[0].slice(1).trim() ? { label: lines[0].slice(1).trim() } : {}) };
-}
-
-export function parseBatch(text) {
-  const records = text.trim().split(/(?=^>)/m).filter(record => record.trim());
-  if (!records.length || records.some(record => !record.trim().startsWith('>'))) throw new Error('Batch import requires FASTA records with headers.');
-  return records.map(parseSequence);
-}
-
 function sequenceObjects(document) {
   if (!document || Object.keys(document).join() !== 'objects' || !Array.isArray(document.objects) || !document.objects.length) throw new Error('A nonempty sequence object batch is required.');
   const ids = new Set();
@@ -29,30 +13,27 @@ function sequenceObjects(document) {
     if ('source' in object && (!object.source || Array.isArray(object.source) || typeof object.source !== 'object' || !Object.keys(object.source).length || Object.entries(object.source).some(([key, value]) => !['name', 'record', 'text'].includes(key) || typeof value !== 'string'))) throw new Error('Source requires explicit name, record or text fields.');
     if ('positions' in object) {
       if (!Array.isArray(object.positions) || object.positions.length !== object.sequence.length) throw new Error('Positions must cover every sequence residue.');
-      const seen = new Set();
+      const seen = new Set(), seenLabels = new Set();
       object.positions.forEach((position, index) => {
-        if (!position || Object.keys(position).some(key => !['sequence_index', 'chain', 'author_number', 'insertion_code'].includes(key)) || position.sequence_index !== index + 1) throw new Error('Positions require ordered one-based sequence_index values.');
-        if (Object.keys(position).length > 1) {
-          if (Object.keys(position).length !== 4 || typeof position.chain !== 'string' || !Number.isSafeInteger(position.author_number) || typeof position.insertion_code !== 'string') throw new Error('Residue correspondence requires explicit chain, author_number and insertion_code.');
+        if (!position || Object.keys(position).some(key => !['sequence_index', 'chain', 'author_number', 'insertion_code', 'label_position'].includes(key)) || position.sequence_index !== index + 1) throw new Error('Positions require ordered one-based sequence_index values.');
+        const authorKeys = ['chain','author_number','insertion_code'];
+        if (authorKeys.some(key=>key in position)) {
+          if (!authorKeys.every(key=>key in position) || typeof position.chain !== 'string' || !Number.isSafeInteger(position.author_number) || typeof position.insertion_code !== 'string') throw new Error('Residue correspondence requires explicit chain, author_number and insertion_code.');
           const key = JSON.stringify([position.chain, position.author_number, position.insertion_code]);
           if (seen.has(key)) throw new Error('Repeated residue correspondence.');
           seen.add(key);
+        }
+        if ('label_position' in position) {
+          const label=position.label_position;
+          if (!label || Array.isArray(label) || Object.keys(label).length!==2 || typeof label.chain!=='string' || !label.chain || !Number.isSafeInteger(label.position) || label.position<1) throw new Error('Label correspondence requires chain and a positive one-based position.');
+          const key=JSON.stringify([label.chain,label.position]);
+          if(seenLabels.has(key))throw new Error('Repeated label correspondence.');
+          seenLabels.add(key);
         }
       });
     }
   }
   return document.objects;
-}
-
-export function sequenceInput(text, { batch = false, name, json = false } = {}) {
-  const objects = json ? sequenceObjects(JSON.parse(text)) : (batch ? parseBatch(text) : [parseSequence(text)]).map(object => ({
-    id: crypto.randomUUID(), ...object,
-    source: { ...(name ? { name } : {}), ...(object.label ? { record: object.label } : {}), text },
-    positions: Array.from(object.sequence, (_, index) => ({ sequence_index: index + 1 })),
-  }));
-  return { format: 'workbench.sequence', entry: 'manifest.json', files: {
-    'manifest.json': new Blob([JSON.stringify({ objects })], { type: 'application/json' }),
-  } };
 }
 
 function predictionDocument(text) {
@@ -111,63 +92,6 @@ export async function predictionInput(text, bindings) {
 
 export function register({ React }) {
   const h = React.createElement;
-  function SequenceInput({ host }) {
-    const [{ text, name }, setDraft] = React.useState({ text: '', name: '' });
-    const [batch, setBatch] = React.useState(false);
-    const [json, setJson] = React.useState(false);
-    const [error, setError] = React.useState('');
-    const [busy, setBusy] = React.useState(false);
-    const [reading, setReading] = React.useState(false);
-    const pendingRead = React.useRef(null);
-    const latestHost = React.useRef(host);
-    latestHost.current = host;
-    function invalidateRead() {
-      pendingRead.current = null;
-      setReading(false);
-    }
-    React.useEffect(() => {
-      invalidateRead();
-      return () => { pendingRead.current = null; };
-    }, [host]);
-    function currentRead(request) {
-      return pendingRead.current === request && latestHost.current === request.host && !request.host.readOnly;
-    }
-    async function select(event) {
-      invalidateRead();
-      const file = event.target.files?.[0];
-      if (!file) return;
-      const request = { host };
-      pendingRead.current = request;
-      setReading(true); setError('');
-      try {
-        const value = await file.text();
-        if (!currentRead(request)) return;
-        setDraft({ text: value, name: file.name }); setError('');
-      } catch (failure) {
-        if (currentRead(request)) setError(String(failure));
-      } finally {
-        if (currentRead(request)) invalidateRead();
-      }
-    }
-    async function add() {
-      if (pendingRead.current || host.readOnly || busy) return;
-      setBusy(true); setError('');
-      try {
-        const pkg = await host.createInput(sequenceInput(text, { batch, name, json }));
-        await host.addNode({ type: 'workbench.predict', parameters: {}, inputs: { sequence: [pkg.id] }, tools: {}, tool_parameters: {} });
-      } catch (failure) { setError(String(failure)); }
-      finally { setBusy(false); }
-    }
-    return h('section', null, h('h3', null, 'Predict a protein structure'),
-      h('label', null, 'Input format', h('select', { 'aria-label': 'Sequence input format', value: json ? 'json' : 'fasta', disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setJson(event.target.value === 'json'); setError(''); } }, h('option', { value: 'fasta' }, 'Sequence or FASTA'), h('option', { value: 'json' }, 'Sequence JSON with explicit correspondence'))),
-      !json && h('label', null, h('input', { type: 'checkbox', 'aria-label': 'Batch FASTA import', checked: batch, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setBatch(event.target.checked); setError(''); } }), 'Batch FASTA import'),
-      h('label', null, json ? 'Sequence JSON' : batch ? 'Batch FASTA records' : 'Single sequence or FASTA', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setDraft({ text: event.target.value, name: '' }); setError(''); } })),
-      h('label', null, 'Import sequence file', h('input', { type: 'file', accept: json ? '.json' : '.fasta,.fa,.faa,.txt', disabled: host.readOnly || busy,
-        onChange: select })),
-      h('button', { disabled: host.readOnly || busy || reading, onClick: add }, busy ? 'Adding…' : 'Add sequence and prediction node'),
-      h('p', null, 'Choose a prediction tool and its parameters on the node.'),
-      error && h('p', { role: 'alert' }, error));
-  }
   function PredictionInput({ host }) {
     const [text, setText] = React.useState('');
     const [keys, setKeys] = React.useState([]);
@@ -248,7 +172,7 @@ export function register({ React }) {
       h('pre', { 'aria-label': 'Package file contents' }, fileText));
   }
   return {
-    actions: [{ id: 'workbench.prediction.sequence', name: 'Predict a protein structure', component: SequenceInput }, { id: 'workbench.prediction.import', name: 'Import existing prediction results', component: PredictionInput }],
-    viewers: [{ id: 'workbench.prediction.files', name: 'Sequence, structure and confidence', formats: ['workbench.sequence', 'workbench.prediction'], component: PredictionViewer }],
+    actions: [{ id: 'workbench.prediction.import', name: 'Import existing prediction results', component: PredictionInput }],
+    viewers: [{ id: 'workbench.prediction.files', name: 'Sequence, structure and confidence', formats: ['workbench.prediction'], component: PredictionViewer }],
   };
 }

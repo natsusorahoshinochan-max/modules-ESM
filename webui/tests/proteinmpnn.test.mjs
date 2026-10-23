@@ -3,14 +3,15 @@ import { test, after } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import * as React from 'react';
-const source = await readFile(new URL('../../modules/proteinmpnn/ui.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../../modules/generation/ui.js', import.meta.url), 'utf8');
 const { register } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true });
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
 const { createRoot } = await import('react-dom/client');
 after(() => dom.window.close());
-const extensions = register({ React });
+const all = register({ React });
+const extensions = {editors: all.editors.filter(row => row.node === 'workbench.design_backbone' || row.node === 'workbench.proteinmpnn_chain_sequence'), viewers: all.viewers.filter(row => row.formats.includes('workbench.proteinmpnn_design'))};
 
 test('design viewer distinguishes score masks and shows actual values and insertion mapping', async () => {
   const container = document.createElement('div'); document.body.append(container);

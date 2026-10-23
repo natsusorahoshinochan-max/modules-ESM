@@ -1,8 +1,11 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Edge, FlowNode, ModuleHost, PackageInfo, EditorContext, EditorUpdate } from '@protein-workbench/module-ui'
+import type { Edge, Flow, FlowNode, Scope, ModuleHost, PackageInfo, EditorContext, EditorUpdate } from '@protein-workbench/module-ui'
 import { client, type Catalog, type Project, type Run } from './host-client'
 import { loadExtensions, type LoadedExtensions } from './host-ui'
 import { ModuleManagement } from './ModuleManagement'
+import { WorkflowCanvas } from './WorkflowCanvas'
+import { ScopeEditor } from './ScopeEditor'
+import { callLabel, callPath, copyNode, declarationFor, flowAt, replaceFlow } from './flow-model'
 
 class ExtensionBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' }
@@ -41,6 +44,10 @@ export default function App() {
   const invalidateRefresh = () => { moduleEpoch.current += 1 }
   const [project, setProject] = useState<Project | null>(null)
   const currentProject = useRef<Project | null>(null)
+  const [scopePath, setScopePath] = useState<string[]>([])
+  const scopePathNow = useRef<string[]>([])
+  const activeFlow = project ? flowAt(project.flow, scopePath) ?? project.flow : undefined
+  const activeScope = project && scopePath.length ? flowAt(project.flow, scopePath.slice(0, -1))?.nodes.find(node => node.id === scopePath.at(-1)) : undefined
   const liveProject = useRef(true)
   const projectSession = useRef(0)
   const opening = useRef(0)
@@ -87,6 +94,7 @@ export default function App() {
   const locked = projectBusy || (saving && !!project?.tutorial)
   const waitingForTeachingInputs = !!project?.tutorial && inputTransfers > 0
   const [runs, setRuns] = useState<Run[]>([])
+  const [locatedCall, setLocatedCall] = useState<{run:string;call:string}|null>(null)
   const cancellableRuns = runs.filter(item => item.status === 'running')
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
   const fail = (failure: unknown) => { if (liveProject.current) setError(failure instanceof Error ? failure.message : String(failure)) }
@@ -168,6 +176,34 @@ export default function App() {
     currentProject.current = update(currentProject.current)
     setProject(currentProject.current); markDirty(true); setNotice('')
   }
+  function changeFlow(update: (flow: Flow) => Flow, path = scopePathNow.current) {
+    change(current => ({...current, flow: replaceFlow(current.flow, path, update)}))
+  }
+  function changeScope(scope: Scope) {
+    if (!activeScope) return
+    const id = activeScope.id, parentPath = scopePath.slice(0, -1)
+    change(current => {
+      let flow = replaceFlow(current.flow, parentPath, body => ({
+        ...body,
+        nodes: body.nodes.map(node => node.id === id ? {...node, scope, inputs: Object.fromEntries(Object.entries(node.inputs).filter(([port]) => scope.inputs[port]))} : node),
+        edges: body.edges.filter(edge => (edge.source !== id || scope.outputs[edge.source_port]) && (edge.target !== id || scope.inputs[edge.target_port])),
+      }))
+      if (parentPath.length) flow = replaceFlow(flow, parentPath.slice(0, -1), body => ({...body, nodes: body.nodes.map(node => node.id === parentPath.at(-1) && node.scope ? {
+        ...node, scope: {...node.scope,
+          input_bindings: node.scope.input_bindings.filter(binding => binding.node !== id || scope.inputs[binding.port]),
+          output_bindings: node.scope.output_bindings.filter(binding => binding.node !== id || scope.outputs[binding.port]),
+        },
+      } : node)}))
+      return {...current, flow}
+    })
+  }
+  function navigateScope(path: string[]) {
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); fail(new Error('Enter valid parameter JSON before leaving this subflow')); return }
+    if (!currentProject.current || !flowAt(currentProject.current.flow, path)) return
+    scopePathNow.current = path; setScopePath(path); setConnection({source:'',source_port:'',target:'',target_port:''})
+  }
   async function openTutorial(automatic = false) {
     if (!liveProject.current) return
     const request = opening.current
@@ -187,7 +223,7 @@ export default function App() {
     void discardDraftInputs()
     projectSession.current += 1; setInputTransfers(0); currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
-    setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); if (!preserveError) setError('')
+    scopePathNow.current = []; setScopePath([]); setConnection({source:'',source_port:'',target:'',target_port:''}); setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); if (!preserveError) setError('')
     return true
   }
   async function createProject() {
@@ -211,7 +247,7 @@ export default function App() {
     const revision = draftRevision.current
     savingNow.current = true; setSaving(true); setError('')
     try {
-      const saved = snapshot.tutorial ? await client.copy(snapshot, projectName) : await client.save(snapshot)
+      const saved = snapshot.tutorial ? await client.copy(snapshot, projectName, draftInputs.current.map(input => input.id)) : await client.save(snapshot)
       if (!liveProject.current) return false
       commitProject(saved)
       if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
@@ -245,7 +281,7 @@ export default function App() {
     const revision = draftRevision.current
     savingNow.current = true; setSaving(true); setError('')
     try {
-      const copied = await client.copy(snapshot, projectName)
+      const copied = await client.copy(snapshot, projectName, snapshot.tutorial ? draftInputs.current.map(input => input.id) : [])
       if (!liveProject.current) return
       commitProject(copied)
       if (session !== projectSession.current || draftRevision.current !== revision) return
@@ -384,8 +420,10 @@ export default function App() {
   }
   const host = useMemo<ModuleHost>(() => {
     const origin = projectSession.current
+    const path = scopePath
     function activeProject() {
       if (!liveProject.current || origin !== projectSession.current) throw new Error('Project changed; start the operation again')
+      if (scopePathNow.current.join('/') !== path.join('/')) throw new Error('Subflow changed; start the operation again')
       if (savingNow.current && currentProject.current?.tutorial) throw new Error('Teaching draft is saving; wait for the user project')
       if (!currentProject.current || runningNow.current || deletingProject.current === currentProject.current.id) throw new Error('Open an idle project first')
       return currentProject.current
@@ -401,6 +439,7 @@ export default function App() {
           if (current.tutorial) {
             try { activeProject() } catch (failure) { await client.discardDraftInput(result.id); throw failure }
             draftInputs.current.push(result)
+            markDirty(true)
           }
           activeProject()
           const files = await client.packages(current.id)
@@ -415,18 +454,22 @@ export default function App() {
       async addNode(node) {
         activeProject()
         const id = crypto.randomUUID(), ownedNode = structuredClone(node)
-        change(current => ({ ...current, flow: { ...current.flow, nodes: [...current.flow.nodes, { ...ownedNode, id }] } })); return id
+        changeFlow(flow => ({...flow, nodes:[...flow.nodes,{...ownedNode,id}]}), path); return id
       },
       async connect(edge) {
         const current = activeProject()
-        const source = current.flow.nodes.find(node => node.id === edge.source)
-        const target = current.flow.nodes.find(node => node.id === edge.target)
-        const output = catalog.nodes.find(node => node.id === source?.type)?.outputs[edge.source_port]
-        const input = catalog.nodes.find(node => node.id === target?.type)?.inputs[edge.target_port]
+        const flow = flowAt(current.flow, path)!
+        const source = flow.nodes.find(node => node.id === edge.source)
+        const target = flow.nodes.find(node => node.id === edge.target)
+        const output = declarationFor(source, catalog)?.outputs[edge.source_port]
+        const input = declarationFor(target, catalog)?.inputs[edge.target_port]
+        const boundary = path.length ? flowAt(current.flow,path.slice(0,-1))?.nodes.find(node=>node.id===path.at(-1))?.scope : undefined
+        if (edge.source === edge.target) throw new Error('Connect different nodes; use explicit subflow feedback for repetition')
+        if (flow.edges.some(item => JSON.stringify(item) === JSON.stringify(edge))) throw new Error('This connection already exists')
         if (!output || !input || !input.accepts.includes(output.format)) throw new Error('Port formats do not match; select an explicit conversion node')
         if (input.cardinality === 'one' && output.cardinality === 'many') throw new Error('Cardinality mismatch: a many output requires a many input')
-        if (input.cardinality === 'one' && (target?.inputs[edge.target_port]?.length || current.flow.edges.some(item => item.target === edge.target && item.target_port === edge.target_port))) throw new Error('Input accepts only one package')
-        change(current => ({ ...current, flow: { ...current.flow, edges: [...current.flow.edges, edge] } }))
+        if (input.cardinality === 'one' && (target?.inputs[edge.target_port]?.length || flow.edges.some(item => item.target === edge.target && item.target_port === edge.target_port) || boundary?.input_bindings.some(item=>item.node===edge.target&&item.port===edge.target_port))) throw new Error('Input accepts only one package')
+        changeFlow(flow => ({...flow, edges:[...flow.edges,structuredClone(edge)]}), path)
       },
       async preview(interaction, inputs, parameters, options) {
         // The session survives harmless React renders, but never project changes.
@@ -451,18 +494,20 @@ export default function App() {
       readPreviewFile: client.readPreviewFile,
       readFile: client.readFile,
     }
-  }, [project, locked, catalog])
+  }, [project, locked, catalog, scopePath])
   function editorContext(node: FlowNode): EditorContext {
     const session = projectSession.current, revision = draftRevision.current, projectId = project!.id
-    const declaration = catalog.nodes.find(item => item.id === node.type)
+    const path = scopePath
+    const declaration = declarationFor(node, catalog)
     function currentTarget() {
       const current = currentProject.current
       if (!liveProject.current || session !== projectSession.current || current?.id !== projectId) throw new Error('Project changed; reopen this editor')
-      if (revision !== draftRevision.current || !current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; preview the current node again')
+      if (revision !== draftRevision.current || scopePathNow.current.join('/') !== path.join('/') || !flowAt(current.flow, path)?.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; preview the current node again')
       if (runningNow.current || deletingProject.current === projectId || (savingNow.current && current.tutorial)) throw new Error('Project is running, saving or being deleted')
       return current
     }
-    const edges = project!.flow.edges.filter(edge => edge.source === node.id || edge.target === node.id)
+    const edges = activeFlow!.edges.filter(edge => edge.source === node.id || edge.target === node.id)
+    const boundaryBindings = activeScope?.scope?.input_bindings.filter(binding=>binding.node===node.id) ?? []
     let parameters = parameterSnapshots.current.get(node.parameters)
     if (!parameters) {
       parameters = frozenParameterCopy(node.parameters)
@@ -474,7 +519,7 @@ export default function App() {
         const ids = node.inputs[port] ?? []
         const selected = ids.flatMap(id => packagesNow.current.filter(item => item.id === id))
         const missing = ids.filter(id => !selected.some(item => item.id === id))
-        const connected = edges.some(edge => edge.target === node.id && edge.target_port === port)
+        const connected = edges.some(edge => edge.target === node.id && edge.target_port === port) || boundaryBindings.some(binding=>binding.port===port)
         const unavailable = missing.length ? `Selected packages are unavailable: ${missing.join(', ')}` : connected ? 'Connected input requires a delivered package selected explicitly; prepare and run the source group first' : !ids.length ? `No delivered package is selected for ${port}${input.required ? ' (required)' : ''}` : undefined
         return [port, {packages: structuredClone(selected), ...(unavailable ? {unavailable} : {})}]
       })),
@@ -490,8 +535,8 @@ export default function App() {
         if (replace.some(port => !changedPorts.has(port))) throw new Error('Connection replacement requires an explicit input update')
         const current = currentTarget()
         for (const edge of additions) {
-          const source = current.flow.nodes.find(item => item.id === edge.source)
-          const output = catalog.nodes.find(item => item.id === source?.type)?.outputs[edge.source_port]
+          const source = flowAt(current.flow, path)?.nodes.find(item => item.id === edge.source)
+          const output = declarationFor(source, catalog)?.outputs[edge.source_port]
           const input = declaration?.inputs[edge.target_port]
           if (edge.target !== node.id || !replace.includes(edge.target_port) || !input || !output || !input.accepts.includes(output.format) || (input.cardinality === 'one' && output.cardinality === 'many')) throw new Error('Replacement connection does not match the current target declaration')
         }
@@ -501,7 +546,7 @@ export default function App() {
             const input = declaration?.inputs[port]
             if (!input) throw new Error(`Unknown input port: ${port}`)
             const ids = values[port] ?? []
-            const incoming = [...edges.filter(edge => !replace.includes(edge.target_port)), ...additions].filter(edge => edge.target === node.id && edge.target_port === port).length
+            const incoming = [...edges.filter(edge => !replace.includes(edge.target_port)), ...additions].filter(edge => edge.target === node.id && edge.target_port === port).length + boundaryBindings.filter(binding=>binding.port===port).length
             if (input.cardinality === 'one' && ids.length + incoming > 1) throw new Error('Input accepts only one package; explicitly replace its connection')
             for (const id of ids) {
               const pkg = extra?.id === id ? extra : packagesNow.current.find(item => item.id === id)
@@ -536,10 +581,10 @@ export default function App() {
           }
         } else validateBindings(inputs)
         currentTarget()
-        change(current => ({...current, flow: {...current.flow,
-          nodes: current.flow.nodes.map(item => item.id === node.id ? {...item, ...(parameters ? {parameters} : {}), inputs} : item),
-          edges: [...current.flow.edges.filter(edge => !(edge.target === node.id && replace.includes(edge.target_port))), ...additions],
-        }}))
+        changeFlow(flow => ({...flow,
+          nodes: flow.nodes.map(item => item.id === node.id ? {...item, ...(parameters ? {parameters} : {}), inputs} : item),
+          edges: [...flow.edges.filter(edge => !(edge.target === node.id && replace.includes(edge.target_port))), ...additions],
+        }), path)
       },
     }
   }
@@ -551,19 +596,50 @@ export default function App() {
     for (const [index, run] of runs.entries()) {
       for (const [node, result] of Object.entries(run.nodes)) {
         for (const [port, values] of Object.entries(result.outputs)) {
-          if (values.includes(pkg.id)) return `Run ${index + 1} · ${node}.${port} · ${pkg.format} · ${pkg.id}`
+          if (values.includes(pkg.id)) return `Run ${index + 1} · ${callLabel(run,node)}.${port} · ${pkg.format} · ${pkg.id}`
         }
       }
     }
     return `${pkg.format} · ${pkg.id}`
   }
-  const source = project?.flow.nodes.find(node => node.id === connection.source)
-  const target = project?.flow.nodes.find(node => node.id === connection.target)
-  const sourcePorts = catalog.nodes.find(node => node.id === source?.type)?.outputs ?? {}
-  const targetPorts = catalog.nodes.find(node => node.id === target?.type)?.inputs ?? {}
+  const source = activeFlow?.nodes.find(node => node.id === connection.source)
+  const target = activeFlow?.nodes.find(node => node.id === connection.target)
+  const sourcePorts = declarationFor(source, catalog)?.outputs ?? {}
+  const targetPorts = declarationFor(target, catalog)?.inputs ?? {}
   function updateNode(id: string, update: Partial<FlowNode>) {
     const ownedUpdate = update.parameters ? {...update, parameters: structuredClone(update.parameters)} : update
-    change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.map(node => node.id === id ? { ...node, ...ownedUpdate } : node) } }))
+    changeFlow(flow => ({...flow,nodes:flow.nodes.map(node=>node.id===id?{...node,...ownedUpdate}:node)}))
+  }
+
+  function removeNode(id: string) {
+    change(current => {
+      let flow = replaceFlow(current.flow, scopePath, body => ({...body, nodes:body.nodes.filter(node=>node.id!==id), edges:body.edges.filter(edge=>edge.source!==id&&edge.target!==id)}))
+      if (scopePath.length) flow=replaceFlow(flow,scopePath.slice(0,-1),body=>({...body,nodes:body.nodes.map(node=>node.id===scopePath.at(-1)&&node.scope?{...node,scope:{...node.scope,input_bindings:node.scope.input_bindings.filter(binding=>binding.node!==id),output_bindings:node.scope.output_bindings.filter(binding=>binding.node!==id)}}:node)}))
+      return {...current,flow}
+    })
+  }
+  function disconnect(index: number) { changeFlow(flow=>({...flow,edges:flow.edges.filter((_,i)=>i!==index)})) }
+  function locateCall(run: Run, id: string) {
+    const original = run.nodes[id]?.location?.node_id ?? id
+    const path = callPath(run,id)
+    if (!currentProject.current || !flowAt(currentProject.current.flow,path)?.nodes.some(node=>node.id===original)) { setNotice('This historical node is absent from the current draft. Its recorded results remain available here.'); return }
+    setLocatedCall({run:run.id,call:id})
+    navigateScope(path)
+    window.requestAnimationFrame?.(()=>[...document.querySelectorAll<HTMLElement>('[data-canvas-node]')].find(element=>element.dataset.canvasNode===original)?.scrollIntoView?.({block:'center',inline:'center',behavior:'smooth'}))
+  }
+  function renderRunNode(run: Run, runIndex: number, id: string): ReactNode {
+    const result=run.nodes[id]
+    if(!result)return null
+    const scope=run.scopes?.[id]
+    return <section className="run-node" key={id} aria-label={`Run ${runIndex + 1} node ${id}`}>
+      <p><strong>{callLabel(run,id)}</strong>: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed' : result.status} {result.diagnostics?.join('; ')}</p>
+      <button onClick={()=>locateCall(run,id)}>Locate node {result.location?.node_id??id}</button>
+      {result.status !== 'succeeded' && Object.values(result.outputs).some(values => values.length) && <p>Partial results · batch incomplete</p>}
+      {Object.entries(result.outputs).flatMap(([port, values]) => values.map((packageId, index) => <button key={`${port}-${index}`} onClick={() => { setSelectedPackage(packageId); setViewer('') }}>View {port} result {index + 1}</button>))}
+      {result.kind!=='scope' && (result.status === 'failed' || result.status === 'cancelled') && run.calls?.[id] !== undefined && <button disabled={locked || saving} onClick={() => void continueRun(run.id, id)}>Continue {id} with original inputs and parameters</button>}
+      {result.kind==='scope' && result.status==='cancelled' && scope && <button disabled={locked || saving} onClick={()=>void continueRun(run.id,id)}>Continue scheduling {id}</button>}
+      {scope?.iterations.map(iteration=><details key={iteration.index} open={Object.values(iteration.nodes).some(child=>['failed','cancelled','blocked'].includes(run.nodes[child]?.status))}><summary>Iteration {iteration.index}</summary>{Object.values(iteration.nodes).map(child=>renderRunNode(run,runIndex,child))}</details>)}
+    </section>
   }
 
   return <div className="workbench"><header><h1>Protein Workbench</h1><span>Public module host</span></header>
@@ -575,21 +651,33 @@ export default function App() {
     </aside>
     <main>{waitingForTeachingInputs && <p role="status">Receiving teaching input files; wait before saving.</p>}<div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => copyProject().catch(fail)}>Copy project</button><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button disabled={submittingRun.current || !cancellableRuns.length} onClick={() => void cancelRun()}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
       {project && <><section className="module-actions">{extensions.actions?.map(action => <div key={action.id + action.installation_id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
-        <label>Add node<select disabled={locked} value="" onChange={event => { host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
-        <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}><h3>Canvas</h3>{!project.flow.nodes.length && <p>Empty canvas. Add a module operation to begin.</p>}
-          {project.flow.nodes.map((node, index) => {
-            const declaration = catalog.nodes.find(item => item.id === node.type)
+        <label>Add node<select disabled={locked} value="" onChange={event => { if(event.target.value) void host.addNode({ type: event.target.value, parameters: {}, inputs: {} }).catch(fail) }}><option value="">Choose operation</option>{catalog.nodes.map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></label>
+        <div className="scope-add"><button disabled={locked} onClick={()=>void host.addNode({type:'host.map',parameters:{},inputs:{},scope:{inputs:{},outputs:{},body:{nodes:[],edges:[]},input_bindings:[],output_bindings:[],item_input:''}}).catch(fail)}>Add Map subflow</button><button disabled={locked} onClick={()=>void host.addNode({type:'host.repeat',parameters:{},inputs:{},scope:{inputs:{},outputs:{},body:{nodes:[],edges:[]},input_bindings:[],output_bindings:[],rounds:2,feedback:{}}}).catch(fail)}>Add Repeat subflow</button></div>
+        <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}>
+          <nav className="scope-navigation" aria-label="Subflow navigation"><button onClick={()=>navigateScope([])} disabled={!scopePath.length}>Root canvas</button>{scopePath.map((id,index)=><button key={id} disabled={index===scopePath.length-1} onClick={()=>navigateScope(scopePath.slice(0,index+1))}>{index+1}: {declarationFor(flowAt(project.flow,scopePath.slice(0,index))?.nodes.find(node=>node.id===id),catalog)?.name??id}</button>)}</nav>
+          {activeScope?.scope && <ScopeEditor key={activeScope.id} node={activeScope} catalog={catalog} disabled={locked} onChange={changeScope} />}
+          <WorkflowCanvas key={`canvas:${scopePath.join('/')}`} flow={activeFlow!} catalog={catalog} layout={project.layout} disabled={locked} selectedSource={connection}
+            onSource={(source,source_port)=>setConnection({source,source_port,target:'',target_port:''})}
+            onTarget={(target,target_port)=>{const edge={...connection,target,target_port};setConnection(edge);if(edge.source&&edge.source_port)void host.connect(edge).then(()=>setConnection({source:'',source_port:'',target:'',target_port:''})).catch(fail)}}
+            onMove={(id,position)=>change(current=>({...current,layout:{...current.layout,[id]:{...current.layout[id],...position}}}))} onDisconnect={disconnect}
+            renderNode={(node, index) => {
+            const declaration = declarationFor(node, catalog)
             const editor = extensions.editors?.find(item => item.node === node.type)
             const Editor = editor?.component
             const context = editorContext(node)
             const editorSession = projectSession.current
+            const latestRun=runs.at(-1)
+            const recorded=latestRun ? Object.entries(latestRun.nodes).filter(([id,result])=>(result.location?.node_id??id)===node.id&&callPath(latestRun,id).join('/')===scopePath.join('/')) : []
+            const focusedRun=runs.find(run=>run.id===locatedCall?.run), focused=locatedCall&&focusedRun?.nodes[locatedCall.call]
+            const isFocused=!!focused && (focused.location?.node_id??locatedCall?.call)===node.id && callPath(focusedRun!,locatedCall!.call).join('/')===scopePath.join('/')
             function currentEditorTarget() {
-              if (!liveProject.current || editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || !currentProject.current.flow.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
+              if (!liveProject.current || editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || scopePathNow.current.join('/')!==scopePath.join('/') || !flowAt(currentProject.current.flow, scopePath)?.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
               if (runningNow.current || deletingProject.current === context.projectId || (savingNow.current && currentProject.current.tutorial)) throw new Error('Project is running, saving or being deleted')
             }
-            return <article className="node" key={node.id} style={{ marginLeft: project.layout[node.id]?.x ?? 0 }}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
-              <label>Horizontal position<input type="range" min="0" max="240" disabled={locked} value={project.layout[node.id]?.x ?? 0} onChange={event => { const x = Number(event.target.value); change(current => ({ ...current, layout: { ...current.layout, [node.id]: { ...(current.layout[node.id] ?? { y: 0 }), x } } })) }} /></label>
-              {Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
+            return <article className={isFocused?'node located':'node'} key={node.id}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
+              {!!recorded.length && <details className="node-results"><summary>Latest run: {recorded.length} call{recorded.length===1?'':'s'} · {[...new Set(recorded.map(([,result])=>result.status))].join(', ')}</summary>{recorded.map(([id,result])=><p key={id}>{callLabel(latestRun!,id)} · {result.status}{result.diagnostics?.length?` · ${result.diagnostics.join('; ')}`:''}</p>)}</details>}
+              {isFocused&&<p className="located-call">Located call: {callLabel(focusedRun!,locatedCall!.call)} · {focused.status}</p>}
+              {node.scope ? <><p>{node.scope.body.nodes.length} child nodes · {node.type==='host.map' ? `each package on ${node.scope.item_input||'an unselected input'}` : `${node.scope.rounds??1} rounds`}</p><button onClick={()=>navigateScope([...scopePath,node.id])}>Open subflow</button></> : Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
                 try {
                   currentEditorTarget()
                   updateNode(node.id, {parameters})
@@ -614,19 +702,14 @@ export default function App() {
               })}
               {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={locked} multiple={input.cardinality === 'many'} value={input.cardinality === 'many' ? node.inputs[port] ?? [] : node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: Array.from(event.target.selectedOptions).map(option => option.value).filter(Boolean) } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select></label>)}
               {Object.entries(declaration?.outputs ?? {}).map(([port, output]) => <p key={port}>Output {port} → {output.format}</p>)}
-              <button disabled={locked} onClick={() => { const copy = structuredClone(node); void host.addNode(copy).catch(fail) }}>Copy node</button>
-              <button disabled={locked} onClick={() => change(current => ({ ...current, flow: { ...current.flow, nodes: current.flow.nodes.filter(item => item.id !== node.id), edges: current.flow.edges.filter(edge => edge.source !== node.id && edge.target !== node.id) } }))}>Remove node</button>
+              <button disabled={locked} onClick={() => { void host.addNode(copyNode(node)).catch(fail) }}>Copy node</button>
+              <button disabled={locked} onClick={() => removeNode(node.id)}>Remove node</button>
             </article>
-          })}
-          <ul>{project.flow.edges.map((edge, index) => <li key={index}>{project.flow.nodes.findIndex(node => node.id === edge.source) + 1}:{edge.source_port} → {project.flow.nodes.findIndex(node => node.id === edge.target) + 1}:{edge.target_port} <button disabled={locked} onClick={() => change(current => ({ ...current, flow: { ...current.flow, edges: current.flow.edges.filter((_, i) => i !== index) } }))}>Disconnect</button></li>)}</ul>
+          }} />
+          <ul>{activeFlow!.edges.map((edge, index) => <li key={index}>{activeFlow!.nodes.findIndex(node => node.id === edge.source) + 1}:{edge.source_port} → {activeFlow!.nodes.findIndex(node => node.id === edge.target) + 1}:{edge.target_port} <button disabled={locked} onClick={() => disconnect(index)}>Disconnect</button></li>)}</ul>
         </section>
-        <fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{project.flow.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
-        <h3>Runs</h3>{runs.map((run, runIndex) => <details key={run.id}><summary>Run {runIndex + 1} · {run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.entries(run.nodes).map(([id, result]) => <section key={id} aria-label={`Run ${runIndex + 1} node ${id}`}>
-          <p>{id}: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed' : result.status} {result.diagnostics?.join('; ')}</p>
-          {result.status !== 'succeeded' && Object.values(result.outputs).some(values => values.length) && <p>Partial results · batch incomplete</p>}
-          {Object.entries(result.outputs).flatMap(([port, values]) => values.map((packageId, index) => <button key={`${port}-${index}`} onClick={() => { setSelectedPackage(packageId); setViewer('') }}>View {port} result {index + 1}</button>))}
-          {(result.status === 'failed' || result.status === 'cancelled') && run.calls?.[id] !== undefined && <button disabled={locked || saving} onClick={() => void continueRun(run.id, id)}>Continue {id} with original inputs and parameters</button>}
-        </section>)}</details>)}
+        <fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{activeFlow!.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{activeFlow!.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
+        <h3>Runs</h3>{runs.map((run, runIndex) => <details key={run.id}><summary>Run {runIndex + 1} · {run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.keys(run.nodes).filter(id=>!run.nodes[id].location).map(id=>renderRunNode(run,runIndex,id))}</details>)}
         <h3>Data packages</h3>{extensions.resultActions?.map(action => <ExtensionBoundary key={projectSession.current + action.id + action.installation_id}><action.component host={host} packages={packages} /></ExtensionBoundary>)}<select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select>
         {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id + activeViewer?.installation_id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
       </>}

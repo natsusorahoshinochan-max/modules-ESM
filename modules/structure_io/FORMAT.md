@@ -23,9 +23,9 @@ insertion_code, residue_name, atom_name, element, altloc, position}`. `index` is
 zero-based index into that candidate's delivered structure-file atom hierarchy;
 `position` is Cartesian x/y/z in Å. This file supports the module's viewer and
 selection. Consumers performing calculations read the actual coordinate file.
-Comparison independently accepts exactly one candidate and checks its own tool
-conditions. Multi-candidate packages require an explicit one-candidate export
-before comparison.
+Comparison accepts candidate batches and checks each object's tool conditions.
+Its reference input requires one explicitly selected object. Collection selection
+and extraction can prepare that reference from a multi-object package.
 
 `workbench.export_structure` accepts structure sets or existing
 `workbench.prediction` and `workbench.structure_confidence` packages. Parameters select `object` by its existing ID,
@@ -123,3 +123,41 @@ coordinate transform node. Run the node on the canvas, open its output package t
 inspect the result and download the ZIP to save its files. Rotation/tilt view
 controls only change the viewing angle. Coordinate transformations execute only
 through the explicit transform node.
+
+## Complete design target mmCIF
+
+`modules.structure_io.target.write_target(positions, chain="A")` returns mmCIF
+bytes for one complete ordered protein target. Each input row has `residue`,
+optional `author_number`, `insertion_code`, `author_chain`, and `atoms` mapping
+actual atom names to finite XYZ coordinates. Source author numbers may be absent;
+the writer leaves those unknown. Unknown or masked residues use `UNK`/`X`.
+
+The file's `_entity_poly_seq` declares every position; `_pdbx_poly_seq_scheme`
+records target order and actual author correspondence; `_atom_site` contains
+only supplied atoms. Missing coordinates do not remove polymer positions.
+Current target labels and preserved author numbers have separate meanings.
+
+`read_target(bytes_or_text, chain=None)` returns `{chain, sequence, positions}`.
+Each position contains one-based `position`, `residue`, `author_number` (integer
+or `None`), `insertion_code`, `author_chain`, and `atoms`. Without an explicit
+chain, the file must declare one chain. The reader requires the complete ordered
+polymer and residue scheme, one coordinate conformation, finite coordinates and
+unambiguous atom names. It reads coordinate-free targets without constructing
+fictional atoms. This public reader depends only on Gemmi, with no editor or
+model adapter dependency. Independent consumers can read the documented standard
+mmCIF categories directly.
+
+`polymer_positions(package, object_id, author_chain)` reads a complete source
+protein chain. It returns the public component-position rows above plus optional
+`label_position: {chain, position}` from the source mmCIF. Declared unobserved
+positions have empty `atoms`, their known author numbering or `None`, and the
+actual sequence label. mmCIF correspondence must be explicit and unique. A PDB
+whose SEQRES length exceeds its actual residues cannot supply that missing
+correspondence: choose explicit observed residues or provide mmCIF with sequence
+labels. A chain containing non-amino-acid components requires an explicit residue
+selection when establishing a protein template; the full source remains retained.
+
+Whole-structure mmCIF import, conversion, export and rigid transformation preserve
+the original `_pdbx_poly_seq_scheme`, including known author numbers at positions
+without atoms. Fragment extraction rebuilds current polymer labels from the
+selected actual residues; the unchanged full source file is retained separately.

@@ -1,14 +1,11 @@
 """Two dependent ESM3 calls with file-backed accepted phase continuation."""
 from copy import deepcopy
 import json
-import math
-from pathlib import Path
 import shutil
 from uuid import uuid4
 
-from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort, ToolSlot
-from modules.esm3.contract import ESM3Request
-from modules.esm3.generation import read_sources, retain_result
+from protein_workbench_public.module_api import Delivery, Outcome
+from .sources import read_sources, retain_result, request_for
 
 FORMAT = 'workbench.joint_generation'
 
@@ -60,9 +57,7 @@ def execute(call, runtime):
         try:
             if pending is None:
                 tracks = {'sequence': source['prompt'], **deepcopy(conditions)}
-                if 'coordinates' in source:
-                    tracks['coordinates'] = deepcopy(source['coordinates'])
-                request = ESM3Request('sequence', tracks)
+                request = request_for('sequence', source, tracks, call.inputs['source'][0], runtime)
                 result = call.tools['esm3'](request, deepcopy(parameters), runtime)
                 # Keep actual successful sequence files even if cancellation arrived after the call.
                 pending, _ = retain_result(result, request, source, index % samples, runtime, files)
@@ -78,16 +73,12 @@ def execute(call, runtime):
             tracks['sequence'] = sequence_native['tracks']['sequence']
             if tracks['sequence'] != pending['sequence']:
                 raise ValueError('Accepted sequence phase disagrees with its native file')
-            request = ESM3Request('structure', tracks)
+            request = request_for('structure', source, tracks, call.inputs['source'][0], runtime)
             result = call.tools['esm3'](request, {**deepcopy(parameters), **deepcopy(overrides)}, runtime)
             candidate_files = {}
             generated, native = retain_result(result, request, source, index % samples, runtime, candidate_files)
-            coordinates = native['tracks'].get('coordinates')
-            if not isinstance(coordinates, list) or len(coordinates) != len(generated['sequence']) or any(not isinstance(row, list) or len(row) != 37 or any(not isinstance(point, list) or len(point) != 3 for point in row) for row in coordinates):
-                raise ValueError('Structure phase requires actual native atom37 coordinates for every sequence position')
-            points = [point for row in coordinates for point in row]
-            if any(value is not None and (type(value) not in (int, float) or not math.isfinite(value)) for point in points for value in point) or not any(all(value is not None for value in point) for point in points):
-                raise ValueError('Structure phase requires finite actual atom coordinates; missing atoms remain null')
+            if result.coordinate_role != 'generated_structure':
+                raise ValueError('Structure phase requires actual generated structure output from the tool')
             files.update(candidate_files)
             generated['sequence_stage'] = pending
             generated['generation']['sequence_object'] = pending['id']
@@ -143,9 +134,8 @@ def convert_stage(call, runtime):
 
 
 def convert_structure(call, runtime):
-    """Explicit canonical single-chain coordinate representation, without filling atoms."""
+    """Use an adapter-delivered file and explicitly assign output numbering."""
     import gemmi
-    from modules.esm3.adapters import ATOM37
     from modules.structure_io import atoms, encode, parse
     if set(call.parameters) != {'chain', 'start_number'}:
         raise ValueError('Choose chain and start_number for the generated coordinate representation')
@@ -155,52 +145,32 @@ def convert_structure(call, runtime):
     package = call.inputs['generated'][0]
     with package.open(package.entry) as stream:
         document = json.load(stream)
-    source_objects = document.get('objects')
-    if not isinstance(source_objects, list) or not source_objects:
-        raise ValueError('Coordinate conversion requires a completed structure phase')
-    if any(not isinstance(obj, dict) or not isinstance(obj.get('id'), str) or not obj['id'] for obj in source_objects) or len({obj['id'] for obj in source_objects}) != len(source_objects):
-        raise ValueError('Coordinate conversion requires distinct actual generation objects')
-    three = dict(zip('ACDEFGHIKLMNPQRSTVWY', ('ALA', 'CYS', 'ASP', 'GLU', 'PHE', 'GLY', 'HIS', 'ILE', 'LYS', 'LEU', 'MET', 'ASN', 'PRO', 'GLN', 'ARG', 'SER', 'THR', 'VAL', 'TRP', 'TYR'), strict=True))
+    sources = document.get('objects')
+    if not isinstance(sources, list) or not sources or len({obj.get('id') for obj in sources}) != len(sources):
+        raise ValueError('Coordinate conversion requires distinct completed generation objects')
     files, objects = {}, []
-    for obj in source_objects:
+    for obj in sources:
         if runtime.cancelled:
             return Outcome(status='cancelled')
-        sequence = obj['sequence']
-        if not isinstance(sequence, str) or not sequence or any(letter not in three for letter in sequence):
-            raise ValueError('Coordinate conversion supports only a canonical single chain; native extended or multichain results remain available')
-        with package.open(obj['native']['file']) as stream:
-            native = json.load(stream)
-        coords = native.get('tracks', {}).get('coordinates')
-        positions = obj['positions']
-        if native.get('tracks', {}).get('sequence') != sequence or not isinstance(coords, list) or len(coords) != len(sequence) or not isinstance(positions, list) or len(positions) != len(sequence) or [row.get('sequence_index') for row in positions] != list(range(1, len(sequence) + 1)):
-            raise ValueError('Native sequence, coordinates and position correspondence must cover the same complete sequence')
-        structure = gemmi.Structure()
-        model = gemmi.Model(1)
-        chain = gemmi.Chain(chain_name)
+        sequence, positions = obj['sequence'], obj['positions']
+        if not isinstance(sequence, str) or not sequence or any(letter not in 'ACDEFGHIKLMNPQRSTVWY' for letter in sequence):
+            raise ValueError('Coordinate conversion supports only a canonical single chain')
+        reference = obj.get('structure')
+        if obj.get('coordinate_role') != 'generated_structure' or not isinstance(reference, dict):
+            raise ValueError('Generation tool did not provide a complete structure file; a target position may have no finite atoms')
+        with package.open(reference['file']) as stream:
+            structure = parse(stream.read(), reference['format'])
+        if len(structure) != 1 or len(structure[0]) != 1 or len(structure[0][0]) != len(sequence) or len(positions) != len(sequence):
+            raise ValueError('Generated structure and position correspondence must cover the complete sequence')
+        chain = structure[0][0]
+        chain.name = chain_name
         mapping = []
-        for index, (letter, row) in enumerate(zip(sequence, coords, strict=True)):
-            if not isinstance(row, list) or len(row) != len(ATOM37):
-                raise ValueError('Coordinate conversion requires the documented atom37 axis')
-            residue = gemmi.Residue()
-            residue.name, residue.seqid, residue.het_flag = three[letter], gemmi.SeqId(start + index, ' '), 'A'
-            for name, point in zip(ATOM37, row, strict=True):
-                if not isinstance(point, list) or len(point) != 3:
-                    raise ValueError('Every native atom37 position requires an XYZ triple')
-                if point == [None, None, None]:
-                    continue
-                if any(type(value) not in (int, float) or not math.isfinite(value) for value in point):
-                    raise ValueError('Coordinate conversion cannot represent incomplete or nonfinite atom coordinates')
-                atom = gemmi.Atom()
-                atom.name, atom.element = name, gemmi.Element(name[0])
-                atom.pos, atom.occ, atom.b_iso = gemmi.Position(*point), 1.0, 0.0
-                residue.add_atom(atom)
-            if not len(residue):
-                raise ValueError(f'Native sequence position {index + 1} has no finite atoms; a complete residue mapping is required')
-            chain.add_residue(residue)
+        for index, (letter, residue) in enumerate(zip(sequence, chain, strict=True)):
+            if gemmi.find_tabulated_residue(residue.name).one_letter_code != letter or not len(residue):
+                raise ValueError('Generated structure must match every sequence residue')
+            residue.seqid = gemmi.SeqId(start + index, ' ')
             mapping.append({'sequence_index': index + 1, 'original_position': deepcopy(positions[index]),
-                            'position': {'model': 1, 'chain': chain_name, 'author_number': start + index, 'insertion_code': '', 'residue_name': three[letter]}})
-        model.add_chain(chain)
-        structure.add_model(model)
+                'position': {'model': 1, 'chain': chain_name, 'author_number': start + index, 'insertion_code': '', 'residue_name': residue.name}})
         key, view = uuid4().hex + '.cif', uuid4().hex + '.atoms.json'
         content = encode(structure, 'mmcif')
         (runtime.workdir / key).write_bytes(content)
@@ -218,24 +188,4 @@ def convert_structure(call, runtime):
     (runtime.workdir / manifest).write_text(json.dumps({'objects': objects, 'tool': document['tool'],
         'source_manifest': {'file': package.entry, 'format': FORMAT}}, allow_nan=False))
     files[manifest] = manifest
-    if runtime.cancelled:
-        return Outcome(status='cancelled')
     return Outcome(outputs={'structures': [Delivery('workbench.structure_set', manifest, files)]})
-
-
-def module():
-    return Module('workbench.joint_generation', 'Sequence then structure generation', nodes=(
-        Node('workbench.joint_generation', 'Generate sequence then structure', execute,
-             inputs={'source': InputPort(('workbench.sequence', 'workbench.sequence_conditions'))},
-             outputs={'generated': OutputPort(FORMAT)},
-             parameters={'samples': {'type': 'integer', 'default': 1}, 'conditions': {'type': 'object', 'default': {}},
-                         'structure_parameters': {'type': 'object', 'default': {}, 'description': 'Explicit ESM3 control overrides for the structure phase'}},
-             tools={'esm3': ToolSlot('workbench.esm3.generate', 'ESM3 native generate')}),
-        Node('workbench.joint_to_esm3', 'Select a joint generation phase', convert_stage,
-             inputs={'generated': InputPort((FORMAT,))}, outputs={'generated': OutputPort('workbench.esm3_generation')},
-             parameters={'stage': {'type': 'string', 'enum': ['sequence', 'structure'], 'description': 'Explicit phase to expose as native ESM3 results'}}),
-        Node('workbench.joint_structure', 'Convert a canonical joint structure to coordinates', convert_structure,
-             inputs={'generated': InputPort((FORMAT,))}, outputs={'structures': OutputPort('workbench.structure_set')},
-             parameters={'chain': {'type': 'string', 'description': 'Explicit chain for this generated representation'},
-                         'start_number': {'type': 'integer', 'description': 'Explicit first residue number for this generated representation'}})),
-        ui=str(Path(__file__).with_name('ui.js').resolve()))

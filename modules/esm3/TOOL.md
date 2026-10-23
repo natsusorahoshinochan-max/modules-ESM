@@ -1,14 +1,14 @@
-# Public ESM3 generate tool
+# ESM3 adapters
 
-`workbench.esm3.generate` is a task-independent slot. Its Python declarations are `ESM3Request` and `ESM3Result` in [contract.py](contract.py). Third-party implementations depend only on that public contract and public runtime. The sequence task owns source interpretation, fixed positions, sample batching, identities, output encoding and continuation.
+Install `modules.esm3:module` for tool implementations and deployment settings. Scientific nodes and their output formats are provided separately by [generation](../generation/FORMAT.md). ESM3 implements the operation-owned [multitrack contract](../generation/TOOL.md).
 
-```python
-generate(request: ESM3Request, parameters: dict, runtime) -> ESM3Result
-```
+For a complete target, the Adapter reads mmCIF `label_seq_id` positions and encodes only explicitly selected atoms. Unselected or absent coordinates become native NaN. Unsupported atom names, missing selected atoms, mismatched fixed residues and invalid aligned tracks fail before inference. Atom37 layout and token offsets are internal to this Adapter.
 
-`request.track` is the actual SDK output track (`sequence`, `structure`, `secondary_structure`, `sasa` or `function`). `request.tracks` contains explicit `sequence`/Prompt plus optional `secondary_structure`, `sasa`, `function_annotations`, `coordinates` and `potential_sequence_of_concern`. Sequence uses the native alphabet and `_` masks; `|` is the SDK chain separator. Aligned tracks have exactly the sequence string length. SASA accepts finite numeric values or `null`; local native calls additionally accept the fixed SASA tokenizer vocabulary tokens, passed unchanged. Coordinates are an ordered list of `null` or named-atom objects with finite XYZ triples in Å; only atom37 names are supported. They become native `[length,37,3]` tensors, with unspecified atoms represented by NaN. Unsupported atoms fail before calling the model. Function annotations are `{label,start,end}`, with inclusive one-based bounds; label support is checked by the selected native tool.
+Native direct `tracks` accept sequence/Prompt, aligned `secondary_structure`, `sasa`, named coordinates, `function_annotations`, and `potential_sequence_of_concern`. Sequence accepts `ACDEFGHIKLMNPQRSTVWYXBZUO.-|_`; `_` masks positions and `|` is the native chain separator. Secondary structure uses DSSP8 `GHITEBSC_`. SASA accepts finite numbers/null; local calls additionally accept the pinned tokenizer vocabulary. Annotations are `{label,start,end}` with one-based inclusive bounds. Unsupported native inputs fail without dropping fields.
 
-The adapter returns actual track values in `result.tracks` (coordinates are file-backed), a closed JSON `values_file` relative to `runtime.workdir`, effective `parameters`, and local `actual_seed` or remote `None`. The file holds all returned tracks and naturally returned metrics, as described in [FORMAT.md](FORMAT.md). It remains in the caller's workdir until host reception completes. The caller includes it in its Delivery. Errors raise with a concrete reason; SDK error values are failures. The adapter performs one SDK `generate` operation, keeping that SDK's applicable retry behavior. It does not generate object IDs or organize task continuation. A sequential caller can read the first call's native tracks and explicitly construct a second call; no paired-task state is hidden in the adapter.
+Each call preserves every returned native track and natural metric in its closed `values_file`. Coordinates are native atom37 in Å, with missing values encoded as null; their second axis is `N CA C CB O CG CG1 CG2 OG OG1 SG CD CD1 CD2 ND1 ND2 OD1 OD2 SD CE CE1 CE2 CE3 NE NE1 NE2 OE1 OE2 CH2 NH1 NH2 OH CZ CZ2 CZ3 NZ OXT`. This is a native output file convention, not the operation's structure exchange format.
+
+Natural metrics keep actual values and axes: pLDDT is 0–1, pTM retains scalar or size-1 batch shape, PAE is Å and may retain batch/BOS/EOS axes. No extra inference or rescaling occurs. Sequence-stage returned coordinates are labelled `input_conditions`; structure-stage coordinates are labelled `generated_structure`. The latter produces a completed mmCIF file when a canonical single chain has finite atoms at every position. Extended native sequences or positions without finite atoms remain in the native result and cannot be converted to the complete canonical structure format. Occupancy 1 and B_iso 0 are representation constants, distinct from native confidence.
 
 ## Implementations and defaults
 
@@ -33,24 +33,3 @@ Both adapters explicitly pass every `GenerationConfig` computation control:
 Defaults and native input semantics come from fixed `repositories/esm` commit `43b4548b86762edfa747b07d5f440aad3c33acee`: `esm/sdk/api.py`, `sdk/forge.py`, `sdk/retry.py`, `sdk/base_forge_client.py`, `utils/function/encode_decode.py` and `utils/constants/esm3.py`. Local loading follows `pretrained.py`; sampling follows `utils/generation.py`. Biohub's [HTTP snapshot](../../docs/biohub-api-reference/v1/endpoints/generate.md) lists temperature 0.5; this adapter explicitly sends the SDK default 1.0. It uses only fields forwarded by the selected `ESMProtein` SDK path. Model names, deployment paths and dependency constraints refer to the actual tools.
 
 Local adapters acquire the [shared model resource](../../docs/local-models.md) themselves. Direct local node/adapter execution must not be nested inside another model-validation lease.
-
-## Public generation file helpers
-
-`modules.esm3.generation` exports two concrete helpers used by sequence completion
-and [sequence-then-structure generation](../joint_generation/FORMAT.md):
-
-- `read_sources(package)` reads the public canonical sequence or current editing
-  format, returning ordered records with `id`, current `prompt`, complete
-  `positions`, and current named `coordinates` when provided. It does not replay
-  edits or read retained source structures to replace current coordinates.
-- `retain_result(result, request, source, ordinal, runtime, files)` checks an
-  actual `ESM3Result`, complete native sequence and fixed Prompt correspondence,
-  reads its closed native file, and adds that file to the task-owned Delivery
-  file mapping. `ordinal` is zero-based within one input's samples. It returns
-  `(object, native_document)` with the public generated object shape and an
-  independently allocated object ID. The caller owns phase organization,
-  task-specific output requirements, acceptance and continuation.
-
-These helpers are installed with the `protein-workbench` distribution. They are
-optional public code reuse; independently reading the documented file formats
-requires no helper or producer installation.

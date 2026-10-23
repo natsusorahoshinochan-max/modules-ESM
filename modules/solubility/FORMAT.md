@@ -1,6 +1,6 @@
 # Sequence solubility data
 
-The module independently reads [`workbench.sequence`](../folding/FORMAT.md#workbenchsequence). Each operation evaluates every supplied object in package order. Object identity, sequence, label, source and explicit residue correspondence remain unchanged. The selected tool must accept every sequence. Additional components, conditions, unsupported amino acids, incomplete supplied positions and missing input fail the operation.
+The module independently reads [`workbench.sequence`](../sequence_io/FORMAT.md#workbenchsequence). Each operation evaluates every supplied object in package order. Object identity, sequence, label, source and explicit residue correspondence remain unchanged. The selected tool must accept every sequence. Additional components, conditions, unsupported amino acids, incomplete supplied positions and missing input fail the operation.
 
 ## workbench.solubility
 

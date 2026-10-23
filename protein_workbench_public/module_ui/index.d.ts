@@ -2,7 +2,20 @@
 import type * as React from 'react'
 
 export interface PackageInfo { id: string; project_id: string; format: string; entry: string; files: string[] }
-export interface FlowNode { id: string; type: string; parameters: Record<string, unknown>; inputs: Record<string, string[]>; tools?: Record<string, string>; tool_parameters?: Record<string, Record<string, unknown>> }
+export interface InputPort { accepts: string[]; cardinality: 'one' | 'many'; required: boolean }
+export interface OutputPort { format: string; cardinality: 'one' | 'many' }
+export interface Flow { nodes: FlowNode[]; edges: Edge[] }
+export interface Scope {
+  inputs: Record<string, InputPort>
+  outputs: Record<string, OutputPort>
+  body: Flow
+  input_bindings: { input: string; node: string; port: string }[]
+  output_bindings: { output: string; node: string; port: string }[]
+  item_input?: string
+  rounds?: number
+  feedback?: Record<string, string>
+}
+export interface FlowNode { id: string; type: string; parameters: Record<string, unknown>; inputs: Record<string, string[]>; tools?: Record<string, string>; tool_parameters?: Record<string, Record<string, unknown>>; scope?: Scope }
 export interface Edge { source: string; source_port: string; target: string; target_port: string }
 export interface InteractionPreview { id: string; data: unknown; outputs: string[] }
 export interface EditorUpdate {

@@ -3,6 +3,8 @@ const comparisonSource = await readFile(new URL('../../modules/structure_compari
 const { register: registerComparison } = await import(`data:text/javascript;base64,${Buffer.from(comparisonSource).toString('base64')}`)
 const sequenceSource = await readFile(new URL('../../modules/sequence_edit/ui.js', import.meta.url), 'utf8')
 const { register: registerSequence } = await import(`data:text/javascript;base64,${Buffer.from(sequenceSource).toString('base64')}`)
+const sequenceInputSource = await readFile(new URL('../../modules/sequence_io/ui.js', import.meta.url), 'utf8')
+const { register: registerSequenceInput } = await import(`data:text/javascript;base64,${Buffer.from(sequenceInputSource).toString('base64')}`)
 export const runtime = { react: 19 }
 export function register({ React }) {
   const ComparisonEditor = registerComparison({ React }).editors[0].component
@@ -43,7 +45,7 @@ export function register({ React }) {
       React.createElement('button', {onClick: () => { saved.current = context }}, 'Remember editor context'),
       React.createElement('button', {onClick: async () => { try { await saved.current.update({parameters:{stale:true}}) } catch(error) { setMessage(error.message) } }}, 'Apply remembered editor'),
       React.createElement('span', null, message))
-  }}], actions: [{ id: 'test.actions', name: 'Test author actions', component: function Actions({ host }) {
+  }}], actions: [...registerSequenceInput({ React }).actions, { id: 'test.actions', name: 'Test author actions', component: function Actions({ host }) {
     const [result, setResult] = React.useState('')
     const resume = React.useRef(null)
     async function perform(operation) {

@@ -41,14 +41,22 @@ def mapped_sequences(objects, positions, bindings):
             index_key = 'tool_position' if source_chain is not None else 'sequence_index'
             if not isinstance(sequence, str) or len(source_rows) != len(sequence) or any(type(p.get(index_key)) is not int or p[index_key] != i for i, p in enumerate(source_rows, 1)):
                 raise ValueError('Selected source positions must cover every sequence residue in order')
-            source_actual = []
+            source_actual, source_labels = [], set()
             for row in source_rows:
-                mapping_keys = set(row) - {index_key}
+                label = row.get('label_position')
+                if 'label_position' in row:
+                    if not isinstance(label, dict) or set(label) != {'chain', 'position'} or not isinstance(label['chain'], str) or not label['chain'] or type(label['position']) is not int or label['position'] < 1:
+                        raise ValueError('Source label correspondence requires an explicit chain and position')
+                    label_key = (label['chain'], label['position'])
+                    if label_key in source_labels:
+                        raise ValueError('Selected source has repeated label correspondence')
+                    source_labels.add(label_key)
+                mapping_keys = set(row) - {index_key, 'label_position'}
                 if source_chain is not None or mapping_keys:
                     if mapping_keys != {'chain', 'author_number', 'insertion_code'}:
                         raise ValueError('Selected source has incomplete real residue correspondence')
                     source_actual.append(actual_position(row))
-            if source_actual and (len(source_actual) != len(source_rows) or len({tuple(p.values()) for p in source_actual}) != len(source_actual)):
+            if len({tuple(p.values()) for p in source_actual}) != len(source_actual):
                 raise ValueError('Selected source has ambiguous real residue correspondence')
         rows = binding.get('positions')
         expected = by_chain[chain]

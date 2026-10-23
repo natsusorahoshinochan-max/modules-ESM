@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from protein_workbench_public.module_api import Tool
 from protein_workbench_public.worker_process import run_worker
-from .contract import ESM3Request, ESM3Result
+from modules.generation.contract import GenerateRequest, GenerateResult
 
 SLOT = 'workbench.esm3.generate'
 DEFAULTS = {'invalid_ids': [], 'schedule': 'cosine', 'strategy': 'random', 'num_steps': 20,
@@ -44,15 +44,57 @@ def parameters_for(parameters, *, local):
     return result
 
 
-def protein_for(request, *, local=False):
+def protein_for(request, *, local=False, workdir=None):
     import torch
     from esm.sdk.api import ESMProtein
     from esm.utils.types import FunctionAnnotation
-    if not isinstance(request, ESM3Request) or request.track not in ('sequence', 'structure', 'secondary_structure', 'sasa', 'function'):
+    if not isinstance(request, GenerateRequest) or request.track not in ('sequence', 'structure', 'secondary_structure', 'sasa', 'function'):
         raise ValueError('Select an actual ESM3 output track')
     if set(request.tracks) - set(TRACKS) - {'potential_sequence_of_concern'}:
         raise ValueError('Unsupported ESM3 input tracks')
     values = deepcopy(request.tracks)
+    if request.target_file is not None:
+        from modules.structure_io.target import read_target
+        if workdir is None:
+            raise ValueError('Complete target requires the invocation workdir')
+        path = Path(request.target_file)
+        if path.is_absolute() or not (workdir / path).resolve().is_relative_to(workdir.resolve()):
+            raise ValueError('Target file must belong to runtime.workdir')
+        target = read_target((workdir / path).read_bytes())
+        size = len(target['positions'])
+        if set(request.conditions) != {'sequence', 'coordinates'}:
+            raise ValueError('Target requires explicit sequence and coordinate conditions')
+        prompt, coordinates = ['_'] * size, [None] * size
+        seen = set()
+        for row in request.conditions['sequence']:
+            position, residue = row.get('position'), row.get('residue')
+            if type(position) is not int or not 1 <= position <= size or position in seen or not isinstance(residue, str) or len(residue) != 1 or residue == '_' or residue != target['sequence'][position - 1]:
+                raise ValueError('Sequence conditions must match unique complete target positions')
+            seen.add(position)
+            prompt[position - 1] = residue
+        seen = set()
+        for row in request.conditions['coordinates']:
+            position, names = row.get('position'), row.get('atoms')
+            if type(position) is not int or not 1 <= position <= size or position in seen or not isinstance(names, list) or not names or len(set(names)) != len(names):
+                raise ValueError('Coordinate conditions require unique complete target positions and atom names')
+            if set(names) - set(ATOM37):
+                raise ValueError('ESM3 coordinate conditions require supported atom37 names')
+            available = target['positions'][position - 1]['atoms']
+            if set(names) - set(available):
+                raise ValueError(f'Coordinate condition at target position {position} names missing atoms')
+            seen.add(position)
+            coordinates[position - 1] = {name: available[name] for name in names}
+        expected = ''.join(prompt)
+        if request.track == 'sequence' and values.get('sequence', expected) != expected:
+            raise ValueError('Sequence Prompt disagrees with target conditions')
+        sequence = values.get('sequence', expected)
+        if len(sequence) != size or any(fixed != '_' and fixed != actual for fixed, actual in zip(expected, sequence, strict=True)):
+            raise ValueError('Generated sequence must retain complete target positions and fixed residues')
+        if 'coordinates' in values:
+            raise ValueError('Target coordinate conditions must come from the complete target file')
+        values.update(sequence=sequence, coordinates=coordinates if seen else None)
+    elif request.conditions:
+        raise ValueError('Position conditions require a complete target file')
     sequence = values.get('sequence')
     if not isinstance(sequence, str) or not sequence or any(symbol not in 'ACDEFGHIKLMNPQRSTVWYXBZUO.-|_' for symbol in sequence):
         raise ValueError('ESM3 requires an explicit native sequence/Prompt; unsupported symbols cannot be repaired')
@@ -120,7 +162,53 @@ def save_result(result, config, parameters, runtime, *, seed=None):
     path = 'esm3-values-' + uuid4().hex + '.json'
     effective = {**parameters, 'num_steps': config.num_steps}
     (runtime.workdir / path).write_text(json.dumps({'tracks': tracks, 'metrics': metrics}, allow_nan=False))
-    return ESM3Result({key: value for key, value in tracks.items() if key != 'coordinates'}, path, effective, seed)
+    role = 'absent'
+    structure_file = None
+    if 'coordinates' in tracks:
+        role = 'generated_structure' if config.track == 'structure' else 'input_conditions'
+        if config.track == 'structure':
+            structure_file = write_structure(tracks, runtime)
+    elif config.track == 'structure':
+        raise ValueError('ESM3 structure generation returned no coordinates')
+    return GenerateResult({key: value for key, value in tracks.items() if key != 'coordinates'}, path, effective, seed, role, structure_file)
+
+
+
+def write_structure(tracks, runtime):
+    """Encode the tool's private atom37 axis as an ordinary completed mmCIF."""
+    import gemmi
+    sequence, coordinates = tracks.get('sequence'), tracks['coordinates']
+    if not isinstance(sequence, str) or not isinstance(coordinates, list) or len(coordinates) != len(sequence):
+        raise ValueError('Structure generation must cover every actual sequence position')
+    points = []
+    for row in coordinates:
+        if not isinstance(row, list) or len(row) != 37 or any(not isinstance(point, list) or len(point) != 3 for point in row):
+            raise ValueError('ESM3 structure output requires its complete native atom axis')
+        points.extend(row)
+    if not any(all(type(value) in (int, float) and math.isfinite(value) for value in point) for point in points):
+        raise ValueError('ESM3 structure output has no finite atoms')
+    if any(letter not in 'ACDEFGHIKLMNPQRSTVWY' for letter in sequence):
+        return None  # Extended native results remain available through their native file.
+    if any(not any(all(value is not None for value in point) for point in row) for row in coordinates):
+        return None
+    structure, model, chain = gemmi.Structure(), gemmi.Model(1), gemmi.Chain('A')
+    three = dict(zip('ACDEFGHIKLMNPQRSTVWY', ('ALA','CYS','ASP','GLU','PHE','GLY','HIS','ILE','LYS','LEU','MET','ASN','PRO','GLN','ARG','SER','THR','VAL','TRP','TYR'), strict=True))
+    for index, (letter, row) in enumerate(zip(sequence, coordinates, strict=True), 1):
+        residue = gemmi.Residue()
+        residue.name, residue.seqid, residue.het_flag = three[letter], gemmi.SeqId(index, ' '), 'A'
+        for name, point in zip(ATOM37, row, strict=True):
+            if point == [None, None, None]:
+                continue
+            if any(type(value) not in (int, float) or not math.isfinite(value) for value in point):
+                raise ValueError('ESM3 cannot encode partial or nonfinite atom coordinates')
+            atom = gemmi.Atom()
+            atom.name, atom.element, atom.pos, atom.occ, atom.b_iso = name, gemmi.Element(name[0]), gemmi.Position(*point), 1.0, 0.0
+            residue.add_atom(atom)
+        chain.add_residue(residue)
+    model.add_chain(chain); structure.add_model(model); structure.setup_entities()
+    path = 'esm3-structure-' + uuid4().hex + '.cif'
+    structure.make_mmcif_document().write_file(str(runtime.workdir / path))
+    return path
 
 
 def remote_client(settings):
@@ -134,7 +222,7 @@ def create_remote(settings, *, client_factory=remote_client):
     def generate(request, parameters, runtime):
         from esm.sdk.api import GenerationConfig
         values = parameters_for(parameters, local=False)
-        protein = protein_for(request)
+        protein = protein_for(request, workdir=runtime.workdir)
         config = GenerationConfig(track=request.track, **values)
         if runtime.cancelled:
             raise ValueError('ESM3 generation cancelled')
@@ -149,8 +237,8 @@ def create_remote(settings, *, client_factory=remote_client):
 def create_local(settings):
     def generate(request, parameters, runtime):
         values = parameters_for(parameters, local=True)
-        protein_for(request, local=True)  # Refuse unsupported inputs before loading any model.
-        payload = {'settings': {name: settings[name] for name in ('model_path', 'device') if name in settings}, 'track': request.track, 'tracks': request.tracks, 'parameters': values,
+        protein_for(request, local=True, workdir=runtime.workdir)  # Refuse unsupported inputs before loading any model.
+        payload = {'settings': {name: settings[name] for name in ('model_path', 'device') if name in settings}, 'track': request.track, 'tracks': request.tracks, 'target_file': request.target_file, 'conditions': request.conditions, 'parameters': values,
                    'output': str(runtime.workdir / ('esm3-result-' + uuid4().hex + '.json'))}
         path = runtime.workdir / ('esm3-request-' + uuid4().hex + '.json')
         path.write_text(json.dumps(payload, allow_nan=False))
@@ -158,7 +246,7 @@ def create_local(settings):
             run_worker([settings.get('python') or sys.executable, '-m', 'modules.esm3.worker', str(path)],
                        cwd=Path(__file__).resolve().parents[2], log_path=runtime.workdir / ('esm3-log-' + uuid4().hex), cancelled=lambda: runtime.cancelled, label='ESM3 local generation')
             result = json.loads(Path(payload['output']).read_text())
-            return ESM3Result(**result)
+            return GenerateResult(**result)
         finally:
             path.unlink(missing_ok=True)
     return generate

@@ -22,12 +22,20 @@ export function register({React}) {
     const [drag, setDrag] = React.useState(null), dragRef = React.useRef(null)
     const [undo, setUndo] = React.useState([])
     const [sequence, setSequence] = React.useState(parameters.sequence ?? '')
+    const [initialChain, setInitialChain] = React.useState(parameters.selection?.chains?.[0] ?? 'A')
+    const [regions, setRegions] = React.useState(parameters.regions ?? '')
+    const [recipeOperations, setRecipeOperations] = React.useState(JSON.stringify(parameters.operations ?? [],null,2))
+    const [recipeFixed, setRecipeFixed] = React.useState((parameters.template_conditions?.fixed_positions ?? []).join(','))
+    const [recipeCoordinates, setRecipeCoordinates] = React.useState((parameters.template_conditions?.coordinate_positions ?? []).join(','))
+    const [recipeAtoms, setRecipeAtoms] = React.useState((parameters.template_conditions?.atoms ?? ['N','CA','C']).join(','))
+    const [initialFixed, setInitialFixed] = React.useState((parameters.tracks ?? ['fixed','coordinates']).includes('fixed')), [initialCoordinates, setInitialCoordinates] = React.useState((parameters.tracks ?? ['fixed','coordinates']).includes('coordinates'))
+    const fromStructure = context.inputs.source?.packages.some(pkg=>['workbench.structure_set','workbench.prediction','workbench.structure_confidence'].includes(pkg.format))
     const [seed, setSeed] = React.useState('0'), [count, setCount] = React.useState('1')
     const [start, setStart] = React.useState('0'), [end, setEnd] = React.useState('0')
     const [alphabet, setAlphabet] = React.useState('_'), [index, setIndex] = React.useState('0'), [insertion, setInsertion] = React.useState('_')
     const [selected, setSelected] = React.useState([]), [changes, setChanges] = React.useState('{"prompt":"_","fixed":false}')
     const [requesting,setRequesting] = React.useState(false)
-    const [object, setObject] = React.useState(''), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('')
+    const [object, setObject] = React.useState(parameters.object ?? ''), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('')
     const expectedRevision = React.useRef(null), scope = `${context.projectId}:${context.nodeId}`, seenScope = React.useRef(scope), seenRevision = React.useRef(context.revision)
     const pending = React.useRef(null)
     const epoch = React.useRef(0), mounted = React.useRef(true), tokens = React.useRef(new Map())
@@ -56,7 +64,16 @@ export function register({React}) {
       if (sameScope && expectedRevision.current === context.revision) { expectedRevision.current = null; return }
       epoch.current++; stopRequests()
       setDocument(null); setPreview(null); setGeometry([]); setStructureRecord(''); setMapping({}); setDrag(null); dragRef.current=null; setUndo([]); setSelected([]); setBusy(false); setRequesting(false)
-      setSequence(context.parameters.sequence ?? ''); setError('Node draft changed; load the current input again')
+      const parameters = context.parameters
+      setObject(parameters.object ?? '')
+      setInitialChain(parameters.selection?.chains?.[0] ?? 'A'); setRegions(parameters.regions ?? '')
+      setRecipeOperations(JSON.stringify(parameters.operations ?? [],null,2))
+      setRecipeFixed((parameters.template_conditions?.fixed_positions ?? []).join(','))
+      setRecipeCoordinates((parameters.template_conditions?.coordinate_positions ?? []).join(','))
+      setRecipeAtoms((parameters.template_conditions?.atoms ?? ['N','CA','C']).join(','))
+      setInitialFixed((parameters.tracks ?? ['fixed','coordinates']).includes('fixed'))
+      setInitialCoordinates((parameters.tracks ?? ['fixed','coordinates']).includes('coordinates'))
+      setSequence(parameters.sequence ?? ''); setError('Node draft changed; load the current input again')
     }, [scope, context.revision])
     async function cancel() {
       epoch.current++; stopRequests(); setDrag(null); dragRef.current=null; setBusy(false); setRequesting(false); setError(''); setPreview(null)
@@ -71,7 +88,8 @@ export function register({React}) {
       try {
         const accepted = origin.inputs.source?.packages.some(pkg=>pkg.format === 'workbench.sequence_conditions')
         if (!accepted && document && (document.structures?.length || document.positions.some(row=>row.coordinates !== null))) throw new Error('Select the accepted editing package before changing coordinate conditions')
-        const parameters = accepted ? {} : document ? {document} : {sequence, ...(object ? {object} : {})}
+        const parameters = accepted ? {} : document ? {document} : fromStructure ? {...origin.parameters,selection:{chains:[initialChain]},regions,tracks:[...(initialFixed?['fixed']:[]),...(initialCoordinates?['coordinates']:[])],...(object?{object}:{})} : {sequence, ...(object ? {object} : {})}
+        if (!object) delete parameters.object
         if (structural && (!operation || operation.kind === 'adopt_structure')) {
           parameters.structure = structureRecord ? {retained:structureRecord} : {input:'structures',object:structureObject}
           if (structureRecord) delete inputs.structures
@@ -112,7 +130,7 @@ export function register({React}) {
         await preview.origin.update({parameters: {}, delivery: {interaction:preview.id,output:'edited',port:'source'}, replaceConnections:['source']})
         if (!mounted.current) return
         setUndo(previous => [...previous,before]); setDocument(preview.data.document); setPreview(null); setSelected([])
-        const added = (preview.data.document.structures ?? []).filter(record=>!document.structures?.some(old=>old.id === record.id))
+        const added = (preview.data.document.structures ?? []).filter(record=>!document?.structures?.some(old=>old.id === record.id))
         if (added.length === 1) setStructureRecord(added[0].id)
       } catch(error) { tokens.current.delete(preview.id); await preview.origin.host.cancelPreview(preview.id).catch(()=>{}); if (mounted.current) { expectedRevision.current=null; setError(error.message); setPreview(null) } }
       finally { if (mounted.current) setBusy(false) }
@@ -128,10 +146,32 @@ export function register({React}) {
       } catch(error) { setError(error.message) }
       finally { if (mounted.current) setBusy(false) }
     }
+    function targetIndices(text) {
+      if (!text.trim()) return []
+      const positions=[]
+      for (const token of text.split(',')) {
+        const match=token.trim().match(/^(\d+)(?::(\d+))?$/)
+        if(!match)throw new Error('Use current target positions such as 1:5,30:35')
+        const start=Number(match[1]),end=Number(match[2] ?? match[1])
+        if(start<1 || end<start || end-start>100000)throw new Error('Choose an ordered positive target range')
+        for(let position=start;position<=end;position++)positions.push(position)
+      }
+      return [...new Set(positions)]
+    }
+    async function saveRecipe() {
+      setBusy(true);setError('')
+      try {
+        const atoms=recipeAtoms.split(',').map(value=>value.trim()).filter(Boolean)
+        const parameters={...(object?{object}:{}),selection:{chains:[initialChain]},regions,tracks:[],operations:JSON.parse(recipeOperations),
+          template_conditions:{fixed_positions:targetIndices(recipeFixed),coordinate_positions:targetIndices(recipeCoordinates),...(atoms.length?{atoms}:{})}}
+        await context.update({parameters})
+      }catch(error){setError(error.message)}finally{if(mounted.current)setBusy(false)}
+    }
     function field(label, value, setter, type='text') {
       return h('label',null,label,h('input',{type,value,onChange:event=>setter(event.target.value),disabled:readOnly || busy || !!preview}))
     }
-    const rows = (drag?.document ?? preview?.data.document ?? document)?.positions ?? []
+    const visibleDocument = preview?.data.document ?? document
+    const rows = (drag?.document ?? visibleDocument)?.positions ?? []
     const sourcePositions = [...new Map(geometry.map(atom=>[JSON.stringify([atom.model,atom.chain,atom.author_number,atom.insertion_code,atom.residue_name]),atom])).entries()]
     function move(event) {
       const current = dragRef.current
@@ -154,9 +194,12 @@ export function register({React}) {
       error && h('p',{role:'alert'},error),
       !document && h(React.Fragment,null,
         ...Object.values(context.inputs).map((input,i)=>input.unavailable && h('p',{key:i},input.unavailable)),
-        field('Explicit initial sequence',sequence,setSequence),field('Sequence object (required for multiple objects)',object,setObject),
-        h('button',{disabled:busy,onClick:()=>request(null,true)},'Load current sequence')),
-      document && h(React.Fragment,null,
+        !fromStructure && field('Explicit initial sequence',sequence,setSequence),field('Input object (required for multiple objects)',object,setObject),
+        fromStructure && h(React.Fragment,null,field('Template source chain',initialChain,setInitialChain),field('Author residue regions (empty = whole chain; e.g. 12A,15:20,25:28)',regions,setRegions),
+          h('label',null,h('input',{type:'checkbox',checked:initialFixed,disabled:readOnly||busy,onChange:event=>setInitialFixed(event.target.checked)}),'Fix selected sequence'),
+          h('label',null,h('input',{type:'checkbox',checked:initialCoordinates,disabled:readOnly||busy,onChange:event=>setInitialCoordinates(event.target.checked)}),'Use selected coordinates')),
+        h('button',{disabled:busy,onClick:()=>request(null,!fromStructure)},fromStructure?'Preview template from structure':'Load current sequence')),
+      visibleDocument && h(React.Fragment,null,
         h('p',null,'Sequence: ',(preview?.data.document ?? document).sequence),
         h('table',null,h('thead',null,h('tr',null,...['Select','Position','Residue','Prompt','Fixed','Structure conditions','Source position'].map(label=>h('th',{key:label},label)))),
           h('tbody',null,...rows.map((row,i)=>h('tr',{key:row.id},
@@ -164,7 +207,7 @@ export function register({React}) {
             h('td',null,i+1),h('td',null,row.residue),h('td',null,row.prompt),h('td',null,String(row.fixed)),h('td',null,JSON.stringify(row.coordinates)),h('td',null,JSON.stringify(row.source ?? null)))))),
         h('section',{'aria-label':'Structure conditions'},
           h('label',null,'Full structure source',h('select',{'aria-label':'Full structure source',value:structureRecord,disabled:busy || !!preview,onChange:event=>{setStructureRecord(event.target.value);setGeometry([]);setMapping({})}},
-            h('option',{value:''},'Explicit structure input'),...(document.structures ?? []).map((record,i)=>h('option',{key:record.id,value:record.id},`Retained full structure ${i+1}`)))),
+            h('option',{value:''},'Explicit structure input'),...(visibleDocument.structures ?? []).map((record,i)=>h('option',{key:record.id,value:record.id},`Retained full structure ${i+1}`)))),
           !structureRecord && field('Structure object ID',structureObject,setStructureObject),
           h('button',{disabled:busy || !!preview,onClick:()=>request(null,true,true)},'Read selected structure'),
           ...['coordinates','residue','fixed'].map(track=>h('label',{key:track},h('input',{type:'checkbox',checked:tracks.includes(track),disabled,onChange:event=>setTracks(event.target.checked?[...tracks,track]:tracks.filter(value=>value!==track))}),`Adopt ${track} track`)),
@@ -204,8 +247,14 @@ export function register({React}) {
         field('Random seed',seed,setSeed,'number'),field('Random count',count,setCount,'number'),field('First current gap',start,setStart,'number'),field('Last current gap (inclusive)',end,setEnd,'number'),field('Random residue alphabet',alphabet,setAlphabet),
         h('button',{disabled,onClick:()=>request({kind:'random_insert',seed:Number(seed),count:Number(count),start:Number(start),end:Number(end),alphabet})},'Preview random insertion'),
         h('button',{disabled,onClick:()=>request(null)},'Preview current content'),
-        h('details',null,h('summary',null,'Accepted random operations (read only)'),h('pre',null,JSON.stringify(document.random_operations,null,2))),
+        h('details',null,h('summary',null,'Accepted random operations (read only)'),h('pre',null,JSON.stringify(visibleDocument.random_operations,null,2))),
         h('button',{disabled:disabled || !undo.length,onClick:restore},'Undo accepted edit')),
+      h('details',{'aria-label':'Reusable structure template recipe'},h('summary',null,'Configure template creation for each incoming structure'),
+        h('p',null,'Apply these edits to each input structure. Conditions refer to the current target after all edits; omitted positions are variable and have no coordinate condition.'),
+        field('Recipe chain',initialChain,setInitialChain),field('Recipe author regions',regions,setRegions),
+        h('label',null,'Ordered edits (JSON; insert uses a zero-based gap, indices are current one-based positions)',h('textarea',{value:recipeOperations,disabled:readOnly||busy||!!preview,onChange:event=>setRecipeOperations(event.target.value)})),
+        field('Fixed target positions (e.g. 1:5)',recipeFixed,setRecipeFixed),field('Coordinate target positions (e.g. 1:5,31:36)',recipeCoordinates,setRecipeCoordinates),field('Coordinate atom names',recipeAtoms,setRecipeAtoms),
+        h('button',{disabled:readOnly||busy||!!preview,onClick:saveRecipe},'Save reusable template configuration')),
       preview && h('section',{'aria-label':'Actual edit preview'},h('p',null,'Confirm this actual sequence, positions and conditions: ',preview.data.document.sequence),
         h('pre',null,JSON.stringify(preview.data.document.random_operations,null,2)),
         context.edges.some(edge=>edge.target===context.nodeId && edge.target_port==='source') && h('p',null,'Confirm replaces the current source connection with this received input.'),
