@@ -56,6 +56,8 @@ def module():
 
 通用 HTTP 包操作为 `POST /api/projects/{target}/adoptions`，正文 `{ "package_id": "所选包 ID" }`，返回目标项目的新包记录；`GET /api/packages/{id}/export.zip` 下载完整 ZIP。归档的 `package.json` 提供 `format`、`entry` 及按包内顺序排列的 `files: [{key, member}]`，原始文件键通过该索引对应 `files/000000` 等安全成员名。所有模块格式均使用这些入口。
 
+教学首次保存和项目复制调用 `POST /api/projects/{source}/copies`，正文提供 `name`、可选的 `flow`、`layout` 和 `input_packages`。`input_packages` 是用户明确保留、尚未绑定节点的输入包 ID 列表；载体将它与各层节点绑定的输入、正式项目中已导入或采用的输入去重，一起复制文件并提交项目。正式项目未绑定节点的输入也保留，未被明确选作输入的运行输出不复制。列表中的包须属于来源项目，教学临时输入也可使用；成功后按普通项目包列表读取新输入。保存失败保留原临时输入，界面在成功后或放弃草稿时通过 `DELETE /api/draft-inputs/{id}` 释放它们。
+
 操作不能完成时，返回 `failed` 和具体 `diagnostics`，或者抛出包含具体原因的异常。已接收的数据包通过应用的包入口重新读取，接收者只使用包内键。
 
 ## 后端运行
@@ -66,7 +68,35 @@ def module():
 
 `Workbench.continue_run(run_id, node_id)` 与无正文、无 query 参数的 `POST /api/runs/{run_id}/nodes/{node_id}/continue` 继续指定的失败或取消调用。调用的实际包 ID、节点参数、工具参数和工具选择保存在运行记录 `calls` 中。模块获得的 `Call.previous` 为 `Previous(outputs, continuation)`：`outputs` 按端口提供上次接收的只读包，`continuation` 原样提供可选模块私有 JSON；即使 `continuation=None`，已接收输出仍会提供。没有已接收输出映射且私有续算内容为 `None` 时，`Call.previous` 为 `None`，模块从尚未交付的任务开始。模块返回累计完整 `Outcome.outputs`，载体沿用普通文件接收和共同提交入口。`runtime.progress` 收集的消息随本次接收结果保存在节点记录 `progress` 中。
 
-继续操作返回同一运行 ID 的状态；目标成功接收后，原流程中等待该依赖的后继继续调度。已成功节点和其他已经调用的失败、取消节点保持原状态；取消前尚未调用的目标后继可以恢复执行。缺失原节点或所选工具时，安装并启用对应模块后再继续。更改部署路径或凭据使用模块设置，计算参数的修改通过新启动执行。
+继续操作返回同一运行 ID 的状态；目标成功接收后，原流程中等待该依赖的后继继续调度。已成功节点和其他已经调用的失败、取消节点保持原状态；取消前尚未调用的目标后继可以恢复执行。已成功上游通过接收包参与，续算无需保留其生产模块。缺失本次要执行的节点或所选工具时，安装并启用对应模块后再继续；未来轮次实际需要缺失模块时，在对应新子调用报告原因。更改部署路径或凭据使用模块设置，计算参数的修改通过新启动执行。
+
+## 子流程与轮次
+
+流程仍由 `nodes` 和 `edges` 组成，每层连线保持有向无环。载体保留 `host.map`、`host.repeat` 两个节点类型，模块不能注册同名节点。节点的直接输入继续写入 `inputs`；边界配置在 `scope` 中：
+
+```json
+{
+  "id": "each",
+  "type": "host.map",
+  "inputs": {"items": ["已采用的包 ID"]},
+  "scope": {
+    "inputs": {"items": {"accepts": ["my_lab.binary"], "cardinality": "many", "required": false}},
+    "outputs": {"result": {"format": "my_lab.binary", "cardinality": "many"}},
+    "item_input": "items",
+    "body": {"nodes": [{"id": "copy", "type": "my_lab.copy_file"}], "edges": []},
+    "input_bindings": [{"input": "items", "node": "copy", "port": "source"}],
+    "output_bindings": [{"output": "result", "node": "copy", "port": "result"}]
+  }
+}
+```
+
+Map 按 `item_input` 的有序包列表创建子图，每次将其中一个包传入该边界端口，其他边界输入原样广播。输出按输入项及输出绑定顺序合并，因此 Map 输出须声明 `many`。空输入产生空输出，不调用子图。一个包内有多少研究对象由模块解释；需要逐对象处理时，先连接理解该格式的拆分节点。
+
+Repeat 使用相同的边界和 `body`，以 `rounds` 指定正整数轮数，以 `feedback` 将下轮输入名映射到本轮输出名，例如 `{"rounds": 3, "feedback": {"items": "result"}}`；省略的反馈端口每轮保持最初输入。Repeat 的输出为最后一轮输出。Map 与 Repeat 可相互嵌套，作用域的输入输出格式、基数及内部连线在所属外层连通组启动前一起检查。内部节点的直接输入也参与项目复制、教学首次保存和缺失模块检查。
+
+运行保留完整 `flow` 快照。根节点沿用画布节点 ID；动态子节点分配普通 ID，在 `nodes[id].location` 记录 `parent_scope`、原 `node_id` 及从 1 开始的 `item` 或 `round`。`scopes[scope_id].iterations` 记录每次子图的 `index`、边界 `inputs`、原节点到动态 ID 的 `nodes` 映射，以及成功交付后的 `outputs`。各轮包通过普通包入口查看、采用和导出。
+
+子调用沿用上面的执行与续算入口。失败阻断依赖和下一轮，独立分支及其他 Map 项继续；部分结果留在子调用中，不作为作用域成功输出。明确继续某个失败或取消子调用后，调度器跳过成功项并推进等待的子图和轮次，其他失败调用保持原状态。若取消发生在项或轮之间，可以对已开始且为 `cancelled` 的作用域调用同一个继续入口，推进尚未开始的调度；失败或取消的叶子调用仍需分别明确继续。后来修改画布不改变旧运行及其未来子调用的参数。
 
 ## React 界面
 

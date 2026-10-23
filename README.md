@@ -69,10 +69,14 @@ Python 源码包和 wheel：
 
 ```bash
 .venv/bin/python -m pytest tests -q
-npm --prefix webui test
+WORKBENCH_PYTHON="$PWD/.venv/bin/python" npm --prefix webui test
 ```
 
+前后端测试按上述顺序执行；前端默认逐个测试文件运行，`WORKBENCH_PYTHON` 指向安装了项目依赖的 Python。
+
 真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
+
+通过公开接口创建、运行并核对多模板多轮流程，见[长流程验收](docs/workflow-validation.md)。
 
 首次启动附带并启用官方功能模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
 
@@ -80,7 +84,7 @@ npm --prefix webui test
 
 比较时使用“Compare with an independent reference”入口导入一个 PDB 或 mmCIF，将预测输出连接至比较节点的 subject 端口。结果提供可重新打开的完整叠合；支持范围、数值含义和独立消费接口见 [比较格式](modules/structure_comparison/FORMAT.md)。
 
-序列入口提供单条序列/FASTA、批量 FASTA 和含显式位置对应的序列 JSON。“Import existing prediction results”按清单文件键逐项绑定已有结果文件，导入后可在画布输入选择器中使用。格式、来源与位置表达及参数保留见[预测模块格式](modules/folding/FORMAT.md)。
+独立序列入口提供单条序列/FASTA、批量 FASTA 和含显式位置对应的序列 JSON。导入后可连接任意接受序列的操作，也可选择对象导出 FASTA；格式与来源位置见[序列说明](modules/sequence_io/FORMAT.md)。“Import existing prediction results”按清单文件键逐项绑定已有结果文件；参数与结果保留见[预测模块格式](modules/folding/FORMAT.md)。
 
 ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF 模型或 Biohub 工具，并保存所请求的实际 embedding 与 logits。数值查看器分页显示 token、来源位置和全部实际列；配置及操作见 [ESMC 工具](modules/esmc/TOOL.md)，独立读取见 [表征格式](modules/esmc/FORMAT.md)。
 
@@ -98,6 +102,8 @@ ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF �
 
 独立序列与任意所选骨架的 ProteinMPNN 评价支持完整链对应、真实残基编号与插入码、独立区域及评分 mask；输入选择、数值含义和独立读取见[序列与骨架评价](modules/sequence_backbone_evaluation/FORMAT.md)。
 
-ESM3 的补全与受约束生成节点读取当前编辑包中的 Prompt、固定/可变区域和坐标条件，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/esm3/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。[联合生成节点](modules/joint_generation/FORMAT.md) 先完成序列，再以该序列和原条件生成结构；结构阶段失败后保留序列并从该阶段续算。
+ESM3 的补全与受约束生成节点读取当前编辑包中的 Prompt、固定/可变区域和坐标条件，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/generation/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。[联合生成节点](modules/generation/FORMAT.md#workbenchjoint_generation) 先完成序列，再以该序列和原条件生成结构；结构阶段失败后保留序列并从该阶段续算。
 
 筛选使用“Filter existing evaluations”，为当前节点选择明确的候选、已有评价、条件、排序及数量上限。结果页选择所需数据包后，可使用同一模块的临时筛选操作；选择与独立读取见 [筛选格式](modules/filtering/FORMAT.md)。
+
+集合模块提供合并、逐对象拆分、显式选择及序列/结构提取；输入与输出见[集合说明](modules/collection/FORMAT.md)。使用 **Add Map subflow** 对每个输入包执行子流程，使用 **Add Repeat subflow** 指定轮次和反馈端口。用户声明边界端口并连接内部节点，未接反馈的输入在各轮保持原值；运行区可查看各轮、各项的实际调用与结果。子流程与文件交接约定见[模块接入说明](docs/module-authoring.md)。

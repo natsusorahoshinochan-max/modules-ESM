@@ -1,76 +1,14 @@
 """One explicit-input implementation for canvas and temporary filtering."""
-from copy import deepcopy
-import json
 import math
 import operator
 from pathlib import Path
-from shutil import copyfileobj
 
-from protein_workbench_public.module_api import Delivery, InputPort, Interaction, InteractionResult, Module, Node, Outcome, OutputPort
+from protein_workbench_public.module_api import InputPort, Interaction, InteractionResult, Module, Node, Outcome, OutputPort
 from modules.metric_analysis import FORMATS as METRICS, read_metric_choices
-from .formats import SourcePackage, read_collection
+from modules.collection.api import collect
+from modules.collection.formats import FORMAT, SourcePackage, read_collection, read_candidates, read_document
 
-FORMAT = 'workbench.filtered_collection'
 CANDIDATES = ('workbench.sequence', 'workbench.structure_set', *(format for format in METRICS if format != 'workbench.metric_analysis'), FORMAT)
-
-
-def _document(package):
-    with package.open(package.entry) as stream:
-        value = json.load(stream)
-    if not isinstance(value, dict):
-        raise ValueError('Candidate entry must be an object')
-    return value
-
-
-def _require_candidate_files(source, obj):
-    required = []
-    if 'structure' in obj or source.format in ('workbench.structure_set','workbench.prediction','workbench.structure_confidence'):
-        required.append(('structure', obj.get('structure'), True))
-    if source.format == 'workbench.proteinmpnn_design':
-        required.append(('backbone structure', obj.get('backbone', {}).get('structure'), True))
-    if source.format == 'workbench.esm3_generation':
-        required.append(('original native generation', obj.get('native'), False))
-    for role, descriptor, structural in required:
-        key = descriptor.get('file') if isinstance(descriptor, dict) else None
-        if not isinstance(key, str) or key not in source.files or (structural and descriptor.get('format') not in ('pdb','mmcif')):
-            raise ValueError(f'Candidate requires its complete declared {role} file')
-        try:
-            with source.open(key) as reader:
-                reader.read(1)
-        except OSError as error:
-            raise ValueError(f'Candidate {role} file is unreadable: {key}') from error
-
-
-def _candidates(packages):
-    result = []
-    for index, package in enumerate(packages):
-        document = read_collection(package) if package.format == FORMAT else _document(package)
-        if package.format == FORMAT:
-            objects = [item['object'] for item in document['items']]
-        elif package.format == 'workbench.comparison':
-            objects = [document['subject']]
-        elif package.format == 'workbench.sequence_backbone_evaluation':
-            # Each supplied joint evaluation context is one indivisible candidate.
-            objects = []
-            for evaluation in document.get('evaluations', []):
-                ids = evaluation.get('object_ids')
-                original = {obj.get('id'):obj for obj in document.get('objects', [])}
-                if not isinstance(ids, list) or not ids or len(set(ids)) != len(ids) or any(identity not in original for identity in ids):
-                    raise ValueError('Joint candidate requires complete explicitly evaluated objects')
-                members = [original[identity] for identity in ids]
-                joint = {'members': members, 'label': 'Joint sequence context: '+', '.join(obj.get('label', f'Sequence {i+1}') for i,obj in enumerate(members))}
-                if joint not in objects:
-                    objects.append(joint)
-        else:
-            objects = document.get('objects')
-        if not isinstance(objects, list) or any(not isinstance(obj, dict) or ('members' not in obj and not isinstance(obj.get('id'), str)) for obj in objects):
-            raise ValueError('Candidates require explicit complete objects')
-        for offset, obj in enumerate(objects):
-            source = SourcePackage(package, document['sources'][document['items'][offset]['source']]) if package.format == FORMAT else package
-            _require_candidate_files(source, obj)
-            result.append({'input': index, 'item': offset, 'object': obj})
-    return result
-
 
 def _identity(obj):
     return ('joint', tuple(member['id'] for member in obj['members'])) if 'members' in obj else ('object', obj['id'])
@@ -99,7 +37,7 @@ def _describe_choice(package, choice, index, source=None):
                 seen.add(entry)
                 if not isinstance(selector, dict) or selector.get('origin') != 'analysis' or type(selector.get('analysis')) is not int or selector['analysis'] < 0:
                     raise ValueError('Reference access requires the exact selected analysis record')
-                document = _document(package)
+                document = read_document(package)
                 analysis = document['analyses'][selector['analysis']]
                 source_index = analysis['source']
                 if type(source_index) is not int or source_index < 0:
@@ -127,7 +65,7 @@ def _metrics(packages, describe=False):
                 for choice in read_metric_choices(SourcePackage(package,source)):
                     result.append(dict(_describe_choice(SourcePackage(package,source),choice,index,source_index) if describe else choice, input=index, source=source_index))
         else:
-            document = _document(package)
+            document = read_document(package)
             if document.get('objects') == []:
                 continue
             for choice in read_metric_choices(package):
@@ -152,11 +90,14 @@ def _number(candidate, selection, choices):
         exact = bound[0]
         found = [c for c in choices if _selection(c) == exact and _identity(c['object']) == _identity(candidate['object'])]
     else:
-        allowed = {'metric','method','reference','region','origin','sample'}
-        if set(selection) - allowed or not {'metric','method','reference','region'} <= set(selection):
-            raise ValueError('Choose metric, actual method, reference and original region')
+        allowed = {'metric','method','reference','reference_mode','region','origin','sample'}
+        provided_reference = selection.get('reference_mode') == 'provided_evaluations'
+        explicit_reference = 'reference' in selection and 'reference_mode' not in selection
+        if (set(selection) - allowed or not {'metric','method','region'} <= set(selection)
+                or not (explicit_reference or (provided_reference and 'reference' not in selection))):
+            raise ValueError('Choose metric, actual method and original region, and either reference or reference_mode: provided_evaluations')
         found = [c for c in choices if _identity(c['object']) == _identity(candidate['object']) and c['metric'] == selection['metric']
-            and c['source_method'] == selection['method'] and c['reference'] == selection['reference'] and c['source_region'] == selection['region']
+            and c['source_method'] == selection['method'] and (provided_reference or c['reference'] == selection['reference']) and c['source_region'] == selection['region']
             and ('origin' not in selection or c['selector']['origin'] == selection['origin']) and ('sample' not in selection or c.get('sample') == selection['sample'])]
     if len(found) != 1:
         raise ValueError('Required evaluation is missing or ambiguous for '+candidate['object'].get('label', 'candidate'))
@@ -173,7 +114,7 @@ def select(call, runtime):
     parameters = call.parameters
     if set(parameters) - {'conditions','sort','limit'}:
         raise ValueError('Unsupported filtering parameter')
-    candidates = _candidates(call.inputs.get('candidates', ()))
+    candidates = read_candidates(call.inputs.get('candidates', ()))
     conditions = parameters.get('conditions', [])
     if not isinstance(conditions, list):
         raise ValueError('Conditions must be a list')
@@ -209,7 +150,7 @@ def temporary(call, runtime):
 
 
 def inspect(call, runtime):
-    candidates = _candidates(call.inputs.get('candidates', ()))
+    candidates = read_candidates(call.inputs.get('candidates', ()))
     choices = _metrics(call.inputs.get('evaluations', ()), describe=True)
     return InteractionResult(data={'candidates':[{'input':c['input'],'item':c['item'],'label':c['object'].get('label',f'Object {i+1}'),
         'choices':[{'evaluation':_selection(m),'metric':m['metric'],'method':m['source_method'],
@@ -220,101 +161,18 @@ def inspect(call, runtime):
 
 
 def execute(call, runtime):
-    selected = select(call,runtime)
-    files, sources, locations, copied = {}, [], {}, {}
-    # Full original files and manifests remain byte-for-byte intact behind explicit maps.
-    for index, package in enumerate((*call.inputs.get('candidates', ()), *call.inputs.get('evaluations', ()))):
-        role = 'candidate' if index < len(call.inputs.get('candidates', ())) else 'evaluation'
-        if package.id in copied:
-            previous = copied[package.id]
-            for offset,source_index in previous['locations'].items():
-                locations[index,offset] = source_index
-            if package.format != FORMAT:
-                for source_index in previous['sources']:
-                    if role not in sources[source_index]['roles']:
-                        sources[source_index]['roles'].append(role)
-            continue
-        start = len(sources)
-        mapping = {}
-        for offset, key in enumerate(package.files):
-            if runtime.cancelled:
-                return Outcome(status='cancelled')
-            target = f'sources/{index}/{offset}'
-            path = runtime.workdir/target
-            path.parent.mkdir(parents=True,exist_ok=True)
-            with package.open(key) as reader,path.open('wb') as writer:
-                copyfileobj(reader,writer)
-            mapping[key] = target
-            files[target] = target
-        if package.format == FORMAT:
-            original = read_collection(package)
-            start = len(sources)
-            for source in original['sources']:
-                sources.append(dict(source, files={key:mapping[value] for key,value in source['files'].items()}))
-            for offset,item in enumerate(original['items']):
-                locations[index,offset] = start + item['source']
-        else:
-            if role == 'candidate':
-                for row in _candidates((package,)):
-                    locations[index,row['item']] = len(sources)
-            sources.append({'format':package.format,'entry':package.entry,'files':mapping,'roles':[role]})
-        copied[package.id] = {'sources':list(range(start,len(sources))), 'locations':{offset:value for (input_index,offset),value in locations.items() if input_index == index}}
-    document = {'sources':sources,'items':[{'source':locations[row['input'],row['item']],'object':deepcopy(row['object'])} for row in selected],
-        'selected':[{key:row[key] for key in ('input','item')} for row in selected], 'parameters':deepcopy(call.parameters)}
-    (runtime.workdir/'manifest.json').write_text(json.dumps(document,allow_nan=False))
-    files['manifest.json']='manifest.json'
-    if runtime.cancelled:
+    selected = select(call, runtime)
+    try:
+        delivery = collect(call.inputs.get('candidates', ()), selected, runtime,
+                           evaluations=call.inputs.get('evaluations', ()), parameters=call.parameters)
+    except InterruptedError:
         return Outcome(status='cancelled')
-    return Outcome(outputs={'collection':[Delivery(FORMAT,'manifest.json',files)]})
-
-
-def extract_structures(call, runtime):
-    package = call.inputs['collection'][0]
-    document = read_collection(package)
-    from modules.structure_io import parse, atoms
-    files, objects = {}, []
-    for index, item in enumerate(document['items']):
-        obj = deepcopy(item['object'])
-        descriptor = obj.get('structure')
-        source = document['sources'][item['source']]
-        if not isinstance(descriptor, dict) or descriptor.get('format') not in ('pdb','mmcif') or descriptor.get('file') not in source['files']:
-            raise ValueError('Every selected object must supply its complete PDB or mmCIF structure')
-        key = f'structures/{index}.'+('pdb' if descriptor['format']=='pdb' else 'cif')
-        path = runtime.workdir/key
-        path.parent.mkdir(parents=True,exist_ok=True)
-        with package.open(source['files'][descriptor['file']]) as reader,path.open('wb') as writer:
-            copyfileobj(reader,writer)
-        descriptor['file'] = key
-        files[key] = key
-        # Preserve other object file references by mapping all remaining source files.
-        mapping = {}
-        for offset,(original,copied) in enumerate(source['files'].items()):
-            target = f'original/{index}/{offset}'
-            destination = runtime.workdir/target
-            destination.parent.mkdir(parents=True,exist_ok=True)
-            with package.open(copied) as reader,destination.open('wb') as writer:
-                copyfileobj(reader,writer)
-            files[target] = target
-            mapping[original] = target
-        atom_key = f'structures/{index}.atoms.json'
-        structure = parse(path.read_bytes(), descriptor['format'])
-        if len(structure) != 1:
-            raise ValueError('Each selected structure must contain one explicit conformation')
-        (runtime.workdir/atom_key).write_text(json.dumps(atoms(structure),allow_nan=False))
-        files[atom_key] = atom_key
-        obj = {key:obj[key] for key in ('id','label','sequence','positions') if key in obj} | {'structure':descriptor,'atoms':atom_key}
-        obj['collection_source'] = {'format':source['format'],'entry':source['entry'],'files':mapping,'original_object':deepcopy(item['object'])}
-        objects.append(obj)
-    if runtime.cancelled:
-        return Outcome(status='cancelled')
-    (runtime.workdir/'manifest.json').write_text(json.dumps({'objects':objects},allow_nan=False))
-    files['manifest.json']='manifest.json'
-    return Outcome(outputs={'structures':[Delivery('workbench.structure_set','manifest.json',files)]})
+    return Outcome(status='cancelled') if runtime.cancelled else Outcome(outputs={'collection': [delivery]})
 
 
 def module():
     inputs = {'candidates':InputPort(CANDIDATES,cardinality='many',required=False), 'evaluations':InputPort((*METRICS, FORMAT),cardinality='many',required=False)}
     parameters = {'type':'object','properties':{'conditions':{'type':'array'},'sort':{'type':'object'},'limit':{'type':'integer','minimum':0}}}
     return Module('workbench.filtering','Filtering and sorting',ui=str(Path(__file__).with_name('ui.js')),
-        nodes=(Node('workbench.filter','Filter and sort',execute,inputs=inputs,outputs={'collection':OutputPort(FORMAT)},parameters=parameters), Node('workbench.filter.extract_structures','Extract selected structures',extract_structures, inputs={'collection':InputPort((FORMAT,))},outputs={'structures':OutputPort('workbench.structure_set')})),
+        nodes=(Node('workbench.filter','Filter and sort',execute,inputs=inputs,outputs={'collection':OutputPort(FORMAT)},parameters=parameters),),
         interactions=(Interaction('workbench.filter',temporary,inputs=inputs,parameters=parameters),Interaction('workbench.filter.inspect',inspect,inputs=inputs)))

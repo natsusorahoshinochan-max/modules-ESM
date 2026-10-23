@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from protein_workbench_public.module_api import Delivery, InputPort, Module, Node, Outcome, OutputPort, ToolSlot
 from .contract import PredictionRequest, PredictionResult
-from .formats import read_sequences
+from modules.sequence_io.formats import read_sequences
 
 
 def _encode_result(result, source, runtime, prefix):

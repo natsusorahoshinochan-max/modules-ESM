@@ -54,6 +54,7 @@ class ProjectCopy(BaseModel):
     name: str
     flow: dict | None = None
     layout: dict | None = None
+    input_packages: list[str] | None = None
 
 
 class InstallModule(BaseModel):
@@ -213,7 +214,7 @@ def create_http_app(host: Workbench) -> FastAPI:
 
     @app.post('/api/projects/{project_id}/copies')
     def copy_project(project_id: str, body: ProjectCopy):
-        return host.copy_project(project_id, body.name, body.flow, body.layout)
+        return host.copy_project(project_id, body.name, body.flow, body.layout, input_packages=body.input_packages)
 
     @app.get('/api/projects')
     def projects():

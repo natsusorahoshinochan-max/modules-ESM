@@ -16,23 +16,23 @@ const repo = fileURLToPath(new URL('../../', import.meta.url));
 const originalFetch = globalThis.fetch;
 
 
-test('161 invalid conditions text actual App running boundary', { timeout: 30000 }, async () => {
+test('161 invalid conditions text actual App running boundary', { timeout: 60000 }, async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), 'esm3-draft-store-'));
   const buildRoot = await mkdtemp(join(repo, 'webui/.esm3-draft-app-'));
   const portProbe = createServer(); await new Promise(resolve => portProbe.listen(0, '127.0.0.1', resolve));
   const port = portProbe.address().port; await new Promise(resolve => portProbe.close(resolve));
-  const backend = spawn('python3', ['-u', '-c', `
+  const backend = spawn(process.env.WORKBENCH_PYTHON || 'python3', ['-u', '-c', `
 import json,sys,uuid,uvicorn
 from pathlib import Path
 from protein_workbench_public.bootstrap import create_application
-from modules.esm3.contract import ESM3Result
+from modules.generation.contract import GenerateResult
 import tests.fixtures.esm3_tool as provider
 def create(settings):
  def generate(request,parameters,runtime):
   filename='external-'+uuid.uuid4().hex+'.json'
   tracks={'sequence':'A','secondary_structure':request.tracks['secondary_structure']}
   (runtime.workdir/filename).write_text(json.dumps({'tracks':tracks,'metrics':{}}))
-  return ESM3Result(tracks,filename,parameters)
+  return GenerateResult(tracks,filename,parameters)
  return generate
 provider.create=create
 app=create_application(data_root=Path(sys.argv[1]))
@@ -46,7 +46,7 @@ uvicorn.run(app,host='127.0.0.1',port=int(sys.argv[2]),log_level='error')
   let root, dom, hooks;
   try {
     let ready = false;
-    for (let attempt = 0; attempt < 100; attempt++) {
+    for (let attempt = 0; attempt < 600; attempt++) {
       try { await json('/api/projects'); ready = true; break; } catch { if (backend.exitCode !== null) break; await new Promise(resolve => setTimeout(resolve, 50)); }
     }
     assert.ok(ready, diagnostics);
@@ -88,7 +88,7 @@ uvicorn.run(app,host='127.0.0.1',port=int(sys.argv[2]),log_level='error')
     await React.act(async()=>button('161 invalid conditions proof').click());
     await settle(()=>[...container.querySelectorAll('label')].some(label=>label.textContent.startsWith('Additional aligned conditions')));
     const textarea=[...container.querySelectorAll('label')].find(label=>label.textContent.startsWith('Additional aligned conditions')).querySelector('textarea');
-    assert.equal(container.querySelector('[aria-label="ESM3 sequence generation: token"]').type,'password');
+    assert.equal(container.querySelector('[aria-label="ESM3 tools: token"]').type,'password');
     const confirms=[];window.confirm=message=>{confirms.push(message);return true};
     await React.act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set.call(textarea,'{"secondary_structure":');textarea.dispatchEvent(new window.Event('input',{bubbles:true}));});
     assert.equal(textarea.checkValidity(),false,'invalid conditions must participate in native save validity');

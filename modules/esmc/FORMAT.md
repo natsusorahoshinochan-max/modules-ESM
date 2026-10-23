@@ -1,7 +1,7 @@
 # ESMC representations
 
 `modules.esmc:module` provides `workbench.represent`, accepting the documented
-[`workbench.sequence`](../folding/FORMAT.md) format. Its independent reader accepts
+[`workbench.sequence`](../sequence_io/FORMAT.md) format. Its independent reader accepts
 complete canonical protein sequences and preserves each input object, source and
 explicit sequence-to-structure position mapping. No producer module installation
 is required to read these files.

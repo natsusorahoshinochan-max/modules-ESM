@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import {test,after} from 'node:test'
 import {spawn} from 'node:child_process'
+import {env} from 'node:process'
 import {createInterface} from 'node:readline'
 import {readFile} from 'node:fs/promises'
 import * as React from 'react'
 import {JSDOM} from 'jsdom'
-const process=spawn('python3',['-m','tests.fixtures.filtering_reference'],{cwd:new URL('../../',import.meta.url),stdio:['pipe','pipe','inherit']})
+const process=spawn(env.WORKBENCH_PYTHON || 'python3',['-m','tests.fixtures.filtering_reference'],{cwd:new URL('../../',import.meta.url),stdio:['pipe','pipe','inherit']})
 const waiters=new Map();let counter=0,ready
 const initial=new Promise(resolve=>ready=resolve)
 createInterface({input:process.stdout}).on('line',line=>{const result=JSON.parse(line);if(!('id' in result))ready(result);else{const {resolve,reject}=waiters.get(result.id);waiters.delete(result.id);result.error?reject(new Error(result.error)):resolve(result.data)}})
@@ -31,7 +32,7 @@ test('actual inspection lets the registered editor identify and view the second 
  try{
   await React.act(async()=>render())
   await React.act(async()=>{button(container,'Inspect selected inputs').click();await latest})
-  const select=container.querySelector('select')
+  const select=container.querySelector('[aria-label="Condition 1 evaluation for input 1 item 1"]')
   assert.match(select.options[1].textContent,/Evaluation input 1.*reference.pdb/)
   assert.match(select.options[2].textContent,/Evaluation input 2.*reference.pdb/)
   assert.ok(!container.textContent.includes('private-reference-'))
@@ -51,12 +52,12 @@ test('mapped collection and saved analysis reference access follows exact maps i
  const extension=register({React}),Action=extension.resultActions[0].component
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
  try{
-  const archive={id:actual.archive,format:'workbench.filtered_collection'}
+  const archive={id:actual.archive,format:'workbench.collection'}
   await React.act(async()=>root.render(React.createElement(Action,{host,packages:[archive]})))
   for(const checkbox of [...container.querySelectorAll('input[type=checkbox]')].slice(0,2))await React.act(async()=>checkbox.click())
   await React.act(async()=>button(container,'Add condition').click())
   await React.act(async()=>{button(container,'Inspect selected inputs').click();await latest})
-  const select=container.querySelector('select')
+  const select=container.querySelector('[aria-label="Condition 1 evaluation for input 1 item 1"]')
   assert.match(select.options[2].textContent,/source 3.*reference.pdb/)
   await React.act(async()=>{select.value='1';select.dispatchEvent(new window.Event('change',{bubbles:true}))})
   await React.act(async()=>{button(container,'View reference file').click();await latest})
@@ -98,4 +99,72 @@ test('reference viewing stays read-only and discards completion after a differen
  await React.act(async()=>root.unmount())
  await React.act(async()=>finish(new Blob(['STALE UNMOUNTED REFERENCE'])))
  assert.equal(container.textContent,'');container.remove()
+})
+
+test('semantic rules are configured before upstream data and filter later objects without rewriting selections',async()=>{
+ const Editor=register({React}).editors[0].component,container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ let parameters={conditions:[{evaluation:{bindings:[]},operator:'ge',value:.5}],sort:{evaluation:{bindings:[]},direction:'descending'},limit:1}
+ const context={host,inputs:{candidates:{packages:[],unavailable:'Connected input has not run'},evaluations:{packages:[],unavailable:'Connected input has not run'}}}
+ const rule={metric:'tm_reference',method:{name:'TM-align',tmtools:'0.3.0',algorithm:'20210224',parameters:{normalization:'reference'}},reference:{id:'private-reference-1',structure:{file:'reference.pdb',format:'pdb'}},region:{subject:null,reference:{chain:'X'}}}
+ const render=()=>root.render(React.createElement(Editor,{context,parameters,onChange:next=>{parameters=next;render()},readOnly:false}))
+ try{
+  await React.act(async()=>render())
+  for(const label of ['Condition 1','Sort']){
+   const mode=container.querySelector(`[aria-label="${label} evaluation selection"]`)
+   await React.act(async()=>{mode.value='meaning';mode.dispatchEvent(new window.Event('change',{bubbles:true}))})
+   const textarea=container.querySelector(`[aria-label="${label} evaluation rule JSON"]`)
+   const enter=async value=>React.act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set.call(textarea,value);textarea.dispatchEvent(new window.Event('input',{bubbles:true}))})
+   await enter('{"metric":"tm_reference"}')
+   await React.act(async()=>button(container,`Apply ${label} rule`).click())
+   assert.match(container.textContent,/Specify metric, method and region, and either reference or reference_mode/)
+   await enter(JSON.stringify(rule))
+   await React.act(async()=>button(container,`Apply ${label} rule`).click())
+  }
+  assert.deepEqual(parameters.conditions[0].evaluation,rule)
+  assert.deepEqual(parameters.sort.evaluation,rule)
+  const first=await call({action:'run',inputs:actual.direct,parameters})
+  assert.equal(first.manifest.items[0].object.id,'private-subject')
+  const next=await call({action:'new_candidate'})
+  const second=await call({action:'run',inputs:next,parameters})
+  assert.equal(second.manifest.items[0].object.id,'next-round-subject')
+  await assert.rejects(call({action:'run',inputs:{...next,evaluations:[]},parameters}),/missing or ambiguous/)
+  await assert.rejects(call({action:'run',inputs:{...next,evaluations:[...next.evaluations,...next.evaluations]},parameters}),/missing or ambiguous/)
+  assert.deepEqual(parameters.conditions[0].evaluation,rule)
+ }finally{await React.act(async()=>root.unmount());container.remove()}
+})
+
+test('explicit connected-reference rules accept a changed reference and reject multiple matching references',async()=>{
+ const Editor=register({React}).editors[0].component,container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+ const fixed={metric:'tm_reference',method:{name:'TM-align',tmtools:'0.3.0',algorithm:'20210224',parameters:{normalization:'reference'}},reference:{id:'private-reference-1',structure:{file:'reference.pdb',format:'pdb'}},region:{subject:null,reference:{chain:'X'}}}
+ let parameters={conditions:[{evaluation:fixed,operator:'ge',value:.5}],sort:{evaluation:fixed,direction:'descending'},limit:1}
+ const context={host,inputs:{candidates:{packages:[],unavailable:'Connected input has not run'},evaluations:{packages:[],unavailable:'Connected input has not run'}}}
+ const render=()=>root.render(React.createElement(Editor,{context,parameters,onChange:next=>{parameters=next;render()},readOnly:false}))
+ try{
+  await React.act(async()=>render())
+  for(const label of ['Condition 1','Sort']){
+   const select=container.querySelector(`[aria-label="${label} reference selection"]`)
+   assert.equal(select.value,'exact')
+   await React.act(async()=>{select.value='provided_evaluations';select.dispatchEvent(new window.Event('change',{bubbles:true}))})
+   const textarea=container.querySelector(`[aria-label="${label} evaluation rule JSON"]`)
+   const drafted=JSON.parse(textarea.value)
+   assert.equal(drafted.reference_mode,'provided_evaluations');assert.equal(Object.hasOwn(drafted,'reference'),false)
+   const current=label==='Sort'?parameters.sort.evaluation:parameters.conditions[0].evaluation
+   assert.equal(current.reference,fixed.reference)
+   await React.act(async()=>button(container,`Apply ${label} rule`).click())
+  }
+  assert.equal(parameters.conditions[0].evaluation.reference_mode,'provided_evaluations')
+  assert.equal(parameters.sort.evaluation.reference_mode,'provided_evaluations')
+  const first=await call({action:'run',inputs:{...actual.direct,evaluations:[actual.direct.evaluations[1]]},parameters})
+  assert.equal(first.manifest.items[0].object.id,'private-subject')
+  const next=await call({action:'new_candidate',reference_id:'updated-reference'})
+  const second=await call({action:'run',inputs:next,parameters})
+  assert.equal(second.manifest.items[0].object.id,'next-round-subject')
+  const alternate=await call({action:'new_candidate',reference_id:'another-reference'})
+  await assert.rejects(call({action:'run',inputs:{...next,evaluations:[...next.evaluations,...alternate.evaluations]},parameters}),/missing or ambiguous/)
+  const textarea=container.querySelector('[aria-label="Sort evaluation rule JSON"]')
+  await React.act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set.call(textarea,JSON.stringify({...parameters.sort.evaluation,reference:fixed.reference}));textarea.dispatchEvent(new window.Event('input',{bubbles:true}))})
+  await React.act(async()=>button(container,'Apply Sort rule').click())
+  assert.match(container.textContent,/either reference or reference_mode/)
+  assert.equal(Object.hasOwn(parameters.sort.evaluation,'reference'),false)
+ }finally{await React.act(async()=>root.unmount());container.remove()}
 })

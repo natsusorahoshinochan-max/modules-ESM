@@ -130,6 +130,7 @@ def design_app(tmp_path, monkeypatch):
     monkeypatch.setattr('tests.fixtures.mpnn_tool.create', create)
     app = Workbench(tmp_path / 'data')
     app.install('modules.proteinmpnn:module')
+    app.install('modules.generation:module')
     app.install('tests.fixtures.mpnn_tool:module')
     project = app.create_project('MPNN')
     workdir = app.new_workdir()
@@ -423,7 +424,7 @@ def test_chain_conversion_default_and_complete_mapping_through_http(tmp_path, ca
     from protein_workbench_public.bootstrap import create_application
     from tests.test_sequence_io import upload
     from tests.run_helpers import wait_response
-    from modules.folding.formats import read_sequences
+    from modules.sequence_io.formats import read_sequences
     obj = {'id': 'rich-sample', 'chains': {'B': 'AC'}, 'positions': [
         {'chain': 'B', 'author_number': 42, 'insertion_code': '', 'tool_position': 1},
         {'chain': 'B', 'author_number': 42, 'insertion_code': 'A', 'tool_position': 2},

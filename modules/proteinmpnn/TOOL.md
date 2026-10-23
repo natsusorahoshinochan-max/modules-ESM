@@ -1,6 +1,6 @@
 # ProteinMPNN design and reusable tool call
 
-Install and enable `modules.proteinmpnn:module`, add **Design sequences from
+Install and enable `modules.proteinmpnn:module` for tools and `modules.generation:module` for scientific nodes; add **Design sequences from
 backbone**, and bind an explicit structure package. Select the local ProteinMPNN
 tool and configure native conditions and sampling in its tool parameter JSON.
 The module editor explains limits; its design viewer displays each actual chain, NLL values,
@@ -10,7 +10,7 @@ The design node delivers the complete `workbench.proteinmpnn_design` result.
 Before folding or another canonical single-chain task, add **Use one design chain
 as sequence** and select the actual chain. Empty selection works only for the same
 single chain in every sample. The result viewer can add a converter for its
-explicitly selected package; full conversion rules are in [FORMAT.md](FORMAT.md).
+explicitly selected package; full conversion rules are in [generation formats](../generation/FORMAT.md).
 
 Deployment settings are `source` (existing ProteinMPNN directory containing
 `protein_mpnn_utils.py`), `weights` (existing root containing
@@ -84,7 +84,7 @@ installation dependency on the `protein-workbench` distribution containing
 
 `MPNNRequest` contains a completed workdir-relative `structure_path`, its
 `structure_format` (`pdb` or `mmcif`), optional `sequences`, and optional
-`random_seed`. `sequences=None` designs. A chain → sequence map scores existing
+`random_seed`, `complete_target` and `conditions`. A complete edited mmCIF target uses the full polymer position table, rejects missing N/CA/C/O at any target position, and applies explicit fixed residue conditions. Its coordinate selection must contain every N/CA/C/O position. The complete single-chain target retains its source author chain separately from label chain numbering; ambiguous mixed author chains fail. No unresolved target position is skipped. `sequences=None` designs. A chain → sequence map scores existing
 sequences; it must exactly cover every chain and every residue before any tool
 call. Missing chains, prefixes, extra residues and ambiguous positions fail;
 existing sequence tails are never used to complete the request. `random_seed` is
@@ -94,7 +94,7 @@ the Adapter chooses a fresh actual seed. Positive user seeds are passed directly
 `MPNNResult` contains the complete actual `positions`, one `samples` item per
 requested sequence per temperature (score mode has no temperature loop),
 `actual_seed`, and effective `parameters`. Sample content and score meanings are
-specified in [FORMAT.md](FORMAT.md). In score mode `chains` contains the unchanged
+specified in [generation formats](../generation/FORMAT.md). In score mode `chains` contains the unchanged
 supplied sequence mapping; `temperature` is null, probabilities are absent, and
 forward uses `chain_M * chain_M_pos` exactly as the native CLI. `num_seq_per_target`
 controls repeated stochastic decoding evaluations, with exact batch divisibility.

@@ -216,3 +216,102 @@ def test_upload_receiver_failure_releases_workdir_without_persisting_input(tmp_p
         assert 'entry' in response.json()['detail']
         assert not tuple((tmp_path / 'work').glob('execution-*'))
         assert client.get(f'/api/projects/{project}/packages').json() == original
+
+
+def test_first_save_keeps_explicit_unbound_teaching_imports_and_deduplicates_bindings(tmp_path):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        client.get('/api/tutorial')
+        bound = _input(client, 'tutorial', b'bound input')
+        unbound = _input(client, 'tutorial', b'unbound research')
+        flow = {'nodes': [{'id': 'later', 'type': 'missing.consumer', 'inputs': {'source': [bound]}}], 'edges': []}
+        response = client.post('/api/projects/tutorial/copies', json={
+            'name': 'Research imports', 'flow': flow, 'layout': {},
+            'input_packages': [bound, unbound, unbound],
+        })
+        assert response.status_code == 200, response.text
+        copied = response.json()
+        packages = client.get(f"/api/projects/{copied['id']}/packages").json()
+        assert len(packages) == 2
+        assert copied['flow']['nodes'][0]['inputs']['source'][0] in {item['id'] for item in packages}
+        assert all(item['id'] not in (bound, unbound) for item in packages)
+        for key in (bound, unbound):
+            assert client.delete(f'/api/draft-inputs/{key}').status_code == 200
+    with TestClient(create_application(data_root=tmp_path)) as reopened:
+        saved = reopened.get(f"/api/projects/{copied['id']}/packages").json()
+        assert sorted(reopened.get(f"/api/packages/{item['id']}/file", params={'key': 'request'}).content for item in saved) == [b'bound input', b'unbound research']
+        assert reopened.get(f"/api/projects/{copied['id']}/runs").json() == []
+
+
+def test_first_save_unbound_only_import_survives_transaction_failure_then_retry(tmp_path, monkeypatch):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        original = client.get('/api/tutorial').json()
+        temporary = _input(client, 'tutorial', b'independent research input')
+        before = sorted(path.name for path in (tmp_path / 'packages').iterdir())
+        body = {'name': 'Imported only', 'flow': {'nodes': [], 'edges': []}, 'layout': {}, 'input_packages': [temporary]}
+        connect = sqlite3.connect
+
+        class RefuseCommit(sqlite3.Connection):
+            def commit(self):
+                if self.in_transaction:
+                    raise sqlite3.OperationalError('import copy commit refused')
+                return super().commit()
+
+        with monkeypatch.context() as patch:
+            patch.setattr(sqlite3, 'connect', lambda *args, **kwargs: connect(*args, **kwargs, factory=RefuseCommit))
+            failed = client.post('/api/projects/tutorial/copies', json=body)
+        assert failed.status_code == 400
+        assert client.get('/api/projects').json() == []
+        assert client.get('/api/tutorial').json() == original
+        assert client.get(f'/api/packages/{temporary}/file', params={'key': 'request'}).content == b'independent research input'
+        assert sorted(path.name for path in (tmp_path / 'packages').iterdir()) == before
+        copied = client.post('/api/projects/tutorial/copies', json=body)
+        assert copied.status_code == 200, copied.text
+        assert copied.json()['flow'] == {'nodes': [], 'edges': []}
+        assert len(client.get(f"/api/projects/{copied.json()['id']}/packages").json()) == 1
+
+
+def test_explicit_copy_inputs_reject_other_project_ownership(tmp_path):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        client.get('/api/tutorial')
+        other = client.post('/api/projects', json={'name': 'Other research'}).json()['id']
+        foreign = _input(client, other, b'foreign research')
+        before = sorted(path.name for path in (tmp_path / 'packages').iterdir())
+        response = client.post('/api/projects/tutorial/copies', json={
+            'name': 'Invalid input ownership', 'flow': {'nodes': [], 'edges': []},
+            'layout': {}, 'input_packages': [foreign],
+        })
+        assert response.status_code == 400, response.text
+        assert 'source project' in response.json()['detail']
+        assert [project['id'] for project in client.get('/api/projects').json()] == [other]
+        assert sorted(path.name for path in (tmp_path / 'packages').iterdir()) == before
+        assert client.get(f'/api/packages/{foreign}/file', params={'key': 'request'}).content == b'foreign research'
+
+
+def test_copy_keeps_unbound_imports_and_adoptions_but_excludes_unused_run_outputs(tmp_path):
+    with TestClient(create_application(data_root=tmp_path)) as client:
+        client.post('/api/modules', json={'entry_point': 'tests.fixtures.host_module:module'})
+        origin = client.post('/api/projects', json={'name': 'Origin'}).json()['id']
+        original = _input(client, origin, b'adopted research')
+        source = client.post('/api/projects', json={'name': 'Imported research'}).json()['id']
+        imported = _input(client, source, b'imported research')
+        client.post(f'/api/projects/{source}/adoptions', json={'package_id': original}).raise_for_status()
+        flow = {'nodes': [{'id': 'encode', 'type': 'independent.encode', 'inputs': {'source': [imported]}, 'parameters': {'suffix': '!'}}], 'edges': []}
+        client.put(f'/api/projects/{source}', json={'flow': flow, 'layout': {}}).raise_for_status()
+        run = wait_response(client, client.post(f'/api/projects/{source}/runs', json={})).json()
+        assert run['status'] == 'succeeded'
+        assert len(client.get(f'/api/projects/{source}/packages').json()) == 3
+        # The user removes the node, keeping imports and adoptions in the project.
+        client.put(f'/api/projects/{source}', json={'flow': {'nodes': [], 'edges': []}, 'layout': {}}).raise_for_status()
+        copied = client.post(f'/api/projects/{source}/copies', json={'name': 'Copy all inputs'})
+        copied.raise_for_status()
+        copy_id = copied.json()['id']
+        assert len(client.get(f'/api/projects/{copy_id}/packages').json()) == 2
+        for project in (origin, source):
+            client.delete(f'/api/projects/{project}').raise_for_status()
+    with TestClient(create_application(data_root=tmp_path)) as reopened:
+        again = reopened.post(f'/api/projects/{copy_id}/copies', json={'name': 'Copy saved inputs again'})
+        again.raise_for_status()
+        copy_id = again.json()['id']
+        packages = reopened.get(f'/api/projects/{copy_id}/packages').json()
+        assert sorted(reopened.get(f"/api/packages/{item['id']}/file", params={'key': 'request'}).content for item in packages) == [b'adopted research', b'imported research']
+        assert reopened.get(f'/api/projects/{copy_id}/runs').json() == []

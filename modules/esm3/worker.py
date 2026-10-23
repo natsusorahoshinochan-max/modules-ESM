@@ -6,7 +6,7 @@ import sys
 from types import SimpleNamespace
 
 from .adapters import protein_for, save_result
-from .contract import ESM3Request
+from modules.generation.contract import GenerateRequest
 
 
 def load_model(settings):
@@ -31,7 +31,7 @@ def run(payload, *, model_loader=load_model):
         raise ValueError('ESM3 device must be cpu, cuda or mps')
     parameters = payload['parameters']
     seed = parameters['seed']
-    protein = protein_for(ESM3Request(payload['track'], payload['tracks']), local=True)
+    protein = protein_for(GenerateRequest(payload['track'], payload['tracks'], payload.get('target_file'), payload.get('conditions', {})), local=True, workdir=Path(payload['output']).parent)
     config = GenerationConfig(track=payload['track'], **{name: value for name, value in parameters.items() if name != 'seed'})
     model = model_loader(settings)
     # The worker process owns its RNG; checkpoint construction precedes sampling.

@@ -8,6 +8,34 @@ from protein_workbench_public.bootstrap import create_application
 from tests.run_helpers import wait_response
 
 
+def test_sequence_module_exports_selected_fasta_without_prediction(tmp_path):
+    from core.host import Workbench
+    from protein_workbench_public.module_api import Delivery
+    from tests.run_helpers import wait_run
+
+    app = Workbench(tmp_path)
+    app.install('modules.sequence_io:module')
+    project = app.create_project('Independent sequence workflow')
+    work = app.new_workdir()
+    objects = [
+        {'id': 'a', 'sequence': 'ACD', 'label': 'first', 'source': {'name': 'research.fa'}},
+        {'id': 'b', 'sequence': 'WYG', 'label': 'chosen\nrecord'},
+    ]
+    (work / 'sequence.json').write_text(json.dumps({'objects': objects}))
+    package = app.create_input(project['id'], Delivery('workbench.sequence', 'sequence.json', {'sequence.json': 'sequence.json'}), work)
+    app.save_project(project['id'], {'nodes': [{'id': 'export', 'type': 'workbench.export_sequences',
+        'inputs': {'sequences': [package['id']]}, 'parameters': {'objects': ['b']}}], 'edges': []}, {})
+    result = wait_run(app, app.start(project['id']))
+    assert result['status'] == 'succeeded', result
+    exported = app.package(result['nodes']['export']['outputs']['files'][0])
+    with exported.open('sequences.fasta') as stream:
+        assert stream.read() == b'>chosen record\nWYG\n'
+    with exported.open(exported.entry) as stream:
+        assert json.load(stream)['objects'] == [objects[1]]
+    with app.package(package['id']).open('sequence.json') as stream:
+        assert json.load(stream)['objects'] == objects
+
+
 def upload(client, project, format, files, entry='manifest.json'):
     base = f'/api/projects/{project}/uploads'
     base += '/' + client.post(base).json()['upload_id']

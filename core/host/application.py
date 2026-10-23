@@ -181,7 +181,8 @@ class Workbench:
         for record in records:
             if record["available"] and not record["enabled"]:
                 loaded.append((record, load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)))
-        existing = {node.id for _, declaration in loaded for node in declaration.nodes}
+        from .scopes import SCOPE_TYPES
+        existing = {node.id for _, declaration in loaded for node in declaration.nodes} | SCOPE_TYPES
         existing_tools = {tool.id for _, declaration in loaded for tool in declaration.tools}
         for node in module.nodes:
             if node.id in existing:
@@ -275,9 +276,11 @@ class Workbench:
                     identities = {}
                     for key, description in template["inputs"].items():
                         record = receive(project["id"], Delivery(**description), directory, self._packages)
+                        record["role"] = "input"
                         received.append(record)
                         identities[key] = record["id"]
-                    for node in project["flow"]["nodes"]:
+                    from .scopes import walk_nodes
+                    for node in walk_nodes(project["flow"], strict=True):
                         node["inputs"] = {port: [identities[key] for key in keys] for port, keys in node.get("inputs", {}).items()}
                     with self._connect() as connection:
                         for record in received:
@@ -289,33 +292,40 @@ class Workbench:
                     raise
         return self.get_project("tutorial")
 
-    def copy_project(self, source_id, name, flow=None, layout=None):
-        """Copy the saved flow or an explicit draft, and only its directly bound inputs."""
+    def copy_project(self, source_id, name, flow=None, layout=None, input_packages=None):
+        """Copy project inputs and selected results without unrelated run outputs."""
         from .storage import copy_package
         with self._project_operation([source_id]), self._draft_lock:
             source = self._get("project", source_id)
             project = {"id": uuid4().hex, "name": name, "flow": deepcopy(source["flow"] if flow is None else flow), "layout": deepcopy(source["layout"] if layout is None else layout)}
-            nodes = project["flow"].get("nodes", [])
-            if not isinstance(nodes, list) or any(not isinstance(node, dict) or not isinstance(node.get("inputs", {}), dict) for node in nodes):
+            from .scopes import walk_nodes
+            nodes = list(walk_nodes(project["flow"], strict=True))
+            if any(not isinstance(node.get("inputs", {}), dict) for node in nodes):
                 raise HostError("Flow nodes must have input mappings")
+            if input_packages is not None and (not isinstance(input_packages, list) or any(not isinstance(key, str) for key in input_packages)):
+                raise HostError("Copy input_packages must be a list of package IDs")
+            requested = list(input_packages or [])
+            if not source.get("tutorial"):
+                requested.extend(record["id"] for record in self.list_packages(source_id) if record.get("role") == "input")
+            for node in nodes:
+                for keys in node.get("inputs", {}).values():
+                    if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+                        raise HostError("Direct inputs must be lists of package IDs")
+                    requested.extend(keys)
             received = []
             identities = {}
             try:
+                for key in dict.fromkeys(requested):
+                    package = self.package(key)
+                    if package.metadata()["project_id"] != source_id:
+                        raise HostError("Copy inputs must belong to the source project; adopt them first")
+                    record = copy_package(project["id"], package, self._packages)
+                    record["role"] = "input"
+                    received.append(record)
+                    identities[key] = record["id"]
                 for node in nodes:
                     for port, keys in node.get("inputs", {}).items():
-                        if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
-                            raise HostError("Direct inputs must be lists of package IDs")
-                        copied = []
-                        for key in keys:
-                            if key not in identities:
-                                package = self.package(key)
-                                if package.metadata()["project_id"] != source_id:
-                                    raise HostError("Copy inputs must belong to the source project; adopt them first")
-                                record = copy_package(project["id"], package, self._packages)
-                                received.append(record)
-                                identities[key] = record["id"]
-                            copied.append(identities[key])
-                        node["inputs"][port] = copied
+                        node["inputs"][port] = [identities[key] for key in keys]
                 with self._connect() as connection:
                     for record in received:
                         self._write(connection, "package", record)
@@ -328,10 +338,9 @@ class Workbench:
 
     def get_project(self, project_id):
         project = self._get("project", project_id)
-        available = {node["id"] for node in self.catalog()["nodes"]}
-        flow = project["flow"]
-        nodes = flow.get("nodes", []) if isinstance(flow, dict) else []
-        nodes = nodes if isinstance(nodes, list) else []
+        from .scopes import SCOPE_TYPES, walk_nodes
+        available = {node["id"] for node in self.catalog()["nodes"]} | SCOPE_TYPES
+        nodes = walk_nodes(project["flow"])
         requested = {node["type"] for node in nodes if isinstance(node, dict) and isinstance(node.get("type"), str)}
         project["missing_modules"] = sorted(requested - available)
         project["running"] = self._project_running(project_id)
@@ -378,6 +387,7 @@ class Workbench:
                 raise HostError("Temporary inputs belong to a teaching draft")
             with self._draft_lock:
                 record = receive(project_id, delivery, workdir, self._packages)
+                record["role"] = "input"
                 self._draft_inputs[record["id"]] = record
                 return record
         finally:
@@ -402,6 +412,7 @@ class Workbench:
         try:
             with self._project_operation([project_id], mutable=[project_id]):
                 record = receive(project_id, delivery, workdir, self._packages)
+                record["role"] = "input"
                 return self._put("package", record)
         except BaseException:
             if record is not None:
@@ -419,6 +430,7 @@ class Workbench:
             record = None
             try:
                 record = copy_package(target_project_id, source, self._packages)
+                record["role"] = "input"
                 return self._put("package", record)
             except BaseException:
                 if record is not None:

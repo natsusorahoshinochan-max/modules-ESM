@@ -12,12 +12,19 @@ def preserve_files(document, call, runtime):
     source = call.inputs.get('source', ())
     if source and source[0].format == 'workbench.sequence_conditions':
         for key in source[0].files:
-            if key == 'edited.json':
+            if key in {'edited.json', 'editor.json', 'target.cif', 'view.json'}:
                 continue
             name = uuid4().hex
             with source[0].open(key) as reader, (runtime.workdir / name).open('wb') as writer:
                 copyfileobj(reader, writer)
             files[key] = name
+    if source and source[0].format in ('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'):
+        for record in document.get('structures', []):
+            for original, destination in record['files'].items():
+                name = uuid4().hex
+                with source[0].open(original) as reader, (runtime.workdir / name).open('wb') as writer:
+                    copyfileobj(reader, writer)
+                files[destination] = name
     for record in document.get('structures', []):
         if not isinstance(record, dict) or not isinstance(record.get('files'), dict):
             raise ValueError('Preserved structures require explicit package file keys')
@@ -101,7 +108,14 @@ def interaction(call, runtime):
                         if atom['altloc'] or atom['name'] in coordinates:
                             raise ValueError('Select a structure position with unambiguous atom names; alternate locations require explicit preparation')
                         coordinates[atom['name']] = atom['position']
-                    row['coordinates'] = coordinates
+                    names = operation.get('atoms')
+                    if names is not None and (not isinstance(names, list) or not names or len(set(names)) != len(names) or set(names) - set(coordinates)):
+                        raise ValueError('Coordinate adoption must select actual atom names')
+                    row['coordinates'] = {name:coordinates[name] for name in names} if names is not None else coordinates
+                    full = dict(row.get('_target_atoms', {}))
+                    full.update(row['coordinates'])
+                    row['_target_atoms'] = full
+                    row['target_author'] = {'author_number':position['author_number'], 'author_chain':position['chain'], 'insertion_code':position['insertion_code']}
                 if 'residue' in tracks:
                     # Residue names are interpreted by the structure module's parser dependency.
                     import gemmi
@@ -150,9 +164,77 @@ def interaction(call, runtime):
     _validate(document)
     if runtime.cancelled:
         raise ValueError('Structure preview cancelled')
-    (runtime.workdir / 'edited.json').write_text(json.dumps(document, allow_nan=False))
-    files['edited.json'] = 'edited.json'
-    (runtime.workdir / 'view.json').write_text(json.dumps(view, allow_nan=False))
-    files['view.json'] = 'view.json'
-    return InteractionResult({'document_file':'edited.json','view_file':'view.json','position_count':len(document['positions'])},
-        {'edited':Delivery('workbench.sequence_conditions','edited.json',files)})
+    from .target_delivery import deliver
+    return deliver(document, call, runtime, view=view, files=files)
+
+
+def from_structure(source, parameters):
+    """Build current template rows directly from selected chains or regions."""
+    from . import _position, _residue
+    import gemmi
+    with source.open(source.entry) as reader:
+        manifest = json.load(reader)
+    objects = manifest.get('objects', [])
+    object_id = parameters.get('object')
+    if object_id is None and len(objects) == 1:
+        object_id = objects[0]['id']
+    structure = read_structure(source, object_id)
+    selection = parameters.get('selection')
+    if not isinstance(selection, dict) or not set(selection) <= {'chains', 'positions'}:
+        raise ValueError('Choose a structure chain or explicit discontinuous residue positions to establish a template')
+    selected = set(resolve_selection(structure, selection))
+    actual = [position for position in positions(structure) if any(atom['index'] in selected for atom in position['atoms'])]
+    if set(selection) == {'chains'} and len(selection['chains']) == 1:
+        from modules.structure_io import polymer_positions
+        actual = polymer_positions(source, object_id, selection['chains'][0])
+    regions = parameters.get('regions')
+    if regions:
+        import re
+        if not isinstance(regions, str):
+            raise ValueError('Residue regions require comma-separated author numbers or ranges')
+        retained = []
+        for token in regions.split(','):
+            match = re.fullmatch(r'\s*(-?\d+)([A-Za-z]?)(?:\s*:\s*(-?\d+)([A-Za-z]?))?\s*', token)
+            if match is None:
+                raise ValueError('Use author regions such as 12A,15:20,25:28')
+            first = (int(match[1]), match[2]); last = (int(match[3]), match[4]) if match[3] else first
+            if last < first:
+                raise ValueError('Residue region end must follow its start')
+            found = [position for position in actual if position['author_number'] is not None and first <= (position['author_number'], position['insertion_code']) <= last]
+            if not found:
+                raise ValueError(f'Residue region has no actual positions: {token.strip()}')
+            retained.extend(found)
+        actual = [position for position in actual if position in retained]
+    if len({position['chain'] for position in actual}) != 1:
+        raise ValueError('Establish one template from positions on one explicit chain')
+    tracks = parameters.get('tracks', ['coordinates', 'fixed'])
+    if not isinstance(tracks, list) or len(tracks) != len(set(tracks)) or set(tracks) - {'coordinates', 'fixed'}:
+        raise ValueError('Template conditions may select coordinates and fixed sequence')
+    atom_names = parameters.get('atoms')
+    if atom_names is not None and (not isinstance(atom_names, list) or not atom_names or any(not isinstance(name, str) for name in atom_names) or len(atom_names) != len(set(atom_names))):
+        raise ValueError('Choose distinct actual atom names for coordinate conditions')
+    record_id = uuid4().hex
+    rows = []
+    for position in actual:
+        residue = gemmi.find_tabulated_residue(position['residue_name'])
+        if not residue.is_amino_acid():
+            raise ValueError('A design template requires amino-acid positions; retained source components remain available')
+        coordinates = {}
+        for atom in position['atoms']:
+            if atom['altloc'] or atom['name'] in coordinates:
+                raise ValueError('Template positions require unambiguous atom names; prepare alternate locations explicitly')
+            coordinates[atom['name']] = atom['position']
+        if coordinates and atom_names is not None and set(atom_names) - set(coordinates):
+            raise ValueError('Selected coordinate atom names are unavailable at a template position')
+        origin = {key:position[key] for key in ('model','chain','author_number','insertion_code','residue_name')}
+        row = _position(_residue(residue.one_letter_code.upper()), {'object':object_id, 'position':origin, **({'label_position':position['label_position']} if 'label_position' in position else {})})
+        row['fixed'] = 'fixed' in tracks
+        row['prompt'] = row['residue'] if row['fixed'] else '_'
+        row['_target_atoms'] = coordinates
+        row['coordinates'] = ({name:coordinates[name] for name in atom_names} if atom_names is not None else coordinates) if 'coordinates' in tracks and coordinates else None
+        row['target_author'] = {'author_number':position['author_number'], 'author_chain':position['chain'], 'insertion_code':position['insertion_code']}
+        row['structure_position'] = {'structure':record_id, 'position':origin}
+        rows.append(row)
+    retained = {key:record_id + '/' + key for key in source.files}
+    return {'id':str(uuid4()), 'sequence':''.join(row['residue'] for row in rows), 'positions':rows, 'random_operations':[],
+            'structures':[{'id':record_id, 'object':object_id, 'format':source.format, 'entry':retained[source.entry], 'files':retained}]}

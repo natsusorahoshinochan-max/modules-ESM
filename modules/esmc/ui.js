@@ -43,7 +43,7 @@ export function register({ React }) {
     const rows = values && Array.from({ length: descriptor.pages[page].rows }, (_, row) => {
       const index = first + row, token = field === 'logits' ? object.tokens[index] : null;
       const position = token?.sequence_index && object.input.positions?.[token.sequence_index - 1];
-      const label = token ? `Token ${index}: ${token.name || `ID ${token.id}`}${token.sequence_index ? `; residue ${token.sequence_index}` : ''}${position?.chain !== undefined ? `; ${position.chain}:${position.author_number}${position.insertion_code}` : ''}` : `Component ${index}`;
+      const label = token ? `Token ${index}: ${token.name || `ID ${token.id}`}${token.sequence_index ? `; residue ${token.sequence_index}` : ''}${position?.chain !== undefined ? `; author ${position.chain}:${position.author_number}${position.insertion_code}` : ''}${position?.label_position ? `; label ${position.label_position.chain}:${position.label_position.position}` : ''}` : `Component ${index}`;
       return h('tr', { key: index }, h('th', null, label), ...(field === 'logits' ? descriptor.columns.slice(column, column + 8).map(spec => h('td', { key: spec.index }, String(values[row * width + spec.index]))) : [h('td', { key: 'value' }, String(values[row]))]));
     });
     return h('section', null,

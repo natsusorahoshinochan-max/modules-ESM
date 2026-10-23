@@ -13,6 +13,7 @@ def run(configuration, output):
     app = Workbench(output)
     app.install('modules.structure_io:module')
     app.install('modules.proteinmpnn:module')
+    app.install('modules.generation:module')
     app.configure('workbench.proteinmpnn', configuration['settings'])
     project = app.create_project('ProteinMPNN verification')
     work = app.new_workdir()

@@ -1,12 +1,41 @@
 export const runtime={react:19}
 export function register({React}) {
  const h=React.createElement
- const metrics=['workbench.metric_analysis','workbench.proteinmpnn_design','workbench.esm3_generation','workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation','workbench.filtered_collection']
- const candidates=['workbench.sequence','workbench.structure_set','workbench.proteinmpnn_design','workbench.filtered_collection',...metrics.filter(format=>format!=='workbench.metric_analysis')]
+ const metrics=['workbench.metric_analysis','workbench.proteinmpnn_design','workbench.esm3_generation','workbench.structure_confidence','workbench.comparison','workbench.solubility','workbench.prediction','workbench.sequence_backbone_evaluation','workbench.collection']
+ const candidates=['workbench.sequence','workbench.structure_set','workbench.proteinmpnn_design','workbench.collection',...metrics.filter(format=>format!=='workbench.metric_analysis')]
  const methodText=value=>typeof value==='string'?value:Object.entries(value??{}).filter(([key])=>['name','method','id','tmtools','algorithm','scope','parameters','actual_seed','statistic'].includes(key)).map(([key,value])=>`${key}: ${typeof value==='object'?JSON.stringify(value):value}`).join('; ')
  const contextText=c=>`Evaluation input ${(c.context?.input??c.evaluation.input)+1}${c.context?.source===undefined?'':` · source ${c.context.source+1}`} · ${c.context?.format??'Evaluation'} · ${c.context?.entry??''}${c.context?.analysis_source===undefined?'':` · analysis source ${c.context.analysis_source+1}`}`
  const referenceText=c=>c.reference_display?[c.reference_display.label??c.reference_display.name??'Unnamed reference',c.reference_display.file,c.reference_display.format].filter(Boolean).join(' · '):(c.reference?'Unnamed reference':'No reference')
  const choiceLabel=c=>`${contextText(c)} · ${c.metric} · ${referenceText(c)} · ${methodText(c.method)} · Region ${JSON.stringify(c.region)} · ${c.sample===null||c.sample===undefined?'':`Sample ${c.sample+1} · `}${c.unit??''} · ${c.meaning??''}${c.unavailable?' · Unavailable: '+c.unavailable:''}`
+ function EvaluationRule({evaluation,onSelect,label,disabled}) {
+  const value=JSON.stringify(evaluation,null,2)
+  const [draft,setDraft]=React.useState(value),[error,setError]=React.useState('')
+  React.useEffect(()=>{setDraft(value);setError('')},[value])
+  let referenceMode=evaluation.reference_mode==='provided_evaluations'?'provided_evaluations':'exact'
+  try{referenceMode=JSON.parse(draft).reference_mode==='provided_evaluations'?'provided_evaluations':'exact'}catch{}
+  function chooseReference(mode){
+   try{
+    const rule=JSON.parse(draft)
+    if(!rule||Array.isArray(rule)||typeof rule!=='object')throw new Error('Enter an evaluation rule object before changing its reference selection.')
+    if(mode==='provided_evaluations'){delete rule.reference;rule.reference_mode=mode}
+    else{delete rule.reference_mode;rule.reference=null}
+    setDraft(JSON.stringify(rule,null,2));setError('')
+   }catch(failure){setError(failure.message)}
+  }
+  function apply(){
+   try{
+    const rule=JSON.parse(draft),allowed=['metric','method','reference','reference_mode','region','origin','sample']
+    const validReference=rule&&((Object.hasOwn(rule,'reference')&&!Object.hasOwn(rule,'reference_mode'))||(!Object.hasOwn(rule,'reference')&&rule.reference_mode==='provided_evaluations'))
+    if(!rule||Array.isArray(rule)||typeof rule!=='object'||Object.keys(rule).some(key=>!allowed.includes(key))||!['metric','method','region'].every(key=>Object.hasOwn(rule,key))||typeof rule.metric!=='string'||!rule.metric.trim()||!validReference)throw new Error('Specify metric, method and region, and either reference or reference_mode: "provided_evaluations"; optional fields are origin and sample.')
+    onSelect(rule);setError('')
+   }catch(failure){setError(failure.message)}
+  }
+  return h('div',null,h('p',null,'Match the specified metric, actual method and original region for each current object. Missing or multiple matching evaluations stop the operation.'),
+   h('label',null,'Reference selection',h('select',{'aria-label':`${label} reference selection`,disabled,value:referenceMode,onChange:event=>chooseReference(event.target.value)},h('option',{value:'exact'},'Exact reference in rule'),h('option',{value:'provided_evaluations'},'Reference from connected evaluations'))),
+   h('p',null,referenceMode==='provided_evaluations'?'Use only the explicitly connected evaluation packages. Each current object must have one matching evaluation, even when its reference changes between rounds. Multiple reference matches are ambiguous.':'The rule reference must match exactly. Use null for an evaluation with no reference.'),
+   h('label',null,'Evaluation rule JSON',h('textarea',{'aria-label':`${label} evaluation rule JSON`,disabled,value:draft,onChange:event=>{setDraft(event.target.value);setError('')}})),
+   h('button',{type:'button',disabled,onClick:apply},`Apply ${label} rule`),error&&h('p',{role:'alert'},error))
+ }
  function ReferenceDetails({choice,host,inputs}) {
   const [text,setText]=React.useState(''),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false)
   const epoch=React.useRef(0),mounted=React.useRef(false),current=React.useRef(null)
@@ -45,11 +74,14 @@ export function register({React}) {
   }
   const bindings=(evaluation,row,value)=>({bindings:[...(evaluation?.bindings??[]).filter(binding=>JSON.stringify(binding.candidate)!==JSON.stringify({input:row.input,item:row.item})),...(value===''?[]:[{candidate:{input:row.input,item:row.item},evaluation:row.choices[Number(value)].evaluation}])]})
   function evaluationFields(evaluation,onSelect,key) {
-   return rows.map((row,index)=>{
+   const semantic=evaluation!==undefined&&!Object.hasOwn(evaluation,'bindings')
+   const mode=h('label',{key:'mode'},'Evaluation selection',h('select',{'aria-label':`${key} evaluation selection`,disabled,value:semantic?'meaning':'records',onChange:event=>onSelect(event.target.value==='meaning'?{metric:'',method:null,reference:null,region:null}:{bindings:[]})},h('option',{value:'records'},'Choose actual evaluation records'),h('option',{value:'meaning'},'Match evaluation meaning for current objects')))
+   if(semantic)return [mode,h(EvaluationRule,{key:'rule',evaluation,onSelect,label:key,disabled})]
+   return [mode,...rows.map((row,index)=>{
     const bound=evaluation?.bindings?.find(binding=>binding.candidate.input===row.input&&binding.candidate.item===row.item)
     const selected=row.choices.findIndex(choice=>JSON.stringify(choice.evaluation)===JSON.stringify(bound?.evaluation))
     return h('div',{key:index},h('label',null,`Input ${row.input+1} · ${row.label}`,h('select',{'aria-label':`${key} evaluation for input ${row.input+1} item ${row.item+1}`,disabled,value:selected<0?'':String(selected),onChange:event=>onSelect(bindings(evaluation,row,event.target.value))},h('option',{value:''},'Choose actual evaluation'),...row.choices.map((choice,i)=>h('option',{key:i,value:String(i),disabled:!!choice.unavailable},choiceLabel(choice))))),selected>=0&&h(ReferenceDetails,{choice:row.choices[selected],host,inputs}))
-   })
+   })]
   }
   return h('section',{'aria-label':temporary?'Temporary filtering':'Node filtering parameters'},
    h('button',{disabled:busy,onClick:()=>invoke('workbench.filter.inspect')},'Inspect selected inputs'),
@@ -78,10 +110,5 @@ export function register({React}) {
  function Editor({context,parameters,onChange,readOnly}) {
   return h('section',null,...Object.entries(context.inputs).map(([port,input])=>input.unavailable&&h('p',{key:port},input.unavailable)),h(Controls,{host:context.host,inputs:Object.fromEntries(Object.entries(context.inputs).map(([port,input])=>[port,input.packages.map(pkg=>pkg.id)])),parameters,onChange,disabled:readOnly}))
  }
- function Viewer({package:pkg,host}) {
-  const [document,setDocument]=React.useState(null),[error,setError]=React.useState('')
-  React.useEffect(()=>{let live=true;host.readFile(pkg.id,pkg.entry).then(blob=>blob.text()).then(text=>{if(live)setDocument(JSON.parse(text))}).catch(error=>{if(live)setError(error.message)});return()=>{live=false}},[pkg.id])
-  return h('section',null,error&&h('p',{role:'alert'},error),...(document?.items??[]).map((item,index)=>h('p',{key:index},item.object.label??`Selected object ${index+1}`)),h('button',{disabled:host.readOnly,onClick:()=>host.addNode({type:'workbench.filter.extract_structures',parameters:{},inputs:{collection:[pkg.id]}}).catch(error=>setError(error.message))},'Extract selected structures'))
- }
- return {resultActions:[{id:'workbench.filtering',name:'Temporary filter and sort',component:ResultAction}],editors:[{node:'workbench.filter',component:Editor}],viewers:[{id:'workbench.filtered_collection',name:'Filtered collection',formats:['workbench.filtered_collection'],component:Viewer}]}
+ return {resultActions:[{id:'workbench.filtering',name:'Temporary filter and sort',component:ResultAction}],editors:[{node:'workbench.filter',component:Editor}]}
 }

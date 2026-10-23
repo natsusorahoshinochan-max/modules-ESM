@@ -3,7 +3,7 @@
 Install `modules.filtering:module` from the `protein-workbench` distribution.
 The module explicitly depends on the public
 [`modules.metric_analysis.read_metric_choices`](../metric_analysis/FORMAT.md#public-existing-metric-reader)
-and [`modules.structure_io.parse` / `atoms`](../structure_io/FORMAT.md#public-structure-processing)
+and the [collection module](../collection/FORMAT.md)
 APIs in that distribution. React 19 is supplied by the host. Producer modules
 need not be registered or enabled to read their delivered public formats.
 
@@ -18,7 +18,7 @@ would fail another condition. All conditions are combined with AND.
 
 Candidates accept `workbench.sequence`, `workbench.structure_set`,
 `workbench.proteinmpnn_design`, the concrete source formats listed in the
-[metric reader](../metric_analysis/FORMAT.md), and `workbench.filtered_collection`.
+[metric reader](../metric_analysis/FORMAT.md), and `workbench.collection`.
 Evaluation inputs accept those metric formats, saved `workbench.metric_analysis`
 statistics and filtered collections. Analysis results supply evaluations; bind
 the original object packages separately as candidates.
@@ -36,8 +36,15 @@ format-agnostic.
 In the canvas, bind delivered packages explicitly using the port's multiple
 selection control. **Inspect selected inputs** lists each candidate and its actual
 metric, method, reference, original region, sample, unit and meaning. Unavailable
-values remain listed with their reason. Select the exact evaluation for each
-candidate and operation. Parameter changes update only the current node; **Copy
+values remain listed with their reason. Each condition and sort can use exact
+records for individual candidates, or **Match evaluation meaning for current
+objects**. The latter accepts an explicit JSON rule before upstream results exist;
+use **Apply rule** to store its metric, method, reference selection and region for every
+incoming object, including new objects in later rounds. **Exact reference in rule**
+keeps a fixed reference. **Reference from connected evaluations** explicitly uses
+the reference in the currently connected evaluation packages, allowing it to
+change between rounds. Changing this choice updates the rule draft; **Apply rule**
+accepts it. Parameter changes update only the current node; **Copy
 node** copies its complete settings and direct inputs. Save manually before running.
 
 On the result page, **Temporary filter and sort** provides separate explicit
@@ -86,50 +93,26 @@ Each `evaluation` may use exact inspection bindings:
 There must be exactly one binding and one applicable value for every candidate.
 The inspection value identifies the explicit evaluation input and complete
 source selector; a collection evaluation also identifies its archived source.
-For programmatic callers, `{metric, method, reference, region}` selects that exact
-semantic context across candidates, with optional `origin` and `sample`. Multiple
-matching records fail and must be resolved by exact bindings. Scalar selection
+The meaning mode uses `{metric, method, reference, region}` to select that exact
+semantic context across candidates, with optional `origin` and `sample`.
+Alternatively, replace `reference` with `reference_mode: "provided_evaluations"`.
+These fields are mutually exclusive. This explicit mode searches only the
+evaluation packages supplied to the current invocation, matching each candidate's
+identity, metric, actual method, original region and any optional selectors.
+It accepts a changed reference when exactly one evaluation matches. Several
+matching evaluations, including evaluations against different references, fail;
+select the intended evaluation inputs or use exact bindings. Missing matches also
+fail. No history, latest record or highest score is used to choose a reference.
+Scalar selection
 uses its original scope. Positional metrics require an explicit existing-metric
 analysis first; filtering computes no mean and invokes no scientific tool.
 
-## Persistent result: workbench.filtered_collection
+## Persistent result
 
-The JSON entry has `items`, `sources`, `selected` and the actual `parameters`.
-`items` contains the selected objects in result order, each as
-`{object: <unchanged original description>, source: <sources index>}`. Joint items
-retain their complete original `members`. No scientific object identity changes.
-
-Each `sources` entry records original `format`, original `entry`, a `files` map
-from every original file key to the actual file key in this collection, and its
-explicit input `roles` (`candidate` and/or `evaluation`). The collection includes all
-candidate and evaluation source files, complete original structure files, native
-results, manifests and research files. Resolve every file reference in an
-original object or manifest through that source map. Repeated filtering flattens
-source maps while retaining the original file contents. `selected` records the
-invocation's input/item ordering for explanation; independent use reads `items`
-and the actual files.
-
-`modules.filtering.formats.read_collection(package)` is a standalone standard-library
-reader. `SourcePackage(package, source)` exposes an original source through its
-file map using the public read-only Package contract. Saved and adopted collections
-remain readable after source deletion and producer uninstall. A subsequent filter
-explicitly accepts the collection on its candidate and evaluation ports; all archived sources with declared metric formats provide their existing
-values for explicit evaluation selection. Repeated or ambiguous records require
-exact source bindings. No project history is consulted.
-
-## Explicit structure conversion
-
-`workbench.filter.extract_structures` accepts one `collection` and no parameters.
-It converts every selected complete PDB/mmCIF object into `workbench.structure_set`
-on `structures`. It requires one actual conformation per selected object and
-includes the unchanged coordinate bytes and a real atom-view JSON file produced
-by the public structure reader, retaining protein, water, ligand and other atoms.
-The object retains its original identity, label and supplied sequence/position
-correspondence. `collection_source` retains the complete original object and its
-format/entry/file map with all original files. Other scientific fields remain
-inside that original description and are interpreted through its map.
-
-The collection viewer offers **Extract selected structures** to add this explicit
-conversion node. Sequence-only and joint-context candidates lacking a complete
-coordinate file fail conversion. Downstream structure modules receive the declared
-structure-set format; the carrier performs no automatic unpacking or conversion.
+The canvas node delivers [`workbench.collection`](../collection/FORMAT.md), with
+selected objects in result order, their complete source files, explicit evaluation
+sources and the actual filtering parameters. The collection module owns splitting,
+merging, object selection and conversion to complete structure or sequence packages.
+A subsequent filter accepts the collection on candidate and evaluation ports;
+archived sources with declared metric formats provide the existing values. Repeated
+or ambiguous evaluation records require exact bindings. No project history is read.

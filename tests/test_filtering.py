@@ -42,7 +42,7 @@ def test_shared_multi_package_filter_and_real_persistent_files(tmp_path):
         run = wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
         assert run['status'] == 'succeeded', run
         output = app.state.workbench.package(run['nodes']['filter']['outputs']['collection'][0])
-        from modules.filtering.formats import read_collection
+        from modules.collection.formats import read_collection
         saved = read_collection(output)
         assert saved['selected'] == temporary.json()['data']['selected']
         assert [item['object']['id'] for item in saved['items']] == ['a','b']
@@ -71,6 +71,52 @@ def test_missing_ambiguous_and_quantity_boundaries_stop_whole_operation(tmp_path
         assert result.status_code == 400
 
 
+def test_explicit_connected_evaluations_follow_changed_references_and_require_one_match(tmp_path):
+    app = create_application(data_root=tmp_path/'store')
+    with TestClient(app) as client:
+        project = client.post('/api/projects', json={'name': 'Changing references'}).json()['id']
+
+        def comparison(subject_id, reference_id):
+            document = {
+                'subject': {'id': subject_id, 'structure': {'file': 'subject.pdb', 'format': 'pdb'}},
+                'reference': {'id': reference_id, 'structure': {'file': 'reference.pdb', 'format': 'pdb'}},
+                'region': None, 'method': {'name': 'TM-align'},
+                'metrics': {'tm_reference': {'value': .8, 'unit': 'dimensionless', 'normalization': 'reference length'}},
+            }
+            return upload(client, project, 'workbench.comparison', {
+                'manifest.json': json.dumps(document).encode(), 'subject.pdb': pdb(), 'reference.pdb': pdb(),
+            })
+
+        first = comparison('round-one', 'fixed-reference')
+        second = comparison('round-two', 'updated-reference')
+        alternate = comparison('round-two', 'another-explicit-reference')
+        rule = {'metric': 'tm_reference', 'method': {'name': 'TM-align'}, 'region': None,
+                'reference_mode': 'provided_evaluations'}
+        for parameters in ({'conditions': [{'evaluation': rule, 'operator': 'ge', 'value': .5}]},
+                           {'sort': {'evaluation': rule, 'direction': 'descending'}}):
+            for package in (first, second):
+                result = interaction(client, project, 'workbench.filter',
+                                     {'candidates': [package['id']], 'evaluations': [package['id']]}, parameters)
+                assert result.status_code == 200, result.text
+                assert result.json()['data']['selected'] == [{'input': 0, 'item': 0}]
+            for evaluations in ([], [second['id'], alternate['id']]):
+                result = interaction(client, project, 'workbench.filter',
+                                     {'candidates': [second['id']], 'evaluations': evaluations}, parameters)
+                assert result.status_code == 400 and 'missing or ambiguous' in result.text
+
+        for invalid in (dict(rule, reference=None), dict(rule, reference_mode='latest')):
+            result = interaction(client, project, 'workbench.filter',
+                                 {'candidates': [second['id']], 'evaluations': [second['id']]},
+                                 {'sort': {'evaluation': invalid, 'direction': 'ascending'}})
+            assert result.status_code == 400 and 'reference' in result.text
+        fixed = {key: value for key, value in rule.items() if key != 'reference_mode'}
+        fixed['reference'] = {'id': 'fixed-reference', 'structure': {'file': 'reference.pdb', 'format': 'pdb'}}
+        result = interaction(client, project, 'workbench.filter',
+                             {'candidates': [second['id']], 'evaluations': [second['id']]},
+                             {'sort': {'evaluation': fixed, 'direction': 'ascending'}})
+        assert result.status_code == 400 and 'missing or ambiguous' in result.text
+
+
 def test_collection_adoption_and_explicit_structure_conversion(tmp_path):
     app = create_application(data_root=tmp_path/'store')
     with TestClient(app) as client:
@@ -87,10 +133,9 @@ def test_collection_adoption_and_explicit_structure_conversion(tmp_path):
         client.delete(f'/api/projects/{project}').raise_for_status()
         client.delete('/api/modules/workbench.structure_confidence').raise_for_status()
         client.delete('/api/modules/workbench.filtering').raise_for_status()
-        from modules.filtering.formats import read_collection
+        from modules.collection.formats import read_collection
         assert read_collection(app.state.workbench.package(adopted))['items'][0]['object']['id']=='a'
-        client.post('/api/modules',json={'entry_point':'modules.filtering:module'}).raise_for_status()
-        flow={'nodes':[{'id':'extract','type':'workbench.filter.extract_structures','inputs':{'collection':[adopted]},'parameters':{}}], 'edges':[]}
+        flow={'nodes':[{'id':'extract','type':'workbench.collection.extract_structures','inputs':{'collection':[adopted]},'parameters':{}}], 'edges':[]}
         client.put(f'/api/projects/{target}',json={'flow':flow,'layout':{}}).raise_for_status()
         run=wait_response(client,client.post(f'/api/projects/{target}/runs')).json()
         assert run['status']=='succeeded', run
@@ -157,7 +202,7 @@ def test_saved_collection_can_filter_again_using_its_independent_evaluation_file
         client.put(f'/api/projects/{project}',json={'flow':flow,'layout':{}}).raise_for_status()
         run=wait_response(client,client.post(f'/api/projects/{project}/runs')).json()
         assert run['status']=='succeeded', run
-        from modules.filtering.formats import read_collection
+        from modules.collection.formats import read_collection
         saved=read_collection(app.state.workbench.package(run['nodes']['second']['outputs']['collection'][0]))
         assert [item['object']['id'] for item in saved['items']]==['b']
 
@@ -256,7 +301,7 @@ def test_native_backbone_is_required_before_limits_in_direct_and_mapped_candidat
         for key in saved['sources'][0]['files'].values():
             files[key] = client.get(f'/api/packages/{collection}/file',params={'key':key}).content
         files['backbone.pdb'] = pdb()
-        malformed = upload(client,project,'workbench.filtered_collection',files)
+        malformed = upload(client,project,'workbench.collection',files)
         refused = interaction(client,project,'workbench.filter',{'candidates':[malformed['id']]},{'limit':0})
         assert refused.status_code == 400 and 'backbone' in refused.text, (mapped,refused.text)
 

@@ -3,7 +3,7 @@ import {test, after} from 'node:test'
 import {execFileSync} from 'node:child_process'
 import * as React from 'react'
 import {JSDOM} from 'jsdom'
-const actual = JSON.parse(execFileSync('python3',['-c',`
+const actual = JSON.parse(execFileSync(process.env.WORKBENCH_PYTHON || 'python3',['-c',`
 import json, tempfile
 from pathlib import Path
 from fastapi.testclient import TestClient
@@ -109,7 +109,7 @@ test('unavailable metric remains visible and removable while a valid scalar comp
     assert.equal(apply.disabled,false)
     await React.act(async()=>apply.click())
     assert.deepEqual(updates,[{parameters:{selections:[scalar.selector]}}])
-    const saved=JSON.parse(execFileSync('python3',['-c',`
+    const saved=JSON.parse(execFileSync(process.env.WORKBENCH_PYTHON || 'python3',['-c',`
 import json,sys,tempfile
 from pathlib import Path
 from fastapi.testclient import TestClient

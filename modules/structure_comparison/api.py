@@ -26,69 +26,68 @@ class StructureInput:
     generation: dict | None = None
 
 
-def _read(package, *, prediction):
+def read_comparison_inputs(package):
+    """Read every explicitly supplied object from a supported file package."""
+    if package.format not in ('workbench.prediction', 'workbench.structure_set', 'workbench.reference'):
+        raise ValueError('Expected prediction, structure_set or reference input')
     with package.open(package.entry) as stream:
         document = json.load(stream)
     objects = document.get('objects') if isinstance(document, dict) else None
-    if not isinstance(objects, list) or len(objects) != 1 or not isinstance(objects[0], dict):
-        raise ValueError('Comparison requires exactly one structure object per input package')
-    obj = objects[0]
-    if not isinstance(obj.get('id'), str) or not obj['id']:
-        raise ValueError('Structure object id is required')
-    structure = obj.get('structure')
-    if not isinstance(structure, dict) or structure.get('format') not in ('pdb', 'mmcif') or not isinstance(structure.get('file'), str):
-        raise ValueError('Structure must name a package PDB or mmCIF file')
-    sequence = obj.get('sequence')
-    if prediction and (not isinstance(sequence, str) or not sequence):
-        raise ValueError('Prediction sequence is required for complete residue correspondence')
-    if not prediction and set(obj) - {'id', 'label', 'structure'}:
-        raise ValueError('Reference input accepts an independent structure and optional label')
+    if not isinstance(objects, list) or any(not isinstance(obj, dict) for obj in objects):
+        raise ValueError('Comparison requires explicit structure objects')
+    identities, result = set(), []
+    prediction = package.format == 'workbench.prediction'
     if prediction and not isinstance(document.get('tool'), dict):
         raise ValueError('Prediction tool metadata is required')
-    with package.open(structure['file']) as stream:
-        content = stream.read()
-    return StructureInput(obj['id'], content, structure['format'], sequence if prediction else None,
-                          obj.get('label'), {'tool': document['tool'], **({'input': obj['input']} if 'input' in obj else {})} if prediction else None)
+    for obj in objects:
+        identity = obj.get('id')
+        if not isinstance(identity, str) or not identity or identity in identities:
+            raise ValueError('Structure object identities must be nonempty and unique in each package')
+        identities.add(identity)
+        structure = obj.get('structure')
+        if not isinstance(structure, dict) or structure.get('format') not in ('pdb', 'mmcif') or structure.get('file') not in package.files:
+            raise ValueError('Structure must name a declared package PDB or mmCIF file')
+        sequence = obj.get('sequence')
+        if prediction and (not isinstance(sequence, str) or not sequence):
+            raise ValueError('Prediction sequence is required for complete residue correspondence')
+        if sequence is not None and (not isinstance(sequence, str) or not sequence):
+            raise ValueError('Supplied structure sequence must be a nonempty string')
+        if package.format == 'workbench.reference' and set(obj) - {'id', 'label', 'structure'}:
+            raise ValueError('Reference input accepts an independent structure and optional label')
+        with package.open(structure['file']) as stream:
+            content = stream.read()
+        generation = {'tool': document['tool'], **({'input': obj['input']} if 'input' in obj else {})} if prediction else None
+        result.append(StructureInput(identity, content, structure['format'], sequence, obj.get('label'), generation))
+    return result
+
+
+def read_comparison_input(package):
+    """Read one explicitly selected reference or one converted-format subject."""
+    objects = read_comparison_inputs(package)
+    if len(objects) != 1:
+        raise ValueError('Comparison reference requires exactly one structure object; explicitly select one collection object')
+    return objects[0]
 
 
 def read_prediction(package):
-    """Read workbench.prediction from its published format, without producer code."""
+    """Read one prediction through its published format, without producer code."""
     if package.format != 'workbench.prediction':
         raise ValueError('Expected workbench.prediction input')
-    return _read(package, prediction=True)
+    return read_comparison_input(package)
 
 
 def read_reference(package):
     """Read an independently uploaded workbench.reference package."""
     if package.format != 'workbench.reference':
         raise ValueError('Expected workbench.reference input')
-    return _read(package, prediction=False)
+    return read_comparison_input(package)
 
 
 def read_structure_set(package):
-    """Independently read the documented workbench.structure_set file contract."""
+    """Read one explicit structure_set object for public execution reuse."""
     if package.format != 'workbench.structure_set':
         raise ValueError('Expected workbench.structure_set input')
-    with package.open(package.entry) as stream:
-        document = json.load(stream)
-    objects = document.get('objects') if isinstance(document, dict) else None
-    if not isinstance(objects, list) or len(objects) != 1:
-        raise ValueError('Comparison requires one candidate; select one conformation during import or export')
-    obj = objects[0]
-    structure = obj.get('structure')
-    if not isinstance(obj.get('id'), str) or not obj['id'] or not isinstance(structure, dict) or structure.get('format') not in ('pdb', 'mmcif'):
-        raise ValueError('Structure object requires id and a PDB or mmCIF file')
-    with package.open(structure['file']) as stream:
-        content = stream.read()
-    return StructureInput(obj['id'], content, structure['format'], label=obj.get('label'))
-
-
-def read_comparison_input(package):
-    if package.format == 'workbench.structure_set':
-        return read_structure_set(package)
-    if package.format == 'workbench.prediction':
-        return read_prediction(package)
-    return read_reference(package)
+    return read_comparison_input(package)
 
 
 _AMINO = {'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C', 'GLN': 'Q', 'GLU': 'E',

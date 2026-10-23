@@ -58,7 +58,7 @@ def _initial(call):
         if packages and packages[0].format == FORMAT:
             raise ValueError('Use the accepted source package without an inline document')
         document = _validate(deepcopy(call.parameters['document']))
-        if document.get('structures') or any(row['coordinates'] is not None for row in document['positions']):
+        if document.get('structures') or any(row['coordinates'] is not None or row.get('_target_atoms') for row in document['positions']):
             raise ValueError('Coordinate and retained structure documents require a file-backed source package')
         return document
     if packages:
@@ -66,7 +66,11 @@ def _initial(call):
         with package.open(package.entry) as reader:
             value = json.load(reader)
         if package.format == FORMAT:
-            return _validate(value)
+            from .target_delivery import read_document
+            return _validate(read_document(package))
+        if package.format in ('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'):
+            from .structure_conditions import from_structure
+            return from_structure(package, call.parameters)
         objects = value.get('objects', [])
         selected = call.parameters.get('object')
         if selected is None and len(objects) == 1:
@@ -90,9 +94,19 @@ def _initial(call):
 
 def edit(call, runtime):
     document = _initial(call)
-    operation = call.parameters.get('operation')
-    if operation:
+    if 'operation' in call.parameters and 'operations' in call.parameters:
+        raise ValueError('Choose one interactive operation or an ordered operation list')
+    operations = [call.parameters['operation']] if call.parameters.get('operation') else call.parameters.get('operations', [])
+    if not isinstance(operations, list) or any(not isinstance(item, dict) for item in operations):
+        raise ValueError('Editing operations must be an ordered list')
+    for original in operations:
+        operation = deepcopy(original)
         rows = document['positions']
+        if 'indices' in operation:
+            indices = operation.pop('indices')
+            if 'positions' in operation or not isinstance(indices, list) or not indices or any(type(index) is not int or not 1 <= index <= len(rows) for index in indices) or len(set(indices)) != len(indices):
+                raise ValueError('Current target indices must be distinct one-based positions')
+            operation['positions'] = [rows[index - 1]['id'] for index in indices]
         kind = operation.get('kind')
         if kind in ('insert', 'random_insert'):
             if kind == 'insert':
@@ -154,19 +168,42 @@ def edit(call, runtime):
             document['positions'] = [by_id[key] for key in order]
         else:
             raise ValueError('Unknown sequence edit operation')
+    if 'template_conditions' in call.parameters:
+        _template_conditions(document, call.parameters['template_conditions'])
     document['sequence'] = ''.join(row['residue'] for row in document['positions'])
     _validate(document)
     if runtime.cancelled:
         raise ValueError('Edit cancelled')
-    path = runtime.workdir / 'edited.json'
-    path.write_text(json.dumps(document, ensure_ascii=False, allow_nan=False))
-    from .structure_conditions import preserve_files
-    files = preserve_files(document, call, runtime)
-    files['edited.json'] = 'edited.json'
-    display = ({'document_file': 'edited.json', 'position_count': len(document['positions'])}
-               if document.get('structures') or any(row['coordinates'] is not None for row in document['positions'])
-               else {'document': document})
-    return InteractionResult(display, {'edited': Delivery(FORMAT, 'edited.json', files)})
+    from .target_delivery import deliver
+    return deliver(document, call, runtime)
+
+
+def _template_conditions(document, conditions):
+    """Apply an explicit reusable selection to the current target after edits."""
+    if not isinstance(conditions, dict) or set(conditions) - {'fixed_positions', 'coordinate_positions', 'atoms'} or not {'fixed_positions', 'coordinate_positions'} <= set(conditions):
+        raise ValueError('Template conditions require explicit fixed_positions and coordinate_positions')
+    rows = document['positions']
+    for key in ('fixed_positions', 'coordinate_positions'):
+        indices = conditions[key]
+        if not isinstance(indices, list) or any(type(index) is not int or not 1 <= index <= len(rows) for index in indices) or len(set(indices)) != len(indices):
+            raise ValueError('Template conditions require distinct current one-based target positions')
+    names = conditions.get('atoms')
+    if names is not None and (not isinstance(names, list) or not names or any(not isinstance(name, str) for name in names) or len(set(names)) != len(names)):
+        raise ValueError('Template coordinate conditions require explicit atom names')
+    for index, row in enumerate(rows, 1):
+        row['fixed'] = index in conditions['fixed_positions']
+        if row['fixed'] and row['residue'] == '_':
+            raise ValueError('Choose an amino acid before fixing a target position')
+        row['prompt'] = row['residue'] if row['fixed'] else '_'
+        actual = deepcopy(row.get('_target_atoms', {}))
+        actual.update(row['coordinates'] or {})
+        row['_target_atoms'] = actual
+        if index in conditions['coordinate_positions']:
+            if not actual or (names is not None and set(names) - set(actual)):
+                raise ValueError(f'Target position {index} has no requested real coordinate atoms')
+            row['coordinates'] = {name:actual[name] for name in names} if names is not None else actual
+        else:
+            row['coordinates'] = None
 
 
 def execute(call, runtime):
@@ -176,7 +213,7 @@ def execute(call, runtime):
 
 def module():
     from .structure_conditions import interaction
-    inputs = {'source': InputPort(('workbench.sequence', FORMAT), required=False),
+    inputs = {'source': InputPort(('workbench.sequence', 'workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', FORMAT), required=False),
               'structures': InputPort(('workbench.structure_set', 'workbench.prediction'), required=False)}
     return Module(id='workbench.sequence_edit', name='Sequence and condition editing',
                   ui=str(Path(__file__).with_name('ui.js')),
