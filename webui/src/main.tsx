@@ -1,10 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './host.css'
-import App from './App'
+import { lazy, Suspense } from 'react'
+
+// Throwaway canvas study; available only in the development server.
+const App = import.meta.env.DEV && new URLSearchParams(location.search).get('prototype') === 'canvas'
+  ? lazy(() => import('./canvas-prototype/CanvasPrototype'))
+  : lazy(() => import('./App'))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Suspense fallback={null}><App /></Suspense>
   </StrictMode>,
 )

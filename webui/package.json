@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prototype:canvas": "vite --host 127.0.0.1 --port 5174 --open '/?prototype=canvas'",
     "build": "tsc -b && vite build",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
