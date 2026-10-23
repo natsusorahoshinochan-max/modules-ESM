@@ -10,9 +10,37 @@ type Wire = { fixed: Socket; original: number | null; point: Point; hover: Socke
 type Placement = { kind: Kind; point: Point; valid: boolean }
 type Gesture = { type: 'pan' | 'nodes' | 'box'; pointer: number; start: Point; view: View; graph: Graph; ids: string[]; additive: boolean; moved: boolean }
 const copy = <T,>(value: T): T => structuredClone(value)
-const editable = (target: EventTarget | null) => target instanceof HTMLElement && !!target.closest('input,textarea,select,[contenteditable]')
+const editable = (target: EventTarget | null) => target instanceof HTMLElement && !!target.closest('input,textarea,.cp-tool-picker,[contenteditable]')
 const sameSocket = (a: Socket | null, b: Socket) => a?.node === b.node && a.side === b.side && a.index === b.index
 const curve = (a: Point, b: Point) => { const reach = Math.max(54, Math.abs(b.x - a.x) * .45); return `M${a.x},${a.y} C${a.x + reach},${a.y} ${b.x - reach},${b.y} ${b.x},${b.y}` }
+
+function ToolPicker({ node, onChange, onOpen }: { node: CanvasNode; onChange: (id: string) => void; onOpen: () => void }) {
+  const tools = getKind(node).tools!
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const root = useRef<HTMLDivElement>(null)
+  const listId = `tools-${node.id}`
+  const selected = tools.findIndex(tool => tool.id === node.tool)
+  const show = () => { setActive(selected); setOpen(true); onOpen() }
+  const choose = (index: number) => { if (tools[index].id !== node.tool) onChange(tools[index].id); setOpen(false) }
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false) }
+    const blur = () => setOpen(false)
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('blur', blur)
+    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('blur', blur) }
+  }, [open])
+  return <div className="cp-tool-picker" ref={root} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}>
+    <button type="button" className="cp-tool-trigger" role="combobox" aria-label={`${getKind(node).title} 工具`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-activedescendant={open ? `${listId}-${active}` : undefined} onClick={() => open ? setOpen(false) : show()} onKeyDown={event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false) }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!open) show(); else setActive(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + tools.length) % tools.length) }
+      if (open && (event.key === 'Home' || event.key === 'End')) { event.preventDefault(); setActive(event.key === 'Home' ? 0 : tools.length - 1) }
+      if (open && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(active) }
+    }}><span>{tools[selected].name}</span><span aria-hidden="true">{open ? '▴' : '▾'}</span></button>
+    {open && <div className="cp-tool-options" role="listbox" id={listId} aria-label={`${getKind(node).title} 可选工具`}>{tools.map((tool, index) => <button type="button" role="option" tabIndex={-1} id={`${listId}-${index}`} aria-selected={tool.id === node.tool} className={active === index ? 'cp-option-active' : ''} key={tool.id} onPointerDown={event => event.preventDefault()} onPointerMove={() => setActive(index)} onClick={() => choose(index)}><span>{tool.name}</span><span aria-hidden="true">{tool.id === node.tool ? '✓' : ''}</span></button>)}</div>}
+  </div>
+}
 
 export default function CanvasPrototype() {
   const [graph, setGraphState] = useState<Graph>(initialGraph)
@@ -134,7 +162,7 @@ export default function CanvasPrototype() {
   function begin(event: PE, id?: string) {
     if (event.button !== 0 && event.button !== 1 || busy()) return
     const target = event.target as HTMLElement
-    if (target.closest('input,select,textarea,.cp-overlay,[data-port-node],.cp-wire-hit')) return
+    if (target.closest('input,textarea,.cp-tool-picker,.cp-overlay,[data-port-node],.cp-wire-hit')) return
     const panning = event.button === 1 || space || tool === 'pan'
     if (target.closest('button') && !target.closest('.cp-node-head')) return
     event.preventDefault(); event.stopPropagation(); stage.current?.focus(); setAnimateView(false); setSelectedEdge(null)
@@ -249,7 +277,7 @@ export default function CanvasPrototype() {
     if (!p) return <span />
     const socket: Socket = { node: node.id, side, index }, compatible = wire && !invalid(wire.fixed, socket, wire.original)
     const hovered = wire && sameSocket(wire.hover, socket), connected = graph.edges.some(edge => side === 'input' ? edge.target === node.id && edge.input === index : edge.source === node.id && edge.output === index)
-    return <button type="button" className={`cp-${side}-port ${compatible ? 'cp-port-compatible' : ''} ${hovered ? wire.reason ? 'cp-port-invalid' : 'cp-port-hover' : ''}`} style={{ '--port': p.color } as CSSProperties} data-port-node={node.id} data-port-side={side} data-port-index={index} aria-label={`${kind.title} ${side === 'input' ? '输入' : '输出'} ${p.label}`} title={`${p.format}${side === 'input' && connected ? ' · 拖出可断开或改接' : ' · 拖动连线'}`} onPointerDown={event => startWire(event, socket)}><i className={connected || node.bindings?.[index] && side === 'input' ? 'connected' : ''} /><span>{p.label}</span></button>
+    return <span className={`cp-${side}-port`} style={{ '--port': p.color } as CSSProperties}><button type="button" className={`cp-port-dot ${compatible ? 'cp-port-compatible' : ''} ${hovered ? wire.reason ? 'cp-port-invalid' : 'cp-port-hover' : ''}`} data-port-node={node.id} data-port-side={side} data-port-index={index} aria-label={`${kind.title} ${side === 'input' ? '输入' : '输出'} ${p.label}`} title={`${p.format}${side === 'input' && connected ? ' · 拖出可断开或改接' : ' · 拖动连线'}`} onPointerDown={event => startWire(event, socket)}><i className={connected || node.bindings?.[index] && side === 'input' ? 'connected' : ''} /></button><span>{p.label}</span></span>
   }
   useLayoutEffect(() => {
     const elements = [...stage.current!.querySelectorAll<HTMLElement>('[data-node]')]
@@ -264,7 +292,7 @@ export default function CanvasPrototype() {
   useEffect(() => {
     const element = stage.current!
     const wheel = (event: WheelEvent) => {
-      if ((event.target as HTMLElement).closest('input,select,.cp-overlay')) return
+      if ((event.target as HTMLElement).closest('input,.cp-tool-picker,.cp-overlay')) return
       event.preventDefault(); if (busy()) return
       setAnimateView(false); const rect = element.getBoundingClientRect()
       if (event.ctrlKey || event.metaKey || event.altKey) {
@@ -315,7 +343,7 @@ export default function CanvasPrototype() {
       {graph.nodes.map((node, index) => { const kind = getKind(node), open = expanded.includes(node.id), fields = getFields(node), activeTool = getTool(node); return <article className={`cp-node ${selected.includes(node.id) ? 'cp-selected' : ''} ${open ? 'cp-expanded' : ''}`} key={node.id} data-node={node.id} style={{ left: node.position.x, top: node.position.y, width: nodeWidth, zIndex: selected.includes(node.id) ? 4 : open ? 3 : 1 }} onPointerDown={event => begin(event, node.id)}>
         <button className="cp-node-head" aria-label={`选择 ${kind.title}`} onClick={event => { if (event.detail === 0) setSelected([node.id]) }} onDoubleClick={event => { event.stopPropagation(); toggleExpanded(node.id) }}><span className="cp-node-mark">{String(index + 1).padStart(2, '0')}</span><strong>{kind.title}</strong><span className="cp-grip">⠿</span></button>
         <div className="cp-ports">{Array.from({ length: Math.max(kind.inputs.length, kind.outputs.length) }, (_, row) => <div className="cp-port-row" key={row}>{socketButton(node, 'input', row)}{socketButton(node, 'output', row)}</div>)}</div>
-        <div className="cp-node-fields">{kind.tools && <label className="cp-field"><span>工具</span><select aria-label={`${kind.title} 工具`} value={node.tool} onChange={event => switchTool(node, event.target.value)}>{kind.tools.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{fields.filter(field => !field.advanced).map(definition => field(node, definition))}</div>
+        <div className="cp-node-fields">{kind.tools && <div className="cp-field"><span>工具</span><ToolPicker node={node} onChange={id => switchTool(node, id)} onOpen={() => setSelected([node.id])} /></div>}{fields.filter(field => !field.advanced).map(definition => field(node, definition))}</div>
         {node.bindings && Object.entries(node.bindings).map(([input, file]) => <div className="cp-input-binding" key={input}><span>↳ {file}</span><button aria-label={`移除输入文件 ${file}`} title="移除文件绑定" onClick={() => commit({ ...graphRef.current, nodes: graphRef.current.nodes.map(n => { if (n.id !== node.id) return n; const bindings = { ...n.bindings }; delete bindings[Number(input)]; return { ...n, bindings } }) }, '已移除文件绑定')}>×</button></div>)}
         <div className="cp-node-foot"><span><i />未运行</span><button aria-expanded={open} aria-label={`${open ? '收起' : '展开'} ${kind.title} 属性`} onClick={() => toggleExpanded(node.id)}>{open ? '收起属性 ▴' : '属性 ▾'}</button></div>
         {open && <div className="cp-node-details">{activeTool && <p className="cp-tool-hint">{activeTool.hint}</p>}{fields.some(field => field.advanced) && <div className="cp-advanced-fields">{fields.filter(field => field.advanced).map(definition => field(node, definition))}</div>}<div className="cp-port-detail"><strong>端口格式</strong>{[...kind.inputs.map(p => ({ ...p, direction: '输入' })), ...kind.outputs.map(p => ({ ...p, direction: '输出' }))].map((p, i) => <div key={i}><span style={{ color: p.color }}>{p.direction} · {p.label}</span><code>{p.format.slice(0, p.format.indexOf('.') + 1)}<wbr />{p.format.slice(p.format.indexOf('.') + 1)}</code></div>)}</div></div>}
