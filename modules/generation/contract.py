@@ -1,13 +1,11 @@
 """Generation operation's public multitrack call, implemented by tool adapters."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 @dataclass(frozen=True)
 class GenerateRequest:
     track: str
     tracks: dict[str, Any]
-    target_file: str | None = None
-    conditions: dict[str, Any] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class GenerateResult:

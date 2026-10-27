@@ -12,7 +12,7 @@ class MPNNRequest:
     # Fixed random seed proposal used only when the selected tool seed is zero.
     random_seed: int | None = None
     complete_target: bool = False
-    conditions: dict[str, Any] | None = None
+    tracks: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

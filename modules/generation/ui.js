@@ -1,30 +1,10 @@
 export const runtime = { react: 19 };
 function registerSequence({ React }) {
   const h = React.createElement;
-  function Editor({ parameters, onChange, onDraftChange, readOnly }) {
-    const acceptedText = JSON.stringify(parameters.conditions ?? {}, null, 2);
-    const [text, setText] = React.useState(acceptedText);
-    const [error, setError] = React.useState('');
-    const textarea = React.useRef(null);
-    React.useEffect(() => { setText(acceptedText); setError(''); textarea.current?.setCustomValidity(''); }, [acceptedText]);
-    function changeConditions(event) {
-      const control = event.currentTarget, value = control.value;
-      setText(value);
-      let conditions;
-      try {
-        conditions = JSON.parse(value);
-        if (!conditions || typeof conditions !== 'object' || Array.isArray(conditions)) throw Error('Conditions must be an object');
-      } catch (failure) {
-        const message = String(failure);
-        control.setCustomValidity(message); setError(message); onDraftChange?.(); return;
-      }
-      control.setCustomValidity(''); setError(''); onChange({ ...parameters, conditions });
-    }
+  function Editor({ parameters, onChange, readOnly }) {
     return h('section', null,
       h('label', null, 'Samples per input', h('input', { type: 'number', min: 1, value: parameters.samples ?? 1, disabled: readOnly, onChange: event => onChange({ ...parameters, samples: Number(event.target.value) }) })),
-      h('p', null, 'Fixed residues and coordinate conditions come from the selected current editing package. Each sample uses the configured local seed literally; change it to obtain a different local sample. Biohub has no seed control.'),
-      h('label', null, 'Additional aligned conditions (JSON): secondary_structure, sasa, function_annotations', h('textarea', { ref: textarea, value: text, disabled: readOnly, onChange: changeConditions })),
-      error && h('p', { role: 'alert' }, error));
+      h('p', null, 'Connect either a whole protein or individual tracks with matching positions. Only connected tracks are used. Edit values and gaps in Protein Studio. Each sample uses the configured local seed literally; Biohub has no seed control.'));
   }
   function Viewer({ package: pkg, host }) {
     const [document, setDocument] = React.useState(null), [error, setError] = React.useState('');
@@ -68,8 +48,7 @@ function registerJoint({ React }) {
     return h('section', null,
       h('p', null, 'ESM3 first completes the sequence, then generates structure from that accepted sequence and the original current conditions. These are two dependent generate calls. A structure failure preserves its successful sequence for Continue.'),
       h('label', null, 'Samples per input', h('input', { type: 'number', min: 1, value: parameters.samples ?? 1, disabled: readOnly, onChange: event => onChange({ ...parameters, samples: Number(event.target.value) }) })),
-      h('p', null, 'Select current sequence conditions for Prompt, fixed/variable positions and named atom coordinates. Unsupported atoms or conditions stop the operation. Tool controls apply to both phases; explicit structure overrides below apply only to the second call. Local seed is used literally, including 0. Biohub accepts no seed.'),
-      h(JsonControl, { ...props, name: 'conditions', label: 'Aligned conditions (JSON): secondary_structure, sasa, function_annotations, potential_sequence_of_concern' }),
+      h('p', null, 'The connected protein supplies the actual values and gaps of every track. Edit these in Protein Studio. Unsupported atoms or values stop the operation. Tool controls apply to both phases; explicit structure overrides below apply only to the second call. Local seed is used literally, including 0. Biohub accepts no seed.'),
       h(JsonControl, { ...props, name: 'structure_parameters', label: 'Structure phase ESM3 control overrides (JSON; empty uses selected tool controls)' }));
   }
   function Coordinates({ coordinates }) {
@@ -148,7 +127,7 @@ function registerBackbone({ React }) {
           ...Object.entries(obj.chains).map(([name, sequence]) => h('div', { key: name }, h('h5', null, `Chain ${name}`), h('pre', { 'aria-label': `Chain ${name} sequence` }, sequence))),
           obj.design && h(React.Fragment, null, h('p', null, `Design NLL: ${obj.design.score}; global NLL: ${obj.design.global_score}. Lower is better. Actual seed: ${obj.tool.actual_seed}.`),
             h('details', null, h('summary', null, 'Real residues, masks, scores and parameters'), h('pre', null, JSON.stringify({ positions: obj.positions, design: obj.design, tool: obj.tool }, null, 2)))))),
-        h('p', null, 'Explicitly use one chain from every sample as separate sequence inputs. Missing chains or X fail conversion; the complete design remains available.'),
+        h('p', null, 'Explicitly use one chain from every sample as separate sequence inputs. Select an existing chain; unknown amino acids are retained.'),
         h('label', null, 'Sequence chain', h('select', { 'aria-label': 'Sequence chain', value: chain, disabled: host.readOnly || adding, onChange: event => { setChain(event.target.value); setStatus(''); } },
           h('option', { value: '' }, 'Choose an actual chain'), ...chains.map(name => h('option', { key: name, value: name }, name)))),
         h('button', { disabled: host.readOnly || adding || !chain, onClick: addChain }, adding ? 'Adding…' : 'Add chain sequence node'),

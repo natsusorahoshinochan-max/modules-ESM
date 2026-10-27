@@ -123,8 +123,8 @@ def extract_sequences(call, runtime):
         original = item['object']
         sequence = original.get('sequence')
         identity = original.get('id')
-        if not isinstance(sequence, str) or not sequence or any(letter not in 'ACDEFGHIKLMNPQRSTVWY' for letter in sequence):
-            raise ValueError('Every selected object must supply a complete single canonical protein sequence; use an explicit chain conversion for native multi-chain output')
+        from modules.sequence_io.formats import sequence_values
+        sequence_values(sequence)
         if not isinstance(identity, str) or not identity or identity in identities:
             raise ValueError('Sequence extraction requires distinct selected object identities')
         identities.add(identity)

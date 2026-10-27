@@ -4,13 +4,12 @@ from shutil import copyfileobj
 from uuid import uuid4
 
 from modules.structure_io import read_structure, positions, transform, atoms, resolve_selection
-from protein_workbench_public.module_api import Delivery, InteractionResult
 
 
 def preserve_files(document, call, runtime):
     files = {}
     source = call.inputs.get('source', ())
-    if source and source[0].format == 'workbench.sequence_conditions':
+    if source and source[0].format == 'workbench.protein':
         for key in source[0].files:
             if key in {'edited.json', 'editor.json', 'target.cif', 'view.json'}:
                 continue
@@ -18,14 +17,14 @@ def preserve_files(document, call, runtime):
             with source[0].open(key) as reader, (runtime.workdir / name).open('wb') as writer:
                 copyfileobj(reader, writer)
             files[key] = name
-    if source and source[0].format in ('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'):
-        for record in document.get('structures', []):
+    if source and source[0].format != 'workbench.protein':
+        for record in document.get('structures', []) + document.get('sources', []):
             for original, destination in record['files'].items():
                 name = uuid4().hex
                 with source[0].open(original) as reader, (runtime.workdir / name).open('wb') as writer:
                     copyfileobj(reader, writer)
                 files[destination] = name
-    for record in document.get('structures', []):
+    for record in document.get('structures', []) + document.get('sources', []):
         if not isinstance(record, dict) or not isinstance(record.get('files'), dict):
             raise ValueError('Preserved structures require explicit package file keys')
         if set(record['files'].values()) - set(files):
@@ -52,12 +51,12 @@ class RetainedStructure:
 
 
 def interaction(call, runtime):
-    from . import _initial, _validate, _residue
-    document = _initial(call)
+    from . import _initial, _validate, _residue, establish_baseline
+    document = establish_baseline(_initial(call))
     files = preserve_files(document, call, runtime)
     operation = call.parameters.get('operation', {})
     kind = operation.get('kind')
-    view = []
+    view = None
     if kind in (None, 'adopt_structure'):
         selection = call.parameters.get('structure')
         if not isinstance(selection, dict):
@@ -70,7 +69,7 @@ def interaction(call, runtime):
         elif set(selection) == {'retained'} and isinstance(selection['retained'], str) and selection['retained'] and not sources:
             matches = [item for item in document.get('structures', []) if item['id'] == selection['retained']]
             current = call.inputs.get('source', ())
-            if len(matches) != 1 or not current or current[0].format != 'workbench.sequence_conditions':
+            if len(matches) != 1 or not current or current[0].format != 'workbench.protein':
                 raise ValueError('Selected retained structure record is unavailable or ambiguous')
             record = matches[0]
             source = RetainedStructure(current[0], record)
@@ -83,8 +82,8 @@ def interaction(call, runtime):
         if kind == 'adopt_structure':
             tracks = operation.get('tracks')
             mapping = operation.get('mapping')
-            if not isinstance(tracks, list) or not tracks or len(set(tracks)) != len(tracks) or set(tracks) - {'coordinates', 'residue', 'fixed'}:
-                raise ValueError('Select explicit coordinates, residue or fixed tracks')
+            if not isinstance(tracks, list) or not tracks or len(set(tracks)) != len(tracks) or set(tracks) - {'coordinates', 'residue'}:
+                raise ValueError('Select explicit coordinates or residue tracks')
             if not isinstance(mapping, list) or not mapping:
                 raise ValueError('Select an explicit region mapping to current edit positions')
             by_id = {row['id']:row for row in document['positions']}
@@ -102,6 +101,7 @@ def interaction(call, runtime):
                     raise ValueError('Each structure position must resolve exactly one actual component')
                 position = matches[0]
                 row = by_id[identity]
+                row['deleted'] = False
                 if 'coordinates' in tracks:
                     coordinates = {}
                     for atom in position['atoms']:
@@ -112,22 +112,14 @@ def interaction(call, runtime):
                     if names is not None and (not isinstance(names, list) or not names or len(set(names)) != len(names) or set(names) - set(coordinates)):
                         raise ValueError('Coordinate adoption must select actual atom names')
                     row['coordinates'] = {name:coordinates[name] for name in names} if names is not None else coordinates
-                    full = dict(row.get('_target_atoms', {}))
-                    full.update(row['coordinates'])
-                    row['_target_atoms'] = full
                     row['target_author'] = {'author_number':position['author_number'], 'author_chain':position['chain'], 'insertion_code':position['insertion_code']}
                 if 'residue' in tracks:
                     # Residue names are interpreted by the structure module's parser dependency.
                     import gemmi
                     residue = gemmi.find_tabulated_residue(position['residue_name'])
-                    if not residue.is_amino_acid():
+                    if not residue.is_amino_acid() and position['residue_name'] not in ('UNK', 'XLE'):
                         raise ValueError('Residue adoption requires an amino-acid component')
-                    row['residue'] = _residue(residue.one_letter_code.upper())
-                if 'fixed' in tracks:
-                    if row['residue'] == '_':
-                        raise ValueError('Choose an amino acid before fixing a position')
-                    row['fixed'] = True
-                row['prompt'] = row['residue'] if row['fixed'] else '_'
+                    row['residue'] = _residue('J' if position['residue_name'] == 'XLE' else 'X' if position['residue_name'] == 'UNK' else residue.one_letter_code.upper())
                 row['structure_position'] = {'structure':record_id, 'position':{key:position[key] for key in ('model','chain','author_number','insertion_code','residue_name')}}
                 used.add(identity)
             if record is None:
@@ -141,26 +133,10 @@ def interaction(call, runtime):
                     retained[key] = destination
                 document.setdefault('structures', []).append({'id':record_id,'object':object_id, 'format':source.format,'entry':retained[source.entry],'files':retained})
     elif kind == 'transform_coordinates':
-        selected = operation.get('positions')
-        rows = {row['id']:row for row in document['positions']}
-        if not isinstance(selected, list) or not selected or len(set(selected)) != len(selected) or set(selected) - set(rows):
-            raise ValueError('Select explicit current edit positions for coordinate preview')
-        # Reuse the public rigid-transform validation and computation on current coordinates.
-        for identity in selected:
-            row = rows[identity]
-            if row['coordinates'] is None:
-                raise ValueError('Selected position has no current coordinates')
-            import gemmi
-            structure = gemmi.Structure(); model = gemmi.Model('1'); chain = gemmi.Chain('A'); residue = gemmi.Residue()
-            residue.name = 'UNK'; residue.seqid = gemmi.SeqId(1, ' ')
-            for name, xyz in row['coordinates'].items():
-                atom = gemmi.Atom(); atom.name = name; atom.pos = gemmi.Position(*xyz); residue.add_atom(atom)
-            chain.add_residue(residue); model.add_chain(chain); structure.add_model(model)
-            result = transform(structure, operation.get('rotation'), operation.get('translation'))
-            row['coordinates'] = {atom['atom_name']:atom['position'] for atom in atoms(result)}
+        transform_current(document, operation)
     else:
         raise ValueError('Unknown structure condition operation')
-    document['sequence'] = ''.join(row['residue'] for row in document['positions'])
+    document['sequence'] = ''.join(row['residue'] or '_' for row in document['positions'])
     _validate(document)
     if runtime.cancelled:
         raise ValueError('Structure preview cancelled')
@@ -207,17 +183,19 @@ def from_structure(source, parameters):
         actual = [position for position in actual if position in retained]
     if len({position['chain'] for position in actual}) != 1:
         raise ValueError('Establish one template from positions on one explicit chain')
-    tracks = parameters.get('tracks', ['coordinates', 'fixed'])
-    if not isinstance(tracks, list) or len(tracks) != len(set(tracks)) or set(tracks) - {'coordinates', 'fixed'}:
-        raise ValueError('Template conditions may select coordinates and fixed sequence')
+    tracks = parameters.get('tracks', ['coordinates', 'sequence'])
+    if not isinstance(tracks, list) or len(tracks) != len(set(tracks)) or set(tracks) - {'coordinates', 'sequence'}:
+        raise ValueError('Initial protein tracks may select coordinates and sequence')
     atom_names = parameters.get('atoms')
     if atom_names is not None and (not isinstance(atom_names, list) or not atom_names or any(not isinstance(name, str) for name in atom_names) or len(atom_names) != len(set(atom_names))):
         raise ValueError('Choose distinct actual atom names for coordinate conditions')
     record_id = uuid4().hex
+    from modules.structure_io import existing_tracks
+    supplied_tracks = existing_tracks(source, object_id, actual)
     rows = []
-    for position in actual:
+    for position, supplied in zip(actual, supplied_tracks):
         residue = gemmi.find_tabulated_residue(position['residue_name'])
-        if not residue.is_amino_acid():
+        if not residue.is_amino_acid() and position['residue_name'] not in ('UNK', 'XLE'):
             raise ValueError('A design template requires amino-acid positions; retained source components remain available')
         coordinates = {}
         for atom in position['atoms']:
@@ -227,14 +205,34 @@ def from_structure(source, parameters):
         if coordinates and atom_names is not None and set(atom_names) - set(coordinates):
             raise ValueError('Selected coordinate atom names are unavailable at a template position')
         origin = {key:position[key] for key in ('model','chain','author_number','insertion_code','residue_name')}
-        row = _position(_residue(residue.one_letter_code.upper()), {'object':object_id, 'position':origin, **({'label_position':position['label_position']} if 'label_position' in position else {})})
-        row['fixed'] = 'fixed' in tracks
-        row['prompt'] = row['residue'] if row['fixed'] else '_'
-        row['_target_atoms'] = coordinates
+        row = _position(_residue('J' if position['residue_name'] == 'XLE' else 'X' if position['residue_name'] == 'UNK' else residue.one_letter_code.upper()), {'object':object_id, 'position':origin, **({'label_position':position['label_position']} if 'label_position' in position else {})})
+        row.update(supplied)
+        if 'sequence' not in tracks:
+            row['residue'] = None
         row['coordinates'] = ({name:coordinates[name] for name in atom_names} if atom_names is not None else coordinates) if 'coordinates' in tracks and coordinates else None
         row['target_author'] = {'author_number':position['author_number'], 'author_chain':position['chain'], 'insertion_code':position['insertion_code']}
         row['structure_position'] = {'structure':record_id, 'position':origin}
         rows.append(row)
     retained = {key:record_id + '/' + key for key in source.files}
-    return {'id':str(uuid4()), 'sequence':''.join(row['residue'] for row in rows), 'positions':rows, 'random_operations':[],
+    return {'id':str(uuid4()), 'sequence':''.join(row['residue'] or '_' for row in rows), 'positions':rows, 'random_operations':[],
             'structures':[{'id':record_id, 'object':object_id, 'format':source.format, 'entry':retained[source.entry], 'files':retained}]}
+
+
+def transform_current(document, operation):
+    selected = operation.get('positions')
+    rows = {row['id']:row for row in document['positions']}
+    if not isinstance(selected, list) or not selected or len(set(selected)) != len(selected) or set(selected) - set(rows):
+        raise ValueError('Select explicit current edit positions for coordinate preview')
+    # Reuse the public rigid-transform validation and computation on current coordinates.
+    for identity in selected:
+        row = rows[identity]
+        if row['coordinates'] is None:
+            raise ValueError('Selected position has no current coordinates')
+        import gemmi
+        structure = gemmi.Structure(); model = gemmi.Model('1'); chain = gemmi.Chain('A'); residue = gemmi.Residue()
+        residue.name = 'UNK'; residue.seqid = gemmi.SeqId(1, ' ')
+        for name, xyz in row['coordinates'].items():
+            atom = gemmi.Atom(); atom.name = name; atom.pos = gemmi.Position(*xyz); residue.add_atom(atom)
+        chain.add_residue(residue); model.add_chain(chain); structure.add_model(model)
+        result = transform(structure, operation.get('rotation'), operation.get('translation'))
+        row['coordinates'] = {atom['atom_name']:atom['position'] for atom in atoms(result)}

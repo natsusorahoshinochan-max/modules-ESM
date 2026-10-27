@@ -5,25 +5,22 @@ import shutil
 from uuid import uuid4
 
 from protein_workbench_public.module_api import Delivery, Outcome
-from .sources import read_sources, retain_result, request_for
+from .sources import read_inputs, retain_result, request_for
 
 FORMAT = 'workbench.joint_generation'
 
 
 def execute(call, runtime):
-    if set(call.parameters) - {'samples', 'conditions', 'structure_parameters'}:
-        raise ValueError('Joint generation accepts samples, conditions and structure_parameters')
+    if set(call.parameters) - {'samples', 'structure_parameters'}:
+        raise ValueError('Joint generation accepts samples and structure_parameters; protein tracks come from source')
     samples = call.parameters.get('samples', 1)
     if type(samples) is not int or samples < 1:
         raise ValueError('samples requires a positive integer')
-    conditions = call.parameters.get('conditions', {})
-    if not isinstance(conditions, dict) or set(conditions) - {'secondary_structure', 'sasa', 'function_annotations', 'potential_sequence_of_concern'}:
-        raise ValueError('Configure supported ESM3 conditioning tracks explicitly')
     parameters = call.tool_parameters.get('esm3', {})
     overrides = call.parameters.get('structure_parameters', {})
     if not isinstance(parameters, dict) or not isinstance(overrides, dict):
         raise ValueError('ESM3 controls and structure_parameters must be objects')
-    sources = read_sources(call.inputs['source'][0])
+    sources = read_inputs(call)
     total = len(sources) * samples
     objects, pending, files = [], None, {}
     if call.previous is not None and call.previous.continuation is not None:
@@ -56,8 +53,8 @@ def execute(call, runtime):
         phase = 'sequence'
         try:
             if pending is None:
-                tracks = {'sequence': source['prompt'], **deepcopy(conditions)}
-                request = request_for('sequence', source, tracks, call.inputs['source'][0], runtime)
+                tracks = deepcopy(source['tracks'])
+                request = request_for('sequence', tracks)
                 result = call.tools['esm3'](request, deepcopy(parameters), runtime)
                 # Keep actual successful sequence files even if cancellation arrived after the call.
                 pending, _ = retain_result(result, request, source, index % samples, runtime, files)
@@ -70,10 +67,10 @@ def execute(call, runtime):
             # The accepted native file is the sequence authority on continuation.
             with (runtime.workdir / files[pending['native']['file']]).open() as stream:
                 sequence_native = json.load(stream)
-            tracks['sequence'] = sequence_native['tracks']['sequence']
-            if tracks['sequence'] != pending['sequence']:
+            tracks['sequence'] = list(sequence_native['tracks']['sequence'])
+            if ''.join(tracks['sequence']) != pending['sequence']:
                 raise ValueError('Accepted sequence phase disagrees with its native file')
-            request = request_for('structure', source, tracks, call.inputs['source'][0], runtime)
+            request = request_for('structure', tracks)
             result = call.tools['esm3'](request, {**deepcopy(parameters), **deepcopy(overrides)}, runtime)
             candidate_files = {}
             generated, native = retain_result(result, request, source, index % samples, runtime, candidate_files)

@@ -65,18 +65,18 @@ Python 源码包和 wheel：
 
 ## 验证
 
-公共应用、HTTP 文件交付、轻量模型资源锁及公共 React 交互测试：
+当前 Studio 验证与归档说明见 [Studio 验证](docs/studio-validation.md)：
 
 ```bash
-.venv/bin/python -m pytest tests -q
-WORKBENCH_PYTHON="$PWD/.venv/bin/python" npm --prefix webui test
+.venv/bin/python -m pytest tests/studio -q
+node --test webui/tests/studio-*.test.mjs
 ```
 
-前后端测试按上述顺序执行；前端默认逐个测试文件运行，`WORKBENCH_PYTHON` 指向安装了项目依赖的 Python。
+旧测试已归档，不参与当前验证。
 
 真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
 
-通过公开接口创建、运行并核对多模板多轮流程，见[长流程验收](docs/workflow-validation.md)。
+长流程验收入口状态见[长流程验收](docs/workflow-validation.md)。
 
 首次启动附带并启用官方功能模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
 
@@ -102,7 +102,9 @@ ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF �
 
 独立序列与任意所选骨架的 ProteinMPNN 评价支持完整链对应、真实残基编号与插入码、独立区域及评分 mask；输入选择、数值含义和独立读取见[序列与骨架评价](modules/sequence_backbone_evaluation/FORMAT.md)。
 
-ESM3 的补全与受约束生成节点读取当前编辑包中的 Prompt、固定/可变区域和坐标条件，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/generation/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。[联合生成节点](modules/generation/FORMAT.md#workbenchjoint_generation) 先完成序列，再以该序列和原条件生成结构；结构阶段失败后保留序列并从该阶段续算。
+“编辑蛋白质”节点打开独立 Protein Studio 工作区。上方查看和操作真实三维坐标，下方分别选择、填写和清空序列、坐标、二级结构、SASA 及功能注释。局部编辑留在会话中，点击“完成并返回画布”一次采用结果；取消保留原节点。节点交付整体蛋白质及五个独立轨道端口，保留空缺和支持的单字母。序列可接结构预测并由接收操作检查适用性；整体或明确选择的轨道可接生成与设计，三维坐标可接处理、比较和导出。完成编辑保留原输入与连线，重开读取已确认成果；保存、输入及输出格式见 [Protein Studio](modules/sequence_edit/FORMAT.md)。
+
+ESM3 的补全与受约束生成节点读取已经准备好的五轨值和空缺，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/generation/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。[联合生成节点](modules/generation/FORMAT.md#workbenchjoint_generation) 先完成序列，再以该序列和原条件生成结构；结构阶段失败后保留序列并从该阶段续算。实际返回的多轨结果可以再次送入 Studio 编辑。
 
 筛选使用“Filter existing evaluations”，为当前节点选择明确的候选、已有评价、条件、排序及数量上限。结果页选择所需数据包后，可使用同一模块的临时筛选操作；选择与独立读取见 [筛选格式](modules/filtering/FORMAT.md)。
 

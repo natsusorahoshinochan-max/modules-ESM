@@ -24,7 +24,7 @@ def module():
         id='workbench.structure_comparison', name='Structure comparison',
         nodes=(Node(
             id='workbench.compare', name='Compare protein structures and regions', execute=execute,
-            inputs={'subject': InputPort(('workbench.prediction', 'workbench.structure_set'), cardinality='many'), 'reference': InputPort(('workbench.reference', 'workbench.structure_set', 'workbench.prediction'))},
+            inputs={'subject': InputPort(('workbench.prediction', 'workbench.structure_set', 'workbench.coordinates'), cardinality='many'), 'reference': InputPort(('workbench.reference', 'workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'))},
             outputs={'comparison': OutputPort('workbench.comparison', cardinality='many')},
             parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}},
         ),), ui=str(Path(__file__).with_name('ui.js').resolve()),

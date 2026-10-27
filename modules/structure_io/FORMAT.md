@@ -154,10 +154,29 @@ positions have empty `atoms`, their known author numbering or `None`, and the
 actual sequence label. mmCIF correspondence must be explicit and unique. A PDB
 whose SEQRES length exceeds its actual residues cannot supply that missing
 correspondence: choose explicit observed residues or provide mmCIF with sequence
-labels. A chain containing non-amino-acid components requires an explicit residue
-selection when establishing a protein template; the full source remains retained.
+labels. Non-amino-acid components on the same author chain are excluded from
+protein-position rows without changing the source structure. Protein residues
+remain paired with their actual atoms and sequence labels, including when water
+or metal records are interspersed in the coordinate file.
 
 Whole-structure mmCIF import, conversion, export and rigid transformation preserve
 the original `_pdbx_poly_seq_scheme`, including known author numbers at positions
 without atoms. Fragment extraction rebuilds current polymer labels from the
 selected actual residues; the unchanged full source file is retained separately.
+
+## Current coordinate tracks and existing annotations
+
+Processing and export also accept [`workbench.coordinates`](../sequence_edit/FORMAT.md#independent-track-outputs).
+Its structure file contains current atoms, with current positions numbered 1…N
+on chain A. Readers validate this file against `values` and `residues` before
+processing; missing atoms are never refilled from retained originals. Omit the
+object selector only for a single-object package.
+
+`existing_tracks(source, object_id, selected_positions)` reads existing
+secondary-structure records and explicitly supplied `tracks.secondary_structure`,
+`tracks.sasa` and `tracks.function_annotations`. Supplied tracks require an ordered
+`positions` list with chain, author number and insertion code; arrays must cover
+that list and annotation intervals use its one-based positions. The function
+maps these values to the requested polymer positions. Supplied values take
+precedence over file records, including nulls. It performs no secondary-structure,
+SASA or annotation calculation.

@@ -21,6 +21,8 @@ def export_sequences(call, runtime):
         return Outcome(status='cancelled')
     records = []
     for obj in objects:
+        if '_' in obj['sequence']:
+            raise ValueError(f"FASTA export requires filled positions; object {obj['id']} has a blank at position {obj['sequence'].index('_') + 1}. Save the sequence package to preserve blanks.")
         label = (obj.get('label') or obj['id']).replace('\r', ' ').replace('\n', ' ')
         records.append(f">{label}\n{obj['sequence']}\n")
     (runtime.workdir / 'sequences.fasta').write_text(''.join(records), encoding='utf-8')

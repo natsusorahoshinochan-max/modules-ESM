@@ -18,3 +18,5 @@ __pycache__/
 *.py[cod]
 remote/
 modules/*/ui/build/
+
+modules/sequence_edit/node_modules/

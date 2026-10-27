@@ -24,11 +24,32 @@ def prepare_structure(request, workdir):
     path = Path(request.structure_path)
     if path.is_absolute() or not (workdir / path).resolve().is_relative_to(workdir.resolve()):
         raise ValueError('ProteinMPNN structure must be inside runtime.workdir')
+    if request.tracks is not None and not request.complete_target:
+        raise ValueError('Prepared protein tracks require a complete target')
     if request.complete_target:
         from modules.structure_io.target import read_target
         if request.structure_format != 'mmcif':
             raise ValueError('Complete target requires mmCIF')
         target = read_target((workdir / path).read_bytes())
+        if request.tracks is not None:
+            tracks = request.tracks
+            size = len(target['positions'])
+            if set(tracks) != {'sequence', 'coordinates', 'secondary_structure', 'sasa', 'function_annotations'}:
+                raise ValueError('ProteinMPNN prepared protein requires five tracks')
+            for name in ('sequence', 'coordinates', 'secondary_structure', 'sasa'):
+                if not isinstance(tracks[name], list) or len(tracks[name]) != size:
+                    raise ValueError(f'ProteinMPNN {name} must cover every target position')
+            if any(value is not None for name in ('secondary_structure', 'sasa') for value in tracks[name]) or tracks['function_annotations']:
+                raise ValueError('ProteinMPNN supports sequence and backbone inputs; clear unsupported secondary structure, SASA and annotations explicitly')
+            for row, residue, atoms in zip(target['positions'], tracks['sequence'], tracks['coordinates'], strict=True):
+                if residue is not None and (not isinstance(residue, str) or len(residue) != 1 or residue not in ALPHABET[:-1]):
+                    raise ValueError('ProteinMPNN supplied sequence requires canonical residues or null gaps')
+                if atoms is not None and (not isinstance(atoms, dict) or any(not isinstance(point, list) or len(point) != 3 or any(type(value) not in (int, float) or not math.isfinite(value) for value in point) for point in atoms.values())):
+                    raise ValueError('ProteinMPNN coordinates require finite XYZ triples')
+                if atoms is not None and set(atoms) - {'N', 'CA', 'C', 'O'}:
+                    raise ValueError('ProteinMPNN prepared coordinates accept only N/CA/C/O; select the backbone atoms explicitly')
+                row['residue'], row['atoms'] = residue or 'X', atoms or {}
+            target['sequence'] = ''.join(value or 'X' for value in tracks['sequence'])
         author_chains = {row['author_chain'] for row in target['positions']}
         if len(author_chains) != 1 or not next(iter(author_chains)):
             raise ValueError('ProteinMPNN complete target requires one unambiguous author chain')
@@ -41,7 +62,7 @@ def prepare_structure(request, workdir):
                 if atom not in row['atoms']:
                     raise ValueError(f"ProteinMPNN target position {row['position']} requires {atom} coordinates; no position is omitted")
                 coords[atom + '_chain_' + chain].append(row['atoms'][atom])
-            if row['residue'] not in ALPHABET[:-1] or type(row['author_number']) is not int:
+            if row['residue'] not in (ALPHABET if request.tracks is not None else ALPHABET[:-1]) or type(row['author_number']) is not int:
                 raise ValueError('ProteinMPNN complete target requires canonical residues and explicit author numbers')
             positions.append({'chain': chain, 'author_number': row['author_number'], 'insertion_code': row['insertion_code'], 'tool_position': row['position']})
         entry['coords_chain_' + chain] = coords
@@ -112,25 +133,17 @@ def create_local(settings):
             raise ValueError('ProteinMPNN cancelled')
         entry, positions = prepare_structure(request, runtime.workdir)
         parameters = dict(parameters)
-        if request.conditions is not None:
-            if not request.complete_target or set(request.conditions) != {'sequence', 'coordinates'}:
-                raise ValueError('ProteinMPNN conditions require a complete target')
+        if request.tracks is not None:
             chains = [key.removeprefix('seq_chain_') for key in entry if key.startswith('seq_chain_')]
-            chain, sequence = chains[0], entry['seq_chain_' + chains[0]]
-            coordinate_rows = request.conditions['coordinates']
-            if not isinstance(coordinate_rows, list) or len(coordinate_rows) != len(sequence) or {row.get('position') for row in coordinate_rows} != set(range(1, len(sequence) + 1)) or any(not isinstance(row.get('atoms'), list) or set(row['atoms']) != {'N','CA','C','O'} or len(row['atoms']) != 4 for row in coordinate_rows):
-                raise ValueError('ProteinMPNN uses the full N/CA/C/O backbone; select every target position and all four atoms')
-            fixed = []
-            for row in request.conditions['sequence']:
-                position = row.get('position')
-                if type(position) is not int or not 1 <= position <= len(sequence) or position in fixed or row.get('residue') != sequence[position - 1]:
-                    raise ValueError('ProteinMPNN fixed residues must match unique target positions')
-                fixed.append(position)
+            chain = chains[0]
+            supplied = [index + 1 for index, value in enumerate(request.tracks['sequence']) if value is not None]
             native_fixed = parameters.get('fixed_positions', {})
             if not isinstance(native_fixed, dict):
                 raise ValueError('ProteinMPNN fixed_positions must map chains to positions')
-            parameters['fixed_positions'] = {**native_fixed, chain: list(dict.fromkeys([*native_fixed.get(chain, []), *fixed]))}
+            parameters['fixed_positions'] = {**native_fixed, chain: list(dict.fromkeys([*native_fixed.get(chain, []), *supplied]))}
         values = parameters_for(parameters, entry, request.sequences)
+        if request.tracks is not None and any(request.tracks['sequence'][index - 1] is None for index in values['fixed_positions'].get(chain, [])):
+            raise ValueError('ProteinMPNN cannot fix a blank sequence position; supply a residue or remove its native fixed_positions control')
         if request.random_seed is not None and (type(request.random_seed) is not int or not 0 <= request.random_seed <= 2**32 - 1):
             raise ValueError('random_seed must be an actual unsigned 32-bit seed')
         folder = runtime.workdir / ('mpnn-' + uuid4().hex)

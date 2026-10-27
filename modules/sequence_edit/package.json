@@ -1,0 +1,14 @@
+{
+  "name": "protein-studio-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "3dmol": "2.5.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

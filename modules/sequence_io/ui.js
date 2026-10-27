@@ -7,7 +7,7 @@ export function parseSequence(text) {
   if (headers.length > 1) throw new Error('Multiple FASTA records: use batch import.');
   if (headers.length && !lines[0].startsWith('>')) throw new Error('FASTA must start with a header.');
   const sequence = (headers.length ? lines.slice(1) : lines).join('').replace(/\s/g, '').toUpperCase();
-  if (!sequence || !/^[ACDEFGHIKLMNPQRSTVWY]+$/.test(sequence)) throw new Error('Enter one protein sequence using the 20 standard amino acid letters.');
+  if (!sequence || !/^[ACDEFGHIKLMNPQRSTVWYBXZJUO_]+$/.test(sequence)) throw new Error('Enter amino-acid letters or _ for an unfilled position.');
   return { sequence, ...(headers.length && lines[0].slice(1).trim() ? { label: lines[0].slice(1).trim() } : {}) };
 }
 
@@ -24,14 +24,16 @@ function sequenceObjects(document) {
     if (!object || typeof object !== 'object' || Object.keys(object).some(key => !['id', 'sequence', 'label', 'source', 'positions'].includes(key))) throw new Error('Unsupported sequence object components or conditions.');
     if (typeof object.id !== 'string' || !object.id || ids.has(object.id)) throw new Error('Sequence object IDs must be nonempty and unique.');
     ids.add(object.id);
-    if (typeof object.sequence !== 'string' || !/^[ACDEFGHIKLMNPQRSTVWY]+$/.test(object.sequence)) throw new Error('Sequence requires the 20 standard amino acid letters.');
+    if (typeof object.sequence !== 'string' || !/^[ACDEFGHIKLMNPQRSTVWYBXZJUO_]+$/.test(object.sequence)) throw new Error('Sequence requires supported amino-acid letters or _.');
     if ('label' in object && typeof object.label !== 'string') throw new Error('Sequence label must be text.');
     if ('source' in object && (!object.source || Array.isArray(object.source) || typeof object.source !== 'object' || !Object.keys(object.source).length || Object.entries(object.source).some(([key, value]) => !['name', 'record', 'text'].includes(key) || typeof value !== 'string'))) throw new Error('Source requires explicit name, record or text fields.');
     if ('positions' in object) {
       if (!Array.isArray(object.positions) || object.positions.length !== object.sequence.length) throw new Error('Positions must cover every sequence residue.');
       const seen = new Set(), seenLabels = new Set();
+      const positionIds = object.positions.filter(position => position && 'id' in position).map(position => position.id);
+      if (positionIds.length && (positionIds.length !== object.positions.length || positionIds.some(id => typeof id !== 'string' || !id) || new Set(positionIds).size !== positionIds.length)) throw new Error('Position ids must be unique and cover the complete sequence.');
       object.positions.forEach((position, index) => {
-        if (!position || Object.keys(position).some(key => !['sequence_index', 'chain', 'author_number', 'insertion_code', 'label_position'].includes(key)) || position.sequence_index !== index + 1) throw new Error('Positions require ordered one-based sequence_index values.');
+        if (!position || Object.keys(position).some(key => !['sequence_index', 'id', 'chain', 'author_number', 'insertion_code', 'label_position'].includes(key)) || position.sequence_index !== index + 1) throw new Error('Positions require ordered one-based sequence_index values.');
         const authorKeys = ['chain','author_number','insertion_code'];
         if (authorKeys.some(key=>key in position)) {
           if (!authorKeys.every(key=>key in position) || typeof position.chain !== 'string' || !Number.isSafeInteger(position.author_number) || typeof position.insertion_code !== 'string') throw new Error('Residue correspondence requires explicit chain, author_number and insertion_code.');

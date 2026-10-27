@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import os
 import stat
 
-from .storage import _relative
+from .storage import _relative, receive, StoredPackage
 from uuid import uuid4
 
 from protein_workbench_public.module_api import Call, InteractionResult
@@ -42,19 +42,43 @@ class Interactions:
         record, declaration = matches[0]
         if set(inputs) - set(declaration.inputs):
             raise HostError('Unknown interaction input port')
-        packages = {}
-        for name, port in declaration.inputs.items():
-            ids = inputs.get(name, [])
-            if not isinstance(ids, list) or any(not isinstance(key, str) for key in ids):
-                raise HostError(f'Input {name} requires explicit package IDs')
-            if (port.required and not ids) or (port.cardinality == 'one' and len(ids) > 1):
-                raise HostError(f'Input {name} is unavailable or has incorrect cardinality; select delivered packages')
-            values = tuple(self.host.package(key) for key in ids)
-            if any(value.metadata()['project_id'] != project or value.format not in port.accepts for value in values):
-                raise HostError(f'Input {name} requires an accepted package owned by this project')
-            packages[name] = values
         _json_text(parameters)
         runtime = ExecutionRuntime(self.host.new_workdir())
+        packages = {}
+        try:
+            for name, port in declaration.inputs.items():
+                references = inputs.get(name, [])
+                if not isinstance(references, list):
+                    raise HostError(f'Input {name} requires explicit package or preview references')
+                if (port.required and not references) or (port.cardinality == 'one' and len(references) > 1):
+                    raise HostError(f'Input {name} is unavailable or has incorrect cardinality; select delivered packages')
+                values = []
+                for reference in references:
+                    if isinstance(reference, str):
+                        value = self.host.package(reference)
+                    elif isinstance(reference, dict) and set(reference) == {'interaction', 'output'} and all(isinstance(item, str) for item in reference.values()):
+                        source = self.get(reference['interaction'])
+                        with source.lock:
+                            if source.project != project or source.state != 'preview' or source.cancel.is_set():
+                                raise HostError('Referenced preview is unavailable or belongs to another project')
+                            delivery = source.result.outputs.get(reference['output'])
+                            if delivery is None or delivery.format not in port.accepts:
+                                raise HostError(f'Input {name} requires an accepted temporary output format')
+                            # A child owns a complete copy, so undo history and cancellation
+                            # can release any previous preview independently.
+                            destination = runtime.workdir / 'inputs'
+                            destination.mkdir(exist_ok=True)
+                            input_record = receive(project, delivery, source.runtime.workdir, destination)
+                            value = StoredPackage(input_record, destination / input_record['id'])
+                    else:
+                        raise HostError(f'Input {name} requires explicit package or preview references')
+                    if value.metadata()['project_id'] != project or value.format not in port.accepts:
+                        raise HostError(f'Input {name} requires an accepted package owned by this project')
+                    values.append(value)
+                packages[name] = tuple(values)
+        except BaseException:
+            self.host.discard_workdir(runtime.workdir)
+            raise
         session = Session(project, declaration, Call(packages, parameters, record['settings']), runtime)
         runtime._cancel = session.cancel.is_set
         token = uuid4().hex
@@ -138,16 +162,17 @@ class Interactions:
             if output not in session.result.outputs:
                 raise HostError(f'Unknown interaction output: {output}')
             self._wait_readers(session)
-            try:
-                if session.cancel.is_set():
-                    raise HostError('Interaction cancelled')
-                receive = self.host.create_draft_input if self.host.get_project(session.project).get('tutorial') else self.host.create_input
-                return receive(session.project, session.result.outputs[output], session.runtime.workdir)
-            finally:
-                self._end(token, session)
+            if session.cancel.is_set():
+                raise HostError('Interaction cancelled')
+            accept_input = self.host.create_draft_input if self.host.get_project(session.project).get('tutorial') else self.host.create_input
+            result = accept_input(session.project, session.result.outputs[output], session.runtime.workdir, retain_workdir=True)
+            return result
 
     def cancel(self, token):
-        session = self.get(token)
+        with self.lock:
+            session = self.sessions.get(token)
+        if session is None:
+            return
         session.cancel.set()
         # Do not release a running handler's files while it still owns them.
         with session.lock:

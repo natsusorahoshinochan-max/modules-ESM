@@ -282,6 +282,8 @@ class Workbench:
                     from .scopes import walk_nodes
                     for node in walk_nodes(project["flow"], strict=True):
                         node["inputs"] = {port: [identities[key] for key in keys] for port, keys in node.get("inputs", {}).items()}
+                        if node.get('document'):
+                            node['document'] = identities[node['document']]
                     with self._connect() as connection:
                         for record in received:
                             self._write(connection, "package", record)
@@ -308,6 +310,10 @@ class Workbench:
             if not source.get("tutorial"):
                 requested.extend(record["id"] for record in self.list_packages(source_id) if record.get("role") == "input")
             for node in nodes:
+                if node.get('document') is not None:
+                    if not isinstance(node['document'], str):
+                        raise HostError('Editor document must be a package ID')
+                    requested.append(node['document'])
                 for keys in node.get("inputs", {}).values():
                     if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
                         raise HostError("Direct inputs must be lists of package IDs")
@@ -324,6 +330,8 @@ class Workbench:
                     received.append(record)
                     identities[key] = record["id"]
                 for node in nodes:
+                    if node.get('document'):
+                        node['document'] = identities[node['document']]
                     for port, keys in node.get("inputs", {}).items():
                         node["inputs"][port] = [identities[key] for key in keys]
                 with self._connect() as connection:
@@ -378,7 +386,7 @@ class Workbench:
             shutil.rmtree(workdir)
         self._workdirs.discard(workdir)
 
-    def create_draft_input(self, project_id, delivery, workdir):
+    def create_draft_input(self, project_id, delivery, workdir, *, retain_workdir=False):
         """Hold a teaching draft input until the user saves or abandons it."""
         from .storage import receive
         workdir = self._owned_workdir(workdir)
@@ -391,7 +399,8 @@ class Workbench:
                 self._draft_inputs[record["id"]] = record
                 return record
         finally:
-            self._release_workdir(workdir)
+            if not retain_workdir:
+                self._release_workdir(workdir)
 
     def discard_draft_input(self, package_id):
         with self._draft_lock:
@@ -405,7 +414,7 @@ class Workbench:
         for package_id in list(self._draft_inputs):
             self.discard_draft_input(package_id)
 
-    def create_input(self, project_id, delivery, workdir):
+    def create_input(self, project_id, delivery, workdir, *, retain_workdir=False):
         from .storage import receive
         workdir = self._owned_workdir(workdir)
         record = None
@@ -419,7 +428,8 @@ class Workbench:
                 shutil.rmtree(self._packages / record["id"], ignore_errors=True)
             raise
         finally:
-            self._release_workdir(workdir)
+            if not retain_workdir:
+                self._release_workdir(workdir)
 
     def adopt(self, target_project_id, source_package_id):
         """Copy every declared file without interpreting module-owned content."""

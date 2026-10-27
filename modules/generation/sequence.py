@@ -5,7 +5,7 @@ import shutil
 from uuid import uuid4
 
 from protein_workbench_public.module_api import Delivery, Outcome
-from .sources import read_sources, retain_result, request_for
+from .sources import read_inputs, retain_result, request_for
 
 FORMAT = 'workbench.esm3_generation'
 
@@ -20,15 +20,12 @@ def _copy_previous(package, runtime, files):
 
 
 def execute(call, runtime):
-    if set(call.parameters) - {'samples', 'conditions'}:
-        raise ValueError('Sequence generation accepts samples and explicit conditions')
+    if set(call.parameters) - {'samples'}:
+        raise ValueError('Sequence generation accepts samples; protein tracks come from the source input')
     samples = call.parameters.get('samples', 1)
     if type(samples) is not int or samples < 1:
         raise ValueError('samples requires a positive integer')
-    conditions = call.parameters.get('conditions', {})
-    if not isinstance(conditions, dict) or set(conditions) - {'secondary_structure', 'sasa', 'function_annotations', 'potential_sequence_of_concern'}:
-        raise ValueError('Configure supported ESM3 conditioning tracks explicitly')
-    sources = read_sources(call.inputs['source'][0])
+    sources = read_inputs(call)
     parameters = call.tool_parameters.get('esm3', {})
     if not isinstance(parameters, dict):
         raise ValueError('ESM3 parameters must be an object')
@@ -54,8 +51,8 @@ def execute(call, runtime):
             status = 'cancelled'
             break
         source = sources[index // samples]
-        tracks = {'sequence': source['prompt'], **deepcopy(conditions)}
-        request = request_for('sequence', source, tracks, call.inputs['source'][0], runtime)
+        tracks = deepcopy(source['tracks'])
+        request = request_for('sequence', tracks)
         try:
             result = call.tools['esm3'](request, deepcopy(parameters), runtime)
             if runtime.cancelled:
@@ -92,8 +89,8 @@ def sequence(call, runtime):
         if type(selected) is not int or not 0 <= selected < len(chains):
             raise ValueError('Select an explicit zero-based chain_index from the generated sequence')
         text = chains[selected]
-        if not text or any(symbol not in 'ACDEFGHIKLMNPQRSTVWY' for symbol in text):
-            raise ValueError('Selected chain cannot be represented by canonical workbench.sequence')
+        from modules.sequence_io.formats import sequence_values
+        sequence_values(text)
         offset = sum(len(chain) + 1 for chain in chains[:selected])
         rows = obj['positions'][offset:offset + len(text)]
         if len(rows) != len(text):

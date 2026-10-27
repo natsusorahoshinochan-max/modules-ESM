@@ -168,6 +168,8 @@ def _read_object(source, object_id):
         raise ValueError('Structure operation requires a manifest with object descriptions')
     if source.format == 'workbench.prediction' and (not isinstance(document.get('tool'), dict) or not isinstance(document['tool'].get('parameters'), dict) or not isinstance(document['tool'].get('id'), str) or not document['tool']['id']):
         raise ValueError('Prediction operation requires its existing tool and calculation parameters')
+    if object_id is None and len(document['objects']) == 1:
+        object_id = document['objects'][0].get('id')
     matches = [obj for obj in document['objects'] if obj.get('id') == object_id]
     if len(matches) != 1:
         raise ValueError('Select exactly one actual structure object')
@@ -175,10 +177,84 @@ def _read_object(source, object_id):
     if not isinstance(obj.get('structure'), dict) or not isinstance(obj['structure'].get('file'), str) or obj['structure'].get('format') not in ('pdb', 'mmcif'):
         raise ValueError('Selected object requires a declared PDB or mmCIF coordinate file')
     with source.open(obj['structure']['file']) as reader:
-        structure = parse(reader.read(), obj['structure']['format'])
+        content = reader.read()
+    if source.format == 'workbench.coordinates':
+        validate_coordinate_file(obj, content)
+    structure = parse(content, obj['structure']['format'])
     if len(structure) != 1:
         raise ValueError('Structure operation requires a single selected conformation')
     return document, obj, structure
+
+
+def validate_coordinate_file(obj, content):
+    """Check the standalone coordinate format against its current mmCIF file."""
+    from .target import read_target
+    if obj['structure']['format'] != 'mmcif':
+        raise ValueError('A coordinate track provides a current mmCIF representation')
+    target = read_target(content)
+    values, residues, mapping = obj.get('values'), obj.get('residues'), obj.get('positions')
+    if not isinstance(values, list) or not isinstance(residues, list) or not isinstance(mapping, list) or len(values) != len(residues) or len(mapping) != len(values) or len(target['positions']) != len(values):
+        raise ValueError('Coordinate values, residue identities and positions must correspond')
+    for index, (actual, value, residue, position) in enumerate(zip(target['positions'], values, residues, mapping), 1):
+        if not isinstance(position, dict) or position.get('sequence_index') != index or actual['author_number'] != index or actual['author_chain'] != 'A' or actual['atoms'] != (value or {}) or actual['residue'] != (residue or 'X'):
+            raise ValueError('Coordinate file must contain exactly the current track values and current position numbering')
+
+
+def existing_tracks(source, object_id, selected_positions):
+    """Read supplied tracks and file secondary-structure records; never calculate."""
+    _, obj, structure = _read_object(source, object_id)
+    result = [{'secondary_structure': None, 'sasa': None, 'function_annotations': []} for _ in selected_positions]
+    available = positions(structure)
+    def identity(row):
+        return (row['chain'], row['author_number'], row.get('insertion_code', ''))
+    ordered = [identity(row) for row in available]
+    ranges = []
+    for helix in structure.helices:
+        # PDB helix classes 1, 3 and 5 have exact DSSP8 counterparts.
+        value = {1: 'H', 3: 'I', 5: 'G'}.get(helix.pdb_helix_class.value)
+        if value:
+            ranges.append((helix.start, helix.end, value))
+    for sheet in structure.sheets:
+        ranges.extend((strand.start, strand.end, 'E') for strand in sheet.strands)
+    for start, end, value in ranges:
+        a = (start.chain_name, start.res_id.seqid.num, start.res_id.seqid.icode.strip())
+        b = (end.chain_name, end.res_id.seqid.num, end.res_id.seqid.icode.strip())
+        if a not in ordered or b not in ordered:
+            continue
+        covered = set(ordered[ordered.index(a):ordered.index(b) + 1])
+        for row, output in zip(selected_positions, result):
+            if identity(row) in covered:
+                output['secondary_structure'] = value
+    tracks = obj.get('tracks', {})
+    names = ('secondary_structure', 'sasa', 'function_annotations')
+    if not any(name in tracks for name in names):
+        return result
+    correspondence = obj.get('positions')
+    if not isinstance(correspondence, list) or not correspondence:
+        raise ValueError('Supplied tracks require explicit residue positions')
+    mapped = {}
+    for index, row in enumerate(correspondence):
+        if not isinstance(row, dict) or not {'chain', 'author_number', 'insertion_code'} <= set(row):
+            raise ValueError('Supplied tracks require chain, author number and insertion code correspondence')
+        key = identity(row)
+        if key in mapped:
+            raise ValueError('Supplied track residue correspondence is ambiguous')
+        mapped[key] = index
+    for name in names[:2]:
+        if name in tracks and (not isinstance(tracks[name], list) or len(tracks[name]) != len(correspondence)):
+            raise ValueError(f'Supplied {name} must cover its declared residue positions')
+    annotations = tracks.get('function_annotations', [])
+    if not isinstance(annotations, list) or any(not isinstance(a, dict) or set(a) != {'label', 'start', 'end'} or not isinstance(a['label'], str) or not a['label'].strip() or type(a['start']) is not int or type(a['end']) is not int or not 1 <= a['start'] <= a['end'] <= len(correspondence) for a in annotations):
+        raise ValueError('Supplied annotations require labels and inclusive declared position intervals')
+    for row, output in zip(selected_positions, result):
+        index = mapped.get(identity(row))
+        if index is None:
+            continue
+        for name in names[:2]:
+            if name in tracks:
+                output[name] = tracks[name][index]
+        output['function_annotations'] = list(dict.fromkeys(a['label'] for a in annotations if a['start'] <= index + 1 <= a['end']))
+    return result
 
 
 def positions(structure):
@@ -460,14 +536,14 @@ def module():
              inputs={'file': InputPort(('workbench.structure_file',))}, outputs={'structures': OutputPort('workbench.structure_set')},
              parameters={'models': {'description': 'Actual model number, or all for independent candidates'}}),
         Node(id='workbench.extract_structure', name='Extract structure chains or fragments', execute=extract_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction'))}, outputs={'structures': OutputPort('workbench.structure_set')},
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'))}, outputs={'structures': OutputPort('workbench.structure_set')},
              parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'selection': {'description': 'Explicit chains, actual positions or atom indices'}}),
         Node(id='workbench.transform_structure', name='Transform structure coordinates', execute=transform_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction'))}, outputs={'structures': OutputPort('workbench.structure_set')},
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'))}, outputs={'structures': OutputPort('workbench.structure_set')},
              parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'selection': {'description': 'Optional chains, actual positions or atom indices'},
                          'rotation': {'description': '3x3 proper rotation applied about coordinate origin'}, 'translation': {'description': 'Three-coordinate translation in angstroms'}}),
         Node(id='workbench.export_structure', name='Export selected structure components', execute=export_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'))}, outputs={'structures': OutputPort('workbench.structure_set')},
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates'))}, outputs={'structures': OutputPort('workbench.structure_set')},
              parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'atoms': {'description': 'Optional actual atom indices'}}),
     ), ui=str(Path(__file__).with_name('ui.js').resolve()))
 
@@ -483,8 +559,13 @@ are different, rather than guessing how author numbering crosses missing atoms.
     actual = [row for row in positions(structure) if row['chain'] == chain_name]
     if not actual:
         raise ValueError('Selected chain has no actual structure positions')
-    if any(not gemmi.find_tabulated_residue(row['residue_name']).is_amino_acid() for row in actual):
-        raise ValueError('Select amino-acid positions explicitly when a chain contains other components')
+    source_chain = structure[0][chain_name]
+    protein = [(residue, row) for residue, row in zip(source_chain, actual, strict=True)
+               if gemmi.find_tabulated_residue(residue.name).is_amino_acid()
+               or residue.name in ('UNK', 'XLE')]
+    if not protein:
+        raise ValueError('Selected chain has no amino-acid positions')
+    actual = [row for _, row in protein]
     if obj['structure']['format'] == 'pdb':
         entities = [entity for entity in structure.entities if entity.name == chain_name and entity.full_sequence]
         if entities and any(len(entity.full_sequence) != len(actual) for entity in entities):
@@ -498,8 +579,7 @@ are different, rather than guessing how author numbering crosses missing atoms.
         polymer.setdefault(gemmi.cif.as_string(row[0]), []).append((int(row[1]),gemmi.cif.as_string(row[2])))
     if not polymer:
         return actual
-    source_chain = structure[0][chain_name]
-    subchains = {residue.subchain for residue in source_chain}
+    subchains = {residue.subchain for residue, _ in protein}
     candidates = [(subchain, declared[subchain]) for subchain in subchains if subchain in declared and declared[subchain] in polymer]
     if len(candidates) != 1:
         raise ValueError('Selected chain requires one explicit polymer entity and label correspondence')
@@ -508,7 +588,7 @@ are different, rather than guessing how author numbering crosses missing atoms.
     if [index for index, _ in complete] != list(range(1, len(complete) + 1)):
         raise ValueError('Source polymer sequence requires complete unique ordered positions')
     mapped = {}
-    for residue, row in zip(source_chain, actual):
+    for residue, row in protein:
         if residue.subchain != subchain or residue.label_seq is None or residue.label_seq in mapped:
             raise ValueError('Observed residues require unique explicit sequence labels for complete-chain templates')
         mapped[residue.label_seq] = row

@@ -63,12 +63,12 @@ def execute(call, runtime):
     package = call.inputs['structure'][0]
     with package.open(package.entry) as stream:
         document = json.load(stream)
-    complete_target = package.format == 'workbench.sequence_conditions'
+    complete_target = package.format == 'workbench.protein'
     if complete_target:
         target = document.get('target')
-        if not isinstance(target, dict) or target.get('format') != 'mmcif' or not isinstance(document.get('conditions'), dict) or set(document['conditions']) != {'sequence', 'coordinates'}:
+        if not isinstance(target, dict) or target.get('format') != 'mmcif' or not isinstance(document.get('tracks'), dict):
             raise ValueError('Backbone design requires a complete target mmCIF')
-        sources = [{'id': document.get('id'), 'structure': deepcopy(target), 'conditions': deepcopy(document.get('conditions'))}]
+        sources = [{'id': document.get('id'), 'structure': deepcopy(target), 'tracks': deepcopy(document['tracks'])}]
     else:
         sources = document.get('objects')
     if not isinstance(sources, list) or not sources or any(not isinstance(obj, dict) or not isinstance(obj.get('id'), str) or not isinstance(obj.get('structure'), dict) for obj in sources):
@@ -111,7 +111,7 @@ def execute(call, runtime):
             path = runtime.workdir / uuid4().hex
             with package.open(key) as src, path.open('wb') as target:
                 shutil.copyfileobj(src, target)
-            request = MPNNRequest(path.name, structure['format'], random_seed=random_seeds[index], complete_target=complete_target, conditions=source.get('conditions'))
+            request = MPNNRequest(path.name, structure['format'], random_seed=random_seeds[index], complete_target=complete_target, tracks=source.get('tracks'))
             result = call.tools['mpnn'](request, deepcopy(parameters), runtime)
             if runtime.cancelled:
                 status = 'cancelled'
@@ -152,9 +152,8 @@ def _chain_sequence_objects(document, chain):
         sequence = obj['chains'][chain]
         if not isinstance(sequence, str) or not sequence:
             raise ValueError(f'{context} requires a complete chain sequence')
-        for position, symbol in enumerate(sequence, 1):
-            if symbol not in 'ACDEFGHIKLMNPQRSTVWY':
-                raise ValueError(f'{context}, position {position} contains {symbol!r}; workbench.sequence requires the 20 canonical amino acids')
+        from modules.sequence_io.formats import sequence_values
+        sequence_values(sequence)
         positions = obj.get('positions')
         if not isinstance(positions, list) or any(not isinstance(row, dict) for row in positions):
             raise ValueError(f'{context} requires complete residue correspondence')

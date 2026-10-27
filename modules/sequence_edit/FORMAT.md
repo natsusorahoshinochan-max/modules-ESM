@@ -1,176 +1,212 @@
-# Sequence and condition editing
+# Protein Studio
 
-Install `modules.sequence_edit:module`. The editor consumes
-[`workbench.sequence`](../sequence_io/FORMAT.md#workbenchsequence), explicit
-`workbench.structure_set`, `workbench.prediction` or
-`workbench.structure_confidence` inputs, and its own `workbench.sequence_conditions`.
-Structure processing is separately installable. Editing voluntarily imports its
-public operations and `modules.structure_io.target`; both are provided by the
-`protein-workbench` distribution with its declared Gemmi dependency.
+Install `modules.sequence_edit:module`. Studio supplies the `workbench.edit_sequence`
+node and a full editing workspace. Structure processing remains separately
+installable; Studio explicitly reuses its public operations and target mmCIF
+writer. The `protein-workbench` distribution declares the Gemmi dependency.
 
-## Complete target and explicit conditions
+## Prepared protein data
 
-`workbench.sequence_conditions` has a JSON entry with `id`, current `sequence`,
-ordered `positions`, `random_operations`, `target` and `conditions`. `target` is
-`{file: "target.cif", format: "mmcif", chain: "A"}`. The target mmCIF contains the
-complete current polymer, including positions with no atoms. Its one-based
-`label_seq_id` is current target order; source author numbering and insertion
-codes are retained independently. `_` in the editing sequence is `UNK`/`X` in
-the standard target file. Inserting a position adds no coordinates.
-
-`conditions.sequence` lists `{position, residue}` for fixed sequence positions.
-`conditions.coordinates` lists `{position, atoms}` for coordinates selected as
-conditions; `atoms` contains names such as `N`, `CA`, `C`. Both use the target's
-one-based label positions. Actual coordinates are read from `target.file`, never
-from JSON position rows. Unselected target atoms remain available. Clearing a
-coordinate condition does not delete the target or original source structure.
-
-Each `positions` row has an independently assigned editing `id`, `residue`,
-`prompt` and boolean `fixed`. Prompt is the fixed residue or `_` for a variable
-position. Optional `source`, `structure_position` and `target_author` record
-explicit supplied correspondence. Position rows cover the full target in order.
-The input is complete without producer history. Receivers validate their actual
-operation's requirements and any consistency they depend on.
+The `edited` output uses `workbench.protein`. Its JSON entry has an `id`, ordered
+`positions` and `tracks`. Every position has a stable `id`; optional `source`,
+`structure_position` and `target_author` retain explicit correspondence. Scientific
+values occur only in `tracks`:
 
 ```json
 {
-  "id":"edited-object", "sequence":"A_C",
-  "positions":[
-    {"id":"a","residue":"A","prompt":"A","fixed":true},
-    {"id":"new","residue":"_","prompt":"_","fixed":false},
-    {"id":"c","residue":"C","prompt":"_","fixed":false}
-  ],
-  "random_operations":[],
-  "target":{"file":"target.cif","format":"mmcif","chain":"A"},
-  "conditions":{"sequence":[{"position":1,"residue":"A"}],
-    "coordinates":[{"position":3,"atoms":["CA"]}]}
+  "id":"protein-1",
+  "positions":[{"id":"p1"},{"id":"p2"},{"id":"p3"}],
+  "tracks":{
+    "sequence":["A",null,"C"],
+    "coordinates":[{"N":[1,2,3],"CA":[2,3,4]},null,null],
+    "secondary_structure":[null,"H","H"],
+    "sasa":[12.5,null,31.0],
+    "function_annotations":[{"label":"binding","start":2,"end":3}]
+  },
+  "target":{"file":"target.cif","format":"mmcif","chain":"A"}
 }
 ```
 
-The package may retain `structures`, each with an independent record `id`, selected
-`object`, source package `format`, retained `entry`, and `files` mapping source
-keys to package keys. The original package files, full source structure, other
-components and research files are copied. Each adoption has its own record;
-selecting an existing record reuses it. Source object IDs may repeat across
-records. These files remain usable after the source project is deleted.
+All four position-wise arrays have the same nonzero length. Sequence values are
+single uppercase amino acids or null. Secondary structure uses DSSP8 letters
+`GHITEBSC` or null. SASA uses nonnegative finite square-angstrom values or null.
+Coordinates are named atoms with finite XYZ values in angstroms; null has no
+coordinates. Function annotation intervals use inclusive one-based current
+positions and nonempty labels. Annotation labels remain editable text; each
+consumer validates whether its tool supports them.
 
-## Establishing a template
+Each track contains its actual values and blanks. There are no editing permission
+flags, fixed/variable masks, Prompt copies, or cross-track edit boundaries.
 
-`workbench.edit_sequence` and the `workbench.sequence_edit` interaction accept an
-optional `source`. For sequences, select `object` when several objects are present;
-without a package, provide `sequence`. Existing sequence-position correspondence
-is carried with the resulting rows.
+Studio emits `target.cif` as a standard representation of the current polymer and
+actual coordinate values. Positions with missing sequence use `UNK`/`X` in this
+file; positions without atoms remain in the polymer sequence. The public JSON
+preserves null separately from an actual `X`. Current label positions follow the
+edited order; source author correspondence remains explicit. Readers accepting
+`workbench.protein` may consume the prepared tracks without a target file. When a
+target is supplied, its sequence and atoms must agree with those values.
 
-For a structure source, select `object` when several objects are present and
-provide `selection: {chains: ["A"]}` or `selection: {positions: [...]}` using the
-[structure module's real-position selection](../structure_io/FORMAT.md#public-structure-processing).
-The selected amino-acid positions must belong to one chain. Optional `regions`
-restricts the selection by author numbering, for example `12A,15:20,25:28`.
-Ranges are inclusive; selected rows retain file order. Every requested region
-must contain an actual position. The editor establishes correspondence itself.
+## Independent track outputs
 
-`tracks` selects initial `fixed` sequence and/or `coordinates` conditions
-(default both); an empty list creates a variable template without conditions.
-Optional `atoms` selects condition atom names, default all actual atoms. Complete
-target atoms and the full source remain preserved. Ambiguous alternate atom
-locations require explicit structure preparation. No unrelated components are
-silently selected into a protein template.
+Every execution emits `edited` and five single-package track outputs. All refer to
+the same confirmed object ID and the same ordered positions:
 
-## Editing, preview and confirmation
+| Port | Format | Content |
+| --- | --- | --- |
+| `sequence` | `workbench.sequence` | Single-letter sequence; `_` is an unfilled position |
+| `coordinates` | `workbench.coordinates` | Named atoms and XYZ values in Å, or null |
+| `secondary_structure` | `workbench.secondary_structure` | DSSP8 letter or null per position |
+| `sasa` | `workbench.sasa` | Nonnegative finite area in Å², or null per position |
+| `function_annotations` | `workbench.function_annotations` | Label intervals with inclusive one-based bounds |
 
-An accepted editing package is the current base. Requests send that package and
-the next `operation`; coordinates are reconstructed from its target file. Before
-first acceptance, an inline `document` may retain IDs in a coordinate-free draft.
-Inline coordinates, retained structures, or an inline document supplied alongside
-an accepted editing package fail.
+Sequence uses the [sequence format](../sequence_io/FORMAT.md). Each other JSON
+entry is `{"objects":[{"id":"protein-1","positions":[...],"values":[...]}]}`.
+Positions use the sequence format's `sequence_index`, stable `id` and optional
+source author/label correspondence. Per-position values include every position;
+annotation values use `{label,start,end}` intervals instead. Entirely blank tracks
+remain available. `modules.sequence_edit.tracks.read_track(package, track)` is the
+public reader for these formats; consumers can also implement the documented
+format independently.
 
-Operations are `insert` (gap index and sequence), `delete`, `update`, `reorder`
-and `random_insert`. Position selections use current editing IDs. Updates support
-`residue`, `prompt`, `fixed` and current coordinate conditions. Insertion assigns
-new IDs, deletion removes positions and attached conditions, and reorder names
-each current position once. Current target order and condition positions are
-recomputed together. Setting coordinates accepts explicit named XYZ values;
-clearing uses `coordinates: null` and stores no transform replay.
+Coordinates additionally carry `residues`, an aligned single-letter/null list for
+atom identity, and `structure:{file,format:"mmcif"}`. The file uses chain A and
+current positions 1…N for both author and label numbering. Missing atoms stay
+absent. Original author numbering remains in `positions`; it must not be used as
+the numbering of this current-coordinate file. `atoms` references the display
+array. Structural consumers verify that the file agrees with the declared current
+atoms and residues. Residue identity needed to interpret atoms does not implicitly
+supply a sequence condition to generation.
 
-`random_insert` uses integer `seed`, `count`, inclusive current-gap `start`/`end`
-and insertion `alphabet`. Gap 0 precedes the first position; gap N follows the
-last. Python `random.Random(seed)` samples distinct gaps without replacement.
-The read-only `random_operations` record stores parameters and actual gap,
-resulting index, position ID and residue. Later edits preserve those actual
-positions and never refill or resample the operation. New random edits use the
-current content; identity allocation is independent of the RNG.
+Folding consumes `sequence` and checks its own alphabet/completeness. Generation
+accepts either `edited` as its whole source or explicitly connected track outputs.
+Coordinate processing, comparison and export consume `coordinates`. The whole
+package is the lossless five-track save; a coordinate file preserves only its
+polymer and actual atoms.
 
-The editor previews actual results. Confirmation receives exactly that delivery
-and atomically replaces the node's source binding and source connection. Cancel
-restores the accepted state. Undo restores prior parameters, bindings, connection
-and displayed state without replaying random operations. Confirmation and undo
-mark the project unsaved; normal manual save persists workflow and layout.
+Original structure packages are copied under `structures` records with independent
+record `id`, selected `object`, `format`, retained `entry`, and `files` mapping
+original keys to retained keys. Other source packages use `sources` records. All
+necessary files, including original research files and other structure components,
+remain available after deletion of the source project. A downstream consumer needs
+only the current tracks and relevant explicit correspondence, not editor history.
 
-## Local structure conditions
+## Inputs
 
-The optional `structures` port accepts structure sets and prediction packages.
-`workbench.sequence_structure` selects either
-`structure: {input: "structures", object: "id"}` or
-`structure: {retained: "record-id"}` with the external port omitted. A read-only
-request shows the full source atom view and current template.
+The optional `source` accepts sequence, structure-set, prediction,
+structure-confidence, `workbench.coordinates`, `workbench.protein`, `workbench.esm3_generation` and
+`workbench.joint_generation` packages. Select `object` when a source has multiple
+objects. Without a source, `sequence` accepts residue text (`_` for a blank) or an
+array of residues and nulls.
 
-`adopt_structure` takes explicit `mapping: [{edit_position, position}]` and
-`tracks` selecting `coordinates`, `residue` and/or `fixed`; only these tracks and
-positions change. `position` uses actual chain, author number and insertion code,
-optionally model and component name. Optional `atoms` selects condition atom
-names. This operation provides explicit local correspondence between independently
-chosen inputs; initial chain/region template creation requires no mapping list.
+For structures, provide `selection:{chains:["A"]}` or explicit `positions` using
+the [structure module selection](../structure_io/FORMAT.md#public-structure-processing).
+A Studio object has one selected chain. Chain loading includes all its protein
+residues, including explicitly mapped unobserved positions; water, metals and
+other non-amino-acid components remain in the retained structure and context
+view without creating track positions. Users can delete unwanted positions
+inside Studio; no residue-range input is required to open the chain.
+Optional author `regions` such as `12A,15:20,25:28` narrow the selection without
+changing order. Initial `tracks` selects `sequence` and/or `coordinates` (default
+both); unselected tracks start blank. Optional `atoms` selects actual atom names.
+No hidden original atoms refill cleared coordinates. Alternate locations require
+explicit preparation. Existing HELIX/SHEET or mmCIF secondary-structure records
+and explicitly mapped upstream secondary structure, SASA and function annotation
+values are loaded automatically. Absent values stay null or empty. Studio does
+not calculate these tracks. Explicit upstream values take precedence over file
+secondary-structure records, including explicit nulls.
 
-`transform_coordinates` takes current position IDs, a proper 3×3 rotation and
-three-value Å translation. It transforms current selected condition atoms;
-unselected target atoms and original files stay intact. Clearing a condition
-stops using it; setting another adopts the new values. Undo restores the prior
-accepted package.
+Generated source objects expose portable `tracks`, independent of native atom37
+or tool-specific tensor layouts. Missing returned tracks start blank; supplied
+partial coordinates remain partial. Native source files are retained for reference.
 
-Preview display may use `document_file` and `view_file`, read through
-`host.readPreviewFile(preview.id, "edited", key, {signal})`. `editor.json` is a
-derived editor view, not the package entry or downstream scientific interface.
-The viewer fits full source atoms and current conditions. Dragging selected
-conditions previews XY translation immediately with fixed projection throughout
-the gesture; release obtains the backend preview. One request owns its cancellation
-signal and token through execution and file reading. Stale responses cannot
-replace a changed project, node or draft. Confirmation transfers the token to the
-host's guarded file receipt; cancellation releases it. Read-only inspection remains
-available during a project run.
+## Editing operations
 
-## Reusable template recipe
+`workbench.sequence_edit` returns a temporary `edited` delivery and derived display
+data. `document_file` and `view_file` use
+`host.readPreviewFile(id,"edited",key,{signal})`; a small coordinate-free display
+may return `document` inline. `editor.json` contains Studio-only display
+rows, one original five-track value map (`baseline`, keyed by row ID), deletion
+flags, and explicit random operation records; it is not the scientific entry.
+The baseline remains unchanged across accepted saves and reopens. Newly inserted
+rows have no baseline entry. No keystroke or cross-session undo history is stored.
 
-A node receiving a different structure on each call can save `operations`, an
-ordered list of edits. `delete`, `update` and `reorder` may use `indices` instead
-of editing IDs: these are one-based positions in the current target at that step.
-Insertion `index` remains a zero-based gap. An interactive `operation` and a
-saved `operations` list cannot be supplied together.
+Each display row has `id`, `residue`, `coordinates`, `secondary_structure`, `sasa`
+and `function_annotations` (a list of labels), plus explicit correspondence and
+an optional boolean `deleted`. Deleted rows retain their values for restoration.
+Only live rows appear in `edited.json`, target mmCIF and the five track outputs.
+`document.sequence` renders blanks as `_`. Independent track selections belong to
+the UI session. Updates target only the supplied row IDs and fields:
 
-After those edits, optional `template_conditions` explicitly sets the entire
-current template's conditions. `fixed_positions` and `coordinate_positions` are
-required lists of one-based current target positions. Omitted positions are
-variable and have no coordinate condition. Optional `atoms` chooses names from
-the complete target's actual atoms; selecting an unavailable coordinate fails.
-Each call resolves the recipe against its own input and current position order.
-No condition or position identity is inherited from an earlier call.
+- `update`: `positions:[id,...]`, `changes` containing one or more of the five row
+  fields. Sequence, coordinate, secondary-structure or SASA clearing uses null;
+  annotation clearing uses an empty list. Updating a deleted row also restores it.
+- `insert`: zero-based gap `index` and `sequence` text or an array. Other tracks
+  start blank and new stable IDs are allocated.
+- `delete`: current editor `positions` IDs. Rows are marked deleted, with all values retained.
+- `restore`: current editor `positions` IDs. Remove the deletion flag without changing track values.
+- `replace_rows`: the final ordered editor rows, containing exactly `id`, `deleted`
+  and the five value fields. Original rows must remain present, including deleted
+  ones. Existing correspondence and baseline values come from the explicit source
+  package. Newly inserted IDs are allocated by Studio. This adopts local edits in
+  one interaction; it does not send a request for each keyboard event.
+- `reorder`: every current position ID exactly once. All row values move together.
+- `retain`: a public track name and one-based `indices`. Values outside these
+  positions are cleared. Optional `atoms` on the coordinate track retains only
+  those actual named atoms; missing requested atoms fail.
+- `transform_coordinates`: current position IDs, proper 3×3 `rotation` and a
+  three-value `translation`. It transforms current named atoms only.
+- `random_insert`: integer `seed`, `count`, inclusive current-gap `start`/`end` and
+  optional `alphabet` (default blank). Python `random.Random(seed)` samples distinct
+  gaps. Stable IDs are independent of RNG. The accepted actual inserted rows and
+  read-only operation record are reused; subsequent edits never resample them.
+
+An ordered `operations` list can replace one interactive `operation`. `update`,
+`delete`, `reorder` and transforms may address current one-based `indices` instead
+of IDs. A reusable recipe edits each incoming object's actual content, for example:
 
 ```json
-{
-  "selection":{"chains":["A"]}, "tracks":[],
-  "operations":[
-    {"kind":"insert","index":11,"sequence":"__"},
-    {"kind":"delete","indices":[27]}
-  ],
-  "template_conditions":{
-    "fixed_positions":[1,2,3,4,5],
-    "coordinate_positions":[1,2,3,4,5,31,32,33,34,35,36],
-    "atoms":["N","CA","C"]
-  }
-}
+{"selection":{"chains":["A"]},"operations":[
+  {"kind":"insert","index":11,"sequence":"__"},
+  {"kind":"delete","indices":[27]},
+  {"kind":"retain","track":"sequence","indices":[1,2,3,4,5]},
+  {"kind":"retain","track":"coordinates","indices":[1,2,3,4,5,31,32,33,34,35,36],"atoms":["N","CA","C"]}
+]}
 ```
 
-The editor's reusable configuration panel saves these node parameters without
-replacing the source connection. Its position fields accept comma-separated
-numbers and inclusive colon ranges; the saved parameters contain explicit lists.
-This allows a node inside a user-connected iteration to establish a fresh
-editable template from each incoming result.
+Annotation labels stay attached to stable rows through insertion, deletion and
+reorder. Export recomputes inclusive contiguous intervals; discontinuous labels
+become separate intervals rather than covering unselected new rows.
+
+## Local structure adoption and session lifetime
+
+The optional `structures` input accepts structure-set and prediction packages.
+`workbench.sequence_structure` selects
+`structure:{input:"structures",object:"id"}` or
+`structure:{retained:"record-id"}`. `adopt_structure` takes explicit
+`mapping:[{edit_position,position}]` and `tracks` selecting `coordinates` and/or
+`residue`. A real position identifies chain, author number and insertion code,
+optionally model and component name. Only selected row values are replaced;
+other tracks keep their current values. Selecting retained records reuses their
+files. Coordinate transforms also work through this interaction.
+
+The loaded preview is retained through the generic host reference
+`{interaction:id,output:"edited"}`. Direct edits and undo/redo use local document
+snapshots. Done submits `replace_rows` against that source, validates the effective
+protein and receives the final package as the node's `document`, preserving source
+bindings and connections. Failure leaves the local document available for retry.
+Reopening loads this accepted document. A run emits its current contents without
+replaying old operations onto newly delivered upstream data. Use **载入输入** to
+explicitly load a delivered upstream package or start from sequence text; Done
+accepts that new result and Cancel keeps the previous document. Recipe-only nodes
+without an accepted document execute their parameters against the input as usual. Session files are released through host preview
+cancellation after use. Normal manual project saving persists accepted workflow
+and layout changes.
+
+## Browser implementation
+
+`ui/index.js`, `ui/state.js`, `ui/molecule.js` and `ui/styles.js` are the source.
+`npm ci --prefix modules/sequence_edit` installs the pinned 3Dmol.js dependency;
+`npm run build --prefix modules/sequence_edit` builds the single module entry
+`ui.js` with its browser dependencies and license notices. React is supplied by
+the host. The display atom model and inferred secondary structure are temporary
+rendering data; scientific tracks are updated only by explicit editing.

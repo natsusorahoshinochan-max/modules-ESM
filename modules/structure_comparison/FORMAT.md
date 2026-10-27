@@ -67,3 +67,9 @@ Comparison voluntarily imports only `parse` and `resolve_selection` from the pub
 The comparison UI supplies the same region editor for `workbench.compare` and the explicitly converted `workbench.compare_structure` consumer.
 
 A converted-format consumer may independently parse its own format into `StructureInput` and call `compare`. That consumer must declare installation of this comparison module's distribution (`protein-workbench` in this repository) as a dependency. Reuse creates a dependency on comparison execution, while reading the prediction format creates no dependency on the producer. No host scientific registry participates.
+
+The subject and reference inputs also accept
+[`workbench.coordinates`](../sequence_edit/FORMAT.md#independent-track-outputs).
+Comparison reads the validated current coordinate file using its chain A and
+current residue numbering. The same per-tool selection and atom requirements
+apply; retained source coordinates never substitute for missing current atoms.

@@ -107,5 +107,5 @@ export function register({ React }) {
         h('button', { disabled: host.readOnly || !atoms.length, onClick: () => addOperation('transform') }, 'Add coordinate transform node')),
       error && h('p', { role: 'status' }, error));
   }
-  return { actions: [{ id: 'workbench.structure_io.import', name: 'Import PDB or mmCIF structure', component: Import }], viewers: [{ id: 'workbench.structure_io.complete', name: 'Complete structure and components', formats: ['workbench.structure_set'], component: Viewer }] };
+  return { actions: [{ id: 'workbench.structure_io.import', name: 'Import PDB or mmCIF structure', component: Import }], viewers: [{ id: 'workbench.structure_io.complete', name: 'Complete structure and components', formats: ['workbench.structure_set', 'workbench.coordinates'], component: Viewer }] };
 }

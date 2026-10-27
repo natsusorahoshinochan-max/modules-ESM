@@ -13,7 +13,7 @@ from modules.generation.contract import GenerateRequest, GenerateResult
 SLOT = 'workbench.esm3.generate'
 DEFAULTS = {'invalid_ids': [], 'schedule': 'cosine', 'strategy': 'random', 'num_steps': 20,
             'temperature': 1., 'temperature_annealing': True, 'top_p': 1.,
-            'condition_on_coordinates_only': True, 'only_compute_backbone_rmsd': False}
+            'condition_on_coordinates_only': True, 'only_compute_backbone_rmsd': False, 'potential_sequence_of_concern': False}
 ATOM37 = ('N','CA','C','CB','O','CG','CG1','CG2','OG','OG1','SG','CD','CD1','CD2','ND1','ND2','OD1','OD2','SD','CE','CE1','CE2','CE3','NE','NE1','NE2','OE1','OE2','CH2','NH1','NH2','OH','CZ','CZ2','CZ3','NZ','OXT')
 TRACKS = ('sequence', 'secondary_structure', 'sasa', 'function_annotations', 'coordinates')
 METRICS = ('plddt', 'ptm', 'pae', 'crmsd', 'globularity', 'interface_ptm', 'pair_chains_iptm')
@@ -34,7 +34,7 @@ def parameters_for(parameters, *, local):
         value = result[name]
         if type(value) not in (float, int) or not math.isfinite(value) or value < 0 or name == 'top_p' and not 0 < value <= 1:
             raise ValueError(f'{name} requires a finite supported number')
-    for name in ('temperature_annealing', 'condition_on_coordinates_only', 'only_compute_backbone_rmsd'):
+    for name in ('temperature_annealing', 'condition_on_coordinates_only', 'only_compute_backbone_rmsd', 'potential_sequence_of_concern'):
         if type(result[name]) is not bool:
             raise ValueError(f'{name} requires a boolean')
     if result['schedule'] not in ('cosine', 'linear') or result['strategy'] not in ('random', 'entropy'):
@@ -44,66 +44,28 @@ def parameters_for(parameters, *, local):
     return result
 
 
-def protein_for(request, *, local=False, workdir=None):
+def protein_for(request, *, local=False):
     import torch
     from esm.sdk.api import ESMProtein
     from esm.utils.types import FunctionAnnotation
     if not isinstance(request, GenerateRequest) or request.track not in ('sequence', 'structure', 'secondary_structure', 'sasa', 'function'):
         raise ValueError('Select an actual ESM3 output track')
-    if set(request.tracks) - set(TRACKS) - {'potential_sequence_of_concern'}:
+    if set(request.tracks) - set(TRACKS):
         raise ValueError('Unsupported ESM3 input tracks')
     values = deepcopy(request.tracks)
-    if request.target_file is not None:
-        from modules.structure_io.target import read_target
-        if workdir is None:
-            raise ValueError('Complete target requires the invocation workdir')
-        path = Path(request.target_file)
-        if path.is_absolute() or not (workdir / path).resolve().is_relative_to(workdir.resolve()):
-            raise ValueError('Target file must belong to runtime.workdir')
-        target = read_target((workdir / path).read_bytes())
-        size = len(target['positions'])
-        if set(request.conditions) != {'sequence', 'coordinates'}:
-            raise ValueError('Target requires explicit sequence and coordinate conditions')
-        prompt, coordinates = ['_'] * size, [None] * size
-        seen = set()
-        for row in request.conditions['sequence']:
-            position, residue = row.get('position'), row.get('residue')
-            if type(position) is not int or not 1 <= position <= size or position in seen or not isinstance(residue, str) or len(residue) != 1 or residue == '_' or residue != target['sequence'][position - 1]:
-                raise ValueError('Sequence conditions must match unique complete target positions')
-            seen.add(position)
-            prompt[position - 1] = residue
-        seen = set()
-        for row in request.conditions['coordinates']:
-            position, names = row.get('position'), row.get('atoms')
-            if type(position) is not int or not 1 <= position <= size or position in seen or not isinstance(names, list) or not names or len(set(names)) != len(names):
-                raise ValueError('Coordinate conditions require unique complete target positions and atom names')
-            if set(names) - set(ATOM37):
-                raise ValueError('ESM3 coordinate conditions require supported atom37 names')
-            available = target['positions'][position - 1]['atoms']
-            if set(names) - set(available):
-                raise ValueError(f'Coordinate condition at target position {position} names missing atoms')
-            seen.add(position)
-            coordinates[position - 1] = {name: available[name] for name in names}
-        expected = ''.join(prompt)
-        if request.track == 'sequence' and values.get('sequence', expected) != expected:
-            raise ValueError('Sequence Prompt disagrees with target conditions')
-        sequence = values.get('sequence', expected)
-        if len(sequence) != size or any(fixed != '_' and fixed != actual for fixed, actual in zip(expected, sequence, strict=True)):
-            raise ValueError('Generated sequence must retain complete target positions and fixed residues')
-        if 'coordinates' in values:
-            raise ValueError('Target coordinate conditions must come from the complete target file')
-        values.update(sequence=sequence, coordinates=coordinates if seen else None)
-    elif request.conditions:
-        raise ValueError('Position conditions require a complete target file')
     sequence = values.get('sequence')
-    if not isinstance(sequence, str) or not sequence or any(symbol not in 'ACDEFGHIKLMNPQRSTVWYXBZUO.-|_' for symbol in sequence):
-        raise ValueError('ESM3 requires an explicit native sequence/Prompt; unsupported symbols cannot be repaired')
+    if not isinstance(sequence, list) or not sequence or any(value is not None and (not isinstance(value, str) or len(value) != 1 or value not in 'ACDEFGHIKLMNPQRSTVWYXBZUO.-|') for value in sequence):
+        raise ValueError('ESM3 requires explicit sequence values or null gaps; unsupported symbols cannot be repaired')
+    values['sequence'] = sequence = ''.join(value if value is not None else '_' for value in sequence)
     size = len(sequence)
     for name in ('secondary_structure', 'sasa', 'coordinates'):
         if values.get(name) is not None and len(values[name]) != size:
             raise ValueError(f'{name} must cover every input position')
-    if values.get('secondary_structure') is not None and (not isinstance(values['secondary_structure'], str) or any(char not in 'GHITEBSC_' for char in values['secondary_structure'])):
-        raise ValueError('secondary_structure requires aligned DSSP8 symbols or _')
+    if values.get('secondary_structure') is not None:
+        secondary = values['secondary_structure']
+        if not isinstance(secondary, list) or any(value is not None and (not isinstance(value, str) or len(value) != 1 or value not in 'GHITEBSC') for value in secondary):
+            raise ValueError('secondary_structure requires aligned DSSP8 values or null gaps')
+        values['secondary_structure'] = ''.join(value if value is not None else '_' for value in secondary)
     if values.get('sasa') is not None:
         from esm.tokenization.sasa_tokenizer import SASADiscretizingTokenizer
         tokens = set(SASADiscretizingTokenizer().vocab) if local else set()
@@ -126,8 +88,6 @@ def protein_for(request, *, local=False, workdir=None):
         if not isinstance(annotations, list) or any(not isinstance(row, dict) or set(row) != {'label', 'start', 'end'} or not isinstance(row['label'], str) or type(row['start']) is not int or type(row['end']) is not int or not 1 <= row['start'] <= row['end'] <= size for row in annotations):
             raise ValueError('Function annotations require label and inclusive one-based start/end positions')
         values['function_annotations'] = [FunctionAnnotation(**row) for row in annotations]
-    if 'potential_sequence_of_concern' in values and type(values['potential_sequence_of_concern']) is not bool:
-        raise ValueError('potential_sequence_of_concern requires a boolean')
     return ESMProtein(**values)
 
 
@@ -165,13 +125,35 @@ def save_result(result, config, parameters, runtime, *, seed=None):
     role = 'absent'
     structure_file = None
     if 'coordinates' in tracks:
-        role = 'generated_structure' if config.track == 'structure' else 'input_conditions'
+        role = 'generated_structure' if config.track == 'structure' else 'returned_coordinates'
         if config.track == 'structure':
             structure_file = write_structure(tracks, runtime)
     elif config.track == 'structure':
         raise ValueError('ESM3 structure generation returned no coordinates')
-    return GenerateResult({key: value for key, value in tracks.items() if key != 'coordinates'}, path, effective, seed, role, structure_file)
+    return GenerateResult(portable_tracks(tracks), path, effective, seed, role, structure_file)
 
+
+def portable_tracks(tracks):
+    """Expose actual values and gaps while retaining native arrays only in their file."""
+    result = deepcopy(tracks)
+    for name in ('sequence', 'secondary_structure'):
+        if name in result:
+            result[name] = [None if value == '_' else value for value in result[name]]
+    if 'coordinates' in result:
+        coordinates = []
+        for row in result['coordinates']:
+            if not isinstance(row, list) or len(row) != len(ATOM37):
+                raise ValueError('ESM3 returned an invalid native atom axis')
+            atoms = {}
+            for atom, point in zip(ATOM37, row, strict=True):
+                if point == [None, None, None]:
+                    continue
+                if not isinstance(point, list) or len(point) != 3 or any(type(value) not in (int, float) or not math.isfinite(value) for value in point):
+                    raise ValueError('ESM3 returned a partial or nonfinite atom')
+                atoms[atom] = point
+            coordinates.append(atoms or None)
+        result['coordinates'] = coordinates
+    return result
 
 
 def write_structure(tracks, runtime):
@@ -222,8 +204,9 @@ def create_remote(settings, *, client_factory=remote_client):
     def generate(request, parameters, runtime):
         from esm.sdk.api import GenerationConfig
         values = parameters_for(parameters, local=False)
-        protein = protein_for(request, workdir=runtime.workdir)
-        config = GenerationConfig(track=request.track, **values)
+        protein = protein_for(request)
+        protein.potential_sequence_of_concern = values['potential_sequence_of_concern']
+        config = GenerationConfig(track=request.track, **{name: value for name, value in values.items() if name != 'potential_sequence_of_concern'})
         if runtime.cancelled:
             raise ValueError('ESM3 generation cancelled')
         client = client_factory(settings)
@@ -237,8 +220,8 @@ def create_remote(settings, *, client_factory=remote_client):
 def create_local(settings):
     def generate(request, parameters, runtime):
         values = parameters_for(parameters, local=True)
-        protein_for(request, local=True, workdir=runtime.workdir)  # Refuse unsupported inputs before loading any model.
-        payload = {'settings': {name: settings[name] for name in ('model_path', 'device') if name in settings}, 'track': request.track, 'tracks': request.tracks, 'target_file': request.target_file, 'conditions': request.conditions, 'parameters': values,
+        protein_for(request, local=True)  # Refuse unsupported inputs before loading any model.
+        payload = {'settings': {name: settings[name] for name in ('model_path', 'device') if name in settings}, 'track': request.track, 'tracks': request.tracks, 'parameters': values,
                    'output': str(runtime.workdir / ('esm3-result-' + uuid4().hex + '.json'))}
         path = runtime.workdir / ('esm3-request-' + uuid4().hex + '.json')
         path.write_text(json.dumps(payload, allow_nan=False))

@@ -28,7 +28,7 @@ class StructureInput:
 
 def read_comparison_inputs(package):
     """Read every explicitly supplied object from a supported file package."""
-    if package.format not in ('workbench.prediction', 'workbench.structure_set', 'workbench.reference'):
+    if package.format not in ('workbench.prediction', 'workbench.structure_set', 'workbench.reference', 'workbench.coordinates'):
         raise ValueError('Expected prediction, structure_set or reference input')
     with package.open(package.entry) as stream:
         document = json.load(stream)
@@ -56,6 +56,9 @@ def read_comparison_inputs(package):
             raise ValueError('Reference input accepts an independent structure and optional label')
         with package.open(structure['file']) as stream:
             content = stream.read()
+        if package.format == 'workbench.coordinates':
+            from modules.structure_io import validate_coordinate_file
+            validate_coordinate_file(obj, content)
         generation = {'tool': document['tool'], **({'input': obj['input']} if 'input' in obj else {})} if prediction else None
         result.append(StructureInput(identity, content, structure['format'], sequence, obj.get('label'), generation))
     return result

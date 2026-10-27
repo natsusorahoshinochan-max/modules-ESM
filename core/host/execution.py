@@ -55,6 +55,7 @@ def prepare_group(app, flow, project_id, modules, *, boundary=None):
         if not isinstance(instance.get("parameters", {}), dict) or not isinstance(instance.get("inputs", {}), dict) or not isinstance(instance.get("tool_parameters", {}), dict):
             raise HostError(f"Invalid parameters or inputs for node {identifier}")
         _check_tools(instance, selected[identifier][1], tools, identifier)
+        _document(app, instance.get('document'), selected[identifier][1], project_id)
     connections = set()
     for edge in edges:
         try:
@@ -109,6 +110,17 @@ def prepare_group(app, flow, project_id, modules, *, boundary=None):
         for identifier in ready:
             remaining.pop(identifier)
     return by_id, selected, edges, ordered
+
+
+def _document(app, identity, declaration, project_id):
+    if identity is None:
+        return None
+    if not isinstance(identity, str) or not declaration.document_format:
+        raise HostError('Node does not accept this editor document')
+    package = app.package(identity)
+    if package.metadata()['project_id'] != project_id or package.format != declaration.document_format:
+        raise HostError('Editor document must belong to the project and match its declared format')
+    return package
 
 
 def prepare(app, flow, project_id, modules):
@@ -309,7 +321,8 @@ def _execute_leaf(app, run, identifier, instance, record, declaration, inputs, a
             inputs = run["calls"][identifier]["inputs"]
         else:
             run["calls"][identifier] = {"inputs": inputs, "parameters": instance.get("parameters", {}),
-                "tool_parameters": instance.get("tool_parameters", {}), "tools": instance.get("tools", {})}
+                "tool_parameters": instance.get("tool_parameters", {}), "tools": instance.get("tools", {}),
+                **({'document': instance['document']} if instance.get('document') else {})}
         snapshot = run["calls"][identifier]
         run["nodes"][identifier]["status"] = "running"
         app._put("run", run)
@@ -328,7 +341,7 @@ def _execute_leaf(app, run, identifier, instance, record, declaration, inputs, a
                 raise HostError(f"Cardinality exceeded: {identifier}.{name} accepts one package")
             if any(app.package(key).format not in port.accepts for key in inputs[name]):
                 raise HostError(f"Package format is not accepted by {identifier}.{name}")
-        call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(snapshot["parameters"])), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(snapshot["tool_parameters"])))
+        call = Call(inputs={name: tuple(app.package(package_id) for package_id in values) for name, values in inputs.items()}, parameters=json.loads(json.dumps(snapshot["parameters"])), settings=json.loads(json.dumps(record["settings"])), tool_parameters=json.loads(json.dumps(snapshot["tool_parameters"])), document=_document(app, snapshot.get('document'), declaration, run['project_id']))
         injected = {}
         for name, choice in snapshot["tools"].items():
             owner, tool = available_tools[choice]
@@ -502,6 +515,17 @@ class ScopeScheduler:
             for binding in config.get("output_bindings", []):
                 outputs[binding["output"]].extend(run["nodes"][identifiers[binding["node"]]]["outputs"][binding["port"]])
             iteration["outputs"] = outputs
+            invalid = [name for name, port in node.outputs.items()
+                       if port.cardinality == "one" and
+                       len(outputs[name]) != 1]
+            if invalid:
+                iteration["status"] = "failed"
+                iteration["diagnostics"] = [f"Scope output cardinality is not satisfied: {name}" for name in invalid]
+                all_succeeded = False
+                self.app._put("run", run)
+                if not is_map:
+                    break
+                continue
             self.app._put("run", run)
         if all_succeeded:
             outputs = {name: [] for name in node.outputs}
@@ -513,7 +537,8 @@ class ScopeScheduler:
                 outputs = scope["iterations"][-1]["outputs"]
             state.update(status="succeeded", outputs=outputs, diagnostics=[])
         else:
-            state.update(status=_terminal_status({"status": item["status"]} for item in scope["iterations"]), diagnostics=["A scope child did not succeed; continue its unfinished call"])
+            diagnostics = [message for iteration in scope["iterations"] for message in iteration.get("diagnostics", [])]
+            state.update(status=_terminal_status({"status": item["status"]} for item in scope["iterations"]), diagnostics=diagnostics or ["A scope child did not succeed; continue its unfinished call"])
         self.app._put("run", run)
 
 

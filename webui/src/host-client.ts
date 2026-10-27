@@ -1,6 +1,6 @@
-import type { Flow, PackageInfo, InteractionPreview } from '@protein-workbench/module-ui'
+import type { Flow, PackageInfo, InteractionPreview, InteractionInput } from '@protein-workbench/module-ui'
 export interface Project { id: string; name: string; tutorial?: boolean; flow: Flow; layout: Record<string, { x: number; y: number }>; missing_modules?: string[]; running?: boolean }
-export interface NodeDeclaration { id: string; module_id: string; name: string; inputs: Record<string, { accepts: string[]; cardinality: string; required: boolean }>; outputs: Record<string, { format: string; cardinality: string }>; parameters: Record<string, unknown>; tools?: Record<string, { id: string; name: string }> }
+export interface NodeDeclaration { document_format?: string; id: string; module_id: string; name: string; inputs: Record<string, { name?: string; accepts: string[]; cardinality: string; required: boolean }>; outputs: Record<string, { name?: string; format: string; cardinality: string }>; parameters: Record<string, unknown>; tools?: Record<string, { id: string; name: string }> }
 export interface ToolDeclaration { id: string; name: string; module_id: string; slot: string; parameters: Record<string, unknown>; capabilities: Record<string, unknown> }
 export interface ModuleRecord { installation_id: string; ui_url: string | null; available?: boolean; load_error?: string; id: string; name: string; enabled: boolean; entry_point: string; settings: Record<string, unknown>; settings_schema: Record<string, unknown>; ui: string | null }
 export interface Catalog { nodes: NodeDeclaration[]; modules: ModuleRecord[]; tools?: ToolDeclaration[] }
@@ -28,7 +28,7 @@ function receivedProject(project: Project): Project {
 }
 const projectJson = (path: string, body?: unknown, method?: string) => json<Project>(path, body, method).then(receivedProject)
 export const client = {
-  beginInteraction: (project: string, interaction: string, inputs: Record<string, string[]>, parameters: Record<string, unknown>) => json<{id:string}>(`/projects/${encodeURIComponent(project)}/interactions`, {interaction, inputs, parameters}),
+  beginInteraction: (project: string, interaction: string, inputs: Record<string, InteractionInput[]>, parameters: Record<string, unknown>) => json<{id:string}>(`/projects/${encodeURIComponent(project)}/interactions`, {interaction, inputs, parameters}),
   executeInteraction: (id: string) => json<InteractionPreview>(`/interactions/${encodeURIComponent(id)}/execute`, {}),
   readPreviewFile: async (id: string, output: string, key: string, options?: {signal?: AbortSignal}) => {
     const query = new URLSearchParams({output, key})

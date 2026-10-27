@@ -46,6 +46,7 @@ def module():
     )
 ```
 
+
 `Call.inputs` 按端口提供有序数据包，`parameters` 提供节点参数，`settings` 提供模块部署配置。输入包通过 `format`、`entry`、`files` 描述内容，用 `open(文件键)` 获取只读二进制流。模块在自己的公开格式文档中说明文件内容、对应关系与样例，独立消费者据此读取。
 
 ## 交付文件
@@ -121,6 +122,8 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 `Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
 
+需要展开工作区的编辑器声明 `editors: [{node, component, workspace: {title, openLabel}}]`。载体在节点上提供打开按钮，保持画布挂载并在其上展开编辑器；模块接收 `onClose()` 返回入口。模块管理本地草稿、预览及撤销，完成时调用一次 `context.update`，成功后调用 `onClose`；取消时释放自己的预览并直接返回。工作区内 `onDraftChange` 仅登记离开提醒，不修改节点或使当前上下文过期。关闭工作区时载体取消该工作区正在执行的预览和临时文件读取，并释放已返回的预览；模块未传取消信号时同样执行。
+
 模块记录的 `installation_id` 标识当前这次安装；启停和设置保留它，卸载重装重新分配。`GET /api/catalog` 返回当前 `ui_url`，载体通过该地址装载界面。入口按当前安装核对，与当前身份不符的地址返回 409。模块入口为单文件 bundle；其依赖沿下述共享和打包约定提供。
 
 载体传入自己安装的 React 19 实例。模块使用这个实例创建元素和调用 hooks；构建模块时将 React 作为共享依赖，产物只保留传入的运行时引用。其他浏览器依赖由模块打包进自己的入口文件。
@@ -131,13 +134,13 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 ## 节点编辑上下文与临时交互
 
-`EditorProps.context` 提供当前 `projectId`、`nodeId`、`parameters`、直接 `bindings`、相关 `edges`，以及按端口排列的 `inputs`。`parameters` 是独立、递归只读的已接受参数快照；参数未替换时，同一对象及嵌套引用保持稳定。模块通过 `onChange` 或 `context.update` 提交独立的新参数，载体在接收时复制，异步更新在首次等待前固定参数内容。每个输入含明确绑定的 `packages`；未选择已交付包、绑定包缺失或只有计算连线时，`unavailable` 给出原因。载体不自动查找上游结果或执行上游。
+`EditorProps.context` 提供当前 `projectId`、`nodeId`、`parameters`、直接 `bindings`、相关 `edges`，以及按端口排列的 `inputs`。`parameters` 是独立、递归只读的已接受参数快照；参数未替换时，同一对象及嵌套引用保持稳定。模块通过 `onChange` 或 `context.update` 提交独立的新参数，载体在接收时复制，异步更新在首次等待前固定参数内容。每个输入含明确绑定的 `packages`，以及连接的上游已有成功交付 `available: [{package,label}]`，供模块让用户明确选择；载体不自动采用这些候选或执行上游。未选择已交付包或绑定包缺失时，`unavailable` 给出原因。`context.document` 提供节点已确认的独立编辑成果。
 
 编辑器保留尚未接受的本地文本时，可调用 `onDraftChange()` 标记未保存编辑而保持已接受参数。无效 JSON 控件须通过 `setCustomValidity` 阻止保存，修正或收到实际新值后清除有效性错误；有效输入只调用 `onChange` 提交参数。同一次输入事件不要先通知草稿变更再提交参数，以免使用已经过期的编辑上下文。
 
 模块在 `Module.interactions` 中声明 `Interaction(id, execute, inputs, parameters)`。处理函数接收公开的 `Call` 和 `Runtime`，返回 `InteractionResult(data=小型展示数据, outputs={名称: Delivery(...)})`。载体核对输入格式及基数，提供明确包、所属模块设置、只读文件访问、工作目录和取消信号；调用不创建运行。返回前关闭文件并放弃写权，工作目录由载体保留到结束或接收完成。
 
-`context.host.preview(id, inputs, parameters, {signal})` 返回 `{id, data, outputs}`；`inputs` 是端口到明确包 ID 列表的映射，取消信号可省略。`host.readPreviewFile(id, output, key, {signal})` 读取命名输出的临时文件，可省略取消信号，对应 `GET /api/interactions/{id}/file?output=...&key=...`；文件键只在该输出交付清单内解析。取消时同时中止文件读取并调用 `cancelPreview(id)` 结束预览，释放等待已开始的读取结束或中断。确认采用也等待活动读取结束，并在文件接收完成后释放来源。取消正在执行的处理函数时先传递取消信号，待函数返回后才删除工作目录；迟到结果不能再被采用。
+`context.host.preview(id, inputs, parameters, {signal})` 返回 `{id, data, outputs}`；`inputs` 是端口到输入列表的映射；每项为明确包 ID，或 `{interaction: 预览ID, output: 输出名}`。后者必须属于同一项目且符合输入格式；载体在新交互开始时完整复制临时文件，因此后续取消源预览不会破坏新交互。各历史预览独立释放，取消信号可省略。`host.readPreviewFile(id, output, key, {signal})` 读取命名输出的临时文件，可省略取消信号，对应 `GET /api/interactions/{id}/file?output=...&key=...`；文件键只在该输出交付清单内解析。取消时同时中止文件读取并调用 `cancelPreview(id)` 结束预览，释放等待已开始的读取结束或中断。确认采用也等待活动读取结束。HTTP 接受文件后仍保留预览，显式取消才释放；`context.update` 在节点更新成功后自动取消该预览，接收失败时保留草稿和预览供重试。取消正在执行的处理函数时先传递取消信号，待函数返回后才删除工作目录；迟到结果不能再被采用。
 
 `context.update({parameters})` 更新当前节点参数草稿。`context.update({delivery: {interaction: 预览ID, output: 输出名, port: 输入端口}, replaceConnections: [输入端口]})` 先完整接收该预览的实际文件，再把输入绑定与明确替换的连线一次更新。也可传入 `delivery: {input: {format, entry, files}, port}` 接收界面生成的文件。直接修改绑定使用 `inputs`；恢复或调整输入连接时，`connections` 提供指向当前节点且属于 `replaceConnections` 端口的完整替代连线。载体按公开端口声明核对连接、格式和基数。
 
@@ -209,3 +212,15 @@ requests and release returned preview handles after reading display data.
 
 The installed [filtering module](../modules/filtering/FORMAT.md) uses this entry
 for temporary multi-package filtering; its canvas node uses the same module core.
+
+### 独立编辑成果与端口名称
+
+`Node.document_format` 声明编辑成果格式。模块使用
+`context.update({document:{interaction,output}})` 接收一次已预览的成果，
+载体将包 ID 保存为流程节点的 `document`，保留输入绑定和连线。
+执行入口通过 `Call.document` 读取该包；没有成果时为 `None`。
+工作区重开通过 `context.document` 读取。模块决定如何输出该内容；
+选择新输入及编辑算法由模块处理。项目复制同时复制成果文件并更新引用。
+
+`InputPort.name` 和 `OutputPort.name` 提供可选的用户可读名称，画布优先显示该名称；
+连线继续使用端口标识。格式兼容性只按 `accepts`/`format` 判断。

@@ -31,8 +31,9 @@ def run(payload, *, model_loader=load_model):
         raise ValueError('ESM3 device must be cpu, cuda or mps')
     parameters = payload['parameters']
     seed = parameters['seed']
-    protein = protein_for(GenerateRequest(payload['track'], payload['tracks'], payload.get('target_file'), payload.get('conditions', {})), local=True, workdir=Path(payload['output']).parent)
-    config = GenerationConfig(track=payload['track'], **{name: value for name, value in parameters.items() if name != 'seed'})
+    protein = protein_for(GenerateRequest(payload['track'], payload['tracks']), local=True)
+    protein.potential_sequence_of_concern = parameters['potential_sequence_of_concern']
+    config = GenerationConfig(track=payload['track'], **{name: value for name, value in parameters.items() if name not in ('seed', 'potential_sequence_of_concern')})
     model = model_loader(settings)
     # The worker process owns its RNG; checkpoint construction precedes sampling.
     torch.manual_seed(seed)

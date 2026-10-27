@@ -2,8 +2,8 @@
 import type * as React from 'react'
 
 export interface PackageInfo { id: string; project_id: string; format: string; entry: string; files: string[] }
-export interface InputPort { accepts: string[]; cardinality: 'one' | 'many'; required: boolean }
-export interface OutputPort { format: string; cardinality: 'one' | 'many' }
+export interface InputPort { name?: string; accepts: string[]; cardinality: 'one' | 'many'; required: boolean }
+export interface OutputPort { format: string; cardinality: 'one' | 'many'; name?: string }
 export interface Flow { nodes: FlowNode[]; edges: Edge[] }
 export interface Scope {
   inputs: Record<string, InputPort>
@@ -15,10 +15,12 @@ export interface Scope {
   rounds?: number
   feedback?: Record<string, string>
 }
-export interface FlowNode { id: string; type: string; parameters: Record<string, unknown>; inputs: Record<string, string[]>; tools?: Record<string, string>; tool_parameters?: Record<string, Record<string, unknown>>; scope?: Scope }
+export interface FlowNode { id: string; type: string; parameters: Record<string, unknown>; inputs: Record<string, string[]>; document?: string; tools?: Record<string, string>; tool_parameters?: Record<string, Record<string, unknown>>; scope?: Scope }
 export interface Edge { source: string; source_port: string; target: string; target_port: string }
 export interface InteractionPreview { id: string; data: unknown; outputs: string[] }
+export type InteractionInput = string | { interaction: string; output: string }
 export interface EditorUpdate {
+  document?: { interaction: string; output: string }
   parameters?: Record<string, unknown>
   inputs?: Record<string, string[]>
   replaceConnections?: string[]
@@ -32,7 +34,8 @@ export interface EditorContext {
   readonly parameters: Record<string, unknown>
   readonly bindings: Record<string, string[]>
   readonly edges: Edge[]
-  readonly inputs: Record<string, { packages: PackageInfo[]; unavailable?: string }>
+  readonly document?: PackageInfo
+  readonly inputs: Record<string, { packages: PackageInfo[]; available?: {package: PackageInfo; label: string}[]; unavailable?: string }>
   readonly host: ModuleHost
   update(change: EditorUpdate): Promise<void>
 }
@@ -41,19 +44,19 @@ export interface ModuleHost {
   createInput(input: { format: string; entry: string; files: Record<string, Blob> }): Promise<PackageInfo>
   addNode(node: Omit<FlowNode, 'id'>): Promise<string>
   connect(edge: Edge): Promise<void>
-  preview(interaction: string, inputs: Record<string, string[]>, parameters: Record<string, unknown>, options?: {signal?: AbortSignal}): Promise<InteractionPreview>
+  preview(interaction: string, inputs: Record<string, InteractionInput[]>, parameters: Record<string, unknown>, options?: {signal?: AbortSignal}): Promise<InteractionPreview>
   cancelPreview(id: string): Promise<void>
   readPreviewFile(id: string, output: string, key: string, options?: {signal?: AbortSignal}): Promise<Blob>
   readFile(packageId: string, key: string): Promise<Blob>
 }
 export interface ModuleActionProps { host: ModuleHost }
 export interface ResultActionProps { host: ModuleHost; packages: readonly PackageInfo[] }
-export interface EditorProps { context: EditorContext; parameters: Record<string, unknown>; onChange(parameters: Record<string, unknown>): void; onDraftChange?(): void; readOnly: boolean }
+export interface EditorProps { context: EditorContext; parameters: Record<string, unknown>; onChange(parameters: Record<string, unknown>): void; onDraftChange?(): void; onClose?(): void; readOnly: boolean }
 export interface ViewerProps { package: PackageInfo; host: ModuleHost }
 export interface Extensions {
   resultActions?: { id: string; name: string; component: React.ComponentType<ResultActionProps> }[]
   actions?: { id: string; name: string; component: React.ComponentType<ModuleActionProps> }[]
-  editors?: { node: string; component: React.ComponentType<EditorProps> }[]
+  editors?: { node: string; component: React.ComponentType<EditorProps>; workspace?: { title: string; openLabel?: string } }[]
   viewers?: { id: string; name: string; formats: string[]; component: React.ComponentType<ViewerProps> }[]
 }
 export interface ModuleEntry {

@@ -75,7 +75,7 @@ class Adoption(BaseModel):
 
 class InteractionCall(BaseModel):
     interaction: str
-    inputs: dict[str, list[str]] = Field(default_factory=dict)
+    inputs: dict[str, list[str | dict[str, str]]] = Field(default_factory=dict)
     parameters: dict = Field(default_factory=dict)
 
 

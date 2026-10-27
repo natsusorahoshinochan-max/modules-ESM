@@ -182,6 +182,8 @@ def validate(module):
         seen.add(node.id)
         if not isinstance(node.parameters, dict):
             raise ValueError("node parameter declaration must be an object")
+        if node.document_format is not None and (not isinstance(node.document_format, str) or not node.document_format):
+            raise ValueError("node document format must be a nonempty format name")
         for name, port in node.inputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, InputPort):
                 raise ValueError("invalid input port declaration")
@@ -190,6 +192,9 @@ def validate(module):
         for name, port in node.outputs.items():
             if not isinstance(name, str) or not name or not isinstance(port, OutputPort) or not isinstance(port.format, str) or not port.format or port.cardinality not in ("one", "many"):
                 raise ValueError(f"invalid output declaration: {name}")
+        for port in (*node.inputs.values(), *node.outputs.values()):
+            if port.name is not None and (not isinstance(port.name, str) or not port.name.strip()):
+                raise ValueError("port name must be nonempty text")
         for name, slot in node.tools.items():
             if not isinstance(name, str) or not name or not isinstance(slot, ToolSlot) or not slot.id or not slot.name:
                 raise ValueError("invalid tool slot declaration")
@@ -197,7 +202,7 @@ def validate(module):
 
 
 def node_record(module, node):
-    return {"id": node.id, "module_id": module.id, "name": node.name, "inputs": {name: {"accepts": list(port.accepts), "cardinality": port.cardinality, "required": port.required} for name, port in node.inputs.items()}, "outputs": {name: {"format": port.format, "cardinality": port.cardinality} for name, port in node.outputs.items()}, "parameters": node.parameters, "tools": {name: {"id": slot.id, "name": slot.name} for name, slot in node.tools.items()}}
+    return {"id": node.id, "module_id": module.id, "name": node.name, "inputs": {name: {"accepts": list(port.accepts), "cardinality": port.cardinality, "required": port.required, **({"name": port.name} if port.name else {})} for name, port in node.inputs.items()}, "outputs": {name: {"format": port.format, "cardinality": port.cardinality, **({"name": port.name} if port.name else {})} for name, port in node.outputs.items()}, "parameters": node.parameters, "tools": {name: {"id": slot.id, "name": slot.name} for name, slot in node.tools.items()}, **({"document_format": node.document_format} if node.document_format else {})}
 
 
 def tool_record(module, tool):

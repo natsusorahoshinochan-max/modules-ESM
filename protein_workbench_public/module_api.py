@@ -17,12 +17,14 @@ class InputPort:
     accepts: tuple[str, ...]
     cardinality: Literal["one", "many"] = "one"
     required: bool = True
+    name: str | None = None
 
 
 @dataclass(frozen=True)
 class OutputPort:
     format: str
     cardinality: Literal["one", "many"] = "one"
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,7 @@ class Call:
     previous: Previous | None = None
     tools: Mapping[str, Callable] = field(default_factory=dict)
     tool_choices: Mapping[str, str] = field(default_factory=dict)
+    document: Package | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,7 @@ class Node:
     outputs: Mapping[str, OutputPort] = field(default_factory=dict)
     parameters: dict[str, Any] = field(default_factory=dict)
     tools: Mapping[str, ToolSlot] = field(default_factory=dict)
+    document_format: str | None = None
 
 
 @dataclass(frozen=True)

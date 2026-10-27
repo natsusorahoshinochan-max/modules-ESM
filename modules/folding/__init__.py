@@ -50,6 +50,9 @@ def _encode_result(result, source, runtime, prefix):
 def execute(call, runtime):
     package = call.inputs['sequence'][0]
     sources = read_sequences(package)
+    from modules.sequence_io.formats import require_complete
+    for source in sources:
+        require_complete(source['sequence'], 'Three-dimensional prediction')
     if call.parameters:
         raise ValueError('Unknown prediction node parameters; configure the selected tool')
     parameters = call.tool_parameters.get('predictor', {})
