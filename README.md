@@ -1,111 +1,92 @@
 # Protein Workbench
 
-通过画布组合模块，完成蛋白数据编辑、生成、预测、比较和筛选等研究任务。
+**中文** · [English](README.en.md)
 
-功能范围与模块职责见下列入口。
+用节点画布搭建蛋白质设计与分析流程。导入序列或三维结构，在 Protein Studio 中编辑，调用模型生成与折叠，再通过比较、评价和筛选推进下一轮设计。
 
-资源受限机器的模型验证范围见 [本地模型与验证](docs/local-models.md)，接口依据和实施分工见 [验证规划](docs/research/biohub-call-plan.md)。
+![节点画布与结果查看器](docs/images/workbench-zh.jpg)
 
-- 开发或审查前读 [AGENTS.md](AGENTS.md)。
-- 核对行为范围读 [需求](docs/requirements.md)。
-- 设计模块、数据交接和保存读 [架构](docs/architecture.md)。
-- 查阅概念读 [术语](GLOSSARY.md)。
+在画布中连接数据、编辑器和计算节点，按自己的研究任务调整步骤、分支、工具与参考对象。图中展示的是已搭建的 1PGA 工作流。
 
-模块包安装、环境设置、React 接口及可安装样例见 [模块接入与文件交付](docs/module-authoring.md)。
+![Protein Studio 的三维视图与五条编辑轨道](docs/images/protein-studio-zh.jpg)
 
-## 安装
+Protein Studio 将三维视图与序列、三维坐标、二级结构、SASA、功能注释放在同一工作区，各轨道可以独立选择和编辑。
 
-需要 Python 3.12、uv、Node.js 22.15+ 和 npm。以下命令在仓库根目录执行。
+## 主要功能
 
-```bash
-npm ci --prefix webui
-uv sync --locked --extra dev --extra providers
+| 功能 | 可以做什么 |
+|---|---|
+| **画布编排** | 拖放节点、连接端口、组织分支，用子流程进行逐项处理和多轮迭代。 |
+| **Protein Studio** | 直接编辑五条轨道，插入、删除或清空残基位置，查看和调整已有三维坐标；保留修改标记，支持撤销和恢复。 |
+| **生成与折叠** | 使用 ESM3 补全或生成蛋白质，使用 ProteinMPNN 进行骨架条件设计，通过 ESMFold2 或 SimpleFold 预测结构。 |
+| **比较与评价** | 叠合候选与参考结构、计算 TM-score 等指标，评价可溶性和序列与骨架适配性；使用 ESMC 计算表征。 |
+| **筛选与迭代** | 按已有指标设置条件、排序和数量上限，把选中结果交给后续节点或下一轮设计。 |
+| **模块扩展** | 安装新的节点、工具实现、编辑器和结果查看器，在适用节点选择本地工具或 Biohub 服务。 |
+
+支持项目保存与复制、历史结果查看、ZIP 导出和跨项目采用。界面可随时切换中文或英文，保留当前编辑状态。
+
+## 一个典型流程
+
+```mermaid
+flowchart LR
+    I[导入蛋白质] --> S[Studio 编辑]
+    S --> G[生成序列]
+    G --> F[预测结构]
+    F --> C[比较与评价]
+    I -->|参考| C
+    C --> K[筛选]
+    K --> S
 ```
 
-本地模型位置见 [本地模型路径](docs/local-models.md)。
+例如：从 PDB 或 mmCIF 导入蛋白质，在 Studio 修改序列长度与条件，用 ESM3 生成候选，再经 ESMFold2 折叠、结构比较和筛选，随后使用 ProteinMPNN 开始下一轮设计。
 
-## 启动
+## 快速开始
 
-后端：
+需要 **Python 3.12、uv、Node.js 22.15+ 和 npm**。以下命令适用于 macOS / Linux，在仓库根目录执行。
+
+```bash
+git clone https://github.com/natsusorahoshinochan-max/modules-ESM.git
+cd modules-ESM
+uv sync --locked
+npm ci --prefix webui
+```
+
+启动后端：
 
 ```bash
 PROTEIN_WORKBENCH_DATA_ROOT="$HOME/.local/share/protein-workbench" \
   .venv/bin/protein-workbench-server --host 127.0.0.1 --port 8000
 ```
 
-另开终端启动前端：
+另开终端，在同一仓库启动前端：
 
 ```bash
-npm --prefix webui run dev -- --host 127.0.0.1
+npm --prefix webui run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。
+打开 **[http://127.0.0.1:5173](http://127.0.0.1:5173)**。
 
-## 教学实例与项目复制
+1. 应用默认打开一个带序列输入的**结构预测教学示例**。
+2. 按[首次使用与工具配置](docs/getting-started.md)安装计算依赖，选择 Biohub 或本地工具并填写模块设置。
+3. 点击顶栏的**保存**，将教学示例保存为自己的项目。
+4. 点击**运行**，从节点或顶栏的**结果**查看输出。
 
-应用默认打开教学实例。可直接编辑节点、参数、工具选择、输入和布局；草稿暂存在当前页面。使用侧栏的项目名称后点击 **Save project**，首次手动保存会创建自己的项目，教学原件继续保留。**Teaching example** 可重新打开原例。输入传输完成后才能保存；首次保存完成前教学草稿暂时锁定。
+编辑与查看可先行使用；模型计算需要对应的依赖、服务凭据或本地权重。界面右上角可切换语言。
 
-打开项目后，填写副本名称并点击 **Copy project**，将当前流程与布局及明确绑定的输入复制为独立项目。副本打开后可从未运行状态开始研究；已有运行列表与未被选作输入的结果不进入副本。
+## 扩展工作台
 
-## 构建
+模块可以提供节点、工具实现、专用编辑器和结果查看器，通过公开接口接入载体。官方模块与外部模块使用同一套接入约定。
 
-前端：
+从[模块作者指南](docs/module-authoring.md)开始，或参考 [Python 模块样例](examples/external_module/)与 [TypeScript 界面样例](examples/typescript_module/)。
 
-```bash
-npm --prefix webui run build
-```
+## 文档与开发
 
-Python 源码包和 wheel：
+| 入口 | 内容 |
+|---|---|
+| [首次使用与工具配置](docs/getting-started.md) | Biohub、本地工具、保存项目及查看结果 |
+| [Protein Studio](modules/sequence_edit/FORMAT.md) | 编辑操作、五条轨道与输入输出 |
+| [功能与数据格式索引](docs/getting-started.md#功能与数据格式) | 生成、预测、比较、评价、筛选等模块说明 |
+| [术语](GLOSSARY.md) · [需求](docs/requirements.md) · [架构](docs/architecture.md) | 项目概念、行为与职责 |
+| [开发约定](AGENTS.md) · [验证入口](docs/studio-validation.md) | 开发与当前测试方式 |
 
-```bash
-.venv/bin/python -m build --no-isolation
-```
-
-产物分别位于 `webui/dist/` 和 `dist/`。
-
-## 验证
-
-当前 Studio 验证与归档说明见 [Studio 验证](docs/studio-validation.md)：
-
-```bash
-.venv/bin/python -m pytest tests/studio -q
-node --test webui/tests/studio-*.test.mjs
-```
-
-旧测试已归档，不参与当前验证。
-
-真实模型验证统一使用 [模型验证入口](docs/local-models.md)，所有 worktree 共用机器级资源锁。
-
-长流程验收入口状态见[长流程验收](docs/workflow-validation.md)。
-
-首次启动附带并启用官方功能模块；在画布的序列输入入口创建单条蛋白序列，在预测节点选择本地或 Biohub ESMFold2、SimpleFold。模块设置填写已有模型路径、Python 程序或远端凭据，工具参数在节点中单独配置。结果查看器读取实际结构与自然产生的置信度文件。接口、默认值及验证入口见 [预测工具说明](modules/folding/TOOL.md)，独立读取格式见 [格式说明](modules/folding/FORMAT.md)。
-
-完整结构使用“Import PDB or mmCIF structure”逐文件导入，选择实际构象编号或全部独立候选。运行导入节点后可查看、旋转及选择完整组分，再指定 PDB/mmCIF 导出为 ZIP；格式与操作见 [完整结构说明](modules/structure_io/FORMAT.md)。
-
-比较时使用“Compare with an independent reference”入口导入一个 PDB 或 mmCIF，将预测输出连接至比较节点的 subject 端口。结果提供可重新打开的完整叠合；支持范围、数值含义和独立消费接口见 [比较格式](modules/structure_comparison/FORMAT.md)。
-
-独立序列入口提供单条序列/FASTA、批量 FASTA 和含显式位置对应的序列 JSON。导入后可连接任意接受序列的操作，也可选择对象导出 FASTA；格式与来源位置见[序列说明](modules/sequence_io/FORMAT.md)。“Import existing prediction results”按清单文件键逐项绑定已有结果文件；参数与结果保留见[预测模块格式](modules/folding/FORMAT.md)。
-
-ESMC 表征节点接受明确选择的序列输入，可选择本地原生 HF 模型或 Biohub 工具，并保存所请求的实际 embedding 与 logits。数值查看器分页显示 token、来源位置和全部实际列；配置及操作见 [ESMC 工具](modules/esmc/TOOL.md)，独立读取见 [表征格式](modules/esmc/FORMAT.md)。
-
-显式转换路径使用“Compare through explicit structure conversion”入口，导入参考后连接预测输出至转换节点的 prediction 端口。该入口插入转换及只接受目标格式的比较节点，操作与目标格式见 [转换模块说明](modules/structure_conversion/FORMAT.md)。
-
-使用“Save project”手动保存流程与布局；缺少输入、工具或模块的未完成流程也可保存后重开。编辑过程中不自动保存。切换或创建项目时，未保存修改可选择放弃或取消；关闭与刷新页面使用浏览器原生提醒，需要浏览器已记录页面交互。有未保存修改时，“Save and run”会先要求确认，保存失败或取消时不启动。输入文件和运行结果的接收单独持久保存，流程修改仍须手动保存。
-
-在结果包的“Adopt into project”中选择已创建的目标项目，点击“Adopt package”，再打开目标项目选择其包作为输入。每个包的“Download ZIP”下载完整文件及文件键索引；缺少查看器时仍可使用文件链接。项目区的“Delete project”经确认删除当前项目，已采用到其他项目的包继续保留。
-
-已有序列的独立可溶性评价支持明确选择 SoluProt full、no-TM 或 Protein-Sol；配置与数值含义见 [可溶性工具](modules/solubility/TOOL.md)，保存和独立读取见 [评价格式](modules/solubility/FORMAT.md)。
-
-已有结构的独立置信度评价使用 SimpleFold 原几何 latent/head 调用；完整结构和来源预测分数保留，区域只选择报告的残基。输入选择、模型配置、保存及独立读取见[已有结构置信度](modules/structure_confidence/FORMAT.md)和 [SimpleFold 工具](modules/simplefold/TOOL.md)。
-
-已有指标可在画布加入“Existing metric analysis”，选择明确对象、参考、评价及真实残基区域进行统计；数据范围、交互步骤和独立读取见[已有指标分析](modules/metric_analysis/FORMAT.md)。
-
-独立序列与任意所选骨架的 ProteinMPNN 评价支持完整链对应、真实残基编号与插入码、独立区域及评分 mask；输入选择、数值含义和独立读取见[序列与骨架评价](modules/sequence_backbone_evaluation/FORMAT.md)。
-
-“编辑蛋白质”节点打开独立 Protein Studio 工作区。上方查看和操作真实三维坐标，下方分别选择、填写和清空序列、坐标、二级结构、SASA 及功能注释。局部编辑留在会话中，点击“完成并返回画布”一次采用结果；取消保留原节点。节点交付整体蛋白质及五个独立轨道端口，保留空缺和支持的单字母。序列可接结构预测并由接收操作检查适用性；整体或明确选择的轨道可接生成与设计，三维坐标可接处理、比较和导出。完成编辑保留原输入与连线，重开读取已确认成果；保存、输入及输出格式见 [Protein Studio](modules/sequence_edit/FORMAT.md)。
-
-ESM3 的补全与受约束生成节点读取已经准备好的五轨值和空缺，可选择本地原生模型或 Biohub。失败批次保留已完成结果，使用原调用续算；原生结果与显式序列转换见 [生成格式](modules/generation/FORMAT.md)，参数、默认值和公共工具调用见 [ESM3 工具](modules/esm3/TOOL.md)。[联合生成节点](modules/generation/FORMAT.md#workbenchjoint_generation) 先完成序列，再以该序列和原条件生成结构；结构阶段失败后保留序列并从该阶段续算。实际返回的多轨结果可以再次送入 Studio 编辑。
-
-筛选使用“Filter existing evaluations”，为当前节点选择明确的候选、已有评价、条件、排序及数量上限。结果页选择所需数据包后，可使用同一模块的临时筛选操作；选择与独立读取见 [筛选格式](modules/filtering/FORMAT.md)。
-
-集合模块提供合并、逐对象拆分、显式选择及序列/结构提取；输入与输出见[集合说明](modules/collection/FORMAT.md)。使用 **Add Map subflow** 对每个输入包执行子流程，使用 **Add Repeat subflow** 指定轮次和反馈端口。用户声明边界端口并连接内部节点，未接反馈的输入在各轮保持原值；运行区可查看各轮、各项的实际调用与结果。子流程与文件交接约定见[模块接入说明](docs/module-authoring.md)。
+前端构建使用 `npm --prefix webui run build`。Python 打包先执行 `uv sync --locked --extra dev`，再运行 `.venv/bin/python -m build --no-isolation`；产物分别位于 `webui/dist/` 与 `dist/`。真实模型验证见[本地模型与验证](docs/local-models.md)。
