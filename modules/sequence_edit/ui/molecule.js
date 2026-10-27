@@ -1,3 +1,99 @@
+const messages = {
+
+  "label_105": {
+    "zh-CN": "移动",
+    "en": "Move"
+  },
+  "label_106": {
+    "zh-CN": "旋转",
+    "en": "Rotate"
+  }
+,
+  "webgl_unavailable": {
+    "zh-CN": "WebGL 不可用",
+    "en": "WebGL unavailable"
+  },
+  "3d_view_unavailable_check_webgl_tracks_remain": {
+    "zh-CN": "三维视图无法启动，请检查 WebGL。轨道仍可编辑。",
+    "en": "3D view unavailable. Check WebGL; tracks remain editable."
+  },
+  "3d_display_failed": {
+    "zh-CN": "三维显示失败：{0}",
+    "en": "3D display failed: {0}"
+  },
+  "protein_3d_view": {
+    "zh-CN": "蛋白质三维视图",
+    "en": "Protein 3D view"
+  },
+  "3d_editing_area": {
+    "zh-CN": "三维编辑区域",
+    "en": "3D editing area"
+  },
+  "3d_tools": {
+    "zh-CN": "三维工具",
+    "en": "3D tools"
+  },
+  "select": {
+    "zh-CN": "选择",
+    "en": "Select"
+  },
+  "box_select": {
+    "zh-CN": "框选",
+    "en": "Box select"
+  },
+  "move": {
+    "zh-CN": "移动",
+    "en": "Move"
+  },
+  "rotate": {
+    "zh-CN": "旋转",
+    "en": "Rotate"
+  },
+  "representation": {
+    "zh-CN": "显示方式",
+    "en": "Representation"
+  },
+  "cartoon": {
+    "zh-CN": "飘带图",
+    "en": "Cartoon"
+  },
+  "backbone_trace": {
+    "zh-CN": "主链轨迹",
+    "en": "Backbone trace"
+  },
+  "sticks": {
+    "zh-CN": "棒状图",
+    "en": "Sticks"
+  },
+  "ball_and_stick": {
+    "zh-CN": "球棍图",
+    "en": "Ball and stick"
+  },
+  "side_chains": {
+    "zh-CN": "侧链",
+    "en": "Side chains"
+  },
+  "show_edits": {
+    "zh-CN": "显示修改",
+    "en": "Show edits"
+  },
+  "focus_selection": {
+    "zh-CN": "聚焦选区",
+    "en": "Focus selection"
+  },
+  "fit_all": {
+    "zh-CN": "适应全部",
+    "en": "Fit all"
+  },
+  "no_3d_coordinates": {
+    "zh-CN": "暂无三维坐标",
+    "en": "No 3D coordinates"
+  },
+  "enter_confirm_esc_cancel": {
+    "zh-CN": "{0}{1} · Enter 确认 · Esc 取消",
+    "en": "{0}{1} · Enter Confirm · Esc Cancel"
+  }
+};
 import { createViewer } from "3dmol/build/3Dmol.es6.js";
 import { assignPDBBonds } from "3dmol/src/parsers/utils/assignPDBBonds";
 import { computeSecondaryStructure } from "3dmol/src/parsers/utils/computeSecondaryStructure";
@@ -87,7 +183,8 @@ export function molecularAtoms(document) {
   return atoms;
 }
 
-export function createMoleculeView(React) {
+export function createMoleculeView(React, i18n) {
+  const t = i18n.translator(messages);
   const h = React.createElement;
   return function MoleculeView({
     document,
@@ -199,10 +296,10 @@ export function createMoleculeView(React) {
           backgroundColor: "#fafbfc",
           antialias: true,
         });
-        if (!viewer.current) throw new Error("WebGL unavailable");
+        if (!viewer.current) throw new Error(t("webgl_unavailable"));
         viewer.current.setProjection("orthographic");
       } catch (reason) {
-        setError("三维视图无法启动，请检查 WebGL。轨道仍可编辑。");
+        setError(t("3d_view_unavailable_check_webgl_tracks_remain"));
         return;
       }
       const observer = new ResizeObserver(() => {
@@ -296,7 +393,7 @@ export function createMoleculeView(React) {
         }
         refreshOverlay();
       } catch (reason) {
-        setError(`三维显示失败：${reason.message}`);
+        setError(t("3d_display_failed", {"0": i18n.error(reason)}));
       }
     }, [
       document,
@@ -540,7 +637,7 @@ export function createMoleculeView(React) {
       );
     return h(
       "div",
-      { className: "ps-viewport", "aria-label": "蛋白质三维视图" },
+      { className: "ps-viewport", "aria-label": t("protein_3d_view") },
       h("div", { ref: mount, className: "ps-molecule" }),
       h(
         "div",
@@ -549,7 +646,7 @@ export function createMoleculeView(React) {
           className: "ps-view-surface",
           tabIndex: 0,
           role: "application",
-          "aria-label": "三维编辑区域",
+          "aria-label": t("3d_editing_area"),
           onPointerDown: down,
           onPointerMove: move,
           onPointerUp: up,
@@ -640,12 +737,12 @@ export function createMoleculeView(React) {
       ),
       h(
         "nav",
-        { className: "ps-view-tools", "aria-label": "三维工具" },
+        { className: "ps-view-tools", "aria-label": t("3d_tools") },
         ...[
-          ["select", "↖", "选择"],
-          ["box", "⬚", "框选"],
-          ["move", "✥", "移动"],
-          ["rotate", "⟳", "旋转"],
+          ["select", "↖", t("select")],
+          ["box", "⬚", t("box_select")],
+          ["move", "✥", t("move")],
+          ["rotate", "⟳", t("rotate")],
         ].map(([key, icon, label]) =>
           h(
             "button",
@@ -673,14 +770,14 @@ export function createMoleculeView(React) {
         h(
           "select",
           {
-            "aria-label": "显示方式",
+            "aria-label": t("representation"),
             value: representation,
             onChange: (event) => setRepresentation(event.target.value),
           },
-          h("option", { value: "cartoon" }, "飘带图"),
-          h("option", { value: "trace" }, "主链轨迹"),
-          h("option", { value: "sticks" }, "棒状图"),
-          h("option", { value: "ballstick" }, "球棍图"),
+          h("option", { value: "cartoon" }, t("cartoon")),
+          h("option", { value: "trace" }, t("backbone_trace")),
+          h("option", { value: "sticks" }, t("sticks")),
+          h("option", { value: "ballstick" }, t("ball_and_stick")),
         ),
         h(
           "button",
@@ -689,7 +786,7 @@ export function createMoleculeView(React) {
             "aria-pressed": sidechains,
             onClick: () => setSidechains((value) => !value),
           },
-          "侧链",
+          t("side_chains"),
         ),
         h(
           "button",
@@ -698,7 +795,7 @@ export function createMoleculeView(React) {
             "aria-pressed": showChanges,
             onClick: () => setShowChanges((value) => !value),
           },
-          "显示修改",
+          t("show_edits"),
         ),
         h(
           "button",
@@ -707,7 +804,7 @@ export function createMoleculeView(React) {
             disabled: !selectedPoints.length,
             onClick: focusSelected,
           },
-          "聚焦选区",
+          t("focus_selection"),
         ),
         h(
           "button",
@@ -719,18 +816,18 @@ export function createMoleculeView(React) {
               refreshOverlay();
             },
           },
-          "适应全部",
+          t("fit_all"),
         ),
       ),
       error && h("p", { role: "alert", className: "ps-view-error" }, error),
       !error &&
         !document?.positions.some((row) => row.coordinates) &&
-        h("div", { className: "ps-empty" }, "暂无三维坐标"),
+        h("div", { className: "ps-empty" }, t("no_3d_coordinates")),
       transformMode &&
         h(
           "span",
           { className: "ps-transform-status" },
-          `${transformMode.kind === "move" ? "移动" : "旋转"}${transformMode.axis ? " · " + transformMode.axis.toUpperCase() : ""} · Enter 确认 · Esc 取消`,
+          t("enter_confirm_esc_cancel", {"0": transformMode.kind === "move" ? t("label_105") : t("label_106"), "1": transformMode.axis ? " · " + transformMode.axis.toUpperCase() : ""}),
         ),
     );
   };

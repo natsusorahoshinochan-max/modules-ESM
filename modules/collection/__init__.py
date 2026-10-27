@@ -168,17 +168,17 @@ def extract_sequences(call, runtime):
 
 
 def module():
-    collection = {'collection': InputPort((FORMAT,), name='候选集合')}
-    return Module('workbench.collection', '集合操作', ui=str(Path(__file__).with_name('ui.js')),
+    collection = {'collection': InputPort((FORMAT,), name={'zh-CN': '候选集合', 'en': 'Candidates'})}
+    return Module('workbench.collection', {'zh-CN': '集合操作', 'en': 'Collections'}, ui=str(Path(__file__).with_name('ui.js')),
         nodes=(
-            Node('workbench.collection.merge', '合并集合', merge,
-                 inputs={'packages': InputPort(FORMATS, cardinality='many', required=False, name='输入')}, outputs={'collection': OutputPort(FORMAT, name='候选集合')}),
-            Node('workbench.collection.split', '拆分集合', split,
-                 inputs=collection, outputs={'items': OutputPort(FORMAT, cardinality='many', name='对象')}),
-            Node('workbench.collection.select', '选择对象', select_items, inputs=collection,
-                 outputs={'collection': OutputPort(FORMAT, name='候选集合')}, parameters={'items': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}}}),
-            Node('workbench.collection.extract_structures', '提取结构', extract_structures,
-                 inputs=collection, outputs={'structures': OutputPort('workbench.structure_set', name='结构')}),
-            Node('workbench.collection.extract_sequences', '提取序列', extract_sequences,
-                 inputs=collection, outputs={'sequences': OutputPort('workbench.sequence', name='序列')}),
+            Node('workbench.collection.merge', {'zh-CN': '合并集合', 'en': 'Merge collections'}, merge,
+                 inputs={'packages': InputPort(FORMATS, cardinality='many', required=False, name={'zh-CN': '输入', 'en': 'Input'})}, outputs={'collection': OutputPort(FORMAT, name={'zh-CN': '候选集合', 'en': 'Candidates'})}),
+            Node('workbench.collection.split', {'zh-CN': '拆分集合', 'en': 'Split collection'}, split,
+                 inputs=collection, outputs={'items': OutputPort(FORMAT, cardinality='many', name={'zh-CN': '对象', 'en': 'Object'})}),
+            Node('workbench.collection.select', {'zh-CN': '选择对象', 'en': 'Select objects'}, select_items, inputs=collection,
+                 outputs={'collection': OutputPort(FORMAT, name={'zh-CN': '候选集合', 'en': 'Candidates'})}, parameters={'items': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}, 'title': {'zh-CN': '对象', 'en': 'Objects'}}}),
+            Node('workbench.collection.extract_structures', {'zh-CN': '提取结构', 'en': 'Extract structures'}, extract_structures,
+                 inputs=collection, outputs={'structures': OutputPort('workbench.structure_set', name={'zh-CN': '结构', 'en': 'Structure'})}),
+            Node('workbench.collection.extract_sequences', {'zh-CN': '提取序列', 'en': 'Extract sequences'}, extract_sequences,
+                 inputs=collection, outputs={'sequences': OutputPort('workbench.sequence', name={'zh-CN': '序列', 'en': 'Sequence'})}),
         ))

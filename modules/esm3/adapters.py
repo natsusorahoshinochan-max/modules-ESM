@@ -236,9 +236,9 @@ def create_local(settings):
 
 
 def tools():
-    labels = {'num_steps': '生成步数', 'temperature': '温度', 'top_p': 'Top-p', 'schedule': '采样调度', 'strategy': '采样策略', 'temperature_annealing': '温度退火', 'invalid_ids': '排除 Token', 'condition_on_coordinates_only': '仅以坐标作为结构条件', 'only_compute_backbone_rmsd': '仅计算主链 RMSD', 'potential_sequence_of_concern': '关注序列标记'}
+    labels = {'num_steps': {'zh-CN': '生成步数', 'en': 'Generation steps'}, 'temperature': {'zh-CN': '温度', 'en': 'Temperature'}, 'top_p': 'Top-p', 'schedule': {'zh-CN': '采样调度', 'en': 'Sampling schedule'}, 'strategy': {'zh-CN': '采样策略', 'en': 'Sampling strategy'}, 'temperature_annealing': {'zh-CN': '温度退火', 'en': 'Temperature annealing'}, 'invalid_ids': {'zh-CN': '排除 Token', 'en': 'Excluded tokens'}, 'condition_on_coordinates_only': {'zh-CN': '仅以坐标作为结构条件', 'en': 'Use coordinates only'}, 'only_compute_backbone_rmsd': {'zh-CN': '仅计算主链 RMSD', 'en': 'Backbone RMSD only'}, 'potential_sequence_of_concern': {'zh-CN': '关注序列标记', 'en': 'Sequence focus tag'}}
     common = {name: {'default': value, 'title': labels[name], 'advanced': name not in ('num_steps', 'temperature')} for name, value in DEFAULTS.items()}
     common['num_steps']['type'] = 'integer'
     common['invalid_ids'].update(type='array', items={'type': 'integer'})
     return (Tool('workbench.esm3.biohub', 'ESM3 · Biohub', SLOT, create_remote, parameters=deepcopy(common), capabilities={'tracks': ['sequence', 'structure', 'secondary_structure', 'sasa', 'function'], 'seed': False}),
-            Tool('workbench.esm3.local', 'ESM3 · 本地', SLOT, create_local, parameters={**deepcopy(common), 'seed': {'type': 'integer', 'title': '随机种子', 'default': 0}}, capabilities={'tracks': ['sequence', 'structure', 'secondary_structure', 'sasa', 'function'], 'seed': 'torch.manual_seed; literal 0'}))
+            Tool('workbench.esm3.local', {'zh-CN': 'ESM3 · 本地', 'en': 'ESM3 · Local'}, SLOT, create_local, parameters={**deepcopy(common), 'seed': {'type': 'integer', 'title': {'zh-CN': '随机种子', 'en': 'Seed'}, 'default': 0}}, capabilities={'tracks': ['sequence', 'structure', 'secondary_structure', 'sasa', 'function'], 'seed': 'torch.manual_seed; literal 0'}))

@@ -120,7 +120,26 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 仓库前端也使用这个 npm 包；`webui/.npmrc` 的 `install-links=true` 将本地包复制到前端的 `node_modules`，公共声明集中维护在包内的 `index.d.ts`。
 
-`Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
+`Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React, i18n })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
+
+显示名称使用 `DisplayText`：单语言字符串，或 `{ "zh-CN": "预测结构", "en": "Predict structure" }`。模块、节点、工具、端口、工具槽的 `name`，参数与设置的 `title`、参数 `enumLabels`，以及界面操作、查看器名称和工作区标题均支持此类型。缺少当前语言时依次采用英文、中文；单语言字符串按原样显示。标识、格式、枚举值、默认值和文件内容保持原值。
+
+模块用收到的 `i18n` 服务解析自己的词典：
+
+```js
+export function register({ React, i18n }) {
+  const messages = { open: { 'zh-CN': '打开', en: 'Open' } };
+  const t = i18n.translator(messages);
+  function Editor() {
+    return React.createElement('button', null, t('open'));
+  }
+  return { editors: [{ node: 'example.edit', component: Editor }] };
+}
+```
+
+载体注册的组件在语言变化时重新渲染，实例及本地状态保留。词典在模块内维护，`t(key, values)` 支持 `{name}` 插值；`i18n.text(value)` 解析显示声明，`i18n.useLocale()` 供模块自有订阅使用。翻译在渲染时读取；保存界面状态时存语义键或原始内容，避免把初次渲染的译文存成固定状态。独立编辑工作区可呈现共享的 `i18n.LanguagePicker`。
+
+模块可为本地验证错误附上 `displayMessage: DisplayText` 和插值 `values`，通过 `i18n.error(error)` 展示。工具及外部服务的原始错误保留原文。
 
 紧凑编辑器声明 `editors: [{node, component, inline: true}]`，直接显示于节点正文；普通编辑器在参数展开区显示。
 

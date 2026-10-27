@@ -21,11 +21,11 @@ def execute(call, runtime):
 
 def module():
     return Module(
-        id='workbench.structure_comparison', name='结构比较',
+        id='workbench.structure_comparison', name={'zh-CN': '结构比较', 'en': 'Structure comparison'},
         nodes=(Node(
-            id='workbench.compare', name='比较结构', execute=execute,
-            inputs={'subject': InputPort(('workbench.prediction', 'workbench.structure_set', 'workbench.coordinates'), cardinality='many', name='待比较结构'), 'reference': InputPort(('workbench.reference', 'workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name='参考结构')},
-            outputs={'comparison': OutputPort('workbench.comparison', cardinality='many', name='评分')},
-            parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}},
+            id='workbench.compare', name={'zh-CN': '比较结构', 'en': 'Compare structures'}, execute=execute,
+            inputs={'subject': InputPort(('workbench.prediction', 'workbench.structure_set', 'workbench.coordinates'), cardinality='many', name={'zh-CN': '待比较结构', 'en': 'Subject structure'}), 'reference': InputPort(('workbench.reference', 'workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name={'zh-CN': '参考结构', 'en': 'Reference structure'})},
+            outputs={'comparison': OutputPort('workbench.comparison', cardinality='many', name={'zh-CN': '评分', 'en': 'Scores'})},
+            parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions', 'title': {'zh-CN': '候选区域', 'en': 'Subject region'}}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions', 'title': {'zh-CN': '参考区域', 'en': 'Reference region'}}},
         ),), ui=str(Path(__file__).with_name('ui.js').resolve()),
     )

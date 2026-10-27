@@ -12,19 +12,22 @@ from pathlib import Path
 from typing import BinaryIO, Callable, Literal, Mapping, Protocol, Any
 
 
+DisplayText = str | dict[str, str]
+
+
 @dataclass(frozen=True)
 class InputPort:
     accepts: tuple[str, ...]
     cardinality: Literal["one", "many"] = "one"
     required: bool = True
-    name: str | None = None
+    name: DisplayText | None = None
 
 
 @dataclass(frozen=True)
 class OutputPort:
     format: str
     cardinality: Literal["one", "many"] = "one"
-    name: str | None = None
+    name: DisplayText | None = None
 
 
 @dataclass(frozen=True)
@@ -83,14 +86,14 @@ class Outcome:
 class ToolSlot:
     """A node author's named public calling contract."""
     id: str
-    name: str
+    name: DisplayText
 
 
 @dataclass(frozen=True)
 class Tool:
     """An implementation factory receiving its owning module's deployment settings."""
     id: str
-    name: str
+    name: DisplayText
     slot: str
     create: Callable[[dict[str, Any]], Callable]
     parameters: dict[str, Any] = field(default_factory=dict)
@@ -100,7 +103,7 @@ class Tool:
 @dataclass(frozen=True)
 class Node:
     id: str
-    name: str
+    name: DisplayText
     execute: Callable[[Call, Runtime], Outcome]
     inputs: Mapping[str, InputPort] = field(default_factory=dict)
     outputs: Mapping[str, OutputPort] = field(default_factory=dict)
@@ -112,7 +115,7 @@ class Node:
 @dataclass(frozen=True)
 class Module:
     id: str
-    name: str
+    name: DisplayText
     nodes: tuple[Node, ...] = ()
     settings: dict[str, Any] = field(default_factory=dict)
     ui: str | None = None

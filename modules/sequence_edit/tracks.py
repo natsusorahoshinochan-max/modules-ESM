@@ -9,8 +9,13 @@ TRACK_FORMATS = {'sequence': 'workbench.sequence', 'coordinates': 'workbench.coo
                  'secondary_structure': 'workbench.secondary_structure', 'sasa': 'workbench.sasa',
                  'function_annotations': 'workbench.function_annotations'}
 
-TRACK_NAMES = {'sequence': '序列', 'coordinates': '三维坐标', 'secondary_structure': '二级结构',
-               'sasa': 'SASA', 'function_annotations': '功能注释'}
+TRACK_NAMES = {
+    'sequence': {'zh-CN': '序列', 'en': 'Sequence'},
+    'coordinates': {'zh-CN': '三维坐标', 'en': '3D coordinates'},
+    'secondary_structure': {'zh-CN': '二级结构', 'en': 'Secondary structure'},
+    'sasa': {'zh-CN': 'SASA', 'en': 'SASA'},
+    'function_annotations': {'zh-CN': '功能注释', 'en': 'Annotations'},
+}
 
 def read_track(package, track):
     """Read a declared track independently of the producer or editor history."""

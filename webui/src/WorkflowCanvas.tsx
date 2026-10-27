@@ -1,3 +1,213 @@
+import { i18n } from './i18n'
+const messages = {
+"input_socket": {"zh-CN": "节点 {n} 输入 {port}", "en": "Node {n} input {port}"},
+"output_socket": {"zh-CN": "节点 {n} 输出 {port}", "en": "Node {n} output {port}"},
+  "tool_unavailable": {
+    "zh-CN": "工具暂不可用",
+    "en": "Tool unavailable"
+  },
+  "select_tool": {
+    "zh-CN": "选择工具",
+    "en": "Select tool"
+  },
+  "options": {
+    "zh-CN": "选项",
+    "en": "Options"
+  },
+  "the_port_no_longer_exists": {
+    "zh-CN": "端口已不存在",
+    "en": "The port no longer exists"
+  },
+  "a_node_cannot_connect_to_itself": {
+    "zh-CN": "不能连接节点自身",
+    "en": "A node cannot connect to itself"
+  },
+  "incompatible_formats_add_a_conversion_node": {
+    "zh-CN": "端口格式不兼容，请使用明确的转换节点",
+    "en": "Incompatible formats; add a conversion node"
+  },
+  "this_input_accepts_one_data_package": {
+    "zh-CN": "此输入只接受一个数据包",
+    "en": "This input accepts one data package"
+  },
+  "this_connection_already_exists": {
+    "zh-CN": "这条连接已存在",
+    "en": "This connection already exists"
+  },
+  "this_input_already_has_data_or_a": {
+    "zh-CN": "此输入已有数据或连线",
+    "en": "This input already has data or a connection"
+  },
+  "this_connection_would_create_a_cycle": {
+    "zh-CN": "此连接会形成循环",
+    "en": "This connection would create a cycle"
+  },
+  "connect_an_input_to_an_output": {
+    "zh-CN": "请连接一个输入和一个输出",
+    "en": "Connect an input to an output"
+  },
+  "select_the_connection_to_reconnect_first": {
+    "zh-CN": "此输入有多条连线，请先选择要改接的连线",
+    "en": "Select the connection to reconnect first"
+  },
+  "node_added": {
+    "zh-CN": "已添加节点",
+    "en": "Node added"
+  },
+  "click_the_canvas_to_place_esc_to": {
+    "zh-CN": "在画布上点击放置节点 · Esc 取消",
+    "en": "Click the canvas to place · Esc to cancel"
+  },
+  "original_connection_kept": {
+    "zh-CN": "；原连接保持不变",
+    "en": "; original connection kept"
+  },
+  "connection_updated": {
+    "zh-CN": "连线已更新",
+    "en": "Connection updated"
+  },
+  "select_an_output_port_then_an_input": {
+    "zh-CN": "请点击输出圆点，再点击输入圆点连接",
+    "en": "Select an output port, then an input port"
+  },
+  "connection_removed": {
+    "zh-CN": "已断开连线",
+    "en": "Connection removed"
+  },
+  "add_node": {
+    "zh-CN": "＋ 添加节点",
+    "en": "＋ Add node"
+  },
+  "fit_view": {
+    "zh-CN": "适应视图",
+    "en": "Fit view"
+  },
+  "nodes": {
+    "zh-CN": "节点 ·",
+    "en": "nodes ·"
+  },
+  "connections": {
+    "zh-CN": "连线",
+    "en": "connections"
+  },
+  "node_canvas": {
+    "zh-CN": "节点画布",
+    "en": "Node canvas"
+  },
+  "port_connections": {
+    "zh-CN": "端口连线",
+    "en": "Port connections"
+  },
+  "select_connection_to": {
+    "zh-CN": "选择从 {0} 到 {1} 的连线",
+    "en": "Select connection {0} to {1}"
+  },
+  "move_node": {
+    "zh-CN": "移动节点 {0}",
+    "en": "Move node {0}"
+  },
+  "drag_to_reconnect_release_on_empty_space": {
+    "zh-CN": "拖动输入圆点改接；松到空白断开",
+    "en": "Drag to reconnect; release on empty space to disconnect"
+  },
+  "drag_to_connect": {
+    "zh-CN": "拖动输出圆点创建连接",
+    "en": "Drag to connect"
+  },
+  "connect_to": {
+    "zh-CN": "连接到",
+    "en": "Connect to"
+  },
+  "connect_from": {
+    "zh-CN": "连接自",
+    "en": "Connect from"
+  },
+  "node_parameters": {
+    "zh-CN": "节点 {0} 参数",
+    "en": "Node {0} parameters"
+  },
+  "parameters": {
+    "zh-CN": "参数 ▴",
+    "en": "Parameters ▴"
+  },
+  "parameters_2": {
+    "zh-CN": "参数 ▾",
+    "en": "Parameters ▾"
+  },
+  "start_with_a_node": {
+    "zh-CN": "从一个节点开始",
+    "en": "Start with a node"
+  },
+  "add_a_node_or_import_your_data": {
+    "zh-CN": "添加节点，或导入你的研究数据",
+    "en": "Add a node or import your data"
+  },
+  "release_on_an_input_to_reconnect_or": {
+    "zh-CN": "松到输入圆点改接，松到空白断开",
+    "en": "Release on an input to reconnect, or on empty space to disconnect"
+  },
+  "drag_to_a_compatible_port": {
+    "zh-CN": "拖到兼容端口圆点连接",
+    "en": "Drag to a compatible port"
+  },
+  "click_to_place": {
+    "zh-CN": "点击画布放置「",
+    "en": "Click to place “"
+  },
+  "esc_to_cancel": {
+    "zh-CN": "」 · Esc 取消",
+    "en": "” · Esc to cancel"
+  },
+  "nodes_2": {
+    "zh-CN": "节点库",
+    "en": "Nodes"
+  },
+  "search_nodes": {
+    "zh-CN": "搜索节点",
+    "en": "Search nodes"
+  },
+  "search_nodes_2": {
+    "zh-CN": "搜索节点…",
+    "en": "Search nodes…"
+  },
+  "pan_tool": {
+    "zh-CN": "平移工具",
+    "en": "Pan tool"
+  },
+  "zoom_out": {
+    "zh-CN": "缩小",
+    "en": "Zoom out"
+  },
+  "zoom_in": {
+    "zh-CN": "放大",
+    "en": "Zoom in"
+  },
+  "focus_selection": {
+    "zh-CN": "聚焦选中",
+    "en": "Focus selection"
+  },
+  "selected": {
+    "zh-CN": "个已选",
+    "en": "selected"
+  },
+  "focus": {
+    "zh-CN": "聚焦",
+    "en": "Focus"
+  },
+  "duplicate": {
+    "zh-CN": "复制",
+    "en": "Duplicate"
+  },
+  "delete": {
+    "zh-CN": "删除",
+    "en": "Delete"
+  },
+  "overview": {
+    "zh-CN": "流程概览",
+    "en": "Overview"
+  }
+};
+const t = i18n.translator(messages)
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Edge, Flow, FlowNode } from '@protein-workbench/module-ui'
 import type { Catalog } from './host-client'
@@ -65,8 +275,8 @@ export function CanvasToolPicker({ value, options, label, disabled = false, onCh
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!open) show(); else if (options.length) setActive(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length) }
         if (open && (event.key === 'Home' || event.key === 'End')) { event.preventDefault(); setActive(event.key === 'Home' ? 0 : options.length - 1) }
         if (open && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(active) }
-      }}><span>{options[selected]?.name ?? (value ? '工具暂不可用' : '选择工具')}</span><span aria-hidden="true">{open ? '▴' : '▾'}</span></button>
-    {open && <div role="listbox" aria-label={label + '选项'}>{options.map((option, index) => <button key={option.id} type="button" role="option" tabIndex={-1} aria-selected={option.id === value} className={active === index ? 'active' : ''} onPointerDown={event => event.preventDefault()} onPointerMove={() => setActive(index)} onClick={() => choose(index)}><span>{option.name}</span><span aria-hidden="true">{option.id === value ? '✓' : ''}</span></button>)}</div>}
+      }}><span>{options[selected]?.name ?? (value ? t("tool_unavailable") : t("select_tool"))}</span><span aria-hidden="true">{open ? '▴' : '▾'}</span></button>
+    {open && <div role="listbox" aria-label={label + t("options")}>{options.map((option, index) => <button key={option.id} type="button" role="option" tabIndex={-1} aria-selected={option.id === value} className={active === index ? 'active' : ''} onPointerDown={event => event.preventDefault()} onPointerMove={() => setActive(index)} onClick={() => choose(index)}><span>{option.name}</span><span aria-hidden="true">{option.id === value ? '✓' : ''}</span></button>)}</div>}
   </div>
 }
 
@@ -74,17 +284,17 @@ export function CanvasToolPicker({ value, options, label, disabled = false, onCh
 export function connectionProblem(flow: Flow, catalog: Catalog, edge: Edge, replacingIndex?: number): string {
   const source = flow.nodes.find(node => node.id === edge.source), target = flow.nodes.find(node => node.id === edge.target)
   const output = declarationFor(source, catalog)?.outputs[edge.source_port], input = declarationFor(target, catalog)?.inputs[edge.target_port]
-  if (!source || !target || !output || !input) return '端口已不存在'
-  if (source.id === target.id) return '不能连接节点自身'
-  if (!input.accepts.includes(output.format)) return '端口格式不兼容，请使用明确的转换节点'
-  if (input.cardinality === 'one' && output.cardinality === 'many') return '此输入只接受一个数据包'
+  if (!source || !target || !output || !input) return t("the_port_no_longer_exists")
+  if (source.id === target.id) return t("a_node_cannot_connect_to_itself")
+  if (!input.accepts.includes(output.format)) return t("incompatible_formats_add_a_conversion_node")
+  if (input.cardinality === 'one' && output.cardinality === 'many') return t("this_input_accepts_one_data_package")
   const edges = flow.edges.filter((_, index) => index !== replacingIndex)
-  if (edges.some(item => sameEdge(item, edge))) return '这条连接已存在'
-  if (input.cardinality === 'one' && ((target.inputs?.[edge.target_port]?.length ?? 0) > 0 || edges.some(item => item.target === edge.target && item.target_port === edge.target_port))) return '此输入已有数据或连线'
+  if (edges.some(item => sameEdge(item, edge))) return t("this_connection_already_exists")
+  if (input.cardinality === 'one' && ((target.inputs?.[edge.target_port]?.length ?? 0) > 0 || edges.some(item => item.target === edge.target && item.target_port === edge.target_port))) return t("this_input_already_has_data_or_a")
   const pending = [edge.target], visited = new Set<string>()
   while (pending.length) {
     const id = pending.pop()!
-    if (id === edge.source) return '此连接会形成循环'
+    if (id === edge.source) return t("this_connection_would_create_a_cycle")
     if (visited.has(id)) continue
     visited.add(id)
     edges.filter(item => item.source === id).forEach(item => pending.push(item.target))
@@ -133,7 +343,7 @@ export function WorkflowCanvas({ focusRequest, flow, catalog, layout, disabled, 
     const element = at(event)?.closest<HTMLElement>('[data-socket-node]')
     return element ? {node:element.dataset.socketNode!,port:element.dataset.socketPort!,side:element.dataset.socketSide as Socket['side']} : null
   }
-  function problem(a: Socket, b: Socket, original?: number) { return a.side === b.side ? '请连接一个输入和一个输出' : connectionProblem(flow,catalog,edgeFor(a,b),original) }
+  function problem(a: Socket, b: Socket, original?: number) { return a.side === b.side ? t("connect_an_input_to_an_output") : connectionProblem(flow,catalog,edgeFor(a,b),original) }
   function cancel() { if (gesture.current?.kind === 'pan') setView(gesture.current.view); gesture.current=null; wirePointer.current=null; libraryDrag.current=null; setMoving({}); setBox(null); setWire(null); setPlacement(null) }
   function zoom(scale: number, point?: Position) {
     if (gesture.current || wireRef.current) return
@@ -205,7 +415,7 @@ export function WorkflowCanvas({ focusRequest, flow, catalog, layout, disabled, 
     event.preventDefault();event.stopPropagation();stage.current?.focus()
     const incoming=flow.edges.map((edge,index)=>({edge,index})).filter(item=>item.edge.target===socket.node&&item.edge.target_port===socket.port)
     const candidate=socket.side==='input'?(incoming.length===1?incoming[0]:incoming.find(item=>item.index===selectedEdge)):undefined
-    if(socket.side==='input'&&incoming.length>1&&!candidate){setNotice('此输入有多条连线，请先选择要改接的连线');return}
+    if(socket.side==='input'&&incoming.length>1&&!candidate){setNotice(t("select_the_connection_to_reconnect_first"));return}
     const fixed:Socket=candidate?{node:candidate.edge.source,port:candidate.edge.source_port,side:'output'}:socket
     const point=local(event);wirePointer.current={pointer:event.pointerId,start:point,moved:false}
     setWire({fixed,original:candidate?.index,point:world(point),hover:null,error:''});stage.current?.setPointerCapture?.(event.pointerId)
@@ -232,20 +442,20 @@ export function WorkflowCanvas({ focusRequest, flow, catalog, layout, disabled, 
       setSelected([...new Set([...active.ids,...found])])
     }
   }
-  async function addAt(type:string,point:Position){if(disabled||!onAdd)return;try{await onAdd(type,{x:Math.round(point.x-WIDTH/2),y:Math.round(point.y-HEADER/2)});setPlacement(null);setLibrary(false);setNotice('已添加节点')}catch(error){setNotice(String(error))}}
+  async function addAt(type:string,point:Position){if(disabled||!onAdd)return;try{await onAdd(type,{x:Math.round(point.x-WIDTH/2),y:Math.round(point.y-HEADER/2)});setPlacement(null);setLibrary(false);setNotice(t("node_added"))}catch(error){setNotice(String(error))}}
   function end(event:ReactPointerEvent) {
     const drag=libraryDrag.current
-    if(drag?.pointer===event.pointerId){libraryDrag.current=null;if(drag.moved){if(at(event)?.closest('.canvas-viewport')&&!at(event)?.closest('.canvas-overlay'))void addAt(drag.type,world(local(event)));else setPlacement(null)}else{setPlacement(drag.type);setLibrary(false);setNotice('在画布上点击放置节点 · Esc 取消')}return}
+    if(drag?.pointer===event.pointerId){libraryDrag.current=null;if(drag.moved){if(at(event)?.closest('.canvas-viewport')&&!at(event)?.closest('.canvas-overlay'))void addAt(drag.type,world(local(event)));else setPlacement(null)}else{setPlacement(drag.type);setLibrary(false);setNotice(t("click_the_canvas_to_place_esc_to"))}return}
     if(wirePointer.current?.pointer===event.pointerId&&wireRef.current){
       const active=wireRef.current,target=socketAt(event),moved=wirePointer.current.moved
       wirePointer.current=null;setWire(null)
       if(disabled||!moved)return
-      if(target){const reason=problem(active.fixed,target,active.original);if(reason){setNotice(reason+'；原连接保持不变');return}
+      if(target){const reason=problem(active.fixed,target,active.original);if(reason){setNotice(reason+t("original_connection_kept"));return}
         const edge=edgeFor(active.fixed,target)
         if(active.original!==undefined&&sameEdge(edge,flow.edges[active.original]))return
-        if(onConnect)void Promise.resolve().then(()=>onConnect(edge,active.original)).then(()=>setNotice('连线已更新')).catch(error=>setNotice(String(error)))
-        else setNotice('请点击输出圆点，再点击输入圆点连接')
-      }else if(active.original!==undefined&&at(event)?.closest('.canvas-viewport')&&!at(event)?.closest('.canvas-node,.canvas-overlay')){onDisconnect(active.original);setNotice('已断开连线')}
+        if(onConnect)void Promise.resolve().then(()=>onConnect(edge,active.original)).then(()=>setNotice(t("connection_updated"))).catch(error=>setNotice(String(error)))
+        else setNotice(t("select_an_output_port_then_an_input"))
+      }else if(active.original!==undefined&&at(event)?.closest('.canvas-viewport')&&!at(event)?.closest('.canvas-node,.canvas-overlay')){onDisconnect(active.original);setNotice(t("connection_removed"))}
       return
     }
     const active=gesture.current;if(!active||active.pointer!==event.pointerId)return
@@ -256,8 +466,8 @@ export function WorkflowCanvas({ focusRequest, flow, catalog, layout, disabled, 
   const minimapNodes=flow.nodes.map(node=>({id:node.id,...positions[node.id],height:nodeHeight(node.id)}))
   const bounds={left:Math.min(0,...minimapNodes.map(node=>node.x)),top:Math.min(0,...minimapNodes.map(node=>node.y)),right:Math.max(800,...minimapNodes.map(node=>node.x+WIDTH)),bottom:Math.max(500,...minimapNodes.map(node=>node.y+node.height))}
   return <div className="canvas-workspace">
-    <div className="canvas-tools"><button disabled={disabled||!onAdd} onClick={()=>setLibrary(open=>!open)} aria-expanded={library}>＋ 添加节点</button><button onClick={()=>fit()}>适应视图 <small>⇧ F</small></button><span className="canvas-count">{flow.nodes.length} 节点 · {flow.edges.length} 连线</span></div>
-    <div className={'canvas-viewport'+(tool==='pan'||space?' canvas-panning':'')+(placement?' canvas-placing':'')} ref={stage} tabIndex={0} aria-label="Node canvas"
+    <div className="canvas-tools"><button disabled={disabled||!onAdd} onClick={()=>setLibrary(open=>!open)} aria-expanded={library}>{t("add_node")}</button><button onClick={()=>fit()}>{t("fit_view")} <small>⇧ F</small></button><span className="canvas-count">{flow.nodes.length}  {t("nodes")} {flow.edges.length}  {t("connections")}</span></div>
+    <div className={'canvas-viewport'+(tool==='pan'||space?' canvas-panning':'')+(placement?' canvas-placing':'')} ref={stage} tabIndex={0} aria-label={t("node_canvas")}
       style={{backgroundSize:`${24*view.scale}px ${24*view.scale}px`,backgroundPosition:`${view.x}px ${view.y}px`}}
       onPointerDown={event=>begin(event)} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel}
       onDoubleClick={event=>{if(!(event.target as HTMLElement).closest('.canvas-node,.canvas-overlay')&&onAdd&&!disabled)setLibrary(true)}}
@@ -274,41 +484,41 @@ export function WorkflowCanvas({ focusRequest, flow, catalog, layout, disabled, 
         if(!disabled&&(event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='d'&&onCopy){event.preventDefault();onCopy(selected)}
       }} onKeyUp={event=>{if(event.key===' ')setSpace(false)}}>
       <div className="canvas-surface" style={{transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`}}>
-        <svg className="canvas-wires" width="1" height="1" aria-label="Port connections">
+        <svg className="canvas-wires" width="1" height="1" aria-label={t("port_connections")}>
           {flow.edges.map((edge,index)=>{
             if(!positions[edge.source]||!positions[edge.target])return null
             const a=anchor({node:edge.source,port:edge.source_port,side:'output'}),b=anchor({node:edge.target,port:edge.target_port,side:'input'})
             const format=declarationFor(flow.nodes.find(node=>node.id===edge.source),catalog)?.outputs[edge.source_port]?.format??''
-            return <g key={index} opacity={wire?.original===index?0.15:1}><path className={selectedEdge===index?'wire selected':'wire'} d={curve(a,b)} style={{stroke:selectedEdge===index?'#345bdb':color(format)}}/><path className="wire-target" tabIndex={0} role="button" aria-label={`Select connection ${edge.source_port} to ${edge.target_port}`} d={curve(a,b)} onClick={()=>{setSelectedEdge(index);setSelected([])}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelectedEdge(index);setSelected([])}}}/></g>
+            return <g key={index} opacity={wire?.original===index?0.15:1}><path className={selectedEdge===index?'wire selected':'wire'} d={curve(a,b)} style={{stroke:selectedEdge===index?'#345bdb':color(format)}}/><path className="wire-target" tabIndex={0} role="button" aria-label={t("select_connection_to", {"0": edge.source_port, "1": edge.target_port})} d={curve(a,b)} onClick={()=>{setSelectedEdge(index);setSelected([])}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelectedEdge(index);setSelected([])}}}/></g>
           })}
           {wire&&positions[wire.fixed.node]&&<path className="wire wire-preview" d={wire.fixed.side==='output'?curve(anchor(wire.fixed),wire.point):curve(wire.point,anchor(wire.fixed))}/>}
         </svg>
         {flow.nodes.map((node,index)=>{
           const declaration=declarationFor(node,catalog),inputs=Object.entries(declaration?.inputs??{}),outputs=Object.entries(declaration?.outputs??{}),position=positions[node.id],open=expanded.includes(node.id)
           return <div className={'canvas-node'+(selected.includes(node.id)?' selected':'')} data-canvas-node={node.id} key={node.id} style={{left:position.x,top:position.y,width:WIDTH,zIndex:open?3:selected.includes(node.id)?2:1}} onPointerDown={event=>begin(event,node.id)}>
-            <button className="node-drag-handle" aria-label={`Move node ${index+1}`} onDoubleClick={()=>setExpanded(ids=>open?ids.filter(id=>id!==node.id):[...ids,node.id])}
+            <button className="node-drag-handle" aria-label={t("move_node", {"0": index+1})} onDoubleClick={()=>setExpanded(ids=>open?ids.filter(id=>id!==node.id):[...ids,node.id])}
               onKeyDown={event=>{const delta:Record<string,Position>={ArrowLeft:{x:-20,y:0},ArrowRight:{x:20,y:0},ArrowUp:{x:0,y:-20},ArrowDown:{x:0,y:20}};if(delta[event.key]&&!disabled){event.preventDefault();event.stopPropagation();const step=event.shiftKey?5:1;onMove(node.id,{x:position.x+delta[event.key].x*step,y:position.y+delta[event.key].y*step})}}}><small>{String(index+1).padStart(2,'0')}</small><span>{declaration?.name??node.type}</span><span className="node-grip">⠿</span></button>
             <div className="node-ports" style={{height:Math.max(inputs.length,outputs.length)*ROW}}>
               {(['input','output'] as const).map(side=><div className={side+'-ports'} key={side}>{(side==='input'?inputs:outputs).map(([port,description])=>{
                 const format='format' in description?description.format:description.accepts[0]??'',socket:Socket={node:node.id,port,side}
                 const connected=flow.edges.some(edge=>side==='input'?edge.target===node.id&&edge.target_port===port:edge.source===node.id&&edge.source_port===port)
-                return <div className="node-port-row" key={port}><span>{description.name ?? port}</span><button type="button" className={'port-dot'+(connected?' connected':'')+(selectedSource.source===node.id&&selectedSource.source_port===port&&side==='output'?' chosen':'')} style={{'--port-color':color(format)} as CSSProperties} disabled={disabled} title={side==='input'?'拖动输入圆点改接；松到空白断开':'拖动输出圆点创建连接'} aria-label={`${side==='input'?'Connect to':'Connect from'} node ${index+1} ${side} ${port}`} data-socket-node={node.id} data-socket-port={port} data-socket-side={side} onPointerDown={event=>startWire(event,socket)} onClick={event=>{if(event.detail===0){side==='input'?onTarget(node.id,port):onSource(node.id,port)}}}/></div>
+                return <div className="node-port-row" key={port}><span>{description.name ?? port}</span><button type="button" className={'port-dot'+(connected?' connected':'')+(selectedSource.source===node.id&&selectedSource.source_port===port&&side==='output'?' chosen':'')} style={{'--port-color':color(format)} as CSSProperties} disabled={disabled} title={side==='input'?t("drag_to_reconnect_release_on_empty_space"):t("drag_to_connect")} aria-label={t(side==='input'?'input_socket':'output_socket', {n:index+1, port:description.name??port})} data-socket-node={node.id} data-socket-port={port} data-socket-side={side} onPointerDown={event=>startWire(event,socket)} onClick={event=>{if(event.detail===0){side==='input'?onTarget(node.id,port):onSource(node.id,port)}}}/></div>
               })}</div>)}
             </div>
             {renderNodeSummary&&<div className="node-summary">{renderNodeSummary(node,index)}</div>}
-            <div className="node-footer"><button aria-label={`节点 ${index+1} 参数`} aria-expanded={open} onClick={()=>{setSelected([node.id]);setExpanded(ids=>open?ids.filter(id=>id!==node.id):[...ids,node.id])}}>{open?'参数 ▴':'参数 ▾'}</button>{renderNodeResult?.(node,index)}</div>
+            <div className="node-footer"><button aria-label={t("node_parameters", {"0": index+1})} aria-expanded={open} onClick={()=>{setSelected([node.id]);setExpanded(ids=>open?ids.filter(id=>id!==node.id):[...ids,node.id])}}>{open?t("parameters"):t("parameters_2")}</button>{renderNodeResult?.(node,index)}</div>
             <div className="canvas-properties" hidden={!open}>{renderNode(node,index)}</div>
           </div>
         })}
       </div>
-      {!flow.nodes.length&&<div className="canvas-empty"><strong>从一个节点开始</strong><span>添加节点，或导入你的研究数据</span></div>}
+      {!flow.nodes.length&&<div className="canvas-empty"><strong>{t("start_with_a_node")}</strong><span>{t("add_a_node_or_import_your_data")}</span></div>}
       {box&&<div className="canvas-selection-box" style={{left:Math.min(box.start.x,box.end.x),top:Math.min(box.start.y,box.end.y),width:Math.abs(box.end.x-box.start.x),height:Math.abs(box.end.y-box.start.y)}}/>}
-      {wire&&<div className={'canvas-wire-notice'+(wire.error?' invalid':'')}>{wire.error||(wire.original!==undefined?'松到输入圆点改接，松到空白断开':'拖到兼容端口圆点连接')}</div>}
-      {placement&&<div className="canvas-wire-notice">点击画布放置「{catalog.nodes.find(node=>node.id===placement)?.name}」 · Esc 取消</div>}
-      {library&&<div className="canvas-library canvas-overlay"><div className="canvas-library-title"><strong>节点库</strong><button onClick={()=>setLibrary(false)}>×</button></div><input aria-label="Search nodes" placeholder="搜索节点…" value={search} onChange={event=>setSearch(event.target.value)}/><div className="canvas-library-items">{catalog.nodes.filter(node=>(node.name+' '+node.id).toLowerCase().includes(search.toLowerCase())).map(node=><button key={node.id} disabled={disabled} onPointerDown={event=>{if(event.button!==0||disabled)return;event.preventDefault();event.stopPropagation();libraryDrag.current={type:node.id,pointer:event.pointerId,start:local(event),moved:false};stage.current?.setPointerCapture?.(event.pointerId)}} onClick={event=>{if(event.detail===0){setPlacement(node.id);setLibrary(false);stage.current?.focus()}}}><span>{node.name}</span><span>＋</span></button>)}</div></div>}
-      <div className="canvas-navigation canvas-overlay"><button aria-label="选择工具" aria-pressed={tool==='select'} onClick={()=>setTool('select')}>↖</button><button aria-label="平移工具" aria-pressed={tool==='pan'} onClick={()=>setTool('pan')}>✥</button><span className="canvas-divider"/><button aria-label="缩小" onClick={()=>zoom(view.scale/1.2)}>−</button><button onClick={()=>zoom(1)}>{Math.round(view.scale*100)}%</button><button aria-label="放大" onClick={()=>zoom(view.scale*1.2)}>＋</button><button aria-label="聚焦选中" disabled={!selected.length} onClick={()=>fit(selected)}>⊡</button></div>
-      {selected.length>0&&<div className="canvas-selected-actions canvas-overlay"><span>{selected.length} 个已选</span><button onClick={()=>fit(selected)}>聚焦</button>{onCopy&&<button disabled={disabled} onClick={()=>onCopy(selected)}>复制</button>}{onDelete&&<button disabled={disabled} onClick={()=>{onDelete(selected);setSelected([])}}>删除</button>}</div>}
-      <svg className="canvas-minimap canvas-overlay" viewBox={`${bounds.left} ${bounds.top} ${bounds.right-bounds.left} ${bounds.bottom-bounds.top}`} aria-label="流程概览">{minimapNodes.map(node=><rect key={node.id} x={node.x} y={node.y} width={WIDTH} height={node.height} fill={selected.includes(node.id)?'#345bdb':'#a8b2c1'}/>)}</svg>
+      {wire&&<div className={'canvas-wire-notice'+(wire.error?' invalid':'')}>{wire.error||(wire.original!==undefined?t("release_on_an_input_to_reconnect_or"):t("drag_to_a_compatible_port"))}</div>}
+      {placement&&<div className="canvas-wire-notice">{t("click_to_place")}{catalog.nodes.find(node=>node.id===placement)?.name}{t("esc_to_cancel")}</div>}
+      {library&&<div className="canvas-library canvas-overlay"><div className="canvas-library-title"><strong>{t("nodes_2")}</strong><button onClick={()=>setLibrary(false)}>×</button></div><input aria-label={t("search_nodes")} placeholder={t("search_nodes_2")} value={search} onChange={event=>setSearch(event.target.value)}/><div className="canvas-library-items">{catalog.nodes.filter(node=>(node.name+' '+node.id).toLowerCase().includes(search.toLowerCase())).map(node=><button key={node.id} disabled={disabled} onPointerDown={event=>{if(event.button!==0||disabled)return;event.preventDefault();event.stopPropagation();libraryDrag.current={type:node.id,pointer:event.pointerId,start:local(event),moved:false};stage.current?.setPointerCapture?.(event.pointerId)}} onClick={event=>{if(event.detail===0){setPlacement(node.id);setLibrary(false);stage.current?.focus()}}}><span>{node.name}</span><span>＋</span></button>)}</div></div>}
+      <div className="canvas-navigation canvas-overlay"><button aria-label={t("select_tool")} aria-pressed={tool==='select'} onClick={()=>setTool('select')}>↖</button><button aria-label={t("pan_tool")} aria-pressed={tool==='pan'} onClick={()=>setTool('pan')}>✥</button><span className="canvas-divider"/><button aria-label={t("zoom_out")} onClick={()=>zoom(view.scale/1.2)}>−</button><button onClick={()=>zoom(1)}>{Math.round(view.scale*100)}%</button><button aria-label={t("zoom_in")} onClick={()=>zoom(view.scale*1.2)}>＋</button><button aria-label={t("focus_selection")} disabled={!selected.length} onClick={()=>fit(selected)}>⊡</button></div>
+      {selected.length>0&&<div className="canvas-selected-actions canvas-overlay"><span>{selected.length}  {t("selected")}</span><button onClick={()=>fit(selected)}>{t("focus")}</button>{onCopy&&<button disabled={disabled} onClick={()=>onCopy(selected)}>{t("duplicate")}</button>}{onDelete&&<button disabled={disabled} onClick={()=>{onDelete(selected);setSelected([])}}>{t("delete")}</button>}</div>}
+      <svg className="canvas-minimap canvas-overlay" viewBox={`${bounds.left} ${bounds.top} ${bounds.right-bounds.left} ${bounds.bottom-bounds.top}`} aria-label={t("overview")}>{minimapNodes.map(node=><rect key={node.id} x={node.x} y={node.y} width={WIDTH} height={node.height} fill={selected.includes(node.id)?'#345bdb':'#a8b2c1'}/>)}</svg>
     </div>
     {notice&&<div className="canvas-status" role="status">{notice}</div>}
   </div>

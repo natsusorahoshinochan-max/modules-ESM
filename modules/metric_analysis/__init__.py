@@ -274,7 +274,7 @@ def inspect_metrics(call, runtime):
             reference = choice['reference']
             display.append({'selector': {'input': index, **choice['selector']},
                 'object_label': choice['object'].get('label') or object_labels[identity],
-                'reference_label': (reference.get('label') or 'Selected reference') if isinstance(reference, dict) else 'No reference',
+                'reference_label': (reference.get('label') or {'zh-CN': '所选参考', 'en': 'Selected reference'}) if isinstance(reference, dict) else 'No reference',
                 'source_region': choice['source_region'], 'source_method': choice['source_method'],
                 'positions': choice['positions'], 'unit': choice.get('unit'), 'meaning': choice.get('meaning'),
                 **({'unavailable': choice['unavailable']} if 'unavailable' in choice else {})})
@@ -282,9 +282,9 @@ def inspect_metrics(call, runtime):
 
 
 def module():
-    return Module('workbench.metric_analysis', '指标分析', ui=str(Path(__file__).with_name('ui.js')),
-        interactions=(Interaction('workbench.inspect_metrics', inspect_metrics, inputs={'metrics': InputPort(FORMATS, cardinality='many', name='指标')}),), nodes=(Node(
-        'workbench.analyze_metrics', '分析指标', analyze,
-        inputs={'metrics': InputPort(FORMATS, cardinality='many', name='指标')},
-        outputs={'analysis': OutputPort('workbench.metric_analysis', name='分析')},
+    return Module('workbench.metric_analysis', {'zh-CN': '指标分析', 'en': 'Metric analysis'}, ui=str(Path(__file__).with_name('ui.js')),
+        interactions=(Interaction('workbench.inspect_metrics', inspect_metrics, inputs={'metrics': InputPort(FORMATS, cardinality='many', name={'zh-CN': '指标', 'en': 'Metric'})}),), nodes=(Node(
+        'workbench.analyze_metrics', {'zh-CN': '分析指标', 'en': 'Analyze metrics'}, analyze,
+        inputs={'metrics': InputPort(FORMATS, cardinality='many', name={'zh-CN': '指标', 'en': 'Metric'})},
+        outputs={'analysis': OutputPort('workbench.metric_analysis', name={'zh-CN': '分析', 'en': 'Analysis'})},
         parameters={'type': 'object', 'properties': {'selections': {'type': 'array'}}, 'required': ['selections']}),))

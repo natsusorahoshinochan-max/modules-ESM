@@ -1,10 +1,48 @@
+const messages = {
+  "sequence": {
+    "zh-CN": "序列",
+    "en": "Sequence"
+  },
+  "3d_coordinates": {
+    "zh-CN": "三维坐标",
+    "en": "3D coordinates"
+  },
+  "secondary_structure": {
+    "zh-CN": "二级结构",
+    "en": "Secondary structure"
+  },
+  "function_annotations": {
+    "zh-CN": "功能注释",
+    "en": "Function annotations"
+  },
+  "the_number_of_values_does_not_match": {
+    "zh-CN": "填写内容与选中位置数量不一致。",
+    "en": "The number of values does not match the selected positions."
+  },
+  "use_amino_acid_letters_a_z_paste": {
+    "zh-CN": "仅接受氨基酸单字母 A–Z；粘贴不执行 +、- 或清空操作。",
+    "en": "Use amino-acid letters A–Z; paste does not insert, delete or clear positions."
+  },
+  "select_sequence_positions_first": {
+    "zh-CN": "请先选择序列位置。",
+    "en": "Select sequence positions first."
+  },
+  "paste_length_does_not_match_available_positions": {
+    "zh-CN": "粘贴长度与可填写位置不一致；用 + 明确增加位置。",
+    "en": "Paste length does not match available positions; use + to insert positions."
+  },
+  "paste_length_does_not_match_selected_positions": {
+    "zh-CN": "粘贴长度与选中位置不一致。",
+    "en": "Paste length does not match selected positions."
+  }
+};
 /** Studio state stays local until Done. Downstream receives only live rows. */
 export const TRACKS = [
-  ["residue", "序列"],
-  ["coordinates", "三维坐标"],
-  ["secondary_structure", "二级结构"],
+  ["residue", messages.sequence],
+  ["coordinates", messages["3d_coordinates"]],
+  ["secondary_structure", messages.secondary_structure],
   ["sasa", "SASA"],
-  ["function_annotations", "功能注释"],
+  ["function_annotations", messages.function_annotations],
 ];
 export const COLORS = {
   normal: "#94cff0",
@@ -53,7 +91,7 @@ export function updateValues(document, ids, track, values) {
     track !== "function_annotations" &&
     values.length !== ordered.length
   )
-    throw new Error("填写内容与选中位置数量不一致。");
+    throw messageError("the_number_of_values_does_not_match");
   return changed(document, (next) => {
     let index = 0;
     for (const row of next.positions)
@@ -116,22 +154,22 @@ export function selectRange(rows, anchor, target, previous = []) {
 export function parseSequence(text) {
   const input = text.replace(/\s/g, "");
   if (!input || !/^[A-Za-z]+$/.test(input))
-    throw new Error("仅接受氨基酸单字母 A–Z；粘贴不执行 +、- 或清空操作。");
+    throw messageError("use_amino_acid_letters_a_z_paste");
   return [...input.toUpperCase()];
 }
 export function sequenceInput(document, ids, text, { paste = false } = {}) {
   const values = parseSequence(text),
     ordered = document.positions.filter((row) => ids.includes(row.id));
-  if (!ordered.length) throw new Error("请先选择序列位置。");
+  if (!ordered.length) throw messageError("select_sequence_positions_first");
   let targets = ordered;
   if (paste && ordered.length === 1) {
     const index = document.positions.indexOf(ordered[0]);
     targets = document.positions.slice(index, index + values.length);
   }
   if (values.length !== 1 && values.length !== targets.length)
-    throw new Error("粘贴长度与可填写位置不一致；用 + 明确增加位置。");
+    throw messageError("paste_length_does_not_match_available_positions");
   if (paste && values.length !== targets.length)
-    throw new Error("粘贴长度与选中位置不一致。");
+    throw messageError("paste_length_does_not_match_selected_positions");
   return updateValues(
     document,
     targets.map((row) => row.id),
@@ -199,3 +237,5 @@ export function replaceOperation(document) {
     })),
   };
 }
+
+function messageError(key, values = {}) { return Object.assign(new Error(messages[key].en.replace(/\{(\w+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match)), {displayMessage: messages[key], values}); }

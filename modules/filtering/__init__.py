@@ -171,8 +171,8 @@ def execute(call, runtime):
 
 
 def module():
-    inputs = {'candidates':InputPort(CANDIDATES,cardinality='many',required=False, name='候选'), 'evaluations':InputPort((*METRICS, FORMAT),cardinality='many',required=False, name='评分')}
+    inputs = {'candidates':InputPort(CANDIDATES,cardinality='many',required=False, name={'zh-CN': '候选', 'en': 'Candidate'}), 'evaluations':InputPort((*METRICS, FORMAT),cardinality='many',required=False, name={'zh-CN': '评分', 'en': 'Scores'})}
     parameters = {'type':'object','properties':{'conditions':{'type':'array'},'sort':{'type':'object'},'limit':{'type':'integer','minimum':0}}}
-    return Module('workbench.filtering','筛选与排序',ui=str(Path(__file__).with_name('ui.js')),
-        nodes=(Node('workbench.filter','筛选',execute,inputs=inputs,outputs={'collection':OutputPort(FORMAT, name='候选集合')},parameters=parameters),),
+    return Module('workbench.filtering',{'zh-CN': '筛选与排序', 'en': 'Filter and sort'},ui=str(Path(__file__).with_name('ui.js')),
+        nodes=(Node('workbench.filter',{'zh-CN': '筛选', 'en': 'Filter'},execute,inputs=inputs,outputs={'collection':OutputPort(FORMAT, name={'zh-CN': '候选集合', 'en': 'Candidates'})},parameters=parameters),),
         interactions=(Interaction('workbench.filter',temporary,inputs=inputs,parameters=parameters),Interaction('workbench.filter.inspect',inspect,inputs=inputs)))

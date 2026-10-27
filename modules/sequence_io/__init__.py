@@ -45,8 +45,8 @@ def import_sequences(call, runtime):
 
 
 def module():
-    return Module(id='workbench.sequence_io', name='序列输入输出',
+    return Module(id='workbench.sequence_io', name={'zh-CN': '序列输入输出', 'en': 'Sequence I/O'},
         ui=str(Path(__file__).with_name('ui.js')),
-        nodes=(Node('workbench.import_sequence', '导入序列', import_sequences, inputs={'file': InputPort(('workbench.sequence',), name='文件')}, outputs={'sequence': OutputPort('workbench.sequence', name='序列')}), Node('workbench.export_sequences', '导出序列', export_sequences,
-            inputs={'sequences': InputPort(('workbench.sequence',), name='序列')},
-            outputs={'files': OutputPort('workbench.sequence_export', name='文件')}),))
+        nodes=(Node('workbench.import_sequence', {'zh-CN': '导入序列', 'en': 'Import sequence'}, import_sequences, inputs={'file': InputPort(('workbench.sequence',), name={'zh-CN': '文件', 'en': 'Files'})}, outputs={'sequence': OutputPort('workbench.sequence', name={'zh-CN': '序列', 'en': 'Sequence'})}), Node('workbench.export_sequences', {'zh-CN': '导出序列', 'en': 'Export sequences'}, export_sequences,
+            inputs={'sequences': InputPort(('workbench.sequence',), name={'zh-CN': '序列', 'en': 'Sequence'})},
+            outputs={'files': OutputPort('workbench.sequence_export', name={'zh-CN': '文件', 'en': 'Files'})}),))

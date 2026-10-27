@@ -89,7 +89,9 @@ export const styles = `
   flex: 1;
 }
 .ps-header {
-  height: 60px;
+  min-height: 60px;
+  flex-wrap: wrap;
+  height: auto;
   flex: none;
   display: flex;
   align-items: center;
@@ -360,6 +362,9 @@ export const styles = `
   border-color: #e2e6ec;
 }
 .ps-track-label button {
+  white-space: normal;
+  text-align: left;
+  line-height: 1.2;
   padding: 0;
   font-weight: 550;
   background: none;

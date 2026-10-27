@@ -35,16 +35,9 @@ def execute(call, runtime):
 
 def module():
     from .adapters import SLOT, tools
-    return Module(id='workbench.solubility', name='可溶性评价', nodes=(Node(
-        id='workbench.evaluate_solubility', name='评价可溶性', execute=execute,
-        inputs={'sequence': InputPort(('workbench.sequence',), name='序列')}, outputs={'evaluation': OutputPort('workbench.solubility', name='评价')},
-        tools={'evaluator': ToolSlot(SLOT, 'Sequence solubility evaluator')}),), tools=tools(),
-        settings={key: title for key, title in (
-            ('protein_sol_source', 'Existing official Protein-Sol October 2017 script directory'),
-            ('bash', 'Existing Bash executable'), ('perl', 'Existing Perl executable'),
-            ('soluprot_source', 'Existing maintained SoluProt port package root'),
-            ('soluprot_python', 'Existing Python with SoluProt dependencies'),
-            ('usearch', 'Existing USEARCH executable'), ('tmhmm', 'Existing TMHMM executable (full mode)'),
-            ('soluprot_full_model', 'Existing full model.json'), ('soluprot_no_tm_model', 'Existing no-TM model.json'),
-            ('soluprot_database', 'Existing E. coli PDB FASTA database'))},
+    return Module(id='workbench.solubility', name={'zh-CN': '可溶性评价', 'en': 'Solubility evaluation'}, nodes=(Node(
+        id='workbench.evaluate_solubility', name={'zh-CN': '评价可溶性', 'en': 'Evaluate solubility'}, execute=execute,
+        inputs={'sequence': InputPort(('workbench.sequence',), name={'zh-CN': '序列', 'en': 'Sequence'})}, outputs={'evaluation': OutputPort('workbench.solubility', name={'zh-CN': '评价', 'en': 'Evaluation'})},
+        tools={'evaluator': ToolSlot(SLOT, {'zh-CN': '序列可溶性评价', 'en': 'Sequence solubility evaluator'})}),), tools=tools(),
+        settings={'protein_sol_source': {'title': {'zh-CN': 'Protein-Sol 源码目录', 'en': 'Protein-Sol source directory'}}, 'bash': {'title': {'zh-CN': 'Bash 路径', 'en': 'Bash path'}}, 'perl': {'title': {'zh-CN': 'Perl 路径', 'en': 'Perl path'}}, 'soluprot_source': {'title': {'zh-CN': 'SoluProt 源码目录', 'en': 'SoluProt source directory'}}, 'soluprot_python': {'title': {'zh-CN': 'SoluProt Python 路径', 'en': 'SoluProt Python path'}}, 'usearch': {'title': {'zh-CN': 'USEARCH 路径', 'en': 'USEARCH path'}}, 'tmhmm': {'title': {'zh-CN': 'TMHMM 路径', 'en': 'TMHMM path'}}, 'soluprot_full_model': {'title': {'zh-CN': 'SoluProt 完整模型', 'en': 'SoluProt full model'}}, 'soluprot_no_tm_model': {'title': {'zh-CN': 'SoluProt 无跨膜模型', 'en': 'SoluProt no-TM model'}}, 'soluprot_database': {'title': {'zh-CN': 'SoluProt 数据库', 'en': 'SoluProt database'}}},
         ui=str(Path(__file__).with_name('ui.js').resolve()))

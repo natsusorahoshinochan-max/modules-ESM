@@ -1,6 +1,17 @@
 /** Public React extension contract. Runtime React is supplied by the host. */
 import type * as React from 'react'
 
+export type Locale = 'zh-CN' | 'en'
+export type DisplayText = string | { 'zh-CN'?: string; en?: string }
+export type Translate = (key: string, values?: Record<string, unknown>) => string
+export interface I18n {
+  error(error: unknown): string
+  text(value: DisplayText | undefined, values?: Record<string, unknown>): string
+  translator(messages: Record<string, DisplayText>): Translate
+  useLocale(): Locale
+  LanguagePicker: React.ComponentType
+}
+
 export interface PackageInfo { id: string; project_id: string; format: string; entry: string; files: string[] }
 export interface InputPort { name?: string; accepts: string[]; cardinality: 'one' | 'many'; required: boolean }
 export interface OutputPort { format: string; cardinality: 'one' | 'many'; name?: string }
@@ -54,12 +65,12 @@ export interface ResultActionProps { host: ModuleHost; packages: readonly Packag
 export interface EditorProps { context: EditorContext; parameters: Record<string, unknown>; onChange(parameters: Record<string, unknown>): void; onDraftChange?(): void; onClose?(): void; readOnly: boolean }
 export interface ViewerProps { package: PackageInfo; host: ModuleHost }
 export interface Extensions {
-  resultActions?: { id: string; name: string; component: React.ComponentType<ResultActionProps> }[]
-  actions?: { id: string; name: string; component: React.ComponentType<ModuleActionProps> }[]
-  editors?: { inline?: boolean; node: string; component: React.ComponentType<EditorProps>; workspace?: { title: string; openLabel?: string } }[]
-  viewers?: { id: string; name: string; formats: string[]; defaultFor?: string[]; component: React.ComponentType<ViewerProps> }[]
+  resultActions?: { id: string; name: DisplayText; component: React.ComponentType<ResultActionProps> }[]
+  actions?: { id: string; name: DisplayText; component: React.ComponentType<ModuleActionProps> }[]
+  editors?: { inline?: boolean; node: string; component: React.ComponentType<EditorProps>; workspace?: { title: DisplayText; openLabel?: DisplayText } }[]
+  viewers?: { id: string; name: DisplayText; formats: string[]; defaultFor?: string[]; component: React.ComponentType<ViewerProps> }[]
 }
 export interface ModuleEntry {
   runtime: { react: 19 }
-  register(runtime: { React: typeof React }): Extensions
+  register(runtime: { React: typeof React; i18n: I18n }): Extensions
 }

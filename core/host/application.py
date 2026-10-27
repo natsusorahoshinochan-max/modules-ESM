@@ -17,9 +17,10 @@ from threading import RLock
 class HostError(ValueError):
     """An operation could not be completed; its message identifies the cause."""
 
-    def __init__(self, message, *, status_code=400):
+    def __init__(self, message, *, status_code=400, display_message=None):
         super().__init__(message)
         self.status_code = status_code
+        self.display_message = display_message
 
 
 def _json_text(value):
@@ -59,7 +60,7 @@ class Workbench:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if running else 0))
             except BlockingIOError as exc:
-                raise HostError(f"Project is running: {project_id}") from exc
+                raise HostError(f"Project is running: {project_id}", display_message={"zh-CN": "项目正在运行，请结束后再修改", "en": "Project is running; wait before editing"}) from exc
             try:
                 self._get("project", project_id)
                 yield
@@ -92,7 +93,7 @@ class Workbench:
         with ExitStack() as stack:
             for project_id in sorted(set(mutable)):
                 if self._get("project", project_id).get("tutorial"):
-                    raise HostError("Save the teaching example as your own project first")
+                    raise HostError("Save the teaching example as your own project first", display_message={'zh-CN': '请先将示例保存为自己的项目', 'en': 'Save the example as your own project first'})
                 stack.enter_context(self._project_lock(project_id, running=True))
             for project_id in sorted(set(project_ids)):
                 stack.enter_context(self._project_lock(project_id))
@@ -205,7 +206,7 @@ class Workbench:
         from .module_packages import module_lock
         with module_lock(self):
             if not isinstance(settings, dict):
-                raise HostError("Module settings must be an object")
+                raise HostError("Module settings must be an object", display_message={'zh-CN': '模块设置格式无效', 'en': 'Invalid module settings'})
             record = self._get("module", module_id)
             record["settings"] = settings
             return self._put("module", record)
@@ -241,7 +242,7 @@ class Workbench:
         with module_lock(self):
             record = self._get("module", module_id)
             if record["installation_id"] != installation_id:
-                raise HostError("Module installation changed; refresh the module catalog", status_code=409)
+                raise HostError("Module installation changed; refresh the module catalog", status_code=409, display_message={'zh-CN': '模块已更新，请刷新模块列表', 'en': 'Module changed; refresh the module list'})
             if not record["enabled"]:
                 raise HostError(f"Module has no enabled UI entry: {module_id}")
             paths = [item["package_path"] for item in self._records("module") if item.get("package_path")]
@@ -537,7 +538,7 @@ class Workbench:
 
     def _launch(self, project_id, continuing=None):
         if self._get("project", project_id).get("tutorial"):
-            raise HostError("Save the teaching example as your own project first")
+            raise HostError("Save the teaching example as your own project first", display_message={'zh-CN': '请先将示例保存为自己的项目', 'en': 'Save the example as your own project first'})
         from threading import Thread
         from .execution import create_run, execute, prepare_continuation
         leases = ExitStack()

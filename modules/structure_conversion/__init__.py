@@ -81,14 +81,14 @@ def compare_structure(call, runtime):
 
 def module():
     return Module(
-        id='workbench.structure_conversion', name='结构转换',
+        id='workbench.structure_conversion', name={'zh-CN': '结构转换', 'en': 'Structure conversion'},
         nodes=(
-            Node(id='workbench.prediction_to_structure', name='转换预测结构', execute=convert_prediction,
-                 inputs={'prediction': InputPort(('workbench.prediction',), name='预测结构')},
-                 outputs={'structure': OutputPort('workbench.structure', name='结构')}),
-            Node(id='workbench.compare_structure', name='比较转换结构', execute=compare_structure,
-                 parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}},
-                 inputs={'subject': InputPort(('workbench.structure',), name='待比较结构'), 'reference': InputPort(('workbench.reference', 'workbench.structure_set'), name='参考结构')},
-                 outputs={'comparison': OutputPort('workbench.comparison', name='评分')}),
+            Node(id='workbench.prediction_to_structure', name={'zh-CN': '转换预测结构', 'en': 'Convert prediction'}, execute=convert_prediction,
+                 inputs={'prediction': InputPort(('workbench.prediction',), name={'zh-CN': '预测结构', 'en': 'Predict structure'})},
+                 outputs={'structure': OutputPort('workbench.structure', name={'zh-CN': '结构', 'en': 'Structure'})}),
+            Node(id='workbench.compare_structure', name={'zh-CN': '比较转换结构', 'en': 'Compare converted structures'}, execute=compare_structure,
+                 parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions', 'title': {'zh-CN': '候选区域', 'en': 'Subject region'}}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions', 'title': {'zh-CN': '参考区域', 'en': 'Reference region'}}},
+                 inputs={'subject': InputPort(('workbench.structure',), name={'zh-CN': '待比较结构', 'en': 'Subject structure'}), 'reference': InputPort(('workbench.reference', 'workbench.structure_set'), name={'zh-CN': '参考结构', 'en': 'Reference structure'})},
+                 outputs={'comparison': OutputPort('workbench.comparison', name={'zh-CN': '评分', 'en': 'Scores'})}),
         ),
     )

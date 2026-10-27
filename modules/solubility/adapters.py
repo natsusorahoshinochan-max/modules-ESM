@@ -159,7 +159,7 @@ def create_soluprot(settings, *, mode):
 
 def tools():
     return (
-        Tool('workbench.soluprot.full', 'SoluProt · full with TMHMM', SLOT, lambda settings: create_soluprot(settings, mode='full'), parameters={'defaults': {'threads': 1}}, capabilities={'minimum_length': 20, 'region': 'complete sequence'}),
-        Tool('workbench.soluprot.no_tm', 'SoluProt · no-TM model', SLOT, lambda settings: create_soluprot(settings, mode='no_tm'), parameters={'defaults': {'threads': 1}}, capabilities={'minimum_length': 20, 'region': 'complete sequence'}),
-        Tool('workbench.protein_sol', 'Protein-Sol · October 2017', SLOT, create_protein_sol, parameters={'defaults': {'membrane_exclude': False, 'histidine_charged': False}}, capabilities={'minimum_length': 21, 'region': 'complete sequence'}),
+        Tool('workbench.soluprot.full', {'zh-CN': 'SoluProt · 完整模型（TMHMM）', 'en': 'SoluProt · full with TMHMM'}, SLOT, lambda settings: create_soluprot(settings, mode='full'), parameters={'defaults': {'threads': 1}}, capabilities={'minimum_length': 20, 'region': 'complete sequence'}),
+        Tool('workbench.soluprot.no_tm', {'zh-CN': 'SoluProt · 无跨膜模型', 'en': 'SoluProt · no-TM model'}, SLOT, lambda settings: create_soluprot(settings, mode='no_tm'), parameters={'defaults': {'threads': 1}}, capabilities={'minimum_length': 20, 'region': 'complete sequence'}),
+        Tool('workbench.protein_sol', {'zh-CN': 'Protein-Sol · 2017-10', 'en': 'Protein-Sol · October 2017'}, SLOT, create_protein_sol, parameters={'defaults': {'membrane_exclude': False, 'histidine_charged': False}}, capabilities={'minimum_length': 21, 'region': 'complete sequence'}),
     )

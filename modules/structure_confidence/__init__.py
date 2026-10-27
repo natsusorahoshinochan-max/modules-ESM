@@ -117,9 +117,9 @@ def prepare(call, runtime):
 
 
 def module():
-    return Module(id='workbench.structure_confidence', name='结构置信度', nodes=(Node(id='workbench.prepare_structure_confidence', name='选择评价区域', execute=prepare, inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'), name='结构')}, outputs={'prepared': OutputPort('workbench.confidence_input')}, parameters={'object': {'description': 'Existing structure to display actual residues'}}), Node(
-        id='workbench.evaluate_structure_confidence', name='评价结构置信度', execute=execute,
-        inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'), name='结构')},
-        outputs={'evaluation': OutputPort('workbench.structure_confidence', name='评价')},
-        parameters={'object': {'description': 'Explicit supplied structure object'}, 'region': {'description': 'Optional actual chain/residue/insertion-code positions'}},
-        tools={'evaluator': ToolSlot(SLOT, 'Existing geometry evaluator')}),), ui=str(Path(__file__).with_name('ui.js').resolve()))
+    return Module(id='workbench.structure_confidence', name={'zh-CN': '结构置信度', 'en': 'Structure confidence'}, nodes=(Node(id='workbench.prepare_structure_confidence', name={'zh-CN': '选择评价区域', 'en': 'Select evaluation region'}, execute=prepare, inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'), name={'zh-CN': '结构', 'en': 'Structure'})}, outputs={'prepared': OutputPort('workbench.confidence_input')}, parameters={'object': {'description': 'Existing structure to display actual residues', 'title': {'zh-CN': '对象', 'en': 'Object'}}}), Node(
+        id='workbench.evaluate_structure_confidence', name={'zh-CN': '评价结构置信度', 'en': 'Evaluate structure confidence'}, execute=execute,
+        inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'), name={'zh-CN': '结构', 'en': 'Structure'})},
+        outputs={'evaluation': OutputPort('workbench.structure_confidence', name={'zh-CN': '评价', 'en': 'Evaluation'})},
+        parameters={'object': {'description': 'Explicit supplied structure object', 'title': {'zh-CN': '对象', 'en': 'Object'}}, 'region': {'description': 'Optional actual chain/residue/insertion-code positions', 'title': {'zh-CN': '评价区域', 'en': 'Evaluation region'}}},
+        tools={'evaluator': ToolSlot(SLOT, {'zh-CN': '已有结构评价', 'en': 'Existing geometry evaluator'})}),), ui=str(Path(__file__).with_name('ui.js').resolve()))

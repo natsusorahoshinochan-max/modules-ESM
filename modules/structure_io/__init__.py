@@ -531,22 +531,22 @@ def _process(call, runtime, operation):
 
 
 def module():
-    position = {'type': 'object', 'properties': {'chain': {'title': '链', 'type': 'string'}, 'author_number': {'title': '残基编号', 'type': 'integer'}, 'insertion_code': {'title': '插入码', 'type': 'string', 'default': ''}}}
-    selection = {'title': '选区', 'type': 'object', 'properties': {'chains': {'title': '链', 'type': 'array', 'items': {'type': 'string'}}, 'positions': {'title': '残基', 'type': 'array', 'items': position}, 'atoms': {'title': '原子索引', 'type': 'array', 'items': {'type': 'integer'}}}}
-    return Module(id='workbench.structure_io', name='结构处理', nodes=(
-        Node(id='workbench.import_structure', name='导入结构', execute=import_structure,
-             inputs={'file': InputPort(('workbench.structure_file',), name='文件')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
-             parameters={'models': {'description': 'Actual model number, or all for independent candidates'}}),
-        Node(id='workbench.extract_structure', name='提取片段', execute=extract_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name='结构')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
-             parameters={'object': {'title': '对象', 'type': 'string'}, 'format': {'title': '文件格式', 'enum': ['pdb', 'mmcif']}, 'selection': selection}),
-        Node(id='workbench.transform_structure', name='移动与旋转', execute=transform_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name='结构')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
-             parameters={'object': {'title': '对象', 'type': 'string'}, 'format': {'title': '文件格式', 'enum': ['pdb', 'mmcif']}, 'selection': selection,
-                         'rotation': {'title': '旋转矩阵', 'type': 'array', 'default': [[1,0,0],[0,1,0],[0,0,1]], 'items': {'type': 'array', 'items': {'type': 'number'}}}, 'translation': {'title': '位移 (Å)', 'type': 'array', 'default': [0,0,0], 'items': {'type': 'number'}}}),
-        Node(id='workbench.export_structure', name='导出结构', execute=export_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates'), name='结构')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
-             parameters={'object': {'title': '对象', 'type': 'string'}, 'format': {'title': '文件格式', 'enum': ['pdb', 'mmcif']}, 'atoms': {'title': '原子索引', 'type': 'array', 'items': {'type': 'integer'}}}),
+    position = {'type': 'object', 'properties': {'chain': {'title': {'zh-CN': '链', 'en': 'Chain'}, 'type': 'string'}, 'author_number': {'title': {'zh-CN': '残基编号', 'en': 'Residue number'}, 'type': 'integer'}, 'insertion_code': {'title': {'zh-CN': '插入码', 'en': 'Insertion code'}, 'type': 'string', 'default': ''}}}
+    selection = {'title': {'zh-CN': '选区', 'en': 'Selection'}, 'type': 'object', 'properties': {'chains': {'title': {'zh-CN': '链', 'en': 'Chain'}, 'type': 'array', 'items': {'type': 'string'}}, 'positions': {'title': {'zh-CN': '残基', 'en': 'Residue'}, 'type': 'array', 'items': position}, 'atoms': {'title': {'zh-CN': '原子索引', 'en': 'Atom indices'}, 'type': 'array', 'items': {'type': 'integer'}}}}
+    return Module(id='workbench.structure_io', name={'zh-CN': '结构处理', 'en': 'Structure processing'}, nodes=(
+        Node(id='workbench.import_structure', name={'zh-CN': '导入结构', 'en': 'Import structure'}, execute=import_structure,
+             inputs={'file': InputPort(('workbench.structure_file',), name={'zh-CN': '文件', 'en': 'Files'})}, outputs={'structures': OutputPort('workbench.structure_set', name={'zh-CN': '结构', 'en': 'Structure'})},
+             parameters={'models': {'description': 'Actual model number, or all for independent candidates', 'title': {'zh-CN': '构象', 'en': 'Conformations'}}}),
+        Node(id='workbench.extract_structure', name={'zh-CN': '提取片段', 'en': 'Extract region'}, execute=extract_structure,
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name={'zh-CN': '结构', 'en': 'Structure'})}, outputs={'structures': OutputPort('workbench.structure_set', name={'zh-CN': '结构', 'en': 'Structure'})},
+             parameters={'object': {'title': {'zh-CN': '对象', 'en': 'Object'}, 'type': 'string'}, 'format': {'title': {'zh-CN': '文件格式', 'en': 'File format'}, 'enum': ['pdb', 'mmcif']}, 'selection': selection}),
+        Node(id='workbench.transform_structure', name={'zh-CN': '移动与旋转', 'en': 'Move and rotate'}, execute=transform_structure,
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name={'zh-CN': '结构', 'en': 'Structure'})}, outputs={'structures': OutputPort('workbench.structure_set', name={'zh-CN': '结构', 'en': 'Structure'})},
+             parameters={'object': {'title': {'zh-CN': '对象', 'en': 'Object'}, 'type': 'string'}, 'format': {'title': {'zh-CN': '文件格式', 'en': 'File format'}, 'enum': ['pdb', 'mmcif']}, 'selection': selection,
+                         'rotation': {'title': {'zh-CN': '旋转矩阵', 'en': 'Rotation matrix'}, 'type': 'array', 'default': [[1,0,0],[0,1,0],[0,0,1]], 'items': {'type': 'array', 'items': {'type': 'number'}}}, 'translation': {'title': {'zh-CN': '位移 (Å)', 'en': 'Translation (Å)'}, 'type': 'array', 'default': [0,0,0], 'items': {'type': 'number'}}}),
+        Node(id='workbench.export_structure', name={'zh-CN': '导出结构', 'en': 'Export structure'}, execute=export_structure,
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates'), name={'zh-CN': '结构', 'en': 'Structure'})}, outputs={'structures': OutputPort('workbench.structure_set', name={'zh-CN': '结构', 'en': 'Structure'})},
+             parameters={'object': {'title': {'zh-CN': '对象', 'en': 'Object'}, 'type': 'string'}, 'format': {'title': {'zh-CN': '文件格式', 'en': 'File format'}, 'enum': ['pdb', 'mmcif']}, 'atoms': {'title': {'zh-CN': '原子索引', 'en': 'Atom indices'}, 'type': 'array', 'items': {'type': 'integer'}}}),
     ), ui=str(Path(__file__).with_name('ui.js').resolve()))
 
 

@@ -97,7 +97,7 @@ def execute(call, runtime):
         denominator = sum(sum(row) for row in region_mask.values())
         sample['region_nll'] = sum(v * m for c in sequences for v, m in zip(sample['residue_nll'][c], region_mask[c], strict=True)) / denominator
     output = deepcopy(document)
-    evaluation = {'object_ids': identities, 'reference': {'id': obj['id'], 'label': obj.get('label', 'Reference structure'), 'original_object': deepcopy(obj), 'structure': {**deepcopy(obj['structure']), 'file': reference_keys[obj['structure']['file']]}},
+    evaluation = {'object_ids': identities, 'reference': {'id': obj['id'], 'label': obj.get('label', {'zh-CN': '参考结构', 'en': 'Reference structure'}), 'original_object': deepcopy(obj), 'structure': {**deepcopy(obj['structure']), 'file': reference_keys[obj['structure']['file']]}},
         'reference_manifest': {'file': reference_keys[reference.entry], 'files': reference_keys},
         'bindings': deepcopy(call.parameters['bindings']), 'positions': positions, 'region': region,
         'origin': 'independent_sequence_backbone', 'method': 'ProteinMPNN score_only', 'tool': call.tool_choices['mpnn'],
@@ -112,10 +112,10 @@ def execute(call, runtime):
 
 def module():
     from .interaction import inspect
-    return Module('workbench.sequence_backbone_evaluation', '序列适配评价', nodes=(Node(
-        'workbench.evaluate_sequence_backbone', '评价序列适配', execute,
-        inputs={'sequences': InputPort(SEQUENCES, name='序列'), 'reference': InputPort(REFERENCES, name='参考结构')}, outputs={'evaluation': OutputPort(FORMAT, name='评价')},
-        parameters={'reference': {'description': 'Explicit reference object'}, 'bindings': {'description': 'Complete sequence-to-reference chain residue mapping'}, 'region': {'description': 'Optional actual reference residue selection'}},
-        tools={'mpnn': ToolSlot('workbench.proteinmpnn.call', 'ProteinMPNN sequence scoring')}),), ui=str(Path(__file__).with_name('ui.js').resolve()),
+    return Module('workbench.sequence_backbone_evaluation', {'zh-CN': '序列适配评价', 'en': 'Sequence–backbone evaluation'}, nodes=(Node(
+        'workbench.evaluate_sequence_backbone', {'zh-CN': '评价序列适配', 'en': 'Evaluate sequence fit'}, execute,
+        inputs={'sequences': InputPort(SEQUENCES, name={'zh-CN': '序列', 'en': 'Sequence'}), 'reference': InputPort(REFERENCES, name={'zh-CN': '参考结构', 'en': 'Reference structure'})}, outputs={'evaluation': OutputPort(FORMAT, name={'zh-CN': '评价', 'en': 'Evaluation'})},
+        parameters={'reference': {'description': 'Explicit reference object', 'title': {'zh-CN': '参考结构', 'en': 'Reference structure'}}, 'bindings': {'description': 'Complete sequence-to-reference chain residue mapping', 'title': {'zh-CN': '序列对应', 'en': 'Sequence mapping'}}, 'region': {'description': 'Optional actual reference residue selection', 'title': {'zh-CN': '评价区域', 'en': 'Evaluation region'}}},
+        tools={'mpnn': ToolSlot('workbench.proteinmpnn.call', {'zh-CN': 'ProteinMPNN 序列评分', 'en': 'ProteinMPNN sequence scoring'})}),), ui=str(Path(__file__).with_name('ui.js').resolve()),
         interactions=(Interaction('workbench.sequence_backbone.inspect', inspect,
-            inputs={'sequences': InputPort(SEQUENCES, name='序列'), 'reference': InputPort(REFERENCES, name='参考结构')}),))
+            inputs={'sequences': InputPort(SEQUENCES, name={'zh-CN': '序列', 'en': 'Sequence'}), 'reference': InputPort(REFERENCES, name={'zh-CN': '参考结构', 'en': 'Reference structure'})}),))

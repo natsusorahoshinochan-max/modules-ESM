@@ -144,11 +144,17 @@ def load(entry_point, *, package_path=None, installed_paths=()):
             raise HostError(f"Could not load module entry {entry_point!r}: {exc}") from exc
 
 
+def display_text(value):
+    if isinstance(value, str):
+        return bool(value.strip())
+    return isinstance(value, dict) and bool(value) and set(value) <= {"en", "zh-CN"} and all(isinstance(item, str) and item.strip() for item in value.values())
+
+
 def validate(module):
     from .application import _json_text
     if not isinstance(module, Module):
         raise ValueError("entry must return public Module declaration")
-    if not module.id or not isinstance(module.id, str) or not isinstance(module.name, str) or not module.name:
+    if not module.id or not isinstance(module.id, str) or not display_text(module.name):
         raise ValueError("module id and name are required")
     _json_text(module.settings)
     if not isinstance(module.settings, dict):
@@ -165,7 +171,7 @@ def validate(module):
         validate(Module(id=module.id, name=module.name, nodes=(Node(interaction.id, interaction.id, interaction.execute, inputs=interaction.inputs, parameters=interaction.parameters),)))
     tool_ids = set()
     for tool in module.tools:
-        if not isinstance(tool, Tool) or not all(isinstance(value, str) and value for value in (tool.id, tool.name, tool.slot)) or not callable(tool.create):
+        if not isinstance(tool, Tool) or not all(isinstance(value, str) and value for value in (tool.id, tool.slot)) or not display_text(tool.name) or not callable(tool.create):
             raise ValueError("tool requires id, name, slot and factory")
         if tool.id in tool_ids:
             raise ValueError(f"duplicate tool identity: {tool.id}")
@@ -175,7 +181,7 @@ def validate(module):
         _json_text(tool_record(module, tool))
     seen = set()
     for node in module.nodes:
-        if not isinstance(node, Node) or not isinstance(node.id, str) or not node.id or not isinstance(node.name, str) or not node.name or not callable(node.execute):
+        if not isinstance(node, Node) or not isinstance(node.id, str) or not node.id or not display_text(node.name) or not callable(node.execute):
             raise ValueError("node requires id, name and executable entry")
         if node.id in seen:
             raise ValueError(f"duplicate node identity: {node.id}")
@@ -193,10 +199,10 @@ def validate(module):
             if not isinstance(name, str) or not name or not isinstance(port, OutputPort) or not isinstance(port.format, str) or not port.format or port.cardinality not in ("one", "many"):
                 raise ValueError(f"invalid output declaration: {name}")
         for port in (*node.inputs.values(), *node.outputs.values()):
-            if port.name is not None and (not isinstance(port.name, str) or not port.name.strip()):
+            if port.name is not None and not display_text(port.name):
                 raise ValueError("port name must be nonempty text")
         for name, slot in node.tools.items():
-            if not isinstance(name, str) or not name or not isinstance(slot, ToolSlot) or not slot.id or not slot.name:
+            if not isinstance(name, str) or not name or not isinstance(slot, ToolSlot) or not slot.id or not display_text(slot.name):
                 raise ValueError("invalid tool slot declaration")
         _json_text(node_record(module, node))
 

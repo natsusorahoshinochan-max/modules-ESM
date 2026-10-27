@@ -150,7 +150,7 @@ def create_local(settings):
 
 
 def _parameter_schema(defaults):
-    labels = {'model': '模型', 'num_loops': '循环次数', 'num_sampling_steps': '采样步数', 'seed': '随机种子', 'noise_scale': '噪声尺度', 'step_scale': '步长尺度', 'max_inference_sigma': '最大噪声', 'lm_mask_pct': '语言模型掩码比例', 'lm_dropout': '语言模型 Dropout', 'msa_max_depth': 'MSA 深度', 'msa_column_mask_rate': 'MSA 列掩码比例', 'include_embeddings': '输出表征', 'include_pae': '输出 PAE', 'include_pair_chains_iptm': '输出链间 ipTM'}
+    labels = {'model': {'zh-CN': '模型', 'en': 'Model'}, 'num_loops': {'zh-CN': '循环次数', 'en': 'Loops'}, 'num_sampling_steps': {'zh-CN': '采样步数', 'en': 'Sampling steps'}, 'seed': {'zh-CN': '随机种子', 'en': 'Seed'}, 'noise_scale': {'zh-CN': '噪声尺度', 'en': 'Noise scale'}, 'step_scale': {'zh-CN': '步长尺度', 'en': 'Step scale'}, 'max_inference_sigma': {'zh-CN': '最大噪声', 'en': 'Maximum noise'}, 'lm_mask_pct': {'zh-CN': '语言模型掩码比例', 'en': 'Language model mask rate'}, 'lm_dropout': {'zh-CN': '语言模型 Dropout', 'en': 'Language model dropout'}, 'msa_max_depth': {'zh-CN': 'MSA 深度', 'en': 'MSA depth'}, 'msa_column_mask_rate': {'zh-CN': 'MSA 列掩码比例', 'en': 'MSA column mask rate'}, 'include_embeddings': {'zh-CN': '输出表征', 'en': 'Include embeddings'}, 'include_pae': {'zh-CN': '输出 PAE', 'en': 'Include PAE'}, 'include_pair_chains_iptm': {'zh-CN': '输出链间 ipTM', 'en': 'Include pairwise ipTM'}}
     fields = {key: {'default': value, 'title': labels[key], 'advanced': key not in ('model', 'num_loops', 'num_sampling_steps', 'seed')} for key, value in defaults.items()}
     for key in ('num_loops', 'num_sampling_steps', 'msa_max_depth', 'seed'):
         if key in fields:
@@ -160,16 +160,16 @@ def _parameter_schema(defaults):
             fields[key]['type'] = 'number'
     if 'model' in fields:
         fields['model']['enum'] = ['esmfold2-fast-2026-05', 'esmfold2-2026-05']
-        fields['model']['enumLabels'] = {'esmfold2-fast-2026-05': 'Fast · 2026-05', 'esmfold2-2026-05': '完整 · 2026-05'}
+        fields['model']['enumLabels'] = {'esmfold2-fast-2026-05': 'Fast · 2026-05', 'esmfold2-2026-05': {'zh-CN': '完整 · 2026-05', 'en': 'Full · 2026-05'}}
     for key in ('seed', 'noise_scale', 'step_scale', 'max_inference_sigma', 'lm_mask_pct', 'msa_max_depth'):
         if key in fields:
             fields[key]['nullable'] = True
-    fields['msa'] = {'title': 'MSA', 'type': 'object', 'advanced': True, 'properties': {'sequences': {'title': '对齐序列', 'type': 'array', 'items': {'type': 'string'}}, 'deletions': {'title': '删除计数', 'type': 'array', 'items': {'type': 'array', 'items': {'type': 'integer'}}}}}
+    fields['msa'] = {'title': 'MSA', 'type': 'object', 'advanced': True, 'properties': {'sequences': {'title': {'zh-CN': '对齐序列', 'en': 'Aligned sequences'}, 'type': 'array', 'items': {'type': 'string'}}, 'deletions': {'title': {'zh-CN': '删除计数', 'en': 'Deletion counts'}, 'type': 'array', 'items': {'type': 'array', 'items': {'type': 'integer'}}}}}
     return fields
 
 
 def tools():
     return (
-        Tool('workbench.esmfold2.local', 'ESMFold2 · 本地', 'workbench.predict.structure', create_local, parameters=_parameter_schema(LOCAL_DEFAULTS), capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': True}),
+        Tool('workbench.esmfold2.local', {'zh-CN': 'ESMFold2 · 本地', 'en': 'ESMFold2 · Local'}, 'workbench.predict.structure', create_local, parameters=_parameter_schema(LOCAL_DEFAULTS), capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': True}),
         Tool('workbench.esmfold2.remote', 'ESMFold2 · Biohub', 'workbench.predict.structure', create_remote, parameters=_parameter_schema(REMOTE_DEFAULTS), capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': False}),
     )

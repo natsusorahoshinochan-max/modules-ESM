@@ -1,3 +1,5 @@
+import { i18n, setLocale } from './helpers/language-runtime.mjs'
+setLocale('zh-CN')
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -19,7 +21,7 @@ globalThis.ResizeObserver = class {
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 // WebGL is exercised in the real browser. Here its absence verifies the track-only fallback.
 const { register } = await import("../../modules/sequence_edit/ui.js");
-const Editor = register({ React }).editors[0].component;
+const Editor = register({ React, i18n }).editors[0].component;
 const seed = {
   positions: [..."ACDE"].map((residue, i) => ({
     id: `r${i}`,

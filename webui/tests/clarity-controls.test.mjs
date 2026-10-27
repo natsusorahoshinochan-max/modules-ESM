@@ -1,3 +1,5 @@
+import { i18n, setLocale } from './helpers/language-runtime.mjs'
+setLocale('zh-CN')
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
@@ -31,7 +33,7 @@ test('filter score selection preserves reference mode and uses measured metadata
  const source=await readFile(new URL('../../modules/filtering/ui.js',import.meta.url),'utf8')
  await writeFile(temporary+'/filter.mjs',source)
  const {register}=await import(pathToFileURL(temporary+'/filter.mjs'))
- const Editor=register({React}).editors[0].component
+ const Editor=register({React,i18n}).editors[0].component
  let parameters={sort:{evaluation:{metric:'tm_reference',method:{name:'TM-align'},region:null,reference_mode:'provided_evaluations'},direction:'descending'},limit:2}
  const method={name:'TM-align'}
  const choice={evaluation:{input:0,evaluation:0},metric:'rmsd',method,region:null,reference:{id:'reference'},reference_display:{label:'1PGA'}}
@@ -53,7 +55,7 @@ test('operation editor exposes coordinates and object names without internal obj
  const source=await readFile(new URL('../../modules/structure_io/ui.js',import.meta.url),'utf8')
  await writeFile(temporary+'/structure.mjs',source)
  const {register}=await import(pathToFileURL(temporary+'/structure.mjs'))
- const Editor=register({React}).editors.find(item=>item.node==='workbench.transform_structure').component
+ const Editor=register({React,i18n}).editors.find(item=>item.node==='workbench.transform_structure').component
  await act(()=>root.render(React.createElement(Editor,{context:{inputs:{structures:{packages:[]}},host:{}},parameters:{object:'internal-object-id'},onChange:()=>{},readOnly:false})))
  assert.equal(document.querySelectorAll('input[aria-label^="旋转矩阵"]').length,9)
  assert.equal(document.body.textContent.includes('internal-object-id'),false)

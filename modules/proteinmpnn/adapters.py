@@ -167,7 +167,7 @@ def create_local(settings):
 
 
 def _parameter_schema():
-    labels = {'model_name': '模型', 'use_soluble_model': '可溶性模型', 'backbone_noise': '主链噪声', 'seed': '随机种子', 'num_seq_per_target': '候选数量', 'batch_size': '批大小', 'sampling_temp': '采样温度', 'designed_chains': '设计链', 'fixed_positions': '保留序列的位置', 'tied_positions': '联动位置', 'omit_AAs': '排除残基', 'bias_AA': '残基偏好', 'bias_by_res': '逐位置偏好', 'omit_AA': '逐位置排除', 'pssm': 'PSSM', 'pssm_multi': 'PSSM 权重', 'pssm_threshold': 'PSSM 阈值', 'pssm_log_odds_flag': '使用 PSSM Log-odds', 'pssm_bias_flag': '使用 PSSM 偏好'}
+    labels = {'model_name': {'zh-CN': '模型', 'en': 'Model'}, 'use_soluble_model': {'zh-CN': '可溶性模型', 'en': 'Solubility model'}, 'backbone_noise': {'zh-CN': '主链噪声', 'en': 'Backbone noise'}, 'seed': {'zh-CN': '随机种子', 'en': 'Seed'}, 'num_seq_per_target': {'zh-CN': '候选数量', 'en': 'Samples'}, 'batch_size': {'zh-CN': '批大小', 'en': 'Batch size'}, 'sampling_temp': {'zh-CN': '采样温度', 'en': 'Sampling temperature'}, 'designed_chains': {'zh-CN': '设计链', 'en': 'Design chains'}, 'fixed_positions': {'zh-CN': '保留序列的位置', 'en': 'Fixed sequence positions'}, 'tied_positions': {'zh-CN': '联动位置', 'en': 'Tied positions'}, 'omit_AAs': {'zh-CN': '排除残基', 'en': 'Excluded residues'}, 'bias_AA': {'zh-CN': '残基偏好', 'en': 'Residue bias'}, 'bias_by_res': {'zh-CN': '逐位置偏好', 'en': 'Per-position bias'}, 'omit_AA': {'zh-CN': '逐位置排除', 'en': 'Per-position exclusions'}, 'pssm': 'PSSM', 'pssm_multi': {'zh-CN': 'PSSM 权重', 'en': 'PSSM weight'}, 'pssm_threshold': {'zh-CN': 'PSSM 阈值', 'en': 'PSSM threshold'}, 'pssm_log_odds_flag': {'zh-CN': '使用 PSSM Log-odds', 'en': 'Use PSSM log-odds'}, 'pssm_bias_flag': {'zh-CN': '使用 PSSM 偏好', 'en': 'Use PSSM bias'}}
     fields = {key: {'title': labels[key], 'default': value, 'advanced': key not in ('model_name', 'num_seq_per_target', 'sampling_temp', 'seed')} for key, value in DEFAULTS.items()}
     for key in ('seed', 'num_seq_per_target', 'batch_size'):
         fields[key]['type'] = 'integer'
@@ -186,7 +186,7 @@ def _parameter_schema():
 
 
 def tools():
-    return (Tool('workbench.proteinmpnn.local', 'ProteinMPNN · 本地', SLOT, create_local,
+    return (Tool('workbench.proteinmpnn.local', {'zh-CN': 'ProteinMPNN · 本地', 'en': 'ProteinMPNN · Local'}, SLOT, create_local,
                  parameters=_parameter_schema(), capabilities={'input': 'complete canonical protein N/CA/C/O backbone; explicit full sequence mapping for scoring', 'seed': '0 selects random actual seed'}),)
 
 

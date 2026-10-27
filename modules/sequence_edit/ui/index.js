@@ -1,3 +1,251 @@
+const messages = {
+
+  "label_104": {
+    "zh-CN": "空格",
+    "en": "Space"
+  }
+,
+  "node_inputs_changed_reload_the_input": {
+    "zh-CN": "节点输入已改变，请重新载入。",
+    "en": "Node inputs changed. Reload the input."
+  },
+  "sasa_requires_a_nonnegative_number": {
+    "zh-CN": "SASA 需要非负数值。",
+    "en": "SASA requires a nonnegative number."
+  },
+  "secondary_structure_accepts_g_h_i_t": {
+    "zh-CN": "二级结构接受 G、H、I、T、E、B、S、C。",
+    "en": "Secondary structure accepts G, H, I, T, E, B, S, C."
+  },
+  "sequence_accepts_a_z_inserts_deletes_space": {
+    "zh-CN": "序列接受 A–Z；+ 插入、- 删除、空格清空。",
+    "en": "Sequence accepts A–Z; + inserts, - deletes, Space clears."
+  },
+  "save_failed_edits_kept": {
+    "zh-CN": "保存失败，当前编辑已保留：{0}",
+    "en": "Save failed; edits kept: {0}"
+  },
+  "original_structure": {
+    "zh-CN": "原始结构 {0}",
+    "en": "Original structure {0}"
+  },
+  "connect_a_reference_structure_or_load_a": {
+    "zh-CN": "请连接参考三维结构，或先从结构文件载入。",
+    "en": "Connect a reference structure or load a structure file first."
+  },
+  "edit": {
+    "zh-CN": "{0}编辑",
+    "en": "Edit {0}"
+  },
+  "has_coordinates": {
+    "zh-CN": "有坐标",
+    "en": "Has coordinates"
+  },
+  "gap": {
+    "zh-CN": "空缺",
+    "en": "Gap"
+  },
+  "protein_studio": {
+    "zh-CN": "Protein Studio",
+    "en": "Protein Studio"
+  },
+  "positions": {
+    "zh-CN": "{0} 个位置",
+    "en": "{0} positions"
+  },
+  "load_input": {
+    "zh-CN": "载入输入",
+    "en": "Load input"
+  },
+  "undo": {
+    "zh-CN": "撤销",
+    "en": "Undo"
+  },
+  "redo": {
+    "zh-CN": "重做",
+    "en": "Redo"
+  },
+  "back_to_canvas": {
+    "zh-CN": "返回画布",
+    "en": "Back to canvas"
+  },
+  "cancel_editing": {
+    "zh-CN": "取消编辑",
+    "en": "Cancel editing"
+  },
+  "done_and_return_to_canvas": {
+    "zh-CN": "完成并返回画布",
+    "en": "Done and return to canvas"
+  },
+  "dismiss_error": {
+    "zh-CN": "关闭错误",
+    "en": "Dismiss error"
+  },
+  "resize_tracks": {
+    "zh-CN": "调整轨道高度",
+    "en": "Resize tracks"
+  },
+  "protein_tracks": {
+    "zh-CN": "蛋白质轨道",
+    "en": "Protein tracks"
+  },
+  "positions_selected": {
+    "zh-CN": "{0} · {1} 个已选位置",
+    "en": "{0} · {1} positions selected"
+  },
+  "locate_selection": {
+    "zh-CN": "定位选区",
+    "en": "Locate selection"
+  },
+  "replaced": {
+    "zh-CN": "替换",
+    "en": "Replaced"
+  },
+  "cleared": {
+    "zh-CN": "清空",
+    "en": "Cleared"
+  },
+  "inserted": {
+    "zh-CN": "新增",
+    "en": "Inserted"
+  },
+  "delete": {
+    "zh-CN": "删除",
+    "en": "Deleted"
+  },
+  "protein_track_editor": {
+    "zh-CN": "蛋白质轨道编辑",
+    "en": "Protein track editor"
+  },
+  "position": {
+    "zh-CN": "位置",
+    "en": "Position"
+  },
+  "processing": {
+    "zh-CN": "正在处理…",
+    "en": "Processing…"
+  },
+  "type_letters_insert_delete_space_clear": {
+    "zh-CN": "字母输入 · + 插入 · - 删除 · 空格清空",
+    "en": "Type letters · + Insert · - Delete · Space Clear"
+  },
+  "g_h_i_t_e_b_s": {
+    "zh-CN": "G H I T E B S C · 空格清空",
+    "en": "G H I T E B S C · Space Clear"
+  },
+  "type_to_edit_space_clear_ctrl_z": {
+    "zh-CN": "直接输入 · 空格清空 · Ctrl/⌘ Z 撤销",
+    "en": "Type to edit · Space Clear · Ctrl/⌘ Z Undo"
+  },
+  "middle_drag_orbit_shift_middle_drag_pan": {
+    "zh-CN": "中键旋转 · Shift＋中键平移 · G 移动 · R 旋转",
+    "en": "Middle drag Orbit · Shift+Middle drag Pan · G Move · R Rotate"
+  },
+  "insert": {
+    "zh-CN": "插入",
+    "en": "Insert"
+  },
+  "delete_restore": {
+    "zh-CN": "删除 / 恢复",
+    "en": "Delete / Restore"
+  },
+  "use_from_structure": {
+    "zh-CN": "从结构采用",
+    "en": "Use from structure"
+  },
+  "open_protein": {
+    "zh-CN": "打开蛋白质",
+    "en": "Open protein"
+  },
+  "source": {
+    "zh-CN": "来源",
+    "en": "Source"
+  },
+  "load_source": {
+    "zh-CN": "载入来源",
+    "en": "Load source"
+  },
+  "enter_sequence": {
+    "zh-CN": "填写序列",
+    "en": "Enter sequence"
+  },
+  "saved_edits": {
+    "zh-CN": "已确认的编辑成果",
+    "en": "Saved edits"
+  },
+  "node_input": {
+    "zh-CN": "节点输入 · ",
+    "en": "Node input · "
+  },
+  "sequence": {
+    "zh-CN": "序列",
+    "en": "Sequence"
+  },
+  "initial_sequence": {
+    "zh-CN": "初始序列",
+    "en": "Initial sequence"
+  },
+  "object": {
+    "zh-CN": "对象",
+    "en": "Object"
+  },
+  "input_object": {
+    "zh-CN": "输入对象",
+    "en": "Input object"
+  },
+  "optional_for_a_single_object": {
+    "zh-CN": "单个对象可留空",
+    "en": "Optional for a single object"
+  },
+  "chain": {
+    "zh-CN": "链",
+    "en": "Chain"
+  },
+  "input_chain": {
+    "zh-CN": "输入链",
+    "en": "Input chain"
+  },
+  "opening": {
+    "zh-CN": "正在打开…",
+    "en": "Opening…"
+  },
+  "open_editor": {
+    "zh-CN": "打开编辑",
+    "en": "Open editor"
+  },
+  "back_to_editing": {
+    "zh-CN": "返回当前编辑",
+    "en": "Back to editing"
+  },
+  "read_residues": {
+    "zh-CN": "读取残基",
+    "en": "Read residues"
+  },
+  "target_positions_source_residues_selected": {
+    "zh-CN": "目标 {0} 个位置 · 已选 {1} 个来源残基",
+    "en": "Target: {0} positions · Source: {1} residues selected"
+  },
+  "apply": {
+    "zh-CN": "采用",
+    "en": "Apply"
+  },
+  "cancel": {
+    "zh-CN": "取消",
+    "en": "Cancel"
+  },
+  "saving_edits": {
+    "zh-CN": "正在保存编辑…",
+    "en": "Saving edits…"
+  },
+  "reading": {
+    "zh-CN": "正在读取…",
+    "en": "Reading…"
+  },
+  "open_protein_studio": {
+    "zh-CN": "打开 Protein Studio",
+    "en": "Open Protein Studio"
+  }
+};
 import {
   TRACKS,
   COLORS,
@@ -16,9 +264,11 @@ import { createMoleculeView } from "./molecule.js";
 import { styles } from "./styles.js";
 export const runtime = { react: 19 };
 
-export function register({ React }) {
+export function register({ React, i18n }) {
+  const t = i18n.translator(messages);
+  const LanguagePicker = i18n.LanguagePicker;
   const h = React.createElement,
-    MoleculeView = createMoleculeView(React);
+    MoleculeView = createMoleculeView(React, i18n);
   function Editor({ context, parameters, readOnly, onClose, onDraftChange }) {
     const [session, setSession] = React.useState({ entries: [], index: -1 }),
       sessionRef = React.useRef(session);
@@ -116,7 +366,7 @@ export function register({ React }) {
       cleanup();
       replaceSession({ entries: [], index: -1 });
       setSetup(true);
-      setError("节点输入已改变，请重新载入。");
+      setError(t("node_inputs_changed_reload_the_input"));
     }, [context.revision]);
     React.useEffect(() => {
       let live = true;
@@ -181,7 +431,7 @@ export function register({ React }) {
         return { source: id, document: beginDocument(document), geometry };
       } catch (reason) {
         if (id) await release(id);
-        if (!abort.signal.aborted && mounted.current) setError(reason.message);
+        if (!abort.signal.aborted && mounted.current) setError(i18n.error(reason));
         return null;
       } finally {
         if (controller.current === abort) controller.current = null;
@@ -231,7 +481,7 @@ export function register({ React }) {
         push(next);
         setError("");
       } catch (reason) {
-        setError(reason.message);
+        setError(i18n.error(reason));
       }
     }
     function select(track, ids, additive = false) {
@@ -316,7 +566,7 @@ export function register({ React }) {
       if (track === "sasa") {
         value = text.trim() === "" ? null : Number(text);
         if (value !== null && (!Number.isFinite(value) || value < 0)) {
-          setError("SASA 需要非负数值。");
+          setError(t("sasa_requires_a_nonnegative_number"));
           return false;
         }
       } else
@@ -429,7 +679,7 @@ export function register({ React }) {
       if (track === "secondary_structure" && /^[a-zA-Z]$/.test(k)) {
         event.preventDefault();
         if (!"GHITEBSC".includes(k.toUpperCase())) {
-          setError("二级结构接受 G、H、I、T、E、B、S、C。");
+          setError(t("secondary_structure_accepts_g_h_i_t"));
           return;
         }
         perform((doc) => updateValues(doc, ids, track, k.toUpperCase()));
@@ -453,7 +703,7 @@ export function register({ React }) {
       }
       if (track === "residue" && k.length === 1) {
         event.preventDefault();
-        setError("序列接受 A–Z；+ 插入、- 删除、空格清空。");
+        setError(t("sequence_accepts_a_z_inserts_deletes_space"));
       }
     }
     function paste(event) {
@@ -501,7 +751,7 @@ export function register({ React }) {
           onClose?.();
         } catch (reason) {
           expectedRevision.current = null;
-          setError(`保存失败，当前编辑已保留：${reason.message}`);
+          setError(t("save_failed_edits_kept", {"0": i18n.error(reason)}));
         }
       } finally {
         loading.current = false;
@@ -517,7 +767,7 @@ export function register({ React }) {
       setMenu(null);
       const sources = (document.structures ?? []).map((record, i) => ({
         id: `retained:${record.id}`,
-        label: `原始结构 ${i + 1}`,
+        label: t("original_structure", {"0": i + 1}),
         structure: { retained: record.id },
         inputs: {},
       }));
@@ -536,7 +786,7 @@ export function register({ React }) {
             });
         }
         if (!sources.length) {
-          setError("请连接参考三维结构，或先从结构文件载入。");
+          setError(t("connect_a_reference_structure_or_load_a"));
           return;
         }
         setAdoption({
@@ -549,7 +799,7 @@ export function register({ React }) {
           chain: "",
         });
       } catch (reason) {
-        setError(reason.message);
+        setError(i18n.error(reason));
       } finally {
         setBusy(false);
       }
@@ -652,7 +902,7 @@ export function register({ React }) {
       const value = row[track],
         selected = selections[track].includes(row.id),
         state = editState(document, row, track),
-        label = TRACKS.find(([key]) => key === track)[1],
+        label = i18n.text(TRACKS.find(([key]) => key === track)[1]),
         editing = inline?.id === row.id && inline.track === track;
       let content =
         track === "residue"
@@ -680,7 +930,7 @@ export function register({ React }) {
       if (editing)
         content = h("input", {
           autoFocus: true,
-          "aria-label": `${label}编辑`,
+          "aria-label": t("edit", {"0": label}),
           className:
             track === "function_annotations" ? "ps-annotation-input" : "",
           value: inline.text,
@@ -708,7 +958,7 @@ export function register({ React }) {
           "data-position": row.id,
           "data-edit-state": state,
           className: `ps-cell ps-${state}${track === "residue" ? " ps-sequence" : ""}${selected ? " ps-selected" : ""}${active === track ? " ps-active-cell" : ""}${focus[track] === row.id && active === track ? " ps-cursor" : ""}`,
-          title: `${label} ${index + 1}: ${track === "coordinates" ? (value ? "有坐标" : "空缺") : Array.isArray(value) ? value.join(", ") : (value ?? "空缺")}`,
+          title: `${label} ${index + 1}: ${track === "coordinates" ? (value ? t("has_coordinates") : t("gap")) : Array.isArray(value) ? value.join(", ") : (value ?? t("gap"))}`,
           onPointerDown: (event) => {
             if (event.button !== 0 || editing) return;
             event.preventDefault();
@@ -750,13 +1000,13 @@ export function register({ React }) {
     }
     const currentRows = document?.positions ?? [],
       count = currentRows.filter((row) => !row.deleted).length,
-      activeName = TRACKS.find(([key]) => key === active)[1];
+      activeName = i18n.text(TRACKS.find(([key]) => key === active)[1]);
     return h(
       "section",
       {
         ref: root,
         className: "ps-studio",
-        "aria-label": "Protein Studio",
+        "aria-label": t("protein_studio"),
         "aria-busy": busy,
         onPointerUp: () => {
           drag.current = null;
@@ -777,13 +1027,14 @@ export function register({ React }) {
       h(
         "header",
         { className: "ps-header" },
-        h("strong", { className: "ps-brand" }, "Protein Studio"),
-        h("span", { className: "ps-object" }, `${count} 个位置`),
+        h("strong", { className: "ps-brand" }, t("protein_studio")),
+        h("span", { className: "ps-object" }, t("positions", {"0": count})),
         h("span", { className: "ps-spacer" }),
+        h(LanguagePicker),
         h(
           "button",
           { type: "button", disabled: busy, onClick: () => setSetup(true) },
-          "载入输入",
+          t("load_input"),
         ),
         h(
           "div",
@@ -793,7 +1044,7 @@ export function register({ React }) {
             {
               type: "button",
               className: "ps-icon",
-              "aria-label": "撤销",
+              "aria-label": t("undo"),
               disabled: busy || session.index < 1,
               onClick: () => undo(-1),
             },
@@ -804,7 +1055,7 @@ export function register({ React }) {
             {
               type: "button",
               className: "ps-icon",
-              "aria-label": "重做",
+              "aria-label": t("redo"),
               disabled: busy || session.index >= session.entries.length - 1,
               onClick: () => undo(1),
             },
@@ -813,7 +1064,7 @@ export function register({ React }) {
           h(
             "button",
             { type: "button", disabled: busy, onClick: cancel },
-            readOnly ? "返回画布" : "取消编辑",
+            readOnly ? t("back_to_canvas") : t("cancel_editing"),
           ),
           h(
             "button",
@@ -823,7 +1074,7 @@ export function register({ React }) {
               disabled: readOnly || busy || !document,
               onClick: finish,
             },
-            "完成并返回画布",
+            t("done_and_return_to_canvas"),
           ),
         ),
       ),
@@ -836,7 +1087,7 @@ export function register({ React }) {
             "button",
             {
               type: "button",
-              "aria-label": "关闭错误",
+              "aria-label": t("dismiss_error"),
               onClick: () => setError(""),
             },
             "×",
@@ -865,7 +1116,7 @@ export function register({ React }) {
         className: "ps-divider",
         role: "separator",
         tabIndex: 0,
-        "aria-label": "调整轨道高度",
+        "aria-label": t("resize_tracks"),
         "aria-orientation": "horizontal",
         onKeyDown: (e) => {
           if (e.key === "ArrowUp") setHeight((v) => Math.min(500, v + 20));
@@ -896,7 +1147,7 @@ export function register({ React }) {
         {
           className: "ps-tracks",
           style: { height },
-          "aria-label": "蛋白质轨道",
+          "aria-label": t("protein_tracks"),
         },
         h(
           "div",
@@ -904,7 +1155,7 @@ export function register({ React }) {
           h(
             "strong",
             null,
-            `${activeName} · ${selections[active].length} 个已选位置`,
+            t("positions_selected", {"0": activeName, "1": selections[active].length}),
           ),
           h(
             "button",
@@ -913,7 +1164,7 @@ export function register({ React }) {
               disabled: !selections[active].length,
               onClick: () => setFocusRequest((v) => v + 1),
             },
-            "定位选区",
+            t("locate_selection"),
           ),
           h("span", { className: "ps-spacer" }),
           h(
@@ -924,7 +1175,7 @@ export function register({ React }) {
                 "span",
                 { key: state },
                 h("i", { style: { background: COLORS[state] } }),
-                ["替换", "清空", "新增", "删除"][i],
+                [t("replaced"), t("cleared"), t("inserted"), t("delete")][i],
               ),
             ),
           ),
@@ -936,7 +1187,7 @@ export function register({ React }) {
             className: "ps-track-scroll",
             role: "grid",
             tabIndex: 0,
-            "aria-label": "蛋白质轨道编辑",
+            "aria-label": t("protein_track_editor"),
             onKeyDown: key,
             onPaste: paste,
             onPointerUp: () => {
@@ -949,7 +1200,7 @@ export function register({ React }) {
               className: "ps-grid",
               style: { "--ps-count": Math.max(1, rows.length) },
             },
-            h("div", { className: "ps-ruler ps-ruler-label" }, "位置"),
+            h("div", { className: "ps-ruler ps-ruler-label" }, t("position")),
             ...rows.map((row, index) =>
               h(
                 "div",
@@ -976,7 +1227,7 @@ export function register({ React }) {
                       grid.current?.focus();
                     },
                   },
-                  label,
+                  i18n.text(label),
                 ),
                 h(
                   "small",
@@ -996,14 +1247,14 @@ export function register({ React }) {
           "span",
           null,
           busy
-            ? "正在处理…"
+            ? t("processing")
             : active === "residue"
-              ? "字母输入 · + 插入 · - 删除 · 空格清空"
+              ? t("type_letters_insert_delete_space_clear")
               : active === "secondary_structure"
-                ? "G H I T E B S C · 空格清空"
-                : "直接输入 · 空格清空 · Ctrl/⌘ Z 撤销",
+                ? t("g_h_i_t_e_b_s")
+                : t("type_to_edit_space_clear_ctrl_z"),
         ),
-        h("span", null, "中键旋转 · Shift＋中键平移 · G 移动 · R 旋转"),
+        h("span", null, t("middle_drag_orbit_shift_middle_drag_pan")),
       ),
       menu &&
         h(
@@ -1024,8 +1275,8 @@ export function register({ React }) {
                 setMenu(null);
               },
             },
-            "清空",
-            h("kbd", null, "Space"),
+            t("cleared"),
+            h("kbd", null, t("label_104")),
           ),
           menu.track === "residue" &&
             h(
@@ -1041,7 +1292,7 @@ export function register({ React }) {
                     setMenu(null);
                   },
                 },
-                "插入",
+                t("insert"),
                 h("kbd", null, "+"),
               ),
               h(
@@ -1054,7 +1305,7 @@ export function register({ React }) {
                     setMenu(null);
                   },
                 },
-                "删除 / 恢复",
+                t("delete_restore"),
                 h("kbd", null, "-"),
               ),
             ),
@@ -1066,7 +1317,7 @@ export function register({ React }) {
                 disabled: readOnly,
                 onClick: () => openAdoption(menu.track),
               },
-              "从结构采用",
+              t("use_from_structure"),
             ),
         ),
       setup &&
@@ -1082,31 +1333,31 @@ export function register({ React }) {
                 void load();
               },
             },
-            h("h2", null, "打开蛋白质"),
+            h("h2", null, t("open_protein")),
             h(
               "label",
               null,
-              "来源",
+              t("source"),
               h(
                 "select",
                 {
-                  "aria-label": "载入来源",
+                  "aria-label": t("load_source"),
                   value: input,
                   disabled: busy,
                   onChange: (e) => setInput(e.target.value),
                 },
-                h("option", { value: "" }, "填写序列"),
+                h("option", { value: "" }, t("enter_sequence")),
                 context.document &&
                   h(
                     "option",
                     { value: context.document.id },
-                    "已确认的编辑成果",
+                    t("saved_edits"),
                   ),
                 ...(context.inputs.source?.packages ?? []).map((pkg) =>
                   h(
                     "option",
                     { key: pkg.id, value: pkg.id },
-                    "节点输入 · " + pkg.format,
+                    t("node_input") + pkg.format,
                   ),
                 ),
                 ...(context.inputs.source?.available ?? []).map((item) =>
@@ -1122,9 +1373,9 @@ export function register({ React }) {
               h(
                 "label",
                 null,
-                "序列",
+                t("sequence"),
                 h("input", {
-                  "aria-label": "初始序列",
+                  "aria-label": t("initial_sequence"),
                   value: sequence,
                   onChange: (e) => setSequence(e.target.value.toUpperCase()),
                 }),
@@ -1132,10 +1383,10 @@ export function register({ React }) {
             h(
               "label",
               null,
-              "对象",
+              t("object"),
               h("input", {
-                "aria-label": "输入对象",
-                placeholder: "单个对象可留空",
+                "aria-label": t("input_object"),
+                placeholder: t("optional_for_a_single_object"),
                 value: object,
                 onChange: (e) => setObject(e.target.value),
               }),
@@ -1143,9 +1394,9 @@ export function register({ React }) {
             h(
               "label",
               null,
-              "链",
+              t("chain"),
               h("input", {
-                "aria-label": "输入链",
+                "aria-label": t("input_chain"),
                 value: chain,
                 onChange: (e) => setChain(e.target.value),
               }),
@@ -1156,7 +1407,7 @@ export function register({ React }) {
               h(
                 "button",
                 { type: "submit", className: "ps-primary", disabled: busy },
-                busy ? "正在打开…" : "打开编辑",
+                busy ? t("opening") : t("open_editor"),
               ),
               document &&
                 h(
@@ -1166,13 +1417,13 @@ export function register({ React }) {
                     disabled: busy,
                     onClick: () => setSetup(false),
                   },
-                  "返回当前编辑",
+                  t("back_to_editing"),
                 ),
               !document &&
                 h(
                   "button",
                   { type: "button", disabled: busy, onClick: cancel },
-                  "返回画布",
+                  t("back_to_canvas"),
                 ),
             ),
           ),
@@ -1186,13 +1437,13 @@ export function register({ React }) {
             {
               className: "ps-modal",
               role: "dialog",
-              "aria-label": "从结构采用",
+              "aria-label": t("use_from_structure"),
             },
-            h("h2", null, "从结构采用"),
+            h("h2", null, t("use_from_structure")),
             h(
               "label",
               null,
-              "来源",
+              t("source"),
               h(
                 "select",
                 {
@@ -1214,7 +1465,7 @@ export function register({ React }) {
             h(
               "button",
               { type: "button", disabled: busy, onClick: readAdoption },
-              "读取残基",
+              t("read_residues"),
             ),
             adoption.positions.length > 0 &&
               h(
@@ -1223,7 +1474,7 @@ export function register({ React }) {
                 h(
                   "label",
                   null,
-                  "链",
+                  t("chain"),
                   h(
                     "select",
                     {
@@ -1244,7 +1495,7 @@ export function register({ React }) {
                 h(
                   "p",
                   null,
-                  `目标 ${adoption.ids.length} 个位置 · 已选 ${adoption.selected.length} 个来源残基`,
+                  t("target_positions_source_residues_selected", {"0": adoption.ids.length, "1": adoption.selected.length}),
                 ),
                 h(
                   "div",
@@ -1301,7 +1552,7 @@ export function register({ React }) {
                     busy || adoption.selected.length !== adoption.ids.length,
                   onClick: adopt,
                 },
-                "采用",
+                t("apply"),
               ),
               h(
                 "button",
@@ -1310,7 +1561,7 @@ export function register({ React }) {
                   disabled: busy,
                   onClick: () => setAdoption(null),
                 },
-                "取消",
+                t("cancel"),
               ),
             ),
           ),
@@ -1321,7 +1572,7 @@ export function register({ React }) {
         h(
           "div",
           { className: "ps-modal-layer", role: "status" },
-          h("div", { className: "ps-modal" }, "正在保存编辑…"),
+          h("div", { className: "ps-modal" }, t("saving_edits")),
         ),
     );
   }
@@ -1337,7 +1588,7 @@ export function register({ React }) {
           if (live) setData(JSON.parse(text));
         })
         .catch((reason) => {
-          if (live) setError(reason.message);
+          if (live) setError(i18n.error(reason));
         });
       return () => {
         live = false;
@@ -1349,10 +1600,10 @@ export function register({ React }) {
         ? h(
             "section",
             null,
-            h("p", null, `${data.tracks.sequence.length} 个位置`),
+            h("p", null, t("positions", {"0": data.tracks.sequence.length})),
             h("pre", null, data.tracks.sequence.map((v) => v ?? "·").join("")),
           )
-        : h("p", null, "正在读取…");
+        : h("p", null, t("reading"));
   }
   return {
     editors: [
@@ -1360,15 +1611,15 @@ export function register({ React }) {
         node: "workbench.edit_sequence",
         component: Editor,
         workspace: {
-          title: "Protein Studio",
-          openLabel: "打开 Protein Studio",
+          title: messages.protein_studio,
+          openLabel: messages.open_protein_studio,
         },
       },
     ],
     viewers: [
       {
         id: "workbench.protein",
-        name: "蛋白质轨道",
+        name: messages.protein_tracks,
         formats: ["workbench.protein"],
         component: Viewer,
       },

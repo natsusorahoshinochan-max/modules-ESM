@@ -284,10 +284,10 @@ def execute(call, runtime):
 def module():
     from .structure_conditions import interaction
     from .tracks import TRACK_FORMATS, TRACK_NAMES
-    inputs = {'source': InputPort(('workbench.sequence', 'workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates', 'workbench.esm3_generation', 'workbench.joint_generation', FORMAT), required=False, name='蛋白质输入'),
-              'structures': InputPort(('workbench.structure_set', 'workbench.prediction'), required=False, name='参考三维结构')}
-    return Module(id='workbench.sequence_edit', name='Protein Studio', ui=str(Path(__file__).with_name('ui.js')),
-                  nodes=(Node('workbench.edit_sequence', '编辑蛋白质', execute, inputs=inputs, document_format=FORMAT,
-                              outputs={'edited': OutputPort(FORMAT, name='蛋白质'), **{name: OutputPort(format, name=TRACK_NAMES[name]) for name, format in TRACK_FORMATS.items()}}),),
+    inputs = {'source': InputPort(('workbench.sequence', 'workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates', 'workbench.esm3_generation', 'workbench.joint_generation', FORMAT), required=False, name={'zh-CN': '蛋白质输入', 'en': 'Protein input'}),
+              'structures': InputPort(('workbench.structure_set', 'workbench.prediction'), required=False, name={'zh-CN': '参考三维结构', 'en': 'Reference 3D structure'})}
+    return Module(id='workbench.sequence_edit', name={'zh-CN': 'Protein Studio', 'en': 'Protein Studio'}, ui=str(Path(__file__).with_name('ui.js')),
+                  nodes=(Node('workbench.edit_sequence', {'zh-CN': '编辑蛋白质', 'en': 'Edit protein'}, execute, inputs=inputs, document_format=FORMAT,
+                              outputs={'edited': OutputPort(FORMAT, name={'zh-CN': '蛋白质', 'en': 'Protein'}), **{name: OutputPort(format, name=TRACK_NAMES[name]) for name, format in TRACK_FORMATS.items()}}),),
                   interactions=(Interaction('workbench.sequence_edit', edit, inputs),
                                 Interaction('workbench.sequence_structure', interaction, inputs)))

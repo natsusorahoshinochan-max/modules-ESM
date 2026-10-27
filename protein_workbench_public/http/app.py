@@ -118,7 +118,7 @@ def create_http_app(host: Workbench) -> FastAPI:
 
     @app.exception_handler(HostError)
     async def host_error(_request: Request, error: HostError):
-        return JSONResponse(status_code=error.status_code, content={'detail': str(error)})
+        return JSONResponse(status_code=error.status_code, content={'detail': str(error), **({'display_message': error.display_message} if error.display_message else {})})
 
     @app.exception_handler(OSError)
     async def file_error(_request: Request, error: OSError):

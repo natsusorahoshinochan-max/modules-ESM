@@ -1,10 +1,26 @@
+import { i18n } from './i18n'
+const messages = {
+  "for_each_package": {
+    "zh-CN": "逐项处理",
+    "en": "For each package"
+  },
+  "repeat_subflow": {
+    "zh-CN": "循环",
+    "en": "Repeat subflow"
+  },
+  "subflow_changed_return_to_its_parent": {
+    "zh-CN": "子流程已改变，请返回上一级",
+    "en": "Subflow changed; return to its parent"
+  }
+};
+const t = i18n.translator(messages)
 import type { Flow, FlowNode } from '@protein-workbench/module-ui'
 import type { Catalog, NodeDeclaration, Run } from './host-client'
 
 export function declarationFor(node: FlowNode | undefined, catalog: Catalog): NodeDeclaration | undefined {
   if (!node) return undefined
   if ((node.type === 'host.map' || node.type === 'host.repeat') && node.scope) return {
-    id: node.type, module_id: 'host', name: node.type === 'host.map' ? 'For each package' : 'Repeat subflow',
+    id: node.type, module_id: 'host', name: node.type === 'host.map' ? t("for_each_package") : t("repeat_subflow"),
     inputs: node.scope.inputs, outputs: node.scope.outputs, parameters: {},
   }
   return catalog.nodes.find(item => item.id === node.type)
@@ -23,7 +39,7 @@ export function flowAt(root: Flow, path: readonly string[]): Flow | undefined {
 export function replaceFlow(root: Flow, path: readonly string[], update: (flow: Flow) => Flow): Flow {
   if (!path.length) return update(root)
   const [id, ...tail] = path
-  if (!root.nodes.some(node => node.id === id && node.scope)) throw new Error('Subflow changed; return to its parent')
+  if (!root.nodes.some(node => node.id === id && node.scope)) throw new Error(t("subflow_changed_return_to_its_parent"))
   return { ...root, nodes: root.nodes.map(node => node.id === id && node.scope ? { ...node, scope: { ...node.scope, body: replaceFlow(node.scope.body, tail, update) } } : node) }
 }
 
