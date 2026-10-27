@@ -3,11 +3,7 @@
 > `POST /api/v1/forward_and_sample`
 
 - 来源：[Biohub API Reference](https://biohub.ai/api-reference/forward_and_sample)
-- 抓取时间：`2026-07-16T03:56:50.184Z`
-- 页面发布标识：`sha-7062746`
-- 鉴权：`Authorization: Bearer <API_KEY>`
-- 请求媒体类型：`application/json`
-- 来源定义 SHA-256：`1f5006d0895f0d107df386722f790542f5c484710eac93ba5361195e7e7ffdaa`
+- 快照信息及共用约定见[快照入口](../README.md)。
 
 ## 用途
 
@@ -73,9 +69,3 @@
 - 该端点执行一次推理并直接采样 output token。
 - `sampling_config` 分别配置 sequence、structure、secondary_structure、SASA 与 function 轨道；每个轨道共享 temperature、top-p、masked-only、invalid IDs 与 top-k logprob 一组控制。
 - `embedding_config` 可分别请求 sequence mean-pooled embedding 与逐残基 embedding。
-
-公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
-
-## 响应
-
-截至本次抓取，来源页没有发布该端点的响应状态码、媒体类型或响应 body schema。因此本地机器定义将响应记录为 `documented: false` 与 `schema: null`，不从 SDK、现有项目代码或运行时样本反推。

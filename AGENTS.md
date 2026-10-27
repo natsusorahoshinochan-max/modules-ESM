@@ -1,32 +1,32 @@
-# Repository Guidelines
+# 仓库规则
 
-## Priorities
+当前项目正在重做前端和UI。
 
-This is scientific software in development. Scientific correctness and interpretability outrank compatibility and implementation concerns. Preserve semantics for Node Types, Methods, Metric Definitions, units, shapes, residue mappings, masking, randomness, lineage, provenance, and evidence. Use `CONTEXT.md` vocabulary. Resolve scientific ambiguity in the current specification; ADRs are historical background, not authority. Never infer science from code, SDK shapes, or UI behavior.
+## 文档规范
 
-There is no historical compatibility obligation. Do not add shims, aliases, legacy parsers, dual paths, deprecation layers, or speculative abstractions. Change all current producers, consumers, tests, examples, and documentation together; delete superseded code. Development artifacts may be invalidated.
+按文档用途保留内容：需求说明行为，架构说明职责与交接，
+操作说明提供必要步骤和资源位置。工作经过放在提交说明中，不进入文档。
 
-## Architecture
+新增文字中同一规则集中维护；避免换句话重复。
 
-`core/` owns runtime and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/`; provider translation belongs in Adapters. `protein_workbench_public/` owns the current protocol. Treat `repositories/` as pinned upstream, except for the project-owned SoluProt-next Provider source.
+"不代表"、"不意味" 的免责声明是被禁止的恶心的废话。
 
-## Trust Model
+## 阅读入口
 
-This is a trusted, single-user, loopback-only application. Components trust values after validation by their contract-owning boundary. Validate once; do not add repeated checks, authentication, authorization, multi-tenancy, adversarial handling, sandboxing, or hosted-service hardening.
+- 设计、实现或审查行为前，读 [需求](docs/requirements.md)。未确认的提议或实现偏差不算需求。
+- 探索代码前，读 [术语](GLOSSARY.md)；改动模块接入、执行、数据交接、工具替换或保存时，读 [目标架构](docs/architecture.md)。
+- 核对 Biohub 请求时，查 [官方接口快照](docs/biohub-api-reference/v1/README.md)；核对其他工具时，直接查其官方说明、SDK、CLI 或固定上游源码。
 
-Biohub and its official API specification are authoritative. Assume conforming requests receive conforming responses. Adapters must translate and record provenance exactly as documented. Do not guess schemas, repair or reject responses, cross-check providers, add fallback endpoints, or handle hypothetical malformed responses. Follow documented operational outcomes exactly.
+## 修改与验证
 
-Fail fast on local invariant violations. Avoid broad catches, silent coercion, guessed defaults, catch-and-continue behavior, and undocumented retries or fallbacks. Retain checks only for scientific correctness, explicit contracts, durable writes, accidental data loss, and credential hygiene.
+修改时更新所有调用方和相关文档，删除被替代实现。不加旧解析器、别名、兼容层、双轨实现或尚无用途的抽象。
 
-## Verification
+旧数据清理范围按需求文档执行，保留原始研究文件。
 
-Run tests, type checks, builds, and Providers only on the remote verification host. Follow the fixed-snapshot, batch-diagnosis and Provider polling rules in [backend verification](docs/backend-verification.md#execution-policy). Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. The backend verification gate is independent of the WebUI. For WebUI changes, use the verification entry points in [webui/README.md](webui/README.md).
+`repositories/` 固定的是上游源码，需要保持不变。
 
-Run focused tests plus:
+## GitHub 任务
 
-```bash
-.venv/bin/python -m verification.backend routine
-.venv/bin/python -m verification.backend deterministic-acceptance
-```
+使用 `natsusorahoshinochan-max/modules-ESM` 的 GitHub Issues 跟踪任务。读 ticket 时读正文、标签和评论；多行正文先写临时文件，再用 `gh --body-file`。父子任务使用原生 sub-issues，阻塞关系使用 issue dependencies。创建 issue 不表示提议已确认；PR 不作为任务受理入口。
 
-Never commit `.local/`, `keys/`, environments, or client build output.
+分类时使用五个标签：`needs-triage` 待评估、`needs-info` 待补充、`ready-for-agent` 可由 agent 执行、`ready-for-human` 需人工实施、`wontfix` 不处理。

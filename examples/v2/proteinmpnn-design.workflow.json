@@ -1,0 +1,60 @@
+{
+  "nodes": [
+    {
+      "id": "import",
+      "type": "workbench.import_structure",
+      "parameters": {
+        "models": 1
+      },
+      "inputs": {
+        "file": [
+          "SELECT_EXPLICIT_STRUCTURE_FILE_PACKAGE"
+        ]
+      }
+    },
+    {
+      "id": "design",
+      "type": "workbench.design_backbone",
+      "tools": {
+        "mpnn": "workbench.proteinmpnn.local"
+      },
+      "tool_parameters": {
+        "mpnn": {
+          "seed": 17,
+          "num_seq_per_target": 2,
+          "batch_size": 2,
+          "sampling_temp": [
+            0.1
+          ],
+          "fixed_positions": {
+            "A": [
+              1,
+              2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "chain",
+      "type": "workbench.proteinmpnn_chain_sequence",
+      "parameters": {
+        "chain": "A"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "import",
+      "source_port": "structures",
+      "target": "design",
+      "target_port": "structure"
+    },
+    {
+      "source": "design",
+      "source_port": "design",
+      "target": "chain",
+      "target_port": "design"
+    }
+  ]
+}

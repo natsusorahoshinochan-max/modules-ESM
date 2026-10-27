@@ -1,825 +1,1420 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import * as ContextMenu from '@radix-ui/react-context-menu'
-import { GroupInterfaceEditor } from './GroupInterfaceEditor'
-import { InteractionDialog } from './InteractionDialog'
-import { placeCanvasCopy, copyCanvasGroup, currentCanvasGroup, emptyCanvas, groupNodes, groupPath, groupPorts, groupPortId, visibleOwner, resolveCanvasPort, selectedLeafNodes, createCanvasGroup, ungroupCanvas, moveCanvasItems, cleanCanvasGroups, type CanvasState, type CanvasGroup } from './canvas-groups'
-import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, applyEdgeChanges, applyNodeChanges, type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react'
-import { Activity, Atom, Braces, Check, ChevronDown, ChevronRight, CircleHelp, FolderOpen, Info, Layers3, LoaderCircle, Network, PanelLeftClose, Play, Plus, RotateCcw, Search, X } from 'lucide-react'
-import { PromptStudio } from './PromptStudio'
-import { InputSourceDialog } from './InputSourceDialog'
-import type { CandidateInputPlan, PromptSourcePlan } from './input-sources'
-import { ProjectWorkspaceDialog } from './ProjectWorkspaceDialog'
-import { workspaceErrorMessage, type ProjectWorkspace, type WorkflowVersionView } from './project-workspace'
-import { PublicV2Client, promptAuthorDocumentParameter, promptAuthorNodeTypeId, type AuthoringCapabilities, type CatalogSnapshot, type NodeDisposition, type ProjectMetadata, type PromptAuthoringDocument, type PromptSnapshot, type RunProjection, type RunScope, type RunStatus, type Workflow, type WorkflowDraft, type JsonObject } from './protocol/client'
-import { RunDialog } from './RunDialog'
-import { RunDiagnostics } from './RunDiagnostics'
-import { ResultsWorkbench, type ResultsViewStateStore } from './ResultsWorkbench'
-import { PublishedResults } from './published-results'
-import { locationKey, type ResultCollection } from './result-explorer'
-import type { ResultLocation } from './protocol/client'
-import { WorkspaceEditor, type WorkspaceEditSession } from './workspace-editor'
-import { WorkflowPorts, type PortSource } from './WorkflowPorts'
-import { connectWorkflowPorts, reconnectWorkflowPorts, deleteWorkflowElements as deleteGraphElements, workflowEdgeId, workflowPortsMatch, PromptMergeSourcesLockedError } from './workflow-connections'
-import { WorkflowParameters } from './WorkflowParameters'
-import { loadWorkflowParameterChoices, type NodeParameterChoices, type WorkflowParameterChoices } from './parameter-choices'
-import { SelectionEditor } from './SelectionEditor'
-import { selectionNodeTypes } from './selection-authoring'
-import { CanvasOperationPicker } from './CanvasOperationPicker'
-import { copyWorkflowFragment, pasteWorkflowFragment, type WorkflowFragment } from './workflow-fragments'
-import { bindingOptions, insertOrdinaryNode, nodeTypePresentation, parameterPresentations, projectPalette, selectNodeBinding, type BindingOption, type PaletteTaxonomy, type ParameterPresentation, type PortPresentation } from './workflow-authoring'
-
-const client = new PublicV2Client()
-type Parameter = ParameterPresentation & { suffix?: string }
-type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'cancelled' | 'interrupted' | 'outside' | 'reused'
-type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
-type StageControlView = { kind: 'parameter'; nodeId: string; parameter: Parameter; choices?: NodeParameterChoices } | { kind: 'prompt' | 'selection'; nodeId: string; label: string }
-type StageState = { status: NodeRunStatus | 'idle'; label: string; completed: number; total: number }
-type WorkflowNodeData = Record<string, unknown> & { resultCollections?: ResultCollection[]; onOpenResult?: (source: ResultLocation) => void; kind: 'prompt' | 'ordinary' | 'group' | 'boundary'; stage?: CanvasGroup['stage']; stageControls?: StageControlView[]; stageState?: StageState; onStageAction?: (kind: 'prompt' | 'selection', nodeId: string) => void; onEnter?: () => void; onRename?: (label: string) => void; groupErrors?: number; onFocusError?: () => void; eyebrow: string; title: string; subtitle: string; index: string; inputs: PortPresentation[]; outputs: PortPresentation[]; sources: Record<string, PortSource[]>; parameters: Parameter[]; parameterChoices?: NodeParameterChoices; accent: string; count: string; sourceNodeId: string; bindingId?: string; bindingOptions?: BindingOption[]; collapsed?: boolean; runState?: NodeRunState; scopeState?: 'execute' | 'reuse'; onToggle?: (id: string) => void; onEditPrompt?: () => void; onEditSelection?: () => void; onParameter?: (id: string, parameter: Parameter, value: string, commit: boolean) => void; onCancelParameter?: (nodeId: string, parameter: Parameter) => void; onBinding?: (nodeId: string, bindingId: string) => void }
-type FlowNode = Node<WorkflowNodeData>
-type RunProgress = { status: RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; projectId?: string; runId?: string; }
-type PendingNodeDrop = { nodeTypeId: string; position: { x: number; y: number }; bindings: BindingOption[]; connectionFrom?: { nodeId: string; portName: string }; connectionPort?: string }
-
-const categoryColors: Record<string, string> = { generation: '#55c8b7', selection: '#e7b75f', structure_comparison: '#71a8ff', structure_prediction: '#71a8ff', collection_ops: '#92a79a', prompt_authoring: '#ae9cff' }
-
-function defaultNodePosition(index: number) { return { x: 60 + index % 5 * 320, y: 100 + Math.floor(index / 5) * 500 } }
-
-function canvasFromUi(uiState: JsonObject): CanvasState {
-  return uiState.canvas as CanvasState | undefined ?? emptyCanvas
-}
-
-function canvasFromNodes(flowNodes: FlowNode[], previous: CanvasState): CanvasState {
-  return {
-    ...previous,
-    ...moveCanvasItems(previous, Object.fromEntries(flowNodes.filter(node => node.data.kind !== 'boundary').map((node) => [node.id, node.position]))),
-    collapsed: [...previous.collapsed.filter(id => !flowNodes.some(node => node.id === id)), ...flowNodes.filter((node) => node.data.collapsed).map((node) => node.id)],
+import { i18n, useLocale, localizeCatalog, LanguagePicker, text } from './i18n'
+const messages = {
+"discard_unsaved": {"zh-CN": " 未保存的修改将丢弃。", "en": " Unsaved changes will be discarded."},
+"project_deleted": {"zh-CN": "已删除项目“{name}”", "en": "Deleted project “{name}”"},
+"run_finished": {"zh-CN": "运行：{status}", "en": "Run: {status}"},
+"round_suffix": {"zh-CN": " · 第 {n} 轮", "en": " · Round {n}"},
+"item_suffix": {"zh-CN": " · 第 {n} 项", "en": " · Item {n}"},
+"required_suffix": {"zh-CN": "（必填）", "en": " (required)"},
+  "module_interface_failed": {
+    "zh-CN": "模块界面无法打开：",
+    "en": "Module interface failed:"
+  },
+  "back_to_canvas": {
+    "zh-CN": "返回画布",
+    "en": "Back to canvas"
+  },
+  "completed": {
+    "zh-CN": "已完成",
+    "en": "Completed"
+  },
+  "failed": {
+    "zh-CN": "失败",
+    "en": "Failed"
+  },
+  "cancelled": {
+    "zh-CN": "已取消",
+    "en": "Cancelled"
+  },
+  "running": {
+    "zh-CN": "运行中",
+    "en": "Running"
+  },
+  "pending": {
+    "zh-CN": "等待中",
+    "en": "Pending"
+  },
+  "not_run": {
+    "zh-CN": "未执行",
+    "en": "Not run"
+  },
+  "needs_configuration": {
+    "zh-CN": "配置未完成",
+    "en": "Needs configuration"
+  },
+  "new_project": {
+    "zh-CN": "新项目",
+    "en": "New project"
+  },
+  "wait_for_teaching_input_transfers_to_finish": {
+    "zh-CN": "输入文件尚在载入，请稍后保存",
+    "en": "Wait for teaching input transfers to finish before saving"
+  },
+  "project_list_refresh_failed": {
+    "zh-CN": "项目列表载入失败：{0}",
+    "en": "Project list refresh failed: {0}"
+  },
+  "module_refresh_failed": {
+    "zh-CN": "模块载入失败：{0}",
+    "en": "Module refresh failed: {0}"
+  },
+  "project_changed_start_the_operation_again": {
+    "zh-CN": "项目已切换，请重试",
+    "en": "Project changed; start the operation again"
+  },
+  "teaching_draft_is_saving_wait_for_the": {
+    "zh-CN": "示例正在保存，请稍候",
+    "en": "Teaching draft is saving; wait for the user project"
+  },
+  "project_is_running_or_being_deleted": {
+    "zh-CN": "项目正在运行或删除",
+    "en": "Project is running or being deleted"
+  },
+  "open_a_project_first": {
+    "zh-CN": "请先打开项目",
+    "en": "Open a project first"
+  },
+  "redone": {
+    "zh-CN": "已重做",
+    "en": "Redone"
+  },
+  "undone": {
+    "zh-CN": "已撤销",
+    "en": "Undone"
+  },
+  "enter_valid_parameter_json_before_leaving_this": {
+    "zh-CN": "请填写有效参数后再离开子流程",
+    "en": "Enter valid parameter JSON before leaving this subflow"
+  },
+  "discard_unsaved_changes_and_open_this_project": {
+    "zh-CN": "放弃未保存的修改并打开项目？",
+    "en": "Discard unsaved changes and open this project?"
+  },
+  "discard_unsaved_changes_and_create_a_project": {
+    "zh-CN": "放弃未保存的修改并新建项目？",
+    "en": "Discard unsaved changes and create a project?"
+  },
+  "enter_valid_parameter_json_before_saving": {
+    "zh-CN": "请填写有效参数后再保存",
+    "en": "Enter valid parameter JSON before saving"
+  },
+  "project_save_is_already_in_progress": {
+    "zh-CN": "正在保存项目，请稍候",
+    "en": "Project save is already in progress"
+  },
+  "project_and_layout_saved": {
+    "zh-CN": "项目已保存",
+    "en": "Project and layout saved"
+  },
+  "project_saved_package_list_refresh_failed": {
+    "zh-CN": "项目已保存，文件列表刷新失败：{0}",
+    "en": "Project saved; package list refresh failed: {0}"
+  },
+  "enter_valid_parameter_json_before_copying": {
+    "zh-CN": "请填写有效参数后再复制",
+    "en": "Enter valid parameter JSON before copying"
+  },
+  "project_copied_with_independent_inputs_and_no": {
+    "zh-CN": "项目已复制",
+    "en": "Project copied with independent inputs and no runs"
+  },
+  "save_changes_and_run": {
+    "zh-CN": "保存修改并运行？",
+    "en": "Save changes and run?"
+  },
+  "project_changed_while_saving_save_again_before": {
+    "zh-CN": "保存期间项目已改变，请重新保存后运行",
+    "en": "Project changed while saving; save again before running"
+  },
+  "running_on_the_backend": {
+    "zh-CN": "正在运行…",
+    "en": "Running on the backend…"
+  },
+  "continuing_the_original_call_on_the_backend": {
+    "zh-CN": "正在继续运行…",
+    "en": "Continuing the original call on the backend…"
+  },
+  "cancellation_requested_waiting_for_the_backend": {
+    "zh-CN": "正在停止…",
+    "en": "Cancellation requested; waiting for the backend…"
+  },
+  "delete_project_and_its_stored_packages_and": {
+    "zh-CN": "删除项目“{0}”及其文件和运行记录？{1}删除后无法恢复。",
+    "en": "Delete project \"{0}\" and its stored packages and runs?{1} This cannot be undone."
+  },
+  "added_to": {
+    "zh-CN": "已采用到 {0}",
+    "en": "Added to {0}"
+  },
+  "subflow_changed_start_the_operation_again": {
+    "zh-CN": "子流程已改变，请重试",
+    "en": "Subflow changed; start the operation again"
+  },
+  "open_an_idle_project_first": {
+    "zh-CN": "请先打开未运行的项目",
+    "en": "Open an idle project first"
+  },
+  "connect_different_nodes_use_explicit_subflow_feedback": {
+    "zh-CN": "请选择不同节点；重复执行请使用子流程反馈",
+    "en": "Connect different nodes; use explicit subflow feedback for repetition"
+  },
+  "this_connection_already_exists": {
+    "zh-CN": "连线已存在",
+    "en": "This connection already exists"
+  },
+  "port_formats_do_not_match_select_an": {
+    "zh-CN": "端口格式不匹配，请添加转换节点",
+    "en": "Port formats do not match; select an explicit conversion node"
+  },
+  "cardinality_mismatch_a_many_output_requires_a": {
+    "zh-CN": "多个输出需要连接可接收多个数据包的输入",
+    "en": "Cardinality mismatch: a many output requires a many input"
+  },
+  "input_accepts_only_one_package": {
+    "zh-CN": "此输入只接受一个数据包",
+    "en": "Input accepts only one package"
+  },
+  "preview_cancelled": {
+    "zh-CN": "预览已取消",
+    "en": "Preview cancelled"
+  },
+  "editor_workspace_closed_reopen_it_to_apply": {
+    "zh-CN": "编辑器已关闭，请重新打开",
+    "en": "Editor workspace closed; reopen it to apply changes"
+  },
+  "project_changed_reopen_this_editor": {
+    "zh-CN": "项目已切换，请重新打开编辑器",
+    "en": "Project changed; reopen this editor"
+  },
+  "editor_draft_changed_preview_the_current_node": {
+    "zh-CN": "草稿已改变，请重新预览",
+    "en": "Editor draft changed; preview the current node again"
+  },
+  "project_is_running_saving_or_being_deleted": {
+    "zh-CN": "项目正在运行、保存或删除",
+    "en": "Project is running, saving or being deleted"
+  },
+  "editor_workspace_closed": {
+    "zh-CN": "编辑器已关闭",
+    "en": "Editor workspace closed"
+  },
+  "selected_packages_are_unavailable": {
+    "zh-CN": "所选文件不可用：{0}",
+    "en": "Selected packages are unavailable: {0}"
+  },
+  "connected_input_requires_a_delivered_package_selected": {
+    "zh-CN": "请先运行上游节点，再选择已生成的结果",
+    "en": "Connected input requires a delivered package selected explicitly; prepare and run the source group first"
+  },
+  "no_delivered_package_is_selected_for": {
+    "zh-CN": "尚未为 {0}{1} 选择输入文件",
+    "en": "No delivered package is selected for {0}{1}"
+  },
+  "run": {
+    "zh-CN": "运行 {0} · {1} · {2}",
+    "en": "Run {0} · {1} · {2}"
+  },
+  "project_is_running_wait_before_accepting_edits": {
+    "zh-CN": "项目正在运行，请结束后再采用编辑",
+    "en": "Project is running; wait before accepting edits"
+  },
+  "accept_one_editor_document_or_input_at": {
+    "zh-CN": "请每次采用一个编辑结果或输入",
+    "en": "Accept one editor document or input at a time"
+  },
+  "connection_replacement_requires_an_explicit_input_update": {
+    "zh-CN": "替换连线时需指定输入",
+    "en": "Connection replacement requires an explicit input update"
+  },
+  "replacement_connection_does_not_match_the_current": {
+    "zh-CN": "替换连线与目标端口不匹配",
+    "en": "Replacement connection does not match the current target declaration"
+  },
+  "duplicate_replacement_connection": {
+    "zh-CN": "替换连线重复",
+    "en": "Duplicate replacement connection"
+  },
+  "unknown_input_port": {
+    "zh-CN": "未知输入端口：{0}",
+    "en": "Unknown input port: {0}"
+  },
+  "input_accepts_only_one_package_explicitly_replace": {
+    "zh-CN": "此输入只接受一个数据包，请先替换原连接",
+    "en": "Input accepts only one package; explicitly replace its connection"
+  },
+  "input_package_is_unavailable_or_has_an": {
+    "zh-CN": "输入文件不可用或格式不匹配：{0}",
+    "en": "Input package is unavailable or has an unaccepted format: {0}"
+  },
+  "preview_has_ended_create_a_new_preview": {
+    "zh-CN": "预览已结束，请重新预览",
+    "en": "Preview has ended; create a new preview"
+  },
+  "unknown_delivery_input_port": {
+    "zh-CN": "未知交付输入端口",
+    "en": "Unknown delivery input port"
+  },
+  "this_node_does_not_accept_editor_documents": {
+    "zh-CN": "此节点不接收编辑文档",
+    "en": "This node does not accept editor documents"
+  },
+  "editor_document_format_does_not_match_this": {
+    "zh-CN": "编辑文档格式与节点不匹配",
+    "en": "Editor document format does not match this node"
+  },
+  "previous_node": {
+    "zh-CN": "历史节点",
+    "en": "Previous node"
+  },
+  "round": {
+    "zh-CN": " · 第 ",
+    "en": " · Round "
+  },
+  "message": {
+    "zh-CN": " 轮",
+    "en": " "
+  },
+  "message_2": {
+    "zh-CN": " 项",
+    "en": " "
+  },
+  "run_2": {
+    "zh-CN": "第 {0} 次 · {1}{2}",
+    "en": "Run {0} · {1}{2}"
+  },
+  "input_files": {
+    "zh-CN": "输入文件",
+    "en": "Input files"
+  },
+  "applied_to": {
+    "zh-CN": "已用于 ",
+    "en": "Applied to "
+  },
+  "node": {
+    "zh-CN": "节点",
+    "en": "Node"
+  },
+  "this_input_is_connected_to_the_subflow": {
+    "zh-CN": "此输入已有子流程边界连接",
+    "en": "This input is connected to the subflow boundary"
+  },
+  "this_node_has_been_deleted_from_the": {
+    "zh-CN": "当前画布中已删除此节点",
+    "en": "This node has been deleted from the canvas"
+  },
+  "for_each": {
+    "zh-CN": "逐项处理",
+    "en": "For each"
+  },
+  "repeat": {
+    "zh-CN": "循环",
+    "en": "Repeat"
+  },
+  "project": {
+    "zh-CN": "项目",
+    "en": "Project"
+  },
+  "new_open": {
+    "zh-CN": "新建 / 打开",
+    "en": "New / Open"
+  },
+  "duplicate_project": {
+    "zh-CN": "复制项目",
+    "en": "Duplicate project"
+  },
+  "modules": {
+    "zh-CN": "模块管理",
+    "en": "Modules"
+  },
+  "more_imports": {
+    "zh-CN": "更多导入",
+    "en": "More imports"
+  },
+  "delete_project": {
+    "zh-CN": "删除项目",
+    "en": "Delete project"
+  },
+  "unsaved": {
+    "zh-CN": "未保存",
+    "en": "Unsaved"
+  },
+  "undo": {
+    "zh-CN": "撤销",
+    "en": "Undo"
+  },
+  "redo": {
+    "zh-CN": "重做",
+    "en": "Redo"
+  },
+  "results": {
+    "zh-CN": "结果",
+    "en": "Results"
+  },
+  "saving": {
+    "zh-CN": "保存中…",
+    "en": "Saving…"
+  },
+  "save": {
+    "zh-CN": "保存",
+    "en": "Save"
+  },
+  "run_3": {
+    "zh-CN": "▷ 运行",
+    "en": "▷ Run"
+  },
+  "stop": {
+    "zh-CN": "停止",
+    "en": "Stop"
+  },
+  "dismiss": {
+    "zh-CN": "关闭提示",
+    "en": "Dismiss"
+  },
+  "close_projects": {
+    "zh-CN": "关闭项目",
+    "en": "Close projects"
+  },
+  "open_example": {
+    "zh-CN": "打开示例",
+    "en": "Open example"
+  },
+  "project_name": {
+    "zh-CN": "项目名称",
+    "en": "Project name"
+  },
+  "create": {
+    "zh-CN": "新建",
+    "en": "Create"
+  },
+  "close_modules": {
+    "zh-CN": "关闭模块管理",
+    "en": "Close modules"
+  },
+  "close_import": {
+    "zh-CN": "关闭导入",
+    "en": "Close import"
+  },
+  "loading_input_files": {
+    "zh-CN": "正在载入输入文件…",
+    "en": "Loading input files…"
+  },
+  "node_canvas": {
+    "zh-CN": "节点画布",
+    "en": "Node canvas"
+  },
+  "subflow_navigation": {
+    "zh-CN": "子流程导航",
+    "en": "Subflow navigation"
+  },
+  "canvas": {
+    "zh-CN": "主画布",
+    "en": "Canvas"
+  },
+  "failed_view": {
+    "zh-CN": "失败 · 查看",
+    "en": "Failed · View"
+  },
+  "results_2": {
+    "zh-CN": "结果 ↗",
+    "en": "Results ↗"
+  },
+  "open": {
+    "zh-CN": "打开 {0}",
+    "en": "Open {0}"
+  },
+  "tool": {
+    "zh-CN": "工具",
+    "en": "Tool"
+  },
+  "tool_2": {
+    "zh-CN": "{0} 工具",
+    "en": "{0} tool"
+  },
+  "select_tool": {
+    "zh-CN": "选择工具",
+    "en": "Select tool"
+  },
+  "editor_draft_changed_reopen_the_current_node": {
+    "zh-CN": "草稿已改变，请重新打开节点",
+    "en": "Editor draft changed; reopen the current node"
+  },
+  "the_module_for_this_node_is_not": {
+    "zh-CN": "此节点所需模块未安装。",
+    "en": "The module for this node is not installed."
+  },
+  "open_subflow": {
+    "zh-CN": "打开子流程",
+    "en": "Open subflow"
+  },
+  "parameters": {
+    "zh-CN": "计算参数",
+    "en": "Parameters"
+  },
+  "input_sources": {
+    "zh-CN": "输入来源",
+    "en": "Input sources"
+  },
+  "connected": {
+    "zh-CN": "已连接：",
+    "en": "Connected: "
+  },
+  "upstream_node": {
+    "zh-CN": "上游节点",
+    "en": "Upstream node"
+  },
+  "use_connection": {
+    "zh-CN": "使用连线",
+    "en": "Use connection"
+  },
+  "not_selected": {
+    "zh-CN": "未选择",
+    "en": "Not selected"
+  },
+  "close_results": {
+    "zh-CN": "关闭结果",
+    "en": "Close results"
+  },
+  "select_run": {
+    "zh-CN": "选择运行",
+    "en": "Select run"
+  },
+  "run_4": {
+    "zh-CN": "第",
+    "en": "Run"
+  },
+  "message_3": {
+    "zh-CN": "次运行 ·",
+    "en": " ·"
+  },
+  "select_result_node": {
+    "zh-CN": "选择结果节点",
+    "en": "Select result node"
+  },
+  "locate_node": {
+    "zh-CN": "定位节点",
+    "en": "Locate node"
+  },
+  "continue": {
+    "zh-CN": "继续运行",
+    "en": "Continue"
+  },
+  "select_output": {
+    "zh-CN": "选择输出",
+    "en": "Select output"
+  },
+  "output": {
+    "zh-CN": "输出",
+    "en": "Output"
+  },
+  "no_results_yet": {
+    "zh-CN": "暂无结果",
+    "en": "No results yet"
+  },
+  "view_as": {
+    "zh-CN": "查看方式",
+    "en": "View as"
+  },
+  "download_zip": {
+    "zh-CN": "下载 ZIP",
+    "en": "Download ZIP"
+  },
+  "use_in_a_node": {
+    "zh-CN": "用于后续节点",
+    "en": "Use in a node"
+  },
+  "target_node": {
+    "zh-CN": "接收节点",
+    "en": "Target node"
+  },
+  "select_node": {
+    "zh-CN": "选择节点",
+    "en": "Select node"
+  },
+  "target_port": {
+    "zh-CN": "接收端口",
+    "en": "Target port"
+  },
+  "select_input": {
+    "zh-CN": "选择输入",
+    "en": "Select input"
+  },
+  "replaces_the_current_source_for_this_input": {
+    "zh-CN": "采用后替换此输入的现有来源。",
+    "en": "Replaces the current source for this input."
+  },
+  "apply": {
+    "zh-CN": "采用",
+    "en": "Apply"
+  },
+  "use_in_another_project": {
+    "zh-CN": "采用到其他项目",
+    "en": "Use in another project"
+  },
+  "target_project": {
+    "zh-CN": "目标项目",
+    "en": "Target project"
+  },
+  "select_project": {
+    "zh-CN": "选择项目",
+    "en": "Select project"
+  },
+  "applying": {
+    "zh-CN": "采用中…",
+    "en": "Applying…"
+  },
+  "files": {
+    "zh-CN": "文件",
+    "en": "Files"
   }
+};
+const t = i18n.translator(messages)
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { DisplayText, Edge, Flow, FlowNode, Scope, ModuleHost, PackageInfo, EditorContext, EditorUpdate } from '@protein-workbench/module-ui'
+import { client, type Catalog, type Project, type Run } from './host-client'
+import { loadExtensions, type LoadedExtensions } from './host-ui'
+import { ParameterFields } from './ParameterFields'
+import { ModuleManagement } from './ModuleManagement'
+import { WorkflowCanvas, connectionProblem, CanvasToolPicker } from './WorkflowCanvas'
+import { ScopeEditor } from './ScopeEditor'
+import { callLabel, callPath, copyNode, declarationFor, flowAt, replaceFlow } from './flow-model'
+
+class ExtensionBoundary extends Component<{ children: ReactNode; onReturn?: () => void }, { error: string }> {
+  state = { error: '' }
+  static getDerivedStateFromError(error: Error) { return { error: error.message } }
+  render() { return this.state.error ? <div role="alert">{t("module_interface_failed")} {this.state.error}{this.props.onReturn && <button onClick={this.props.onReturn}>{t("back_to_canvas")}</button>}</div> : this.props.children }
 }
 
-function nodeParameters(stepId: string, workflow: Workflow, catalog?: CatalogSnapshot): Parameter[] {
-  const node = workflow.nodes.find((item) => item.node_id === stepId)
-  if (!node || !catalog) return []
-  const presentations = parameterPresentations(catalog, node)
-  if (node.node_type_id !== promptAuthorNodeTypeId) return presentations
-  return presentations.filter((parameter) => parameter.scope !== 'node' || parameter.key !== promptAuthorDocumentParameter)
-}
-
-function parameterInputValue(raw: string, valueType: string): unknown {
-  if (valueType === 'integer' || valueType === 'number') {
-    const value = Number(raw)
-    if (raw.trim() === '' || !Number.isFinite(value) || valueType === 'integer' && !Number.isInteger(value)) throw new Error('请完成有效的数字输入后继续。')
-    return value
-  }
-  if (valueType === 'boolean') return raw === 'true'
-  if (valueType === 'array' || valueType === 'object') return JSON.parse(raw)
-  return raw
-}
-
-function flowFromDraft(draft: WorkflowDraft, catalog?: CatalogSnapshot, stored: CanvasState = emptyCanvas, positionOverrides: Record<string, { x: number; y: number }> = {}): { nodes: FlowNode[]; edges: Edge[] } {
-  if (!catalog) return { nodes: [], edges: [] }
-  const nodes = draft.workflow.nodes.map((node, index): FlowNode => {
-    const presentation = nodeTypePresentation(catalog, node.node_type_id)
-    return { id: node.node_id, type: 'workflow', position: positionOverrides[node.node_id] ?? stored.positions[node.node_id] ?? defaultNodePosition(index), data: { kind: node.node_type_id === promptAuthorNodeTypeId ? 'prompt' : 'ordinary', eyebrow: presentation.category.toUpperCase(), title: presentation.title, subtitle: node.node_type_id, index: String(index + 1).padStart(2, '0'), inputs: presentation.inputs, outputs: presentation.outputs, sources: Object.fromEntries(presentation.inputs.map(port => [port.name, draft.workflow.edges.filter(edge => edge.target_node_id === node.node_id && edge.target_port === port.name).map(edge => ({ nodeId: edge.source_node_id, outputPort: edge.source_port }))])), parameters: nodeParameters(node.node_id, draft.workflow, catalog), accent: categoryColors[presentation.category] ?? '#9aa69b', count: '', sourceNodeId: node.node_id, bindingId: node.binding_id, collapsed: stored.collapsed.includes(node.node_id) } }
-  })
-  const edges = draft.workflow.edges.map((edge): Edge => ({ id: workflowEdgeId(edge), data: { workflowEdge: edge }, reconnectable: !stored.collapsed.includes(edge.source_node_id) && !stored.collapsed.includes(edge.target_node_id), source: edge.source_node_id, sourceHandle: `out-${edge.source_port}`, target: edge.target_node_id, targetHandle: `in-${edge.target_port}`, type: 'default', style: { stroke: '#637168', strokeWidth: 1.6 } }))
-  const scope = currentCanvasGroup(stored)
-  const visibleNodes = nodes.filter(node => visibleOwner(stored, node.id, scope) === node.id)
-  const portPresentation = (port: { nodeId: string; portName: string; direction: 'input' | 'output'; label?: string }): PortPresentation => {
-    const node = nodes.find(item => item.id === port.nodeId)!
-    const original = (port.direction === 'input' ? node.data.inputs : node.data.outputs).find(item => item.name === port.portName)!
-    return { ...original, name: groupPortId(port), label: port.label ?? `${node.data.title} · ${port.portName}`, meaning: `${port.nodeId} · ${port.portName} — ${original.meaning}` }
-  }
-  for (const group of stored.groups ?? []) if (group.parentId === scope) {
-    const ports = groupPorts(stored, draft.workflow, group.id)
-    visibleNodes.push({ id: group.id, type: 'workflow', position: stored.positions[group.id] ?? { x: 80, y: 80 }, data: { kind: 'group', stage: group.stage, eyebrow: 'NODE GROUP', title: group.label, subtitle: `${groupNodes(stored, group.id).size} 个节点 · 独立副本`, index: '', inputs: ports.filter(port => port.direction === 'input').map(portPresentation), outputs: ports.filter(port => port.direction === 'output').map(portPresentation), sources: Object.fromEntries(ports.filter(port => port.direction === 'input').map(port => [groupPortId(port), draft.workflow.edges.filter(edge => edge.target_node_id === port.nodeId && edge.target_port === port.portName).map(edge => ({ nodeId: edge.source_node_id, outputPort: edge.source_port, internal: groupNodes(stored, group.id).has(edge.source_node_id) }))])), parameters: [], accent: '#b79cec', count: '', sourceNodeId: group.id } })
-  }
-  if (scope) {
-    const ports = groupPorts(stored, draft.workflow, scope)
-    const left = Math.min(...visibleNodes.map(node => node.position.x), 100)
-    const right = Math.max(...visibleNodes.map(node => node.position.x), 500)
-    for (const direction of ['input', 'output'] as const) visibleNodes.push({ id: `@boundary:${direction}:${scope}`, type: 'workflow', position: { x: direction === 'input' ? left - 350 : right + 350, y: 80 }, draggable: false, selectable: false, data: { kind: 'boundary', eyebrow: 'GROUP INTERFACE', title: direction === 'input' ? 'Group Input' : 'Group Output', subtitle: '精确端口映射', index: '', inputs: direction === 'output' ? ports.filter(port => port.direction === direction).map(portPresentation) : [], outputs: direction === 'input' ? ports.filter(port => port.direction === direction).map(portPresentation) : [], sources: {}, parameters: [], accent: '#b79cec', count: '', sourceNodeId: scope } })
-  }
-  const visibleEdges: Edge[] = []
-  for (const edge of draft.workflow.edges) {
-    const sourceOwner = visibleOwner(stored, edge.source_node_id, scope), targetOwner = visibleOwner(stored, edge.target_node_id, scope)
-    if ((!sourceOwner && !targetOwner) || (sourceOwner === targetOwner && sourceOwner !== edge.source_node_id)) continue
-    const sourcePort = { nodeId: edge.source_node_id, portName: edge.source_port, direction: 'output' as const }
-    const targetPort = { nodeId: edge.target_node_id, portName: edge.target_port, direction: 'input' as const }
-    const boundary = !sourceOwner || !targetOwner
-    if (boundary) continue
-    const original = edges.find(item => item.id === workflowEdgeId(edge))!
-    const ordered = draft.workflow.edges.filter(item => item.target_node_id === edge.target_node_id && item.target_port === edge.target_port)
-    visibleEdges.push({ ...original, source: sourceOwner ?? `@boundary:input:${scope}`, target: targetOwner ?? `@boundary:output:${scope}`, sourceHandle: `out-${!sourceOwner ? groupPortId(targetPort) : sourceOwner === edge.source_node_id ? edge.source_port : groupPortId(sourcePort)}`, targetHandle: `in-${!targetOwner ? groupPortId(sourcePort) : targetOwner === edge.target_node_id ? edge.target_port : groupPortId(targetPort)}`, reconnectable: !stored.collapsed.includes(sourceOwner) && !stored.collapsed.includes(targetOwner), selectable: true, label: ordered.length > 1 ? `#${ordered.indexOf(edge) + 1}` : undefined, ...(boundary ? { style: { stroke: '#9b88ad', strokeDasharray: '4 4' } } : {}) })
-  }
-  if (scope) for (const port of groupPorts(stored, draft.workflow, scope)) {
-    const owner = visibleOwner(stored, port.nodeId, scope)!
-    const id = groupPortId(port)
-    const leafHandle = owner === port.nodeId ? port.portName : id
-    visibleEdges.push({ id: `@mapping:${scope}:${id}`, source: port.direction === 'input' ? `@boundary:input:${scope}` : owner, target: port.direction === 'input' ? owner : `@boundary:output:${scope}`, sourceHandle: `out-${port.direction === 'input' ? id : leafHandle}`, targetHandle: `in-${port.direction === 'input' ? leafHandle : id}`, selectable: false, reconnectable: false, style: { stroke: '#9b88ad', strokeDasharray: '4 4' } })
-  }
-  return { nodes: visibleNodes, edges: visibleEdges }
-}
-
-function nodeRunStateFromDisposition(disposition: NodeDisposition): NodeRunState {
-  if (disposition.outcome === 'succeeded') return { status: 'succeeded', resolution: disposition.resolution }
-  if (disposition.outcome === 'blocked') return { status: 'blocked', blockedBy: disposition.blocked_by }
-  return { status: disposition.outcome }
-}
-
-function nodeStatesFromProjection(projection: RunProjection, workflowNodeIds: string[] = []): Record<string, NodeRunState> {
-  return Object.fromEntries([
-    ...workflowNodeIds.map((nodeId): [string, NodeRunState] => [nodeId, { status: projection.scope.execution_node_ids.includes(nodeId) ? 'waiting' : projection.scope.reused_node_ids.includes(nodeId) ? 'reused' : 'outside' }]),
-    ...projection.node_dispositions.map((disposition): [string, NodeRunState] => [disposition.node_id, projection.scope.reused_node_ids.includes(disposition.node_id) ? { status: 'reused' } : nodeRunStateFromDisposition(disposition)]),
-  ])
-}
-
-function NodeResultLinks({ data }: { data: WorkflowNodeData }) {
-  if (!data.resultCollections?.length) return null
-  return <details className="node-results nodrag nowheel"><summary aria-label={`查看 ${data.title} 的已发布输出`}>查看输出 <span>{data.resultCollections.length} 个集合</span></summary><div>{data.resultCollections.map(collection => <button key={locationKey(collection.source)} onClick={() => data.onOpenResult?.(collection.source)}><span><strong>{collection.source.node_id}</strong><small>{collection.source.output_port} · 值 {collection.source.value_index + 1}</small></span><b>{collection.total}</b><ChevronRight size={13} /></button>)}</div></details>
-}
-
-function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
-  const [renaming, setRenaming] = useState(false)
-  const Icon = data.kind === 'prompt' ? Braces : Atom
-  if (data.kind === 'group' || data.kind === 'boundary') return <article className={`workflow-node canvas-group-node ${data.stage ? 'stage-group-node' : ''} ${selected ? 'is-selected' : ''}`} style={{ '--node-accent': data.accent } as React.CSSProperties}>
-    <header className="node-header"><Layers3 size={16} /><strong>{data.stage && <span className="stage-number">{String(data.stage.order).padStart(2, '0')} </span>}{data.title}</strong>{data.kind === 'group' && <button className="nodrag" onClick={data.onEnter} aria-label={`进入组 ${data.title}`}>进入 ↵</button>}</header>
-    {data.stage && <p className="stage-description">{data.stage.description}</p>}
-    <div className="node-meta"><span>{data.subtitle}</span>{data.kind === 'group' && <button className="nodrag group-rename" aria-label={`重命名节点组 ${data.title}`} onClick={() => setRenaming(true)}>重命名</button>}</div>
-    {renaming && <input autoFocus className="nodrag" aria-label="节点组名称" defaultValue={data.title} key={data.title} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== data.title) data.onRename?.(event.target.value.trim()); setRenaming(false) }} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { event.stopPropagation(); event.currentTarget.value = data.title; event.currentTarget.blur() } }} />}
-    {data.stageState && <div className={`stage-status status-${data.stageState.status}`} aria-label={`${data.title}阶段状态`}><span>{data.stageState.label}</span><small>{data.stageState.completed} / {data.stageState.total} 个节点完成</small></div>}
-    {!!data.stageControls?.length && <section className="stage-controls nodrag nowheel" aria-label={`${data.title}常用设置`}>{data.stageControls.map(control => control.kind === 'parameter' ? <div className="stage-control-parameter" key={`${control.nodeId}:${control.parameter.scope}:${control.parameter.key}`}><WorkflowParameters initiallyOpen parameters={[control.parameter]} choices={control.choices?.choices} onCancel={parameter => data.onCancelParameter?.(control.nodeId, parameter)} onParameter={(parameter, raw, commit) => data.onParameter?.(control.nodeId, parameter, raw, commit)} /></div> : <button className="stage-editor-button" key={`${control.kind}:${control.nodeId}`} onClick={() => data.onStageAction?.(control.kind, control.nodeId)}>{control.kind === 'prompt' ? <Braces size={14} /> : <Layers3 size={14} />}{control.label}<ChevronRight size={14} /></button>)}</section>}
-    <WorkflowPorts nodeId={id} inputs={data.inputs} outputs={data.outputs} sources={data.sources} collapsed={false} prompt={false} readOnly={data.kind === 'boundary'} />
-    {data.kind === 'group' && <NodeResultLinks data={data} />}
-    {!!data.groupErrors && <button className="nodrag" onClick={data.onFocusError}>{data.groupErrors} 个节点有错误 · 定位</button>}
-    {data.kind === 'group' && <small>Tab 进入 · 组内编辑完整流程</small>}
-  </article>
-  const runStatusLabel: Record<NodeRunStatus, string> = { waiting: '等待', running: '运行中', succeeded: '成功', failed: '失败', blocked: '未执行', cancelled: '已取消', interrupted: '已中断', outside: '范围外', reused: '仅复用' }
-  return <article className={`workflow-node ${selected ? 'is-selected' : ''} ${data.collapsed ? 'is-collapsed' : ''} ${data.runState ? `run-status-${data.runState.status}` : ''} ${data.scopeState ? `scope-${data.scopeState}` : ''}`} style={{ '--node-accent': data.accent } as React.CSSProperties}>
-    <header className="node-header"><span className="node-icon"><Icon size={15} /></span><div><span className="node-eyebrow">{data.eyebrow}</span><details className="node-title-details nodrag"><summary><h3 title={data.title}>{data.title}</h3></summary><div><strong>{data.title}</strong><code>{data.sourceNodeId}</code></div></details></div>{data.runState ? <span className={`node-run-status ${data.runState.status}`} aria-label={`${data.title}：${runStatusLabel[data.runState.status]}`}>{data.runState.status === 'running' ? <LoaderCircle size={11} /> : data.runState.status === 'succeeded' ? <Check size={11} /> : data.runState.status === 'failed' ? <X size={11} /> : <span />}{runStatusLabel[data.runState.status]}</span> : <span className="node-run-status" />}<span className="node-index">{data.index}</span><button className="icon-button nodrag" aria-label={`${data.collapsed ? '展开' : '折叠'}节点 ${data.title}`} aria-expanded={!data.collapsed} onClick={() => data.onToggle?.(id)}><ChevronDown size={15} /></button></header>
-    {!data.collapsed && <><div className="node-meta">{data.bindingOptions && data.bindingOptions.length > 1 ? <select className="node-binding-select nodrag" aria-label={`${data.title}的执行模型`} value={data.bindingId} onChange={(event) => data.onBinding?.(data.sourceNodeId, event.target.value)}>{data.bindingOptions.map((option) => <option value={option.id} key={option.id} title={option.availabilityReason?.message}>{option.label}{option.available ? '' : '（不可用）'}</option>)}</select> : <span>{data.bindingOptions?.find((option) => option.id === data.bindingId)?.label ?? data.subtitle}{data.bindingOptions?.some((option) => option.id === data.bindingId && !option.available) ? '（不可用）' : ''}</span>}<strong>{data.count}</strong></div></>}
-    <WorkflowPorts nodeId={id} inputs={data.inputs} outputs={data.outputs} sources={data.sources} collapsed={!!data.collapsed} prompt={data.kind === 'prompt'} />
-    <NodeResultLinks data={data} />
-    {!data.collapsed && <>
-      {data.bindingOptions?.find((option) => option.id === data.bindingId)?.availabilityReason?.message && <p className="parameter-empty-hint">{data.bindingOptions.find((option) => option.id === data.bindingId)!.availabilityReason!.message}</p>}
-      {data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : data.onEditSelection ? <button className="prompt-edit-button nodrag" onClick={data.onEditSelection}>编辑筛选与排序 <ChevronRight size={14} /></button> : <><WorkflowParameters onCancel={parameter => data.onCancelParameter?.(data.sourceNodeId, parameter)} parameters={data.parameters} choices={data.parameterChoices?.choices} onParameter={(parameter, raw, commit) => data.onParameter?.(data.sourceNodeId, parameter, raw, commit)} />{data.parameterChoices?.source && <small className="parameter-description">选项来源：{data.parameterChoices.source}</small>}{data.parameterChoices?.notice && <p className="parameter-empty-hint" role="status">{data.parameterChoices.notice}</p>}</>}
-    </>}
-  </article>
-}
-
-function runProgressTitle(status: RunProgress['status']) {
-  if (status === 'admitted') return '正在启动'
-  if (status === 'running') return '正在运行'
-  if (status === 'succeeded') return '运行完成'
-  if (status === 'failed') return '运行失败'
-  if (status === 'cancelled') return '运行已取消'
-  return '运行已中断'
-}
-
-function RunProgressBar({ progress, nodeTitle, resultsLoading, resultsAvailable, onResults, onCancel }: { progress: RunProgress; nodeTitle: string; resultsLoading: boolean; resultsAvailable: boolean; onResults: () => void; onCancel: () => void }) {
-  const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(progress.status)
-  const percent = progress.totalNodes === 0 ? 0 : Math.round(progress.completedNodeIds.length / progress.totalNodes * 100)
-  const stage = progress.status === 'admitted' ? '已接纳，等待执行开始' : progress.currentNodeId ? nodeTitle : progress.status === 'running' ? '等待下一个 Node Instance' : progress.status === 'succeeded' && resultsLoading ? '加载 Run 结果' : 'Run Closure'
-  return <section className={`run-progress-bar ${terminal ? 'terminal' : 'active'} status-${progress.status}`} role="status" aria-live="polite">
-    <span className="run-progress-icon">{terminal && progress.status === 'succeeded' ? <Check size={15} /> : terminal ? <Info size={15} /> : <LoaderCircle size={16} />}</span>
-    <div className="run-progress-state"><span className="page-kicker">LIVE RUN</span><strong>{progress.status === 'succeeded' && resultsLoading ? '运行完成 · 正在加载结果' : runProgressTitle(progress.status)}</strong></div>
-    <div className="run-progress-stage"><span>当前阶段</span><strong>{stage}</strong>{progress.currentNodeId && <code>{progress.currentNodeId}</code>}</div>
-    <div className="run-progress-meter" role="progressbar" aria-label="Run Node 进度" aria-valuemin={0} aria-valuemax={progress.totalNodes} aria-valuenow={progress.completedNodeIds.length}><div><span style={{ width: `${percent}%` }} /></div><small>{progress.completedNodeIds.length} / {progress.totalNodes} Nodes · {percent}%</small></div>
-    {progress.runId && <code className="run-progress-id">{progress.runId}</code>}
-    {!terminal && <button className="secondary-button" onClick={onCancel}>取消整次运行</button>}
-    {resultsAvailable && <button className="secondary-button" onClick={onResults}>查看结果</button>}
-  </section>
-}
-
-function App() {
-  const [catalog, setCatalog] = useState<CatalogSnapshot>()
-  const [capabilities, setCapabilities] = useState<AuthoringCapabilities>()
-  const [editor] = useState(() => new WorkspaceEditor(client))
-  const editing = useSyncExternalStore(editor.subscribe, editor.getSnapshot)
-  const project = editing.project
-  const workspace = editing.acknowledged
-  const viewedVersion = editing.version
-  const draft = useMemo<WorkflowDraft | undefined>(() => editing.desired && project ? { project_id: project.id, draft_revision: workspace?.draft?.draft_revision ?? 0, workflow: editing.desired.workflow } : undefined, [editing.desired, project, workspace?.draft?.draft_revision])
-  const [scienceStatus, setScienceStatus] = useState<'current' | 'stale' | 'unknown'>('unknown')
-  const [results] = useState(() => new PublishedResults(client))
-  const [resultsViewStateStore] = useState<ResultsViewStateStore>(() => new Map())
-  const resultSnapshot = useSyncExternalStore(results.subscribe, results.getSnapshot)
-  const { run, index: resultIndex } = resultSnapshot
-  const resultsLoading = resultSnapshot.phase === 'loading'
-  const resultLoadError = resultSnapshot.phase === 'error' ? workspaceErrorMessage(resultSnapshot.error) : ''
-  const resultsAvailable = !!run && (run.outputs.length > 0 || run.artifact_index.length > 0)
-  // A first edit forks the seed workspace; the displayed immutable Run stays the same.
-  const resultsIdentity = run && project ? `${run.project_id}/${run.run_id}` : undefined
-  const runProgress = useMemo<RunProgress | undefined>(() => {
-    if (!run) return undefined
-    const nodeStates = nodeStatesFromProjection(run, draft?.workflow.nodes.map((node) => node.node_id))
-    if (resultSnapshot.currentNodeId) nodeStates[resultSnapshot.currentNodeId] = { status: 'running' }
-    return { status: run.status, totalNodes: run.scope.execution_node_ids.length,
-      completedNodeIds: run.node_dispositions.filter((item) => run.scope.execution_node_ids.includes(item.node_id)).map((item) => item.node_id),
-      nodeStates, currentNodeId: resultSnapshot.currentNodeId, projectId: run.project_id, runId: run.run_id }
-  }, [run, draft?.workflow.nodes, resultSnapshot.currentNodeId])
-  const [nodes, setNodes] = useState<FlowNode[]>([])
-  const [edges, setEdges] = useState<Edge[]>([])
-  const [prompt, setPrompt] = useState<{ nodeId: string; snapshot: PromptSnapshot; workflow: Workflow; session: WorkspaceEditSession }>()
-  const [promptOpenError, setPromptOpenError] = useState<{ nodeId: string; message: string }>()
-  const promptOpenRevision = useRef(0)
-  const promptReturnFocus = useRef<HTMLElement | null>(null)
-  const [inputSource, setInputSource] = useState<{ projectId: string; workflow: Workflow; session: WorkspaceEditSession; mergeTargetNodeId?: string }>()
-  const mergeSourceCompletion = useRef<((snapshot: PromptSnapshot | undefined) => void) | undefined>(undefined)
-  const [selectionEdit, setSelectionEdit] = useState<{ nodeId: string; workflow: Workflow; session: WorkspaceEditSession }>()
-  const [parameterChoices, setParameterChoices] = useState<{ workflow: Workflow; values: WorkflowParameterChoices }>()
-  const [parameterChoicesError, setParameterChoicesError] = useState('')
-  const [view, setView] = useState<'workflow' | 'results'>('workflow')
-  const [requestedResultSource, setRequestedResultSource] = useState<ResultLocation & { requestId: number }>()
-  const resultRequestSequence = useRef(0)
-  const [pendingCanvasFocus, setPendingCanvasFocus] = useState<string[]>()
-  const [visitedResults, setVisitedResults] = useState<Set<string>>(() => new Set())
-  const [scopePreview, setScopePreview] = useState<RunScope>()
-  const [runError, setRunError] = useState('')
-  const [runOpen, setRunOpen] = useState(false)
-  const [projectsOpen, setProjectsOpen] = useState(false)
-  const [canvasPicker, setCanvasPicker] = useState<{ x: number; y: number; from?: { nodeId: string; portName: string; portTypeId: string; multiplicity: 'one' | 'many' } }>()
-  const clipboard = useRef<{ fragment: WorkflowFragment; canvas: CanvasState; selected: string[] } | undefined>(undefined)
-  const canvasPointer = useRef({ x: 500, y: 350 })
-  const reconnectGesture = useRef(false)
-  const [rawEditCount, setRawEditCount] = useState(0)
-  const [search, setSearch] = useState('')
-  const [paletteTaxonomy, setPaletteTaxonomy] = useState<PaletteTaxonomy>('purpose')
-  const [pendingNodeDrop, setPendingNodeDrop] = useState<PendingNodeDrop>()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [inputError, setInputError] = useState('')
-  const [blockedMergeNodes, setBlockedMergeNodes] = useState<string[]>([])
-  const [notice, setNotice] = useState<{ workspace: ProjectWorkspace; message: string }>()
-  const saveError = editing.error !== undefined ? workspaceErrorMessage(editing.error) : inputError
-  const saveState = rawEditCount ? '正在编辑参数…' : editing.phase === 'saving' ? '流程保存中…' : editing.phase === 'error' ? '流程保存失败' : viewedVersion ? '旧版只读查看' : notice && notice.workspace === workspace ? notice.message : '已自动保存'
-  const uiSaveState = editing.phase === 'saving' ? '布局保存中…' : editing.phase === 'error' ? '布局保存失败' : '布局已保存'
-  const nodesRef = useRef<FlowNode[]>([])
-  const edgesRef = useRef<Edge[]>([])
-  const projectGeneration = useRef(0)
-  const flowInstance = useRef<ReactFlowInstance<FlowNode, Edge> | null>(null)
-  const activeParameterEdits = useRef(new Map<string, { nodeId: string; parameter: Parameter; raw: string; error?: unknown }>())
-
-  // Never project an old graph's nodes against a newly opened workspace's contracts.
-  const projectedFlow = useMemo(() => draft && catalog && editing.desired ? flowFromDraft(draft, catalog, canvasFromUi(editing.desired.ui_state)) : { nodes: [], edges: [] }, [draft, catalog, editing.desired])
-  const projectedSource = useRef<typeof editing.desired>(undefined)
-  const projectedGeneration = useRef(projectGeneration.current)
-  const currentFlowNodes = projectedSource.current === editing.desired ? nodes : projectedFlow.nodes
-  const currentFlowEdges = projectedSource.current === editing.desired ? edges : projectedFlow.edges
-  // ReactFlow owns only transient measurements, selection, dragging and raw form strings.
-  useLayoutEffect(() => {
-    const previous = new Map(projectedGeneration.current === projectGeneration.current ? nodesRef.current.map(node => [node.id, node]) : [])
-    const nextNodes = projectedFlow.nodes.map(node => ({ ...node, position: previous.get(node.id)?.dragging ? previous.get(node.id)!.position : node.position, dragging: previous.get(node.id)?.dragging, measured: previous.get(node.id)?.measured, selected: previous.get(node.id)?.selected, data: { ...node.data, parameters: node.data.parameters.map(parameter => {
-      const raw = activeParameterEdits.current.get(`${node.id}:${parameter.scope}:${parameter.key}`)
-      return raw ? { ...parameter, value: raw.raw } : parameter
-    }) } }))
-    projectedSource.current = editing.desired
-    projectedGeneration.current = projectGeneration.current
-    nodesRef.current = nextNodes; edgesRef.current = projectedFlow.edges
-    setNodes(nextNodes); setEdges(projectedFlow.edges)
-  }, [projectedFlow, editing.desired])
-
-  const choicesProjectId = project?.id
-  const choicesWorkflow = draft?.workflow
-  useEffect(() => {
-    if (!choicesProjectId || !choicesWorkflow || !catalog) return
-    let current = true
-    setParameterChoicesError('')
-    void loadWorkflowParameterChoices(client, choicesProjectId, choicesWorkflow, catalog, results).then(values => {
-      if (current) setParameterChoices({ workflow: choicesWorkflow, values })
-    }, reason => { if (current) setParameterChoicesError(workspaceErrorMessage(reason)) })
-    return () => { current = false }
-  }, [choicesProjectId, choicesWorkflow, catalog, run, inputSource, results])
-
-  useEffect(() => {
-    if (!project || !draft || !run) return
-    let current = true
-    void client.compareWorkflowScience(run.project_id, run.workflow_commit_id, project.id, draft.workflow).then((comparison) => {
-      if (current) setScienceStatus(comparison.status)
-    }, (reason) => { if (current) { setScienceStatus('unknown'); setRunError(JSON.stringify(reason)) } })
-    return () => { current = false }
-  }, [draft, project, run])
-
-  useEffect(() => () => results.openRun(undefined), [results])
-
-  useEffect(() => {
-    let current = true
-    void (async () => {
-      const [catalogValue, capabilityValue, projects] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects()])
-      const example = projects.projects.find((item) => item.project_kind === 'default_example')
-      if (!example) throw new Error('Default example Project is absent')
-      const initialWorkspace = await client.projectWorkspace(example.id)
-      if (!current) return
-      setCatalog(catalogValue)
-      setCapabilities(capabilityValue)
-      editor.open(example, initialWorkspace)
-      if (example.latest_run_id) results.openRun({ project_id: example.id, run_id: example.latest_run_id })
-    })().catch(reason => { if (current) setRunError(workspaceErrorMessage(reason)) })
-    return () => { current = false }
-  }, [results, editor])
-
-  const reportSaveError = useCallback((reason: unknown) => setInputError(workspaceErrorMessage(reason)), [])
-
-  const graphUi = useCallback((workflow: Workflow, currentUi: JsonObject, positions: Record<string, { x: number; y: number }> = {}) => {
-    const canvas = canvasFromUi(currentUi)
-    const known = new Set(workflow.nodes.map(node => node.node_id))
-    const next = cleanCanvasGroups(canvas, known)
-    const completePositions = { ...next.positions, ...positions }
-    workflow.nodes.forEach((node, index) => { completePositions[node.node_id] ??= defaultNodePosition(index) })
-    return { ...currentUi, canvas: { ...next, positions: completePositions } }
-
-  }, [])
-  const editWorkflow = useCallback((change: (workflow: Workflow) => Workflow, positions: Record<string, { x: number; y: number }> = {}, updateUi?: (ui: JsonObject, workflow: Workflow) => JsonObject, label = '流程修改') => {
-    setInputError('')
-    return editor.edit(current => {
-      const workflow = change(current.workflow)
-      const ui = updateUi ? updateUi(current.ui_state, workflow) : current.ui_state
-      return { workflow, ui_state: graphUi(workflow, ui, positions) }
-    }, label)
-  }, [editor, graphUi])
-  const persistCanvas = useCallback((nextNodes: FlowNode[], viewport?: CanvasState['viewport']) => viewport ? editor.navigate(ui => { const canvas = canvasFromUi(ui); return { ...ui, canvas: { ...canvas, viewport, views: { ...canvas.views, [currentCanvasGroup(canvas) ?? 'root']: viewport } } } }) : editor.edit(current => {
-    const previous = canvasFromUi(current.ui_state)
-    return { ui_state: { ...current.ui_state, canvas: canvasFromNodes(nextNodes, viewport ? { ...previous, viewport } : previous) } }
-  }), [editor])
-  const saveParameter = useCallback((nodeId: string, parameter: Parameter, raw: string) => {
-    let value: unknown
-    try { value = raw === '' ? undefined : parameterInputValue(raw, parameter.valueType) } catch (error) {
-      const pending = activeParameterEdits.current.get(`${nodeId}:${parameter.scope}:${parameter.key}`)
-      if (pending) pending.error = error
-      throw error
+function frozenParameterCopy(parameters: Record<string, unknown>) {
+  const snapshot = structuredClone(parameters)
+  function freeze(value: unknown) {
+    if (value && typeof value === 'object') {
+      Object.values(value).forEach(freeze)
+      Object.freeze(value)
     }
-    activeParameterEdits.current.delete(`${nodeId}:${parameter.scope}:${parameter.key}`)
-    setRawEditCount(activeParameterEdits.current.size)
-    return editWorkflow(workflow => ({ ...workflow, nodes: workflow.nodes.map(node => {
-      if (node.node_id !== nodeId) return node
-      const field = parameter.scope === 'node' ? 'node_parameters' : 'binding_parameters'
-      const parameters = { ...node[field] }
-      if (value === undefined) delete parameters[parameter.key]; else parameters[parameter.key] = value
-      return { ...node, [field]: parameters }
-    }) }), {}, (ui, workflow) => {
-      if (parameter.scope !== 'binding') return ui
-      const node = workflow.nodes.find(node => node.node_id === nodeId)!
-      const memory = ui.binding_parameter_memory as Record<string, Record<string, JsonObject>> | undefined ?? {}
-      return { ...ui, binding_parameter_memory: { ...memory, [nodeId]: { ...memory[nodeId], [node.binding_id]: node.binding_parameters } } }
-    }, `修改参数 ${parameter.label}`)
-  }, [editWorkflow])
-  const finishInputs = useCallback(async () => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-    if (document.querySelector('[data-workspace-invalid="true"]')) throw new Error('请完成有效的数字输入后继续。')
-    const saves = [...activeParameterEdits.current.values()].map(({ nodeId, parameter, raw, error }) => { if (error !== undefined) throw error; return saveParameter(nodeId, parameter, raw) })
-    await Promise.all(saves)
-  }, [saveParameter])
-  const beforeWorkspaceAction = useCallback(async () => {
-    await finishInputs()
-    await editor.flush()
-    setInputError('')
+  }
+  freeze(snapshot)
+  return snapshot
+}
+
+const statusLabel = (status: string) => ({succeeded:t("completed"),failed:t("failed"),cancelled:t("cancelled"),running:t("running"),pending:t("pending"),blocked:t("not_run"),configuration_blocked:t("needs_configuration")}[status] ?? status)
+
+export default function App() {
+  const [{ catalog: sourceCatalog, extensions, projects }, setSnapshot] = useState<{ catalog: Catalog<DisplayText>; extensions: LoadedExtensions; projects: Project[] }>({ catalog: { nodes: [], modules: [] }, extensions: {}, projects: [] })
+  const locale = useLocale()
+  const catalog = useMemo(() => localizeCatalog(sourceCatalog), [sourceCatalog, locale])
+  const moduleEpoch = useRef(0)
+  const projectEpoch = useRef(0)
+  const projectRead = useRef<object | null>(null)
+  const projectReadQueued = useRef(false)
+  const invalidateRefresh = () => { moduleEpoch.current += 1 }
+  const [project, setProject] = useState<Project | null>(null)
+  const [managementOpen, setManagementOpen] = useState(false)
+  const [resultsOpen, setResultsOpen] = useState(false)
+  const [focusRequest,setFocusRequest]=useState<{id:string;token:number}>()
+  const [projectMenu, setProjectMenu] = useState(false)
+  const [modulesOpen, setModulesOpen] = useState(false)
+  const [importAction, setImportAction] = useState('')
+  const [resultRun, setResultRun] = useState('')
+  const [resultCall, setResultCall] = useState('')
+  const [useTarget, setUseTarget] = useState('')
+  const [usePort, setUsePort] = useState('')
+  const [workspace, setWorkspace] = useState<{ editor: NonNullable<LoadedExtensions['editors']>[number]; context: EditorContext } | null>(null)
+  const workspaceDirty = useRef(false)
+  const workspaceToken = useRef<symbol | null>(null)
+  const workspaceInteractions = useRef(new Set<string>())
+  const workspaceRequests = useRef(new Set<AbortController>())
+  const undoStack = useRef<Project[]>([])
+  const redoStack = useRef<Project[]>([])
+  function releaseWorkspaceOperations() {
+    workspaceToken.current = null
+    for (const request of workspaceRequests.current) request.abort()
+    workspaceRequests.current.clear()
+    for (const id of workspaceInteractions.current) { temporaryInteractions.current.delete(id); void client.cancelInteraction(id).catch(()=>{}) }
+    workspaceInteractions.current.clear()
+  }
+  function closeWorkspace() {
+    releaseWorkspaceOperations(); workspaceDirty.current = false; setWorkspace(null)
+  }
+  function openWorkspace(node: FlowNode, editor: NonNullable<LoadedExtensions['editors']>[number]) {
+    const token = Symbol('editor workspace');workspaceToken.current=token;workspaceDirty.current=false
+    setWorkspace({editor,context:editorContext(node,token)})
+  }
+
+  const currentProject = useRef<Project | null>(null)
+  const [scopePath, setScopePath] = useState<string[]>([])
+  const scopePathNow = useRef<string[]>([])
+  const activeFlow = project ? flowAt(project.flow, scopePath) ?? project.flow : undefined
+  const activeScope = project && scopePath.length ? flowAt(project.flow, scopePath.slice(0, -1))?.nodes.find(node => node.id === scopePath.at(-1)) : undefined
+  const liveProject = useRef(true)
+  const projectSession = useRef(0)
+  const opening = useRef(0)
+  const runningNow = useRef(false)
+  const submittingRun = useRef(false)
+  const runOperationEpoch = useRef(0)
+  const [{dirty}, setDirty] = useState({dirty: false, revision: 0})
+  const dirtyNow = useRef(false)
+  const draftRevision = useRef(0)
+  const parameterSnapshots = useRef(new WeakMap<Record<string, unknown>, Record<string, unknown>>())
+  function markDirty(value: boolean) { if (value) draftRevision.current += 1; dirtyNow.current = value; setDirty({dirty: value, revision: draftRevision.current}) }
+  const canvas = useRef<HTMLElement>(null)
+  const [saving, setSaving] = useState(false)
+  const savingNow = useRef(false)
+  const [running, setRunning] = useState(false)
+  const [error, setError] = useState('')
+  const [moduleError, setModuleError] = useState('')
+  const [projectListError, setProjectListError] = useState('')
+  const [notice, setNotice] = useState('')
+  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),3200);return()=>clearTimeout(timer)},[notice])
+  const [projectName, setProjectName] = useState(t("new_project"))
+  const draftInputs = useRef<PackageInfo[]>([])
+  const pendingInputTransfers = useRef(new Set<{ session: number }>())
+  const [inputTransfers, setInputTransfers] = useState(0)
+  function ensureInputsTransferred(current: Project) {
+    if (current.tutorial && [...pendingInputTransfers.current].some(transfer => transfer.session === projectSession.current)) throw new Error(t("wait_for_teaching_input_transfers_to_finish"))
+  }
+  async function discardDraftInputs() {
+    for (const token of temporaryInteractions.current) void client.cancelInteraction(token).catch(() => {})
+    temporaryInteractions.current.clear()
+    const inputs = draftInputs.current; draftInputs.current = []
+    await Promise.all(inputs.map(input => client.discardDraftInput(input.id).catch(fail)))
+  }
+  const temporaryInteractions = useRef(new Set<string>())
+  const packagesNow = useRef<PackageInfo[]>([])
+  const [packages, setPackages] = useState<PackageInfo[]>([])
+  packagesNow.current = packages
+  const [selectedPackage, setSelectedPackage] = useState('')
+  const [viewer, setViewer] = useState('')
+  const [adoptionTarget, setAdoptionTarget] = useState('')
+  const [adopting, setAdopting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const deletingProject = useRef('')
+  const projectBusy = running || (deleting && deletingProject.current === project?.id)
+  const locked = projectBusy || (saving && !!project?.tutorial)
+  const waitingForTeachingInputs = !!project?.tutorial && inputTransfers > 0
+  const [runs, setRuns] = useState<Run[]>([])
+  const cancellableRuns = runs.filter(item => item.status === 'running')
+  const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
+  const fail = (failure: unknown) => { if (liveProject.current) setError(i18n.error(failure)) }
+  const errorText = i18n.error
+  async function refreshProjects() {
+    const epoch = ++projectEpoch.current
+    const current = () => liveProject.current && epoch === projectEpoch.current
+    const read = {}
+    projectRead.current = read
+    try {
+      const nextProjects = await client.projects()
+      if (!current()) return
+      setSnapshot(previous => current() ? { ...previous, projects: nextProjects } : previous)
+      setProjectListError('')
+    } catch (failure) { if (current()) setProjectListError(t("project_list_refresh_failed", {"0": errorText(failure)})) }
+    finally { if (projectRead.current === read) projectRead.current = null }
+  }
+  function projectChanged() {
+    projectEpoch.current += 1
+    if (!projectRead.current) return
+    // A confirmed write supersedes this read immediately, even if it never settles.
+    projectRead.current = null
+    if (projectReadQueued.current) return
+    projectReadQueued.current = true
+    queueMicrotask(() => {
+      projectReadQueued.current = false
+      if (liveProject.current && !projectRead.current) void refreshProjects()
+    })
+  }
+  function commitProject(saved: Project) {
+    if (!liveProject.current) return
+    projectChanged()
+    setSnapshot(previous => ({ ...previous, projects: previous.projects.some(item => item.id === saved.id) ? previous.projects.map(item => item.id === saved.id ? saved : item) : [...previous.projects, saved] }))
+  }
+  function removeProject(id: string) {
+    if (!liveProject.current) return
+    projectChanged()
+    setSnapshot(previous => ({ ...previous, projects: previous.projects.filter(item => item.id !== id) }))
+  }
+  async function refresh() {
+    void refreshProjects()
+    const request = ++moduleEpoch.current
+    const current = () => liveProject.current && request === moduleEpoch.current
+    let next: Catalog<DisplayText> | undefined
+    try {
+      next = await client.catalog()
+      if (!current()) return
+      const nextExtensions = await loadExtensions(next.modules)
+      if (!current()) return
+      const loaded = next
+      setSnapshot(previous => current() ? { ...previous, catalog: loaded, extensions: nextExtensions } : previous)
+      setModuleError('')
+    } catch (failure) {
+      if (!current()) return
+      const loaded = next
+      setSnapshot(previous => current() ? { ...previous, catalog: loaded ?? previous.catalog, extensions: {} } : previous)
+      setModuleError(t("module_refresh_failed", {"0": errorText(failure)}))
+    }
+  }
+  useEffect(() => { refresh().then(() => openTutorial(true)).catch(fail) }, [])
+  useEffect(() => {
+    liveProject.current = true
+    function dispose() {
+      if (!liveProject.current) return
+      liveProject.current = false; projectSession.current += 1; opening.current += 1; currentProject.current = null
+      releaseWorkspaceOperations()
+      void discardDraftInputs()
+    }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyNow.current || workspaceDirty.current) { event.preventDefault(); event.returnValue = '' } }
+    const pageHide = (event: PageTransitionEvent) => { if (!event.persisted) dispose() }
+    window.addEventListener('beforeunload', beforeUnload)
+    window.addEventListener('pagehide', pageHide)
+    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('pagehide', pageHide); dispose() }
+  }, [])
+  function change(update: (current: Project) => Project) {
+    if (!liveProject.current) throw new Error(t("project_changed_start_the_operation_again"))
+    if (savingNow.current && currentProject.current?.tutorial) throw new Error(t("teaching_draft_is_saving_wait_for_the"))
+    if (runningNow.current || deletingProject.current === currentProject.current?.id) throw new Error(t("project_is_running_or_being_deleted"))
+    if (!currentProject.current) throw new Error(t("open_a_project_first"))
+    const previous = currentProject.current
+    currentProject.current = update(previous)
+    undoStack.current.push(previous); redoStack.current = []
+    setProject(currentProject.current); markDirty(true); setNotice('')
+  }
+  function restoreHistory(redo = false) {
+    if (locked || saving || workspace || !currentProject.current) return
+    const source = redo ? redoStack.current : undoStack.current
+    const target = redo ? undoStack.current : redoStack.current
+    const previous = source.pop()
+    if (!previous || previous.id !== currentProject.current.id) return
+    target.push(currentProject.current); currentProject.current = previous
+    let path = scopePathNow.current
+    while (path.length && !flowAt(previous.flow, path)) path = path.slice(0, -1)
+    if (path.length !== scopePathNow.current.length) {
+      scopePathNow.current = path; setScopePath(path)
+      setConnection({source:'',source_port:'',target:'',target_port:''})
+    }
+    setProject(previous); markDirty(true); setNotice(redo ? t("redone") : t("undone"))
+  }
+  useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z' || (event.target instanceof HTMLElement && event.target.closest('input,textarea,select,[contenteditable=true]'))) return
+      if (workspace) return
+      event.preventDefault(); restoreHistory(event.shiftKey)
+    }
+    window.addEventListener('keydown', handle)
+    return () => window.removeEventListener('keydown', handle)
+  }, [locked, saving, workspace])
+  function changeFlow(update: (flow: Flow) => Flow, path = scopePathNow.current) {
+    change(current => ({...current, flow: replaceFlow(current.flow, path, update)}))
+  }
+  function changeScope(scope: Scope) {
+    if (!activeScope) return
+    const id = activeScope.id, parentPath = scopePath.slice(0, -1)
+    change(current => {
+      let flow = replaceFlow(current.flow, parentPath, body => ({
+        ...body,
+        nodes: body.nodes.map(node => node.id === id ? {...node, scope, inputs: Object.fromEntries(Object.entries(node.inputs).filter(([port]) => scope.inputs[port]))} : node),
+        edges: body.edges.filter(edge => (edge.source !== id || scope.outputs[edge.source_port]) && (edge.target !== id || scope.inputs[edge.target_port])),
+      }))
+      if (parentPath.length) flow = replaceFlow(flow, parentPath.slice(0, -1), body => ({...body, nodes: body.nodes.map(node => node.id === parentPath.at(-1) && node.scope ? {
+        ...node, scope: {...node.scope,
+          input_bindings: node.scope.input_bindings.filter(binding => binding.node !== id || scope.inputs[binding.port]),
+          output_bindings: node.scope.output_bindings.filter(binding => binding.node !== id || scope.outputs[binding.port]),
+        },
+      } : node)}))
+      return {...current, flow}
+    })
+  }
+  function navigateScope(path: string[]) {
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); fail(new Error(t("enter_valid_parameter_json_before_leaving_this"))); return }
+    if (!currentProject.current || !flowAt(currentProject.current.flow, path)) return
+    scopePathNow.current = path; setScopePath(path); setConnection({source:'',source_port:'',target:'',target_port:''})
+  }
+  async function openTutorial(automatic = false) {
+    if (!liveProject.current) return
+    const request = opening.current
+    const example = await client.tutorial()
+    if (!liveProject.current) return
+    if (automatic && (request !== opening.current || currentProject.current)) return
+    await open(example.id, undefined, automatic)
+  }
+  async function open(id: string, approvedRevision?: number, preserveError = false) {
+    if (!liveProject.current) return
+    if (runningNow.current || (dirtyNow.current && draftRevision.current !== approvedRevision && !window.confirm(t("discard_unsaved_changes_and_open_this_project")))) return
+    const leavingRevision = draftRevision.current
+    const request = ++opening.current
+    const [next, files, history] = await Promise.all([client.project(id), client.packages(id), client.runs(id)])
+    if (!liveProject.current || request !== opening.current) return
+    if (dirtyNow.current && draftRevision.current !== leavingRevision && !window.confirm(t("discard_unsaved_changes_and_open_this_project"))) return
+    void discardDraftInputs()
+    closeWorkspace(); undoStack.current = []; redoStack.current = []
+    projectSession.current += 1; setInputTransfers(0); currentProject.current = next; setProject(next); markDirty(false); setNotice('')
+    runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
+    scopePathNow.current = []; setScopePath([]); setConnection({source:'',source_port:'',target:'',target_port:''}); setPackages(files); setRuns(history); setResultRun(''); setResultCall(''); setUseTarget(''); setUsePort(''); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); if (!preserveError) setError('')
     return true
-  }, [editor, finishInputs])
-  const beginCanvasEdit = useCallback(async () => {
-    await finishInputs()
-    return editor.beginEdit()
-  }, [editor, finishInputs])
-  const commitSession = useCallback(async (session: WorkspaceEditSession, workflow: Workflow, positions: Record<string, { x: number; y: number }> = {}) => {
-    await finishInputs()
-    const graphChanged = workflow.nodes.length !== session.base.workflow.nodes.length || workflow.nodes.some(node => !session.base.workflow.nodes.some(previous => previous.node_id === node.node_id))
-    return session.commit({ workflow, ...(graphChanged || Object.keys(positions).length ? { updateUi: (currentUi: JsonObject) => {
-      const canvas = canvasFromUi(currentUi), scope = currentCanvasGroup(canvas)
-      const added = workflow.nodes.filter(node => !session.base.workflow.nodes.some(previous => previous.node_id === node.node_id)).map(node => node.node_id)
-      const ui = scope ? { ...currentUi, canvas: { ...canvas, groups: canvas.groups!.map(group => group.id === scope ? { ...group, nodeIds: [...group.nodeIds, ...added] } : group) } } : currentUi
-      return graphUi(workflow, ui, positions)
-    } } : {}) })
-  }, [finishInputs, graphUi])
-  const savedPersonalDraft = useCallback(async () => {
-    const session = await beginCanvasEdit()
-    if (!session) throw new Error('项目已切换')
-    const personal = await session.writableProject()
-    if (editor.getSnapshot().version || !editor.getSnapshot().acknowledged?.draft) await editor.edit(current => ({ workflow: current.workflow, ui_state: current.ui_state }))
-    const saved = await editor.flush()
-    return { project: personal, draft: saved!.draft! }
-  }, [beginCanvasEdit, editor])
-
-  const openProject = useCallback(async (selected: ProjectMetadata, suppliedWorkspace?: ProjectWorkspace, versionView?: WorkflowVersionView) => {
-    await beforeWorkspaceAction()
-    const generation = ++projectGeneration.current
-    promptOpenRevision.current += 1
-    const selectedWorkspace = suppliedWorkspace ?? await client.projectWorkspace(selected.id)
-    if (generation !== projectGeneration.current) return
-    results.openRun(undefined)
-    const openingResults = results.getSnapshot()
-    activeParameterEdits.current.clear(); setRawEditCount(0)
-    setBlockedMergeNodes([])
-    editor.open(selected, selectedWorkspace, versionView)
-    setPrompt(undefined); setPromptOpenError(undefined); setRunError(''); setInputError('')
-    setSelectionEdit(undefined); setView('workflow'); setProjectsOpen(false)
-    setRequestedResultSource(undefined); setPendingCanvasFocus(undefined)
-    const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
-    requestAnimationFrame(() => { if (canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport) void flowInstance.current?.setViewport((canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport)!); else void flowInstance.current?.fitView({ padding: 0.16 }) })
-    let resultProject = selected
-    if (!resultProject.latest_run_id && selected.reference_results_project_id) {
-      resultProject = (await client.projects()).projects.find(item => item.id === selected.reference_results_project_id)!
-      if (generation !== projectGeneration.current || results.getSnapshot() !== openingResults) return
-    }
-    if (resultProject.latest_run_id) results.openRun({ project_id: resultProject.id, run_id: resultProject.latest_run_id })
-  }, [beforeWorkspaceAction, editor, results])
-  const returnOriginalWork = useCallback(async () => {
-    await beforeWorkspaceAction()
-    const returned = await editor.returnToSavedWork()
-    if (returned) {
-      const canvas = canvasFromUi(returned.ui_state)
-      if (canvas.viewport) void flowInstance.current?.setViewport(canvas.viewport)
-    }
-  }, [beforeWorkspaceAction, editor])
-  const createProject = useCallback(async () => {
-    await beforeWorkspaceAction()
-    const created = await client.createProject(`Untitled Project ${new Date().toLocaleString()}`)
-    await openProject(created)
-    await editor.edit(current => ({ workflow: current.workflow, ui_state: current.ui_state }))
-  }, [beforeWorkspaceAction, editor, openProject])
-  const saveBinding = useCallback(async (nodeId: string, bindingId: string) => {
-    await beforeWorkspaceAction()
-    return editor.edit(current => {
-      const source = current.workflow.nodes.find(node => node.node_id === nodeId)!
-      const memory = current.ui_state.binding_parameter_memory as Record<string, Record<string, JsonObject>> | undefined ?? {}
-      const nodeMemory = { ...memory[nodeId], [source.binding_id]: source.binding_parameters }
-      const workflow = selectNodeBinding(current.workflow, nodeId, bindingId, catalog!, nodeMemory[bindingId])
-      const selected = workflow.nodes.find(node => node.node_id === nodeId)!
-      return { workflow, ui_state: graphUi(workflow, { ...current.ui_state, binding_parameter_memory: { ...memory, [nodeId]: { ...nodeMemory, [bindingId]: selected.binding_parameters } } }) }
-    })
-  }, [beforeWorkspaceAction, editor, catalog, graphUi])
-  const addDroppedNode = useCallback(async (drop: PendingNodeDrop, bindingId: string) => {
-    if (!catalog) return
-    await beforeWorkspaceAction()
-    const nodeId = `${drop.nodeTypeId.replaceAll('.', '-')}-${crypto.randomUUID().slice(0, 8)}`
-    const position = drop.position
-    await editWorkflow(workflow => {
-      const inserted = insertOrdinaryNode(workflow, nodeId, drop.nodeTypeId, bindingId, catalog)
-      return drop.connectionFrom && drop.connectionPort ? connectWorkflowPorts(inserted, catalog, { ...drop.connectionFrom, direction: 'output' }, { nodeId, portName: drop.connectionPort, direction: 'input' }) : inserted
-    }, { [nodeId]: position }, ui => { const canvas = canvasFromUi(ui); const scope = currentCanvasGroup(canvas); return scope ? { ...ui, canvas: { ...canvas, groups: canvas.groups!.map(group => group.id === scope ? { ...group, nodeIds: [...group.nodeIds, nodeId] } : group) } } : ui }, drop.connectionFrom ? '添加并连接节点' : '添加节点')
-    setPendingNodeDrop(undefined)
-    requestAnimationFrame(() => {
-      setNodes(current => { const next = current.map(node => ({ ...node, selected: node.id === nodeId })); nodesRef.current = next; return next })
-      const zoom = flowInstance.current!.getViewport().zoom
-      const viewport = { x: 32 - position.x * zoom, y: 140 - position.y * zoom, zoom }
-      void flowInstance.current?.setViewport(viewport)
-      void persistCanvas(nodesRef.current, viewport).catch(reportSaveError)
-      document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true })
-    })
-  }, [beforeWorkspaceAction, catalog, editWorkflow, persistCanvas, reportSaveError])
-  const reportConnectionError = useCallback((reason: unknown) => {
-    if (reason instanceof PromptMergeSourcesLockedError) {
-      setBlockedMergeNodes(reason.nodeIds)
-      setInputError('')
-    } else {
-      setBlockedMergeNodes([])
-      reportSaveError(reason)
-    }
-  }, [reportSaveError])
-  const editConnections = useCallback(async (change: (workflow: Workflow) => Workflow) => {
-    const generation = projectGeneration.current
-    await beforeWorkspaceAction()
-    if (generation !== projectGeneration.current) return
-    const current = editor.getSnapshot().desired!.workflow
-    const next = change(current)
-    setBlockedMergeNodes([])
-    if (next === current) return
-    return editWorkflow(() => next, {}, undefined, '编辑连线')
-  }, [beforeWorkspaceAction, editor, editWorkflow])
-  const connectPorts = useCallback((connection: Connection, previous?: Workflow['edges'][number]) => editConnections(workflow => {
-    const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
-    const output = resolveCanvasPort(canvas, workflow, connection.source, connection.sourceHandle!.slice(4), 'output')
-    const input = resolveCanvasPort(canvas, workflow, connection.target, connection.targetHandle!.slice(3), 'input')
-    if (!output || !input) return workflow
-    return previous ? reconnectWorkflowPorts(workflow, catalog!, previous, output, input) : connectWorkflowPorts(workflow, catalog!, output, input)
-  }), [catalog, editConnections, editor])
-  const deleteWorkflowElements = useCallback(async (deletedNodes: FlowNode[], deletedEdges: Edge[]) => {
-    await beforeWorkspaceAction()
-    const current = editor.getSnapshot().desired!
-    const canvas = canvasFromUi(current.ui_state)
-    const selected = new Set(deletedNodes.filter(node => node.data.kind !== 'boundary').map(node => node.id))
-    const removed = deleteGraphElements(current.workflow, catalog!, { nodeIds: selectedLeafNodes(canvas, selected), edges: deletedEdges.filter(edge => edge.selectable !== false).map(edge => edge.data!.workflowEdge as Workflow['edges'][number]) })
-    if (removed.workflow === current.workflow && !selected.size) return
-    const saved = await editWorkflow(() => removed.workflow, {}, ui => ({ ...ui, canvas: cleanCanvasGroups(canvasFromUi(ui), new Set(removed.workflow.nodes.map(node => node.node_id)), selected) }), '删除所选节点与连线')
-    if (saved && removed.notices.length) setNotice({ workspace: saved, message: `已删除；${removed.notices.length} 项依赖来源的筛选配置需要重新设置` })
-  }, [beforeWorkspaceAction, editor, catalog, editWorkflow])
-  const dropPaletteNode = useCallback((event: React.DragEvent) => { if (!catalog || !flowInstance.current) return; event.preventDefault(); const nodeTypeId = event.dataTransfer.getData('application/protein-workbench-node-type'); if (!nodeTypeId) return; const point = flowInstance.current.screenToFlowPosition({ x: event.clientX, y: event.clientY }); const drop = { nodeTypeId, position: { x: point.x - 137, y: point.y - 30 }, bindings: bindingOptions(catalog, nodeTypeId) }; if (drop.bindings.length === 1) void addDroppedNode(drop, drop.bindings[0].id).catch(reportSaveError); else setPendingNodeDrop(drop) }, [addDroppedNode, catalog, reportSaveError])
-  const addPaletteNode = (nodeTypeId: string) => {
-    const point = flowInstance.current!.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
-    const position = { x: point.x - 137, y: point.y - 30 }
-    const occupied = nodesRef.current.map(node => ({ ...node.position, width: node.measured?.width ?? (node.data.stage ? 360 : 275), height: node.measured?.height ?? 500 }))
-    for (;;) {
-      const collision = occupied.find(box => position.x < box.x + box.width + 24 && position.x + 275 + 24 > box.x && position.y < box.y + box.height + 24 && position.y + 500 + 24 > box.y)
-      if (!collision) break
-      position.x = collision.x + collision.width + 40
-    }
-    const drop = { nodeTypeId, position, bindings: bindingOptions(catalog!, nodeTypeId) }
-    if (drop.bindings.length === 1) void addDroppedNode(drop, drop.bindings[0].id).catch(reportSaveError)
-    else setPendingNodeDrop(drop)
   }
-  const undo = useCallback(() => { void beforeWorkspaceAction().then(() => editor.undo()).then(saved => { if (saved) setNotice({ workspace: saved, message: '已撤销画布修改' }) }).catch(reportSaveError) }, [beforeWorkspaceAction, editor, reportSaveError])
-  const showResults = useCallback(() => { void beforeWorkspaceAction().then(() => { if (!resultsIdentity) return; setVisitedResults(current => new Set([...current, resultsIdentity])); setView('results') }).catch(reportSaveError) }, [beforeWorkspaceAction, resultsIdentity, reportSaveError])
-  const openResultSource = useCallback((source: ResultLocation) => {
-    setRequestedResultSource({ ...source, requestId: ++resultRequestSequence.current })
-    showResults()
-  }, [showResults])
-  const redo = useCallback(() => { void beforeWorkspaceAction().then(() => editor.redo()).catch(reportSaveError) }, [beforeWorkspaceAction, editor, reportSaveError])
-  const navigateCanvas = useCallback(async (groupId: string | null, focusNodeId?: string) => {
-    await finishInputs()
-    const viewport = flowInstance.current?.getViewport()
-    const leavingCanvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
-    const leavingId = currentCanvasGroup(leavingCanvas)
-    const leaving = leavingId ?? 'root'
-    const returningFrom = leavingId && leavingCanvas.groups!.find(group => group.id === leavingId)!.parentId === groupId ? leavingId : undefined
-    const selection = nodesRef.current.filter(node => node.selected).map(node => node.id)
-    await editor.navigate(ui => { const canvas = canvasFromUi(ui); return { ...ui, canvas: { ...canvas, currentGroup: groupId, selections: { ...canvas.selections, [leaving]: selection }, views: { ...canvas.views, ...(viewport ? { [leaving]: viewport } : {}) } } } })
-    requestAnimationFrame(() => {
-      const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
-      const selected = focusNodeId ? [focusNodeId] : returningFrom ? [returningFrom] : canvas.selections?.[groupId ?? 'root'] ?? []
-      setNodes(current => { const next = current.map(node => ({ ...node, selected: selected.includes(node.id) })); nodesRef.current = next; return next })
-      const focusId = focusNodeId ?? returningFrom
-      const focusElement = focusId ? document.querySelector<HTMLElement>(`.react-flow__node[data-id="${focusId}"]`) : null
-      ;(focusElement ?? document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas'))?.focus({ preventScroll: true })
-      const targets = nodesRef.current.filter(node => node.data.kind !== 'boundary' && (!focusNodeId || node.id === focusNodeId))
-      const zoom = focusNodeId ? viewport?.zoom ?? 1 : 1
-      const targetViewport = !focusNodeId && canvas.views?.[groupId ?? 'root'] ? canvas.views[groupId ?? 'root'] : targets.length ? { x: 32 - Math.min(...targets.map(node => node.position.x)) * zoom, y: 140 - Math.min(...targets.map(node => node.position.y)) * zoom, zoom } : undefined
-      if (targetViewport) {
-        void flowInstance.current?.setViewport(targetViewport)
-        void persistCanvas(nodesRef.current, targetViewport).catch(reportSaveError)
+  async function createProject() {
+    if (dirtyNow.current && !window.confirm(t("discard_unsaved_changes_and_create_a_project"))) return
+    const approvedRevision = draftRevision.current
+    const session = projectSession.current, openedAt = opening.current
+    setError('')
+    const next = await client.createProject(projectName)
+    commitProject(next)
+    if (session === projectSession.current && openedAt === opening.current) await open(next.id, approvedRevision, true)
+  }
+  async function save() {
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); throw new Error(t("enter_valid_parameter_json_before_saving")) }
+    const snapshot = currentProject.current
+    if (!snapshot) throw new Error(t("open_a_project_first"))
+    if (savingNow.current) throw new Error(t("project_save_is_already_in_progress"))
+    ensureInputsTransferred(snapshot)
+    const session = projectSession.current
+    const revision = draftRevision.current
+    savingNow.current = true; setSaving(true); setError('')
+    try {
+      const saved = snapshot.tutorial ? await client.copy(snapshot, projectName, draftInputs.current.map(input => input.id)) : await client.save(snapshot)
+      if (!liveProject.current) return false
+      commitProject(saved)
+      if (currentProject.current !== snapshot || draftRevision.current !== revision) return false
+      if (snapshot.tutorial) {
+        projectSession.current += 1; setPackages([]); setRuns([]); setSelectedPackage(''); setViewer('')
+        void discardDraftInputs()
       }
-    })
-  }, [finishInputs, editor, persistCanvas, reportSaveError])
-  const focusCanvasNode = useCallback((id: string) => {
-    setView('workflow')
-    const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
-    const parent = canvas.groups?.find(group => group.nodeIds.includes(id))?.id ?? null
-    void navigateCanvas(parent, id).catch(reportSaveError)
-  }, [editor, navigateCanvas, reportSaveError])
-  const locateResultNodes = useCallback((nodeIds: string[]) => {
-    setView('workflow')
-    setPendingCanvasFocus(nodeIds)
-  }, [])
-  useEffect(() => {
-    if (view !== 'workflow' || prompt || !pendingCanvasFocus) return
-    const nodeId = pendingCanvasFocus.find(id => draft?.workflow.nodes.some(node => node.node_id === id))
-    const frame = requestAnimationFrame(() => {
-      setPendingCanvasFocus(undefined)
-      if (nodeId) focusCanvasNode(nodeId)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [view, prompt, pendingCanvasFocus, draft?.workflow.nodes, focusCanvasNode])
-  const makeGroup = useCallback(async () => {
-    await beforeWorkspaceAction()
-    const selected = new Set(nodesRef.current.filter(node => node.selected && node.data.kind !== 'boundary').map(node => node.id))
-    if (!selected.size) return
-    const id = `group-${crypto.randomUUID()}`
-    await editor.edit(current => ({ ui_state: { ...current.ui_state, canvas: createCanvasGroup(canvasFromNodes(nodesRef.current, canvasFromUi(current.ui_state)), selected, id, '节点组') } }), '创建节点组')
-    requestAnimationFrame(() => { setNodes(current => { const next = current.map(node => ({ ...node, selected: node.id === id })); nodesRef.current = next; return next }); document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)?.focus() })
-  }, [beforeWorkspaceAction, editor])
-  const ungroupSelection = useCallback(async () => {
-    await beforeWorkspaceAction()
-    const ids = nodesRef.current.filter(node => node.selected && node.data.kind === 'group').map(node => node.id)
-    if (!ids.length) return
-    await editor.edit(current => ({ ui_state: { ...current.ui_state, canvas: ids.reduce((canvas, id) => ungroupCanvas(canvas, id), canvasFromUi(current.ui_state)) } }), '解组')
-  }, [beforeWorkspaceAction, editor])
-  const copySelection = useCallback(() => {
-    if (!catalog) return
-    const current = editor.getSnapshot().desired!
-    const selected = new Set(nodesRef.current.filter(node => node.selected && node.data.kind !== 'boundary').map(node => node.id))
-    if (!selected.size) return
-    const canvas = canvasFromNodes(nodesRef.current, canvasFromUi(current.ui_state))
-    const withPorts = { ...canvas, groups: (canvas.groups ?? []).map(group => ({ ...group, ports: groupPorts(canvas, current.workflow, group.id) })) }
-    clipboard.current = { fragment: copyWorkflowFragment(current.workflow, selectedLeafNodes(canvas, selected), catalog, canvas.positions), canvas: structuredClone(withPorts), selected: [...selected] }
-  }, [catalog, editor])
-  const pasteSelection = useCallback(async () => {
-    if (!clipboard.current) return
-    await beforeWorkspaceAction()
-    const { fragment, canvas: sourceCanvas, selected } = clipboard.current
-    const position = flowInstance.current!.screenToFlowPosition(canvasPointer.current)
-    const current = editor.getSnapshot().desired!
-    const pasted = pasteWorkflowFragment(current.workflow, fragment, position)
-    const nodeMap = new Map(fragment.nodes.map((node, index) => [node.node_id, pasted.nodeIds[index]]))
-    const copiedGroups = (sourceCanvas.groups ?? []).filter(group => groupPath(sourceCanvas, group.id).some(parent => selected.includes(parent.id)))
-    const groupMap = new Map(copiedGroups.map(group => [group.id, `group-${crypto.randomUUID()}`]))
-    const copiedPositions = placeCanvasCopy(sourceCanvas.positions, new Map([...nodeMap, ...groupMap]), position)
-    const copiedIds = new Set(copiedGroups.flatMap(group => group.nodeIds))
-    const saved = await editWorkflow(() => pasted.workflow, copiedPositions, ui => {
-      const canvas = canvasFromUi(ui), scope = currentCanvasGroup(canvas)
-      const groups: CanvasGroup[] = copiedGroups.map(group => copyCanvasGroup(group, nodeMap, groupMap, scope))
-      return { ...ui, canvas: { ...canvas, groups: [...(canvas.groups ?? []).map(group => group.id === scope ? { ...group, nodeIds: [...group.nodeIds, ...fragment.nodes.filter(node => !copiedIds.has(node.node_id)).map(node => nodeMap.get(node.node_id)!)] } : group), ...groups] } }
-    }, '粘贴独立副本')
-    if (saved) { setNotice({ workspace: saved, message: pasted.notices.length ? '独立副本已粘贴；外部来源的选择配置需要重新连接' : '片段已粘贴' }); requestAnimationFrame(() => { setNodes(current => { const next = current.map(node => ({ ...node, selected: [...groupMap.values(), ...pasted.nodeIds].includes(node.id) })); nodesRef.current = next; return next }); document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true }) }) }
-  }, [beforeWorkspaceAction, editor, editWorkflow])
-  const closePromptEditor = useCallback(() => { setPrompt(undefined); requestAnimationFrame(() => { if (promptReturnFocus.current?.isConnected) promptReturnFocus.current.focus({ preventScroll: true }); else document.querySelector<HTMLElement>('.app-shell:not([hidden]) .flow-canvas')?.focus({ preventScroll: true }) }) }, [])
-  const openPromptEditor = useCallback((nodeId: string) => {
-    promptReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const request = ++promptOpenRevision.current
-    setPromptOpenError(undefined)
-    void (async () => {
-      const session = await beginCanvasEdit()
-      if (!session) return
-      const workflow = session.base.workflow
-      const snapshot = await client.openPrompt(workflow.workflow_id, nodeId, workflow)
-      if (request !== promptOpenRevision.current) return
-      setPrompt({ nodeId, snapshot, workflow, session })
-    })().catch(reason => { if (request === promptOpenRevision.current) setPromptOpenError({ nodeId, message: workspaceErrorMessage(reason) }) })
-  }, [beginCanvasEdit])
-  const openSelectionEditor = useCallback(async (nodeId: string) => {
-    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const session = await beginCanvasEdit()
-    if (!session) return
-    if (results.getSnapshot().phase !== 'idle' && !await results.ensureCandidates({ all: true })) return
-    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
-    setSelectionEdit({ nodeId, workflow: session.base.workflow, session })
-  }, [beginCanvasEdit, results])
-  const nodeLabels = useMemo(() => Object.fromEntries((draft?.workflow.nodes ?? []).map(node => [node.node_id, catalog ? nodeTypePresentation(catalog, node.node_type_id).title : node.node_type_id])), [draft?.workflow.nodes, catalog])
-  const resultNodeLabels = useMemo(() => {
-    const canvas = canvasFromUi(editing.desired?.ui_state ?? {})
-    const entries = Object.entries(nodeLabels).map(([id, title]) => {
-      const owner = canvas.groups?.find(group => group.nodeIds.includes(id))
-      const path = groupPath(canvas, owner?.id ?? null).map(group => group.label)
-      return { id, label: [...path, title].join(' › ') }
-    })
-    return Object.fromEntries(entries.map(entry => [entry.id, entries.filter(other => other.label === entry.label).length > 1 ? `${entry.label} · ${entry.id}` : entry.label]))
-  }, [nodeLabels, editing.desired?.ui_state])
-  const displayed = useMemo<FlowNode[]>(() => currentFlowNodes.map((node): FlowNode => {
-    const sourceNode = draft?.workflow.nodes.find(item => item.node_id === node.id)
-    const stageControls: StageControlView[] | undefined = node.data.stage?.controls.map(control => {
-      if (control.kind !== 'parameter') return control
-      const member = draft!.workflow.nodes.find(item => item.node_id === control.nodeId)!
-      const parameter = parameterPresentations(catalog!, member).find(item => item.scope === 'node' && item.key === control.key)!
-      const raw = activeParameterEdits.current.get(`${control.nodeId}:${parameter.scope}:${parameter.key}`)
-      return { kind: 'parameter', nodeId: control.nodeId, parameter: { ...parameter, label: control.label, ...(raw ? { value: raw.raw } : {}) }, choices: parameterChoices?.workflow === draft!.workflow ? parameterChoices.values[control.nodeId] : undefined }
-    })
-    const members = node.data.kind === 'group' ? [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)] : []
-    const states = members.map(id => runProgress?.nodeStates[id]?.status)
-    const completed = states.filter(status => status === 'succeeded' || status === 'reused').length
-    const status = (['failed', 'running', 'interrupted', 'cancelled', 'blocked', 'waiting'] as const).find(status => states.includes(status)) ?? (states.every(status => status === 'outside') ? 'outside' : completed === members.length && members.length ? 'succeeded' : 'idle')
-    const labels = { idle: '未运行', waiting: '等待运行', running: '运行中', failed: '阶段失败', interrupted: '已中断', cancelled: '已取消', blocked: '存在未执行节点', outside: '本次运行范围外', succeeded: '阶段完成' }
-    return { ...node, data: { ...node.data,
-      resultCollections: node.data.kind !== 'boundary' ? resultIndex.collections.filter(collection => node.data.kind === 'group' ? members.includes(collection.source.node_id) : collection.source.node_id === node.id) : undefined,
-      onOpenResult: openResultSource,
-      stageControls,
-      stageState: node.data.stage ? { status, label: labels[status], completed, total: members.length } : undefined,
-      onStageAction: (kind, nodeId) => { if (kind === 'prompt') openPromptEditor(nodeId); else void openSelectionEditor(nodeId).catch(reportSaveError) },
-      onEnter: () => { void navigateCanvas(node.id).catch(reportSaveError) },
-      onRename: label => { void editor.edit(current => { const canvas = canvasFromUi(current.ui_state); return { ui_state: { ...current.ui_state, canvas: { ...canvas, groups: canvas.groups!.map(group => group.id === node.id ? { ...group, label } : group) } } } }).catch(reportSaveError) },
-      groupErrors: node.data.kind === 'group' ? [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)].filter(id => runProgress?.nodeStates[id]?.status === 'failed').length : 0,
-      onFocusError: () => { const failed = [...groupNodes(canvasFromUi(editor.getSnapshot().desired!.ui_state), node.id)].find(id => runProgress?.nodeStates[id]?.status === 'failed'); if (failed) focusCanvasNode(failed) },
-      onCancelParameter: (nodeId, parameter) => { activeParameterEdits.current.delete(`${nodeId}:${parameter.scope}:${parameter.key}`); setRawEditCount(activeParameterEdits.current.size); setInputError(''); const value = parameterPresentations(catalog!, draft!.workflow.nodes.find(item => item.node_id === nodeId)!).find(item => item.key === parameter.key && item.scope === parameter.scope)!; setNodes(current => { const next = current.map(item => item.id === nodeId ? { ...item, data: { ...item.data, parameters: item.data.parameters.map(item => item.key === parameter.key && item.scope === parameter.scope ? value : item) } } : item); nodesRef.current = next; return next }) },
-      parameterChoices: parameterChoices && parameterChoices.workflow === draft?.workflow && !parameterChoicesError ? parameterChoices.values[node.id] : { choices: {}, ...(parameterChoicesError ? { notice: `参数来源读取失败：${parameterChoicesError}` } : {}) },
-      bindingOptions: catalog && sourceNode ? bindingOptions(catalog, sourceNode.node_type_id) : [],
-      runState: runProgress?.nodeStates[node.data.sourceNodeId],
-      scopeState: scopePreview?.reused_node_ids.includes(node.id) ? 'reuse' : scopePreview?.execution_node_ids.includes(node.id) ? 'execute' : undefined,
-      onEditSelection: sourceNode && selectionNodeTypes.has(sourceNode.node_type_id) ? () => { void openSelectionEditor(node.id).catch(reportSaveError) } : undefined,
-      onToggle: id => { const next = nodesRef.current.map(item => item.id === id ? { ...item, data: { ...item.data, collapsed: !item.data.collapsed } } : item); nodesRef.current = next; setNodes(next); void persistCanvas(next).catch(reportSaveError) },
-      onEditPrompt: () => openPromptEditor(node.id),
-      onParameter: (nodeId, parameter, raw, commit) => {
-        const key = `${nodeId}:${parameter.scope}:${parameter.key}`
-        if (commit && !activeParameterEdits.current.has(key)) return
-        if (!commit) { activeParameterEdits.current.set(key, { nodeId, parameter, raw }); setRawEditCount(activeParameterEdits.current.size) }
-        const next = nodesRef.current.map(item => item.id === nodeId ? { ...item, data: { ...item.data, parameters: item.data.parameters.map(value => value.key === parameter.key && value.scope === parameter.scope ? { ...value, value: raw } : value) } } : item)
-        nodesRef.current = next; setNodes(next)
-        if (commit) { try { void saveParameter(nodeId, parameter, raw).catch(reportSaveError) } catch (reason) { reportSaveError(reason) } }
-      },
-      onBinding: (nodeId, bindingId) => { void saveBinding(nodeId, bindingId).catch(reportSaveError) },
-    } }
-  }), [resultIndex.collections, openResultSource, navigateCanvas, editor, focusCanvasNode, currentFlowNodes, parameterChoices, parameterChoicesError, draft, catalog, runProgress?.nodeStates, scopePreview, openSelectionEditor, openPromptEditor, persistCanvas, reportSaveError, saveBinding, saveParameter])
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      if (event.isComposing || view !== 'workflow' || canvasPicker || pendingNodeDrop || runOpen || prompt || inputSource || projectsOpen || selectionEdit || event.defaultPrevented || target?.closest('input, textarea, select, [contenteditable="true"]')) return
-      const modifier = event.metaKey || event.ctrlKey
-      if (modifier && event.key.toLowerCase() === 'c') { event.preventDefault(); copySelection() }
-      if (modifier && event.key.toLowerCase() === 'v') { event.preventDefault(); void pasteSelection().catch(reportSaveError) }
-      if (modifier && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo() }
-      if (modifier && event.key.toLowerCase() === 'g') { event.preventDefault(); void (event.altKey ? ungroupSelection() : makeGroup()).catch(reportSaveError) }
-      if (event.key === 'Tab' && !event.shiftKey && target?.closest('.flow-canvas') && !target.closest('button, [role="menu"], [role="menuitem"], [role="dialog"]')) {
-        const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state)
-        const selected = nodesRef.current.find(node => node.selected && node.data.kind === 'group')
-        if (selected && !event.ctrlKey) { event.preventDefault(); void navigateCanvas(selected.id).catch(reportSaveError) }
-        else if (currentCanvasGroup(canvas)) { event.preventDefault(); void navigateCanvas(canvas.groups!.find(group => group.id === currentCanvasGroup(canvas))!.parentId).catch(reportSaveError) }
+      currentProject.current = saved; setProject(saved); markDirty(false); setNotice(t("project_and_layout_saved"))
+      if (snapshot.tutorial) {
+        const target = { projectId: saved.id, session: projectSession.current, epoch: runOperationEpoch.current }
+        const openedAt = opening.current
+        const current = () => liveProject.current && currentProject.current === saved && currentRunOperation(target) && opening.current === openedAt
+        void client.packages(saved.id).then(files => { if (current()) setPackages(files) }).catch(failure => {
+          if (current()) fail(new Error(t("project_saved_package_list_refresh_failed", {"0": failure instanceof Error ? failure.message : String(failure)})))
+        })
       }
+      return true
+    } catch (failure) {
+      if (session !== projectSession.current) return false
+      throw failure
+    } finally { savingNow.current = false; setSaving(false) }
+  }
+  async function copyProject() {
+    if (savingNow.current || runningNow.current || !currentProject.current) return
+    if (document.activeElement instanceof HTMLElement && canvas.current?.contains(document.activeElement)) document.activeElement.blur()
+    const invalid = canvas.current?.querySelector<HTMLTextAreaElement>('textarea:invalid')
+    if (invalid) { invalid.reportValidity(); throw new Error(t("enter_valid_parameter_json_before_copying")) }
+    const snapshot = currentProject.current
+    ensureInputsTransferred(snapshot)
+    const session = projectSession.current
+    const revision = draftRevision.current
+    savingNow.current = true; setSaving(true); setError('')
+    try {
+      const copied = await client.copy(snapshot, projectName, snapshot.tutorial ? draftInputs.current.map(input => input.id) : [])
+      if (!liveProject.current) return
+      commitProject(copied)
+      if (session !== projectSession.current || draftRevision.current !== revision) return
+      if (await open(copied.id, revision)) setNotice(t("project_copied_with_independent_inputs_and_no"))
+    } catch (failure) { if (session === projectSession.current) throw failure }
+    finally { savingNow.current = false; setSaving(false) }
+  }
+  function currentRunOperation(target: { projectId: string; session: number; epoch: number }) {
+    return currentProject.current?.id === target.projectId && projectSession.current === target.session && runOperationEpoch.current === target.epoch
+  }
+  async function run() {
+    if (!project) return
+    const epoch = ++runOperationEpoch.current
+    const session = projectSession.current
+    if (dirtyNow.current || currentProject.current?.tutorial) {
+      if (!window.confirm(t("save_changes_and_run"))) return
+      const saved = await save()
+      if (!saved && session !== projectSession.current) return
+      if (!saved) throw new Error(t("project_changed_while_saving_save_again_before"))
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canvasPicker, pendingNodeDrop, copySelection, pasteSelection, redo, makeGroup, ungroupSelection, navigateCanvas, inputSource, projectsOpen, prompt, selectionEdit, editor, reportSaveError, runOpen, undo, view])
-  const openInputSource = useCallback(async () => {
-    const session = await beginCanvasEdit()
-    if (!session) return
-    setInputSource({ projectId: session.base.workflow.workflow_id, workflow: session.base.workflow, session })
-  }, [beginCanvasEdit])
-  const addMergeSource = useCallback(async (document: PromptAuthoringDocument) => {
-    const projectId = prompt!.session.base.workflow.workflow_id
-    const staged = { ...prompt!.workflow, workflow_id: projectId, nodes: prompt!.workflow.nodes.map(node => node.node_id === prompt!.nodeId ? { ...node, node_parameters: { ...node.node_parameters, [promptAuthorDocumentParameter]: document } } : node) }
-    return new Promise<PromptSnapshot | undefined>(resolve => {
-      mergeSourceCompletion.current = resolve
-      setInputSource({ projectId, workflow: staged, session: prompt!.session, mergeTargetNodeId: prompt!.nodeId })
+    const runProject = currentProject.current
+    if (!runProject || epoch !== runOperationEpoch.current) return
+    const target = { projectId: runProject.id, session: projectSession.current, epoch }
+    opening.current += 1; submittingRun.current = true
+    runningNow.current = true; setRunning(true); setError(''); setNotice(t("running_on_the_backend"))
+    try {
+      const result = await client.run(target.projectId)
+      if (!currentRunOperation(target)) return
+      if (result.status !== 'running') {
+        const files = await client.packages(target.projectId)
+        if (!currentRunOperation(target)) return
+        setPackages(files)
+      }
+      setRuns(items => [...items.filter(item => item.id !== result.id), result])
+      runningNow.current = result.status === 'running'; setRunning(runningNow.current)
+      setNotice(`Run ${result.status}`)
+    } catch (failure) {
+      // A lost submission response leaves the lock until a current poll confirms state.
+      if (currentRunOperation(target)) fail(failure)
+    } finally { if (currentRunOperation(target)) submittingRun.current = false }
+  }
+  async function continueRun(runId: string, nodeId: string) {
+    const current = currentProject.current
+    if (!current || runningNow.current || savingNow.current || submittingRun.current) return
+    const target = { projectId: current.id, session: projectSession.current, epoch: ++runOperationEpoch.current }
+    opening.current += 1; submittingRun.current = true
+    runningNow.current = true; setRunning(true); setError(''); setNotice(t("continuing_the_original_call_on_the_backend"))
+    try {
+      const result = await client.continueRun(runId, nodeId)
+      if (!currentRunOperation(target)) return
+      if (result.status !== 'running') {
+        const files = await client.packages(target.projectId)
+        if (!currentRunOperation(target)) return
+        setPackages(files)
+      }
+      setRuns(items => [...items.filter(item => item.id !== result.id), result])
+      runningNow.current = result.status === 'running'; setRunning(runningNow.current)
+      setNotice(`Run ${result.status}`)
+    } catch (failure) { if (currentRunOperation(target)) fail(failure) }
+    finally { if (currentRunOperation(target)) submittingRun.current = false }
+  }
+  async function cancelRun() {
+    const current = currentProject.current
+    if (!current || submittingRun.current || !cancellableRuns.length) return
+    const target = { projectId: current.id, session: projectSession.current, epoch: ++runOperationEpoch.current }
+    submittingRun.current = true; runningNow.current = true; setRunning(true)
+    try {
+      await Promise.all(cancellableRuns.map(item => client.cancelRun(item.id)))
+      if (!currentRunOperation(target)) return
+      setNotice(t("cancellation_requested_waiting_for_the_backend"))
+    } catch (failure) { if (currentRunOperation(target)) fail(failure) }
+    finally { if (currentRunOperation(target)) submittingRun.current = false }
+  }
+  useEffect(() => {
+    if (!project) return
+    const projectId = project.id
+    const session = projectSession.current
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    async function poll() {
+      const target = { projectId, session, epoch: runOperationEpoch.current }
+      const current = () => !stopped && currentRunOperation(target)
+      try {
+        if (submittingRun.current) return
+        const history = await client.runs(projectId)
+        if (!current()) return
+        const active = history.some(item => item.status === 'running')
+        const wasRunning = runningNow.current
+        let files: PackageInfo[] | undefined
+        if (active || wasRunning) {
+          files = await client.packages(projectId)
+          if (!current()) return
+        }
+        setRuns(history); runningNow.current = active; setRunning(active)
+        if (files) {
+          setPackages(files)
+          if (!active) setNotice(t('run_finished', {status:statusLabel(history.at(-1)?.status ?? 'succeeded')}))
+        }
+      } catch (failure) { if (current()) fail(failure) }
+      finally { if (!stopped) timer = setTimeout(poll, 500) }
+    }
+    timer = setTimeout(poll, 500)
+    return () => { stopped = true; clearTimeout(timer) }
+  }, [project?.id, projectSession.current])
+
+  async function deleteProject() {
+    const current = currentProject.current
+    if (!current || runningNow.current || savingNow.current || deletingProject.current) return
+    const message = t("delete_project_and_its_stored_packages_and", {"0": current.name, "1": dirty ? t('discard_unsaved') : ''})
+    if (!window.confirm(message)) return
+    const session = projectSession.current
+    deletingProject.current = current.id; setDeleting(true); setError('')
+    opening.current += 1
+    try {
+      await client.deleteProject(current.id)
+      removeProject(current.id)
+      if (session !== projectSession.current) return
+      projectSession.current += 1; currentProject.current = null
+      setProject(null); markDirty(false); setPackages([]); setRuns([]); setSelectedPackage(''); setViewer(''); setAdoptionTarget('')
+      setConnection({ source: '', source_port: '', target: '', target_port: '' })
+      setNotice(t("project_deleted", {name:current.name}))
+    } catch (failure) { if (session === projectSession.current) fail(failure) }
+    finally { deletingProject.current = ''; setDeleting(false) }
+  }
+  async function adopt() {
+    if (!selectedPackage || !adoptionTarget || adopting) return
+    const session = projectSession.current
+    const targetName = projects.find(item => item.id === adoptionTarget)?.name ?? adoptionTarget
+    setAdopting(true); setError('')
+    try {
+      await client.adopt(adoptionTarget, selectedPackage)
+      if (session !== projectSession.current) return
+      setNotice(t("added_to", {"0": targetName}))
+    } catch (failure) { if (session === projectSession.current) fail(failure) }
+    finally { setAdopting(false) }
+  }
+  const host = useMemo<ModuleHost>(() => {
+    const origin = projectSession.current
+    const path = scopePath
+    function activeProject() {
+      if (!liveProject.current || origin !== projectSession.current) throw new Error(t("project_changed_start_the_operation_again"))
+      if (scopePathNow.current.join('/') !== path.join('/')) throw new Error(t("subflow_changed_start_the_operation_again"))
+      if (savingNow.current && currentProject.current?.tutorial) throw new Error(t("teaching_draft_is_saving_wait_for_the"))
+      if (!currentProject.current || runningNow.current || deletingProject.current === currentProject.current.id) throw new Error(t("open_an_idle_project_first"))
+      return currentProject.current
+    }
+    return {
+      readOnly: locked || !project,
+      async createInput(input) {
+        const current = activeProject()
+        const transfer = current.tutorial ? { session: origin } : null
+        if (transfer) { pendingInputTransfers.current.add(transfer); setInputTransfers(count => count + 1) }
+        try {
+          const result = await client.createInput(current.id, input)
+          if (current.tutorial) {
+            try { activeProject() } catch (failure) { await client.discardDraftInput(result.id); throw failure }
+            draftInputs.current.push(result)
+            markDirty(true)
+          }
+          activeProject()
+          const files = await client.packages(current.id)
+          activeProject(); setPackages([...files, ...draftInputs.current]); return result
+        } finally {
+          if (transfer) {
+            pendingInputTransfers.current.delete(transfer)
+            if (origin === projectSession.current) setInputTransfers([...pendingInputTransfers.current].filter(item => item.session === origin).length)
+          }
+        }
+      },
+      async addNode(node) {
+        activeProject()
+        const id = crypto.randomUUID(), ownedNode = structuredClone(node)
+        changeFlow(flow => ({...flow, nodes:[...flow.nodes,{...ownedNode,id}]}), path); return id
+      },
+      async connect(edge) {
+        const current = activeProject()
+        const flow = flowAt(current.flow, path)!
+        const source = flow.nodes.find(node => node.id === edge.source)
+        const target = flow.nodes.find(node => node.id === edge.target)
+        const output = declarationFor(source, catalog)?.outputs[edge.source_port]
+        const input = declarationFor(target, catalog)?.inputs[edge.target_port]
+        const boundary = path.length ? flowAt(current.flow,path.slice(0,-1))?.nodes.find(node=>node.id===path.at(-1))?.scope : undefined
+        if (edge.source === edge.target) throw new Error(t("connect_different_nodes_use_explicit_subflow_feedback"))
+        if (flow.edges.some(item => JSON.stringify(item) === JSON.stringify(edge))) throw new Error(t("this_connection_already_exists"))
+        if (!output || !input || !input.accepts.includes(output.format)) throw new Error(t("port_formats_do_not_match_select_an"))
+        if (input.cardinality === 'one' && output.cardinality === 'many') throw new Error(t("cardinality_mismatch_a_many_output_requires_a"))
+        if (input.cardinality === 'one' && (target?.inputs[edge.target_port]?.length || flow.edges.some(item => item.target === edge.target && item.target_port === edge.target_port) || boundary?.input_bindings.some(item=>item.node===edge.target&&item.port===edge.target_port))) throw new Error(t("input_accepts_only_one_package"))
+        changeFlow(flow => ({...flow, edges:[...flow.edges,structuredClone(edge)]}), path)
+      },
+      async preview(interaction, inputs, parameters, options) {
+        // The session survives harmless React renders, but never project changes.
+        const current = currentProject.current
+        if (!current || !liveProject.current || origin !== projectSession.current) throw new Error(t("project_changed_start_the_operation_again"))
+        const { id } = await client.beginInteraction(current.id, interaction, inputs, parameters)
+        if (!liveProject.current || origin !== projectSession.current) { await client.cancelInteraction(id); throw new Error(t("project_changed_start_the_operation_again")) }
+        if (options?.signal?.aborted) { await client.cancelInteraction(id); throw new Error(t("preview_cancelled")) }
+        temporaryInteractions.current.add(id)
+        const cancel = () => { temporaryInteractions.current.delete(id); void client.cancelInteraction(id).catch(() => {}) }
+        options?.signal?.addEventListener('abort', cancel, {once:true})
+        try {
+          const result = await client.executeInteraction(id)
+          if (options?.signal?.aborted) throw new Error(t("preview_cancelled"))
+          if (!liveProject.current || origin !== projectSession.current) throw new Error(t("project_changed_start_the_operation_again"))
+          return result
+        } catch (failure) {
+          temporaryInteractions.current.delete(id); await client.cancelInteraction(id).catch(() => {}); throw failure
+        } finally { options?.signal?.removeEventListener('abort', cancel) }
+      },
+      async cancelPreview(id) { temporaryInteractions.current.delete(id); await client.cancelInteraction(id) },
+      readPreviewFile: client.readPreviewFile,
+      readFile: client.readFile,
+    }
+  }, [project, locked, sourceCatalog, scopePath])
+  function editorContext(node: FlowNode, workspaceSession?: symbol): EditorContext {
+    const session = projectSession.current, revision = draftRevision.current, projectId = project!.id
+    const path = scopePath
+    const declaration = declarationFor(node, catalog)
+    function currentTarget() {
+      if (workspaceSession && workspaceToken.current !== workspaceSession) throw new Error(t("editor_workspace_closed_reopen_it_to_apply"))
+      const current = currentProject.current
+      if (!liveProject.current || session !== projectSession.current || current?.id !== projectId) throw new Error(t("project_changed_reopen_this_editor"))
+      if (revision !== draftRevision.current || scopePathNow.current.join('/') !== path.join('/') || !flowAt(current.flow, path)?.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error(t("editor_draft_changed_preview_the_current_node"))
+      if (runningNow.current || deletingProject.current === projectId || (savingNow.current && current.tutorial)) throw new Error(t("project_is_running_saving_or_being_deleted"))
+      return current
+    }
+    const edges = activeFlow!.edges.filter(edge => edge.source === node.id || edge.target === node.id)
+    const boundaryBindings = activeScope?.scope?.input_bindings.filter(binding=>binding.node===node.id) ?? []
+    let parameters = parameterSnapshots.current.get(node.parameters)
+    if (!parameters) {
+      parameters = frozenParameterCopy(node.parameters)
+      parameterSnapshots.current.set(node.parameters, parameters)
+    }
+    async function workspaceRequest<T>(operation: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+      if (workspaceToken.current !== workspaceSession) throw new Error(t("editor_workspace_closed"))
+      const controller = new AbortController()
+      workspaceRequests.current.add(controller)
+      const abort = () => controller.abort(signal?.reason)
+      signal?.addEventListener('abort', abort, {once:true})
+      if (signal?.aborted) abort()
+      try { return await operation(controller.signal) }
+      finally { signal?.removeEventListener('abort', abort); workspaceRequests.current.delete(controller) }
+    }
+    const editorHost: ModuleHost = workspaceSession ? {...host,
+      async preview(interaction, inputs, parameters, options) {
+        currentTarget()
+        const result=await workspaceRequest(signal=>host.preview(interaction,inputs,parameters,{signal}),options?.signal)
+        if(workspaceToken.current!==workspaceSession){await host.cancelPreview(result.id);throw new Error(t("editor_workspace_closed"))}
+        workspaceInteractions.current.add(result.id);return result
+      },
+      readPreviewFile(id, output, key, options) {
+        return workspaceRequest(signal=>host.readPreviewFile(id,output,key,{signal}),options?.signal)
+      },
+      async cancelPreview(id) {workspaceInteractions.current.delete(id);await host.cancelPreview(id)},
+    } : host
+    return {
+      projectId, nodeId: node.id, revision, parameters, bindings: structuredClone(node.inputs), edges: structuredClone(edges), host: editorHost,
+      document: packagesNow.current.find(item => item.id === node.document),
+      inputs: Object.fromEntries(Object.entries(declaration?.inputs ?? {}).map(([port, input]) => {
+        const ids = node.inputs[port] ?? []
+        const selected = ids.flatMap(id => packagesNow.current.filter(item => item.id === id))
+        const missing = ids.filter(id => !selected.some(item => item.id === id))
+        const connected = edges.some(edge => edge.target === node.id && edge.target_port === port) || boundaryBindings.some(binding=>binding.port===port)
+        const unavailable = missing.length ? t("selected_packages_are_unavailable", {"0": missing.join(', ')}) : connected ? t("connected_input_requires_a_delivered_package_selected") : !ids.length ? t("no_delivered_package_is_selected_for", {"0": port, "1": input.required ? t('required_suffix') : ''}) : undefined
+        const available = runs.flatMap((run, runIndex) => Object.entries(run.nodes).flatMap(([callId, result]) => {
+          const sourceId = result.location?.node_id ?? callId
+          if (result.status !== 'succeeded' || JSON.stringify(callPath(run, callId)) !== JSON.stringify(path)) return []
+          return edges.filter(edge => edge.target === node.id && edge.target_port === port && edge.source === sourceId).flatMap(edge =>
+            (result.outputs[edge.source_port] ?? []).flatMap(id => {
+              const pkg = packagesNow.current.find(item => item.id === id && input.accepts.includes(item.format))
+              return pkg ? [{package: structuredClone(pkg), label: t("run", {"0": runIndex + 1, "1": callLabel(run, callId), "2": edge.source_port})}] : []
+            }))
+        }))
+        return [port, {packages: structuredClone(selected), available, ...(unavailable ? {unavailable} : {})}]
+      })),
+      async update(update: EditorUpdate) {
+        const parameters = update.parameters ? structuredClone(update.parameters) : undefined
+        currentTarget()
+        if ((await client.project(projectId)).running) throw new Error(t("project_is_running_wait_before_accepting_edits"))
+        currentTarget()
+        let inputs = { ...node.inputs, ...update.inputs }
+        let document = node.document
+        if (update.document && update.delivery) throw new Error(t("accept_one_editor_document_or_input_at"))
+        const replace = update.replaceConnections ?? []
+        const additions = update.connections ?? []
+        const changedPorts = new Set([...Object.keys(update.inputs ?? {}), ...(update.delivery ? [update.delivery.port] : [])])
+        if (replace.some(port => !changedPorts.has(port))) throw new Error(t("connection_replacement_requires_an_explicit_input_update"))
+        const current = currentTarget()
+        for (const edge of additions) {
+          const source = flowAt(current.flow, path)?.nodes.find(item => item.id === edge.source)
+          const output = declarationFor(source, catalog)?.outputs[edge.source_port]
+          const input = declaration?.inputs[edge.target_port]
+          if (edge.target !== node.id || !replace.includes(edge.target_port) || !input || !output || !input.accepts.includes(output.format) || (input.cardinality === 'one' && output.cardinality === 'many')) throw new Error(t("replacement_connection_does_not_match_the_current"))
+        }
+        if (new Set(additions.map(edge => JSON.stringify(edge))).size !== additions.length) throw new Error(t("duplicate_replacement_connection"))
+        function validateBindings(values: Record<string, string[]>, extra?: PackageInfo) {
+          for (const port of changedPorts) {
+            const input = declaration?.inputs[port]
+            if (!input) throw new Error(t("unknown_input_port", {"0": port}))
+            const ids = values[port] ?? []
+            const incoming = [...edges.filter(edge => !replace.includes(edge.target_port)), ...additions].filter(edge => edge.target === node.id && edge.target_port === port).length + boundaryBindings.filter(binding=>binding.port===port).length
+            if (input.cardinality === 'one' && ids.length + incoming > 1) throw new Error(t("input_accepts_only_one_package_explicitly_replace"))
+            for (const id of ids) {
+              const pkg = extra?.id === id ? extra : packagesNow.current.find(item => item.id === id)
+              if (!pkg || pkg.project_id !== projectId || !input.accepts.includes(pkg.format)) throw new Error(t("input_package_is_unavailable_or_has_an", {"0": port}))
+            }
+          }
+        }
+        if (update.delivery || update.document) {
+          const delivery = update.delivery ?? update.document!
+          if ('interaction' in delivery && !temporaryInteractions.current.has(delivery.interaction)) throw new Error(t("preview_has_ended_create_a_new_preview"))
+          if ('port' in delivery) {
+            if (!declaration?.inputs[delivery.port]) throw new Error(t("unknown_delivery_input_port"))
+            validateBindings({...inputs, [delivery.port]: []})
+          } else if (!declaration?.document_format) throw new Error(t("this_node_does_not_accept_editor_documents"))
+          const transfer = project!.tutorial ? {session} : null
+          if (transfer) { pendingInputTransfers.current.add(transfer); setInputTransfers(count => count + 1) }
+          try {
+            const received = 'interaction' in delivery ? await client.acceptInteraction(delivery.interaction, delivery.output) : await client.createInput(projectId, delivery.input)
+            try {
+              if ((await client.project(projectId)).running) throw new Error(t("project_is_running_wait_before_accepting_edits"))
+              currentTarget()
+            } catch (failure) {
+              if (received.project_id === 'tutorial') await client.discardDraftInput(received.id)
+              throw failure
+            }
+            if ('port' in delivery) {
+              inputs = {...inputs, [delivery.port]: [received.id]}
+              validateBindings(inputs, received)
+            } else {
+              if (received.project_id !== projectId || received.format !== declaration?.document_format) throw new Error(t("editor_document_format_does_not_match_this"))
+              document = received.id
+              validateBindings(inputs)
+            }
+            if (project!.tutorial) draftInputs.current.push(received)
+            packagesNow.current = [...packagesNow.current, received]; setPackages(packagesNow.current)
+          } finally {
+            if (transfer) { pendingInputTransfers.current.delete(transfer); if (session === projectSession.current) setInputTransfers([...pendingInputTransfers.current].filter(item => item.session === session).length) }
+          }
+        } else validateBindings(inputs)
+        currentTarget()
+        changeFlow(flow => ({...flow,
+          nodes: flow.nodes.map(item => item.id === node.id ? {...item, ...(parameters ? {parameters} : {}), inputs, ...(document ? {document} : {})} : item),
+          edges: [...flow.edges.filter(edge => !(edge.target === node.id && replace.includes(edge.target_port))), ...additions],
+        }), path)
+        const accepted = update.document ?? update.delivery
+        if (accepted && 'interaction' in accepted) {
+          const token = accepted.interaction
+          temporaryInteractions.current.delete(token)
+          void client.cancelInteraction(token).catch(() => {})
+        }
+      },
+    }
+  }
+  const selected = packages.find(item => item.id === selectedPackage)
+  const viewers = extensions.viewers?.filter(item => item.formats.includes(selected?.format ?? '')) ?? []
+  const activeViewer = viewers.find(item => item.id === viewer) ?? viewers.find(item => item.defaultFor?.includes(selected?.format ?? '')) ?? [...viewers].sort((a,b)=>a.id.localeCompare(b.id))[0]
+  const Viewer = activeViewer?.component
+  function resultName(run: Run, id: string) {
+    const result=run.nodes[id], path=callPath(run,id), original=result?.location?.node_id??id
+    const flow=run.flow?flowAt(run.flow,path):project?flowAt(project.flow,path):undefined
+    const node=flow?.nodes.find(item=>item.id===original)
+    const index=flow?.nodes.findIndex(item=>item.id===original)??-1
+    return `${index>=0?String(index+1).padStart(2,'0')+' ':''}${declarationFor(node,catalog)?.name??t("previous_node")}${result?.location?.round?t("round_suffix", {n:result.location.round}):''}${result?.location?.item?t("item_suffix", {n:result.location.item}):''}`
+  }
+  function packageDescription(pkg: PackageInfo) {
+    for (const [index, run] of runs.entries()) for (const [id, result] of Object.entries(run.nodes)) {
+      for (const values of Object.values(result.outputs)) if(values.includes(pkg.id))return t("run_2", {"0": index+1, "1": resultName(run,id), "2": values.length>1?' · '+(values.indexOf(pkg.id)+1):''})
+    }
+    function inputName(flow: Flow):string|undefined {
+      for(const node of flow.nodes){if(node.document===pkg.id||Object.values(node.inputs).some(ids=>ids.includes(pkg.id)))return declarationFor(node,catalog)?.name;if(node.scope){const found=inputName(node.scope.body);if(found)return found}}
+    }
+    return `${project?inputName(project.flow)??t("input_files"):t("input_files")} · ${packages.indexOf(pkg)+1}`
+  }
+  const viewedRun=runs.find(run=>run.id===resultRun)??(resultRun==='inputs'?undefined:runs.at(-1))
+  const viewedCalls=viewedRun?Object.keys(viewedRun.nodes):[]
+  const viewedCall=viewedRun?.nodes[resultCall]?resultCall:viewedCalls[0]??''
+  const viewedNode=viewedRun?.nodes[viewedCall]
+  const resultPackages=viewedRun?Object.entries(viewedNode?.outputs??{}).flatMap(([port,ids])=>ids.flatMap((id,index)=>{const pkg=packages.find(item=>item.id===id);return pkg?[{pkg,port,index}]:[]})):packages.filter(pkg=>!runs.some(run=>Object.values(run.nodes).some(node=>Object.values(node.outputs).some(ids=>ids.includes(pkg.id))))).map((pkg,index)=>({pkg,port:'',index}))
+  useEffect(()=>{if(!resultsOpen)return;if(!resultPackages.some(item=>item.pkg.id===selectedPackage)){setSelectedPackage(resultPackages[0]?.pkg.id??'');setViewer('')}},[resultsOpen,viewedRun?.id,viewedCall,packages,selectedPackage])
+  function openNodeResults(node: FlowNode) {
+    const match=[...runs].reverse().flatMap(run=>Object.entries(run.nodes).filter(([id,result])=>(result.location?.node_id??id)===node.id&&callPath(run,id).join('/')===scopePath.join('/')).map(([id])=>({run,id})))[0]
+    setResultRun(match?.run.id??'inputs');setResultCall(match?.id??'');setSelectedPackage(match?Object.values(match.run.nodes[match.id].outputs).flat()[0]??'':node.document??Object.values(node.inputs).flat()[0]??'');setViewer('');setResultsOpen(true)
+  }
+  async function useResult() {
+    const node=activeFlow?.nodes.find(item=>item.id===useTarget)
+    if(!node||!selected||!usePort)return
+    await editorContext(node).update({inputs:{[usePort]:[selected.id]},replaceConnections:[usePort]})
+    setNotice(t("applied_to")+(declarationFor(node,catalog)?.name??t("node")));setUseTarget('');setUsePort('')
+  }
+  function updateNode(id: string, update: Partial<FlowNode>) {
+    const ownedUpdate = update.parameters ? {...update, parameters: structuredClone(update.parameters)} : update
+    changeFlow(flow => ({...flow,nodes:flow.nodes.map(node=>node.id===id?{...node,...ownedUpdate}:node)}))
+  }
+
+  async function connectCanvas(edge: Edge, replacingIndex?: number) {
+    const flow = activeFlow!
+    const problem = connectionProblem(flow, catalog, edge, replacingIndex)
+    if (problem) throw new Error(problem)
+    const input = declarationFor(flow.nodes.find(node => node.id === edge.target), catalog)?.inputs[edge.target_port]
+    if (input?.cardinality === 'one' && activeScope?.scope?.input_bindings.some(binding => binding.node === edge.target && binding.port === edge.target_port)) throw new Error(t("this_input_is_connected_to_the_subflow"))
+    changeFlow(current => ({...current, edges: [...current.edges.filter((_, index) => index !== replacingIndex), structuredClone(edge)]}))
+  }
+  function addCanvasNode(type: string, position: {x:number;y:number}) {
+    const id = crypto.randomUUID()
+    const scope = type==='host.map'||type==='host.repeat'?{inputs:{},outputs:{},body:{nodes:[],edges:[]},input_bindings:[],output_bindings:[],...(type==='host.map'?{item_input:''}:{rounds:2,feedback:{}})}:undefined
+    change(current => ({...current, flow: replaceFlow(current.flow, scopePath, flow => ({...flow, nodes: [...flow.nodes, {id,type,parameters:{},inputs:{},...(scope?{scope}:{})}]})), layout: {...current.layout, [id]:position}}))
+  }
+  function copyCanvasNodes(ids: string[]) {
+    const copies = activeFlow!.nodes.filter(node => ids.includes(node.id)).map(node => ({original:node.id, node:{...copyNode(node),id:crypto.randomUUID()}}))
+    change(current => ({...current, flow: replaceFlow(current.flow, scopePath, flow => ({...flow, nodes:[...flow.nodes,...copies.map(item=>item.node)]})), layout:{...current.layout,...Object.fromEntries(copies.map(item=>[item.node.id,{x:(current.layout[item.original]?.x??(28+activeFlow!.nodes.findIndex(node=>node.id===item.original)%3*380))+36,y:(current.layout[item.original]?.y??(24+Math.floor(activeFlow!.nodes.findIndex(node=>node.id===item.original)/3)*280))+36}]))}}))
+  }
+  function removeCanvasNodes(ids: string[]) {
+    change(current => {
+      let flow = replaceFlow(current.flow, scopePath, body => ({...body,nodes:body.nodes.filter(node=>!ids.includes(node.id)),edges:body.edges.filter(edge=>!ids.includes(edge.source)&&!ids.includes(edge.target))}))
+      if (scopePath.length) flow = replaceFlow(flow,scopePath.slice(0,-1),body=>({...body,nodes:body.nodes.map(node=>node.id===scopePath.at(-1)&&node.scope?{...node,scope:{...node.scope,input_bindings:node.scope.input_bindings.filter(binding=>!ids.includes(binding.node)),output_bindings:node.scope.output_bindings.filter(binding=>!ids.includes(binding.node))}}:node)}))
+      return {...current,flow,layout:Object.fromEntries(Object.entries(current.layout).filter(([id])=>!ids.includes(id)))}
     })
-  }, [prompt])
-  const prepareSourcePrompt = useCallback(async (plan: PromptSourcePlan) => {
-    const snapshot = await client.openPrompt(plan.workflow.workflow_id, plan.nodeId, plan.workflow)
-    setPrompt({ nodeId: plan.nodeId, snapshot, workflow: plan.workflow, session: inputSource!.session })
-    setInputSource(undefined)
-    mergeSourceCompletion.current?.(snapshot); mergeSourceCompletion.current = undefined
-  }, [inputSource])
-  const importSourceCandidates = useCallback(async (plan: CandidateInputPlan) => {
-    await commitSession(inputSource!.session, plan.workflow)
-    setInputSource(undefined)
-  }, [commitSession, inputSource])
-  const closeInputSource = useCallback(() => { setInputSource(undefined); mergeSourceCompletion.current?.(undefined); mergeSourceCompletion.current = undefined }, [])
-  const validConnection = useCallback((connection: Connection | Edge) => {
-    const source = displayed.find((node) => node.id === connection.source)!
-    const target = displayed.find((node) => node.id === connection.target)!
-    const sourcePort = connection.sourceHandle!.slice(4)
-    const targetPort = connection.targetHandle!.slice(3)
-    if (source.data.collapsed || target.data.collapsed || source.data.kind === 'boundary' || target.data.kind === 'boundary') return false
-    return workflowPortsMatch(source.data.outputs.find(port => port.name === sourcePort)!, target.data.inputs.find(port => port.name === targetPort)!)
-  }, [displayed])
-  const palette = useMemo(() => catalog && capabilities ? projectPalette(catalog, capabilities, paletteTaxonomy, search) : [], [catalog, capabilities, paletteTaxonomy, search])
-  const progressNodeTitle = useMemo(() => {
-    if (!runProgress?.currentNodeId || !draft || !catalog) return ''
-    const node = draft.workflow.nodes.find((item) => item.node_id === runProgress.currentNodeId)
-    const descriptor = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === node?.node_type_id)?.descriptor
-    return String(descriptor?.title ?? node?.node_type_id ?? runProgress.currentNodeId)
-  }, [catalog, draft, runProgress?.currentNodeId])
-  const runActive = resultSnapshot.connection !== undefined && (!run || ['admitted', 'running'].includes(run.status))
-  const pendingNodeTitle = pendingNodeDrop && catalog ? nodeTypePresentation(catalog, pendingNodeDrop.nodeTypeId).title : ''
-  const inputSourceDialog = inputSource && catalog && <InputSourceDialog projectId={inputSource.projectId} workflow={inputSource.workflow} catalog={catalog} client={client} saveAccepted={inputSource.session.submitted} saveError={editing.error !== undefined ? workspaceErrorMessage(editing.error) : undefined} onRetrySave={async () => { await editor.retry(); if (inputSource.session.submitted) setInputSource(current => current?.session === inputSource.session ? undefined : current) }} preparePublication={async () => {
-    const personal = await inputSource.session.writableProject()
-    const scope = { projectId: personal.id, workflow: { ...inputSource.workflow, workflow_id: personal.id } }
-    setInputSource(current => current?.session === inputSource.session ? { ...current, ...scope } : current)
-    return scope
-  }} mergeTargetNodeId={inputSource.mergeTargetNodeId} onPreparePrompt={prepareSourcePrompt} onImportCandidates={importSourceCandidates} onClose={closeInputSource} />
+  }
+  function disconnect(index: number) { changeFlow(flow=>({...flow,edges:flow.edges.filter((_,i)=>i!==index)})) }
+  function locateCall(run: Run, id: string) {
+    const original = run.nodes[id]?.location?.node_id ?? id
+    const path = callPath(run,id)
+    if (!currentProject.current || !flowAt(currentProject.current.flow,path)?.nodes.some(node=>node.id===original)) { setNotice(t("this_node_has_been_deleted_from_the")); return }
+    navigateScope(path)
+    setFocusRequest({id:original,token:Date.now()})
+  }
+  const canvasCatalog={...catalog,nodes:[...catalog.nodes,...(['host.map','host.repeat'].map(id=>({id,name:id==='host.map'?t("for_each"):t("repeat"),module_id:'host',inputs:{},outputs:{},parameters:{}})))]}
+  const WorkspaceEditor = workspace?.editor.component
+  return <div className="workbench workbench-fullscreen"><div className="workbench-base" inert={!!workspace}>
+    <header><div className="project-menu-anchor"><button className="project-trigger" aria-expanded={projectMenu} onClick={()=>setProjectMenu(!projectMenu)}>{project?.name??t("project")} ▾</button>{projectMenu&&<div className="project-menu"><button onClick={()=>{setManagementOpen(true);setProjectMenu(false)}}>{t("new_open")}</button><button disabled={!project||locked||saving} onClick={()=>{setProjectMenu(false);void copyProject().catch(fail)}}>{t("duplicate_project")}</button><button onClick={()=>{setModulesOpen(true);setProjectMenu(false)}}>{t("modules")}</button><details><summary>{t("more_imports")}</summary>{extensions.actions?.map(action=><button key={action.id} onClick={()=>{setImportAction(action.id);setProjectMenu(false)}}>{text(action.name)}</button>)}</details><button disabled={!project||project.tutorial||locked||saving} onClick={()=>{setProjectMenu(false);void deleteProject()}}>{t("delete_project")}</button></div>}</div>
+    {dirty&&<span className="unsaved-dot" title={t("unsaved")} aria-label={t("unsaved")}/>}<div className="header-spacer"/><LanguagePicker/>
+    <button aria-label={t("undo")} title={t("undo")} disabled={locked||!undoStack.current.length} onClick={()=>restoreHistory()}>↶</button><button aria-label={t("redo")} title={t("redo")} disabled={locked||!redoStack.current.length} onClick={()=>restoreHistory(true)}>↷</button>
+    <button aria-expanded={resultsOpen} onClick={()=>setResultsOpen(!resultsOpen)}>{t("results")}</button><button disabled={!project||locked||saving||waitingForTeachingInputs} onClick={()=>save().catch(fail)}>{saving?t("saving"):t("save")}</button><button className="primary" disabled={!project||locked||saving||waitingForTeachingInputs} onClick={()=>run().catch(fail)}>{t("run_3")}</button>{running&&<button disabled={submittingRun.current||!cancellableRuns.length} onClick={()=>void cancelRun()}>{t("stop")}</button>}</header>
+    {([{ message: error, dismiss: setError }, { message: moduleError, dismiss: setModuleError }, { message: projectListError, dismiss: setProjectListError }]).map(({ message, dismiss }, index) => message && <div key={index} role="alert" className="error">{message}<button aria-label={t("dismiss")} onClick={() => dismiss('')}>×</button></div>)}
+    {notice&&<p role="status">{notice}</p>}
+    {managementOpen&&<aside className="workbench-management" aria-label={t("project")}><div className="panel-heading"><h2>{t("project")}</h2><button aria-label={t("close_projects")} onClick={()=>setManagementOpen(false)}>×</button></div><button disabled={projectBusy} onClick={()=>{void openTutorial().then(()=>setManagementOpen(false)).catch(fail)}}>{t("open_example")}</button><form onSubmit={e=>{e.preventDefault();void createProject().then(()=>setManagementOpen(false)).catch(fail)}}><label>{t("project_name")}<input value={projectName} onChange={e=>setProjectName(e.target.value)}/></label><button disabled={projectBusy}>{t("create")}</button></form><ul>{projects.map(item=><li key={item.id}><button disabled={projectBusy} onClick={()=>open(item.id).then(()=>setManagementOpen(false)).catch(fail)}>{item.name}</button></li>)}</ul></aside>}
+    {modulesOpen&&<aside className="workbench-management" aria-label={t("modules")}><div className="panel-heading"><h2>{t("modules")}</h2><button aria-label={t("close_modules")} onClick={()=>setModulesOpen(false)}>×</button></div><ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} invalidateRefresh={invalidateRefresh} fail={fail}/></aside>}
+    {importAction&&<aside className="workbench-management"><div className="panel-heading"><h2>{text(extensions.actions?.find(action=>action.id===importAction)?.name)}</h2><button aria-label={t("close_import")} onClick={()=>setImportAction('')}>×</button></div>{extensions.actions?.filter(action=>action.id===importAction).map(action=><ExtensionBoundary key={action.id}><action.component host={host}/></ExtensionBoundary>)}</aside>}
+    <main>{waitingForTeachingInputs&&<p role="status">{t("loading_input_files")}</p>}{project&&<>
+        <section key={projectSession.current} className="canvas" aria-label={t("node_canvas")} ref={canvas}>
+          <nav hidden={!scopePath.length} className="scope-navigation" aria-label={t("subflow_navigation")}><button onClick={()=>navigateScope([])} disabled={!scopePath.length}>{t("canvas")}</button>{scopePath.map((id,index)=><button key={id} disabled={index===scopePath.length-1} onClick={()=>navigateScope(scopePath.slice(0,index+1))}>{index+1}: {declarationFor(flowAt(project.flow,scopePath.slice(0,index))?.nodes.find(node=>node.id===id),catalog)?.name??id}</button>)}</nav>
+          {activeScope?.scope && <ScopeEditor key={activeScope.id} node={activeScope} catalog={catalog} disabled={locked} onChange={changeScope} />}
+          <WorkflowCanvas key={`canvas:${scopePath.join('/')}`} focusRequest={focusRequest} flow={activeFlow!} catalog={canvasCatalog} layout={project.layout} disabled={locked} selectedSource={connection}
+            onSource={(source,source_port)=>setConnection({source,source_port,target:'',target_port:''})}
+            onTarget={(target,target_port)=>{const edge={...connection,target,target_port};setConnection(edge);if(edge.source&&edge.source_port)void host.connect(edge).then(()=>setConnection({source:'',source_port:'',target:'',target_port:''})).catch(fail)}}
+            onMove={(id,position)=>change(current=>({...current,layout:{...current.layout,[id]:{...current.layout[id],...position}}}))} onDisconnect={disconnect}
+            onConnect={connectCanvas} onAdd={addCanvasNode} onCopy={copyCanvasNodes} onDelete={removeCanvasNodes}
+            onMoveMany={positions=>change(current=>({...current,layout:{...current.layout,...positions}}))}
+            renderNodeResult={node=>{const record=[...runs].reverse().find(run=>Object.entries(run.nodes).some(([id,r])=>(r.location?.node_id??id)===node.id&&callPath(run,id).join('/')===scopePath.join('/')));const calls=record?Object.entries(record.nodes).filter(([id,r])=>(r.location?.node_id??id)===node.id&&callPath(record,id).join('/')===scopePath.join('/')):[];return calls.length||node.document||Object.values(node.inputs).some(ids=>ids.length)?<button onClick={()=>openNodeResults(node)}>{calls.some(([,r])=>r.status==='failed')?t("failed_view"):calls.some(([,r])=>r.status==='running')?t("running"):t("results_2")}</button>:null}}
+            renderNodeSummary={node=> {
+              const editor = extensions.editors?.find(item=>item.node===node.type)
+              const declaration = declarationFor(node,catalog)
+              const InlineEditor=editor?.inline?editor.component:null
+              return <>
+                {InlineEditor&&<ExtensionBoundary key={node.id+editor?.installation_id}><InlineEditor context={editorContext(node)} parameters={node.parameters} readOnly={locked} onChange={(parameters: Record<string,unknown>)=>updateNode(node.id,{parameters})}/></ExtensionBoundary>}
+                {editor?.workspace && <button disabled={locked} onClick={()=>openWorkspace(node,editor)}>{text(editor.workspace.openLabel) || t("open", {"0": text(editor.workspace.title)})}</button>}
+                {Object.entries(declaration?.tools??{}).map(([slot,contract])=><label key={slot}>{t("tool")}<CanvasToolPicker label={t("tool_2", {"0": declaration?.name})} disabled={locked} value={node.tools?.[slot]??''} options={[{id:'',name:t("select_tool")},...(catalog.tools??[]).filter(tool=>tool.slot===contract.id)]} onChange={value=>updateNode(node.id,{tools:{...node.tools,[slot]:value},tool_parameters:{...node.tool_parameters,[slot]:{}}})} /></label>)}
+              </>
+            }}
+            renderNode={(node) => {
+            const declaration = declarationFor(node, catalog)
+            const editor = extensions.editors?.find(item => item.node === node.type)
+            const Editor = editor?.component
+            const context = editorContext(node)
+            const editorSession = projectSession.current
+            function currentEditorTarget() {
+              if (!liveProject.current || editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || scopePathNow.current.join('/')!==scopePath.join('/') || !flowAt(currentProject.current.flow, scopePath)?.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error(t("editor_draft_changed_reopen_the_current_node"))
+              if (runningNow.current || deletingProject.current === context.projectId || (savingNow.current && currentProject.current.tutorial)) throw new Error(t("project_is_running_saving_or_being_deleted"))
+            }
+            return <article className="node" key={node.id}>
+              {!declaration&&<p role="alert">{t("the_module_for_this_node_is_not")}</p>}
+              {node.scope ? <button onClick={()=>navigateScope([...scopePath,node.id])}>{t("open_subflow")}</button> : editor?.workspace || editor?.inline ? null : Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
+                try {
+                  currentEditorTarget()
+                  updateNode(node.id, {parameters})
+                } catch (failure) { fail(failure) }
+              }} onDraftChange={() => {
+                try { currentEditorTarget(); markDirty(true); setNotice('') }
+                catch (failure) { fail(failure) }
+              }} /></ExtensionBoundary> : <ParameterFields schema={declaration?.parameters??{}} value={node.parameters} disabled={locked} onChange={(parameters: Record<string,unknown>)=>updateNode(node.id,{parameters})}/> }
+              {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
+                const tool=catalog.tools?.find(item=>item.id===node.tools?.[slot]&&item.slot===contract.id)
+                return tool&&<fieldset key={slot} disabled={locked}><legend>{t("parameters")}</legend><ParameterFields schema={tool.parameters} value={node.tool_parameters?.[slot]??{}} disabled={locked} onChange={parameters=>updateNode(node.id,{tool_parameters:{...node.tool_parameters,[slot]:parameters}})}/></fieldset>
+              })}
+              {!!Object.keys(declaration?.inputs??{}).length&&<details className="node-inputs"><summary>{t("input_sources")}</summary>{Object.entries(declaration?.inputs??{}).map(([port,input])=>{const connected=activeFlow!.edges.find(edge=>edge.target===node.id&&edge.target_port===port);return <label key={port}>{input.name??port}{connected&&<small>{t("connected")}{declarationFor(activeFlow!.nodes.find(item=>item.id===connected.source),catalog)?.name??t("upstream_node")}</small>}<select disabled={locked} multiple={input.cardinality==='many'} value={input.cardinality==='many'?node.inputs[port]??[]:node.inputs[port]?.[0]??''} onChange={e=>{const ids=Array.from(e.target.selectedOptions).map(option=>option.value).filter(Boolean);void editorContext(node).update({inputs:{[port]:ids},...(ids.length?{replaceConnections:[port]}:{})}).catch(fail)}}><option value="">{connected?t("use_connection"):t("not_selected")}</option>{packages.filter(pkg=>input.accepts.includes(pkg.format)).map(pkg=><option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select></label>})}</details>}
 
-  if (!project || !draft) return <div className="loading-screen">{runError ? <p role="alert">{runError}</p> : '正在从 public v2 protocol 加载 WebUI 示例…'}</div>
-  const runControls = <>
-    {runProgress && <RunProgressBar progress={runProgress} nodeTitle={progressNodeTitle} resultsLoading={resultsLoading} resultsAvailable={resultsAvailable} onResults={showResults} onCancel={() => { void client.cancelRun(runProgress.projectId!, runProgress.runId!).catch((reason) => setRunError(JSON.stringify(reason))) }} />}
-    {runActive && resultSnapshot.connection === 'disconnected' && <div className="run-connection-error" role="status">运行状态连接已断开；Run 仍可能在执行。<button onClick={() => results.reconnect()}>从已接收位置重新连接</button></div>}
-    {runError && <pre role="alert">{runError}</pre>}
-    {resultLoadError && <div role="alert"><pre>{resultLoadError}</pre><button onClick={() => void results.refresh()}>重试读取 Run 结果</button></div>}
-    {promptOpenError && <div className="workspace-error" role="alert">无法打开节点 {promptOpenError.nodeId} 的 Prompt：{promptOpenError.message}<button onClick={() => openPromptEditor(promptOpenError.nodeId)}>重新打开</button><button onClick={() => setPromptOpenError(undefined)}>关闭提示</button></div>}
-    {run && <RunDiagnostics errors={resultSnapshot.diagnostics} onFocus={focusCanvasNode} />}
-  </>
-  const promptCanvas = canvasFromUi(editing.desired!.ui_state)
-  const promptOwner = prompt && promptCanvas.groups?.find(group => group.nodeIds.includes(prompt.nodeId))
-  const promptView = prompt && <>{<div className="prompt-context" aria-label="Prompt 所属流程"><span>{project.name}</span>{groupPath(promptCanvas, promptOwner?.id ?? null).map(group => <span key={group.id}>› {group.label}</span>)}<strong>› {nodeLabels[prompt.nodeId] ?? prompt.nodeId}</strong><code>{prompt.nodeId}</code><span>保存后写回此节点，返回原画布位置</span></div>}<PromptStudio snapshot={prompt.snapshot} onCancel={closePromptEditor} onAddMergeSource={addMergeSource} saveError={editing.error !== undefined ? workspaceErrorMessage(editing.error) : undefined} saveAccepted={prompt.session.submitted} onRetrySave={async () => { const saved = await editor.retry(); if (saved && prompt.session.submitted) { setNotice({ workspace: saved, message: 'Prompt 已保存' }); setBlockedMergeNodes([]); closePromptEditor() } }} onPreview={async document => {
-    const projectId = prompt.session.base.workflow.workflow_id
-    return client.previewPrompt(projectId, prompt.nodeId, document, { ...prompt.workflow, workflow_id: projectId }, prompt.session.versionContext())
-  }} onApply={async preview => {
-    const workflow = { ...prompt.workflow, nodes: prompt.workflow.nodes.map(node => node.node_id === prompt.nodeId ? { ...node, node_parameters: { ...node.node_parameters, [promptAuthorDocumentParameter]: preview.normalized_document } } : node) }
-    const saved = await commitSession(prompt.session, workflow)
-    if (saved) { setNotice({ workspace: saved, message: 'Prompt 已保存' }); setBlockedMergeNodes([]); closePromptEditor() }
-  }} />{inputSourceDialog}</>
+            </article>
+          }} />
+        </section>
+        {resultsOpen&&<aside className="workbench-results" aria-label={t("results")}><div className="panel-heading"><h2>{t("results")}</h2><button aria-label={t("close_results")} onClick={()=>setResultsOpen(false)}>×</button></div>
+          <div className="result-selectors"><select aria-label={t("select_run")} value={viewedRun?.id??'inputs'} onChange={e=>{setResultRun(e.target.value);setResultCall('');setSelectedPackage('');setViewer('')}}><option value="inputs">{t("input_files")}</option>{runs.map((run,index)=><option key={run.id} value={run.id}>{t("run_4")} {index+1}  {t("message_3")} {statusLabel(run.status)}</option>)}</select>{viewedRun&&<select aria-label={t("select_result_node")} value={viewedCall} onChange={e=>{setResultCall(e.target.value);setSelectedPackage('');setViewer('')}}>{viewedCalls.map(id=><option key={id} value={id}>{resultName(viewedRun,id)} · {statusLabel(viewedRun.nodes[id].status)}</option>)}</select>}</div>
+          {viewedRun?.diagnostics.map((message,i)=><p role="status" key={i}>{message}</p>)}
+          {viewedNode&&<div className="result-status"><button onClick={()=>locateCall(viewedRun!,viewedCall)}>{t("locate_node")}</button>{['failed','cancelled'].includes(viewedNode.status)&&(viewedRun?.calls?.[viewedCall]!==undefined||viewedRun?.scopes?.[viewedCall]!==undefined)&&<button disabled={locked||saving} onClick={()=>void continueRun(viewedRun!.id,viewedCall)}>{t("continue")}</button>}{viewedNode.diagnostics?.map((message,i)=><p role="alert" key={i}>{message}</p>)}</div>}
+          {resultPackages.length>1&&<select aria-label={t("select_output")} value={selectedPackage} onChange={e=>{setSelectedPackage(e.target.value);setViewer('')}}>{resultPackages.map(({pkg,index,port})=><option key={pkg.id} value={pkg.id}>{viewedRun?`${declarationFor(viewedRun.flow&&flowAt(viewedRun.flow,callPath(viewedRun,viewedCall))?.nodes.find(node=>node.id===(viewedNode?.location?.node_id??viewedCall)),catalog)?.outputs[port]?.name??t("output")} ${index+1}`:packageDescription(pkg)}</option>)}</select>}
+          {!resultPackages.length&&<p className="empty-result">{t("no_results_yet")}</p>}
+          {selected&&resultPackages.some(item=>item.pkg.id===selected.id)&&<section className="package">
 
-  return <>{promptView}{run && catalog && resultsIdentity && visitedResults.has(resultsIdentity) && <div hidden={view !== 'results' || !!prompt} className="persistent-results"><ResultsWorkbench key={resultsIdentity} workspaceProjectId={project.id} viewStateStore={resultsViewStateStore} runControls={runControls} results={results} run={run} index={resultIndex} loading={resultsLoading} loadError={resultLoadError} catalog={{ contracts: resultIndex.definitions, availability: [] }} scienceStatus={scienceStatus} authoringCatalog={catalog} onBack={() => setView('workflow')} onBeginEdit={beginCanvasEdit} onSaveWorkflow={commitSession} saveError={editing.error !== undefined ? workspaceErrorMessage(editing.error) : ''} onRetrySave={() => editor.retry()} active={view === 'results' && !prompt} requestedSource={requestedResultSource} nodeLabels={resultNodeLabels} onLocateNode={(nodeId: string) => locateResultNodes([nodeId])} onLocateCreatedNodes={locateResultNodes} /></div>}<div hidden={view === 'results' || !!prompt} className="app-shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Braces size={16} /></span><div><strong>Protein</strong><span>Workbench</span></div></div><div className="project-identity"><div><span className="page-kicker">{project.project_kind.replace('_', ' ')}</span><strong>{project.name}</strong></div>{project.seed && <span className="immutable-pill">只读示例</span>}</div><nav className="view-tabs"><button className="active"><Network size={14} /> Workflow</button><button disabled={!run || run.outputs.length === 0 && run.artifact_index.length === 0} onClick={showResults}><Activity size={14} /> Results <span>{resultIndex.collections.reduce((sum, item) => sum + item.total, 0)}</span></button></nav><div className="top-actions"><span className="save-state" aria-label="流程保存状态"><span />{saveState}</span><span className="save-state" aria-label="布局保存状态"><span />{uiSaveState}</span><button className="icon-button" aria-label="撤销画布修改" title={editing.undoLabel ? `撤销：${editing.undoLabel}` : '没有可撤销的操作'} disabled={!editing.canUndo} onClick={undo}><RotateCcw size={16} /></button><button className="icon-button" aria-label="重做画布修改" title={editing.redoLabel ? `重做：${editing.redoLabel}` : '没有可重做的操作'} disabled={!editing.canRedo} onClick={redo}>↪</button><button className="secondary-button" onClick={() => { void beforeWorkspaceAction().then(() => setProjectsOpen(true)).catch(reportSaveError) }}><FolderOpen size={14} /> 项目</button><button className="run-button" disabled={runActive} onClick={() => void beforeWorkspaceAction().then(() => setRunOpen(true)).catch(reportSaveError)}>{runActive ? <LoaderCircle size={14} /> : <Play size={14} />} {runActive ? '运行中' : '运行流程'}</button></div></header>
-    {(viewedVersion || workspace?.return_workspace_revision !== null && workspace?.return_workspace_revision !== undefined) && <div className="version-work-banner" role="status"><span>{viewedVersion ? `正在查看版本“${viewedVersion.version.name}”；首次修改将另存为当前工作。` : '当前工作由旧版本继续，原工作仍然保留。'}</span><button onClick={() => void returnOriginalWork().catch(reportSaveError)}>返回原工作</button></div>}
-    {saveError && <div className="workspace-error" role="alert">{saveError}<button onClick={() => void finishInputs().then(() => editor.retry()).then(() => { setInputError(''); if (selectionEdit?.session.submitted) setSelectionEdit(undefined); if (inputSource?.session.submitted) setInputSource(undefined) }).catch(reportSaveError)}>重试保存</button></div>}
-    {blockedMergeNodes.length > 0 && <div className="workspace-error" role="alert">现有合并来源受保护；请先在 Prompt Studio 调整并保存合并操作。{blockedMergeNodes.map(nodeId => <button key={nodeId} onClick={() => openPromptEditor(nodeId)}>打开 Prompt Studio：{nodeId}</button>)}</div>}
-    {runControls}
-    <nav className="canvas-breadcrumb" aria-label="节点组路径"><button onClick={() => void navigateCanvas(null).catch(reportSaveError)}>{project.name}</button>{groupPath(canvasFromUi(editing.desired!.ui_state), currentCanvasGroup(canvasFromUi(editing.desired!.ui_state))).map(group => <button key={group.id} onClick={() => void navigateCanvas(group.id).catch(reportSaveError)}>› {group.label}</button>)}{currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) && <button onClick={() => { const canvas = canvasFromUi(editing.desired!.ui_state); void navigateCanvas(canvas.groups!.find(group => group.id === currentCanvasGroup(canvas))!.parentId).catch(reportSaveError) }}>返回上层 · Tab</button>}</nav>
-    {!!canvasFromUi(editing.desired!.ui_state).groups?.some(group => group.stage && group.parentId === null) && <nav className="canvas-stage-navigation" aria-label="流程阶段">{canvasFromUi(editing.desired!.ui_state).groups!.filter(group => group.stage && group.parentId === null).sort((left, right) => left.stage!.order - right.stage!.order).map(group => <button key={group.id} aria-label={`阶段 ${group.stage!.order} ${group.label}`} aria-current={groupPath(canvasFromUi(editing.desired!.ui_state), currentCanvasGroup(canvasFromUi(editing.desired!.ui_state))).some(parent => parent.id === group.id) || nodes.some(node => node.id === group.id && node.selected) ? 'step' : undefined} onClick={() => void navigateCanvas(null, group.id).catch(reportSaveError)}><span>{String(group.stage!.order).padStart(2, '0')}</span>{group.label}</button>)}</nav>}
-    {currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) && catalog && <GroupInterfaceEditor canvas={canvasFromUi(editing.desired!.ui_state)} workflow={draft.workflow} catalog={catalog} groupId={currentCanvasGroup(canvasFromUi(editing.desired!.ui_state))!} onChange={ports => { void editor.edit(current => { const canvas = canvasFromUi(current.ui_state), id = currentCanvasGroup(canvas); return { ui_state: { ...current.ui_state, canvas: { ...canvas, groups: canvas.groups!.map(group => group.id === id ? { ...group, ports } : group) } } } }).catch(reportSaveError) }} />}
-    {<div className="canvas-toolbar"><button aria-label={sidebarOpen ? '收起研究操作面板' : '展开研究操作面板'} aria-pressed={sidebarOpen} onClick={() => setSidebarOpen(open => !open)}><PanelLeftClose size={14} />研究操作</button><span>在节点上查看输出；进入阶段编辑完整流程</span></div>}
-    <div className="workspace-shell"><aside className={`palette ${sidebarOpen ? '' : 'closed'}`}><header><div><span className="page-kicker">OPERATION PALETTE</span><h2>研究操作</h2></div><button className="icon-button" aria-label="收起研究操作面板" onClick={() => setSidebarOpen(false)}><PanelLeftClose size={16} /></button></header><div className="palette-search"><Search size={15} /><input placeholder="搜索 active Catalog…" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="taxonomy-switch"><button className={paletteTaxonomy === 'purpose' ? 'active' : ''} onClick={() => setPaletteTaxonomy('purpose')}>按研究目的</button><button className={paletteTaxonomy === 'provider' ? 'active' : ''} onClick={() => setPaletteTaxonomy('provider')}>按包 / 模型</button></div><div className="palette-section"><span className="section-label">ACTIVE CATALOG</span>{palette.map((group) => <section className="palette-group" key={group.label}><span className="palette-group-title">{group.label}</span>{group.entries.map((item) => <button className="palette-item" key={`${group.label}-${item.id}`} onClick={() => addPaletteNode(item.id)} draggable onDragStart={(event) => { event.dataTransfer.setData('application/protein-workbench-node-type', item.id); event.dataTransfer.effectAllowed = 'move' }}><span className="palette-icon"><Atom size={16} /></span><span><strong>{item.title}</strong><small>{paletteTaxonomy === 'purpose' ? item.purpose : group.label}</small></span><Plus size={14} /></button>)}</section>)}</div><div className="catalog-status"><span className="status-light" /><div><strong>Active Catalog</strong><small>{catalog?.contracts.length} contracts</small></div><CircleHelp size={14} /></div></aside>
-      <ContextMenu.Root><ContextMenu.Trigger asChild><main className="flow-canvas" tabIndex={0} onPointerMove={event => { canvasPointer.current = { x: event.clientX, y: event.clientY } }}>{!sidebarOpen && <button className="floating-open" aria-label="展开研究操作面板" onClick={() => setSidebarOpen(true)}><ChevronRight size={16} /></button>}<ReactFlow nodes={displayed} edges={currentFlowEdges} elevateEdgesOnSelect nodeTypes={{ workflow: WorkflowCard }} isValidConnection={validConnection} onInit={(instance) => { flowInstance.current = instance; const canvas = canvasFromUi(editor.getSnapshot().desired!.ui_state); const viewport = canvas.views?.[currentCanvasGroup(canvas) ?? 'root'] ?? canvas.viewport; if (viewport) requestAnimationFrame(() => void instance.setViewport(viewport)) }} onMoveEnd={(event, viewport) => { if (event) void persistCanvas(nodesRef.current, viewport).catch(reportSaveError) }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' }} onDrop={dropPaletteNode} onPaneClick={event => (event.currentTarget.closest('main') as HTMLElement | null)?.focus()} onNodeClick={event => { if (event.target instanceof Element && !event.target.closest('button, input, textarea, select, summary, a, [contenteditable="true"]')) (event.currentTarget as HTMLElement).focus({ preventScroll: true }) }} onNodeContextMenu={(_event, node) => { if (!node.selected && node.data.kind !== 'boundary') { const next = nodesRef.current.map(item => ({ ...item, selected: item.id === node.id })); nodesRef.current = next; setNodes(next) } }} onBeforeDelete={async ({ nodes: deletedNodes, edges: deletedEdges }) => { try { await deleteWorkflowElements(deletedNodes, deletedEdges) } catch (reason) { reportConnectionError(reason) }; return false }} onNodesChange={(changes: NodeChange<FlowNode>[]) => { const next = applyNodeChanges(changes.filter(change => change.type !== 'remove'), nodesRef.current); nodesRef.current = next; setNodes(next); if (changes.some((change) => change.type === 'position' && change.dragging === false)) void persistCanvas(next).catch(reportSaveError) }} onEdgesChange={(changes: EdgeChange<Edge>[]) => { const next = applyEdgeChanges(changes.filter(change => change.type !== 'remove'), edgesRef.current); edgesRef.current = next; setEdges(next) }} onConnectStart={() => { reconnectGesture.current = false }} onReconnectStart={() => { reconnectGesture.current = true }} onConnectEnd={(event, state) => {
-        if (state.isValid || reconnectGesture.current || state.fromHandle?.type !== 'source' || !state.fromNode || !(event.target instanceof Element) || !event.target.classList.contains('react-flow__pane')) return
-        const current = editor.getSnapshot().desired!
-        const port = resolveCanvasPort(canvasFromUi(current.ui_state), current.workflow, state.fromNode.id, state.fromHandle.id!.slice(4), 'output')
-        if (!port) return
-        const source = current.workflow.nodes.find(node => node.node_id === port.nodeId)!
-        const presented = nodeTypePresentation(catalog!, source.node_type_id).outputs.find(item => item.name === port.portName)!
-        const point = 'changedTouches' in event ? event.changedTouches[0] : event
-        setCanvasPicker({ x: point.clientX, y: point.clientY, from: { nodeId: port.nodeId, portName: port.portName, portTypeId: presented.portTypeId, multiplicity: presented.multiplicity } })
-      }} onConnect={(connection: Connection) => { void connectPorts(connection).catch(reportConnectionError) }} onReconnect={(edge, connection) => { void connectPorts(connection, edge.data!.workflowEdge as Workflow['edges'][number]).catch(reportConnectionError) }} fitView={!canvasFromUi(editing.desired!.ui_state).viewport && !canvasFromUi(editing.desired!.ui_state).views?.[currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) ?? 'root']} defaultViewport={canvasFromUi(editing.desired!.ui_state).views?.[currentCanvasGroup(canvasFromUi(editing.desired!.ui_state)) ?? 'root'] ?? canvasFromUi(editing.desired!.ui_state).viewport} fitViewOptions={{ padding: 0.16 }} minZoom={0.01} maxZoom={1.5} deleteKeyCode={['Backspace', 'Delete']} selectionOnDrag><Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#39413b" /><MiniMap nodeColor={(node) => String(node.data.accent)} maskColor="rgba(14,16,14,.72)" /><Controls showInteractive={false} position="top-right" orientation="horizontal" style={{ top: 60 }} /><Panel position="top-left" className="canvas-heading"><span className="page-kicker">WORKFLOW DRAFT · {draft.workflow.nodes.length} GRAPH NODES</span><h1>{project.name}</h1><p>{draft.workflow.edges.length} 条草稿连线 · 按端口类型与数量匹配</p></Panel><Panel position="top-right" className="canvas-tools"><button onClick={() => void openInputSource().catch(reportSaveError)}><Plus size={14} /> 添加来源</button><button onClick={() => setCanvasPicker({ x: 350, y: 160 })}><Search size={14} /> 添加节点</button><button aria-label="100% 实际大小" onClick={() => { void (async () => { await finishInputs(); const flow = flowInstance.current!; await flow.zoomTo(1); await persistCanvas(nodesRef.current, flow.getViewport()) })().catch(reportSaveError) }}>100%</button><button onClick={() => void flowInstance.current?.fitView({ padding: 0.16 })}><Layers3 size={14} /> 适合视图</button></Panel></ReactFlow><div className="canvas-selection-tools canvas-footer"><span>{nodes.filter(node => node.selected).length} 项已选</span><button onClick={copySelection} disabled={!nodes.some(node => node.selected)}>复制</button><button onClick={() => void pasteSelection().catch(reportSaveError)}>粘贴</button><button onClick={() => void makeGroup().catch(reportSaveError)} disabled={!nodes.some(node => node.selected)}>组合 Ctrl/⌘G</button><button onClick={() => void ungroupSelection().catch(reportSaveError)} disabled={!nodes.some(node => node.selected && node.data.kind === 'group')}>解组</button><span className="canvas-footer-hint">拖动端口连接 · Delete 删除 · Ctrl/⌘Z 撤销</span></div></main></ContextMenu.Trigger><ContextMenu.Portal><ContextMenu.Content className="canvas-context-menu" onCloseAutoFocus={event => event.preventDefault()}>
-        <ContextMenu.Item onSelect={() => setCanvasPicker({ ...canvasPointer.current })}>添加节点</ContextMenu.Item>
-        <ContextMenu.Item disabled={!nodes.some(node => node.selected)} onSelect={copySelection}>复制 Ctrl/⌘C</ContextMenu.Item>
-        <ContextMenu.Item onSelect={() => void pasteSelection().catch(reportSaveError)}>粘贴 Ctrl/⌘V</ContextMenu.Item>
-        <ContextMenu.Item disabled={!nodes.some(node => node.selected)} onSelect={() => void makeGroup().catch(reportSaveError)}>组合 Ctrl/⌘G</ContextMenu.Item>
-        <ContextMenu.Item disabled={!nodes.some(node => node.selected && node.data.kind === 'group')} onSelect={() => void ungroupSelection().catch(reportSaveError)}>解组 Ctrl/⌘Alt G</ContextMenu.Item>
-        <ContextMenu.Item disabled={!nodes.some(node => node.selected) && !edges.some(edge => edge.selected)} onSelect={() => void deleteWorkflowElements(nodes.filter(node => node.selected), edges.filter(edge => edge.selected)).catch(reportConnectionError)}>删除所选（组包含所有成员）</ContextMenu.Item>
-      </ContextMenu.Content></ContextMenu.Portal></ContextMenu.Root>
-      </div>
-    {!prompt && inputSourceDialog}
-    {selectionEdit && catalog && <InteractionDialog title="编辑流程筛选" className="run-dialog selection-dialog" onClose={() => setSelectionEdit(undefined)}>{saveError && <p role="alert">{saveError}{editing.error !== undefined && <button onClick={() => void editor.retry().then(() => { if (selectionEdit.session.submitted) setSelectionEdit(undefined) }).catch(reportSaveError)}>重试保存</button>}</p>}<div inert={selectionEdit.session.submitted} style={{ display: 'contents' }}><SelectionEditor key={selectionEdit.nodeId} catalog={catalog} workflow={selectionEdit.workflow} nodeId={selectionEdit.nodeId} candidateCollections={resultIndex.collections} onCancel={() => setSelectionEdit(undefined)} onChange={(next) => { void commitSession(selectionEdit.session, next).then(() => setSelectionEdit(undefined)).catch(reportSaveError) }} /></div>{selectionEdit.session.submitted && <button onClick={() => setSelectionEdit(undefined)}>关闭查看</button>}</InteractionDialog>}
-    {canvasPicker && catalog && capabilities && <CanvasOperationPicker catalog={catalog} capabilities={capabilities} position={canvasPicker} requiredPort={canvasPicker.from ? { ...canvasPicker.from, direction: 'input' } : undefined} onClose={() => setCanvasPicker(undefined)} onChoose={(nodeTypeId) => { const position = flowInstance.current!.screenToFlowPosition(canvasPicker); const inputs = canvasPicker.from ? nodeTypePresentation(catalog, nodeTypeId).inputs.filter(port => workflowPortsMatch(canvasPicker.from!, port)) : []; const drop: PendingNodeDrop = { nodeTypeId, position, bindings: bindingOptions(catalog, nodeTypeId), connectionFrom: canvasPicker.from, connectionPort: inputs.length === 1 ? inputs[0].name : undefined }; setCanvasPicker(undefined); if (drop.bindings.length === 1 && (!drop.connectionFrom || drop.connectionPort)) void addDroppedNode(drop, drop.bindings[0].id).catch(reportSaveError); else setPendingNodeDrop(drop) }} />}
-    {runOpen && <RunDialog selectedNodeIds={[...selectedLeafNodes(canvasFromUi(editing.desired!.ui_state), new Set(nodes.filter((node) => node.selected).map((node) => node.id)))]} sourceRunId={run && run.project_id === project.id && !['admitted', 'running'].includes(run.status) ? run.run_id : undefined} onClose={() => { setRunOpen(false); setScopePreview(undefined) }} onFocus={focusCanvasNode} onPrepare={async (request) => {
-      const personal = await savedPersonalDraft()
-      const commit = await editor.commitWorkflow()
-      if (!commit) throw new Error('项目已切换')
-      const preview = await client.previewRunScope(personal.project.id, commit.workflow_commit_id, request)
-      setScopePreview(preview.scope)
-      return { projectId: personal.project.id, request, preview }
-    }} onStart={async ({ projectId, request, preview }) => {
-      const receipt = await client.startRun(projectId, preview.workflow_commit_id, request)
-      results.openRun({ project_id: receipt.project_id, run_id: receipt.run_id }, receipt.event_cursor)
-      const current = editor.getSnapshot().project
-      if (current?.id === receipt.project_id) editor.updateProject({ ...current, latest_run_id: receipt.run_id })
-      setRunError(''); setSelectionEdit(undefined)
-      setRunOpen(false); setScopePreview(undefined)
-    }} />}
-    {pendingNodeDrop && <InteractionDialog title={`为 ${pendingNodeTitle} 选择执行模型${pendingNodeDrop.connectionFrom ? '与连接端口' : ''}`} className="run-dialog binding-dialog" onClose={() => setPendingNodeDrop(undefined)}><header><span className="dialog-icon"><Atom size={18} /></span><div><span className="page-kicker">EXECUTION BINDING</span><h2 id="binding-dialog-title">为 {pendingNodeTitle} 选择执行模型</h2></div><button className="icon-button" onClick={() => setPendingNodeDrop(undefined)}><X size={18} /></button></header>{pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort && <p>有多个兼容输入，请先选择目标端口。</p>}{pendingNodeDrop.connectionFrom && <label>目标输入<select aria-label="新节点目标输入" value={pendingNodeDrop.connectionPort ?? ''} onChange={event => setPendingNodeDrop({ ...pendingNodeDrop, connectionPort: event.target.value || undefined })}><option value="">选择输入…</option>{nodeTypePresentation(catalog!, pendingNodeDrop.nodeTypeId).inputs.filter(port => { const source = draft.workflow.nodes.find(node => node.node_id === pendingNodeDrop.connectionFrom!.nodeId)!; return workflowPortsMatch(nodeTypePresentation(catalog!, source.node_type_id).outputs.find(port => port.name === pendingNodeDrop.connectionFrom!.portName)!, port) }).map(port => <option value={port.name} key={port.name}>{port.name}</option>)}</select></label>}<div className="binding-choice-list">{pendingNodeDrop.bindings.map((binding) => <button disabled={!!pendingNodeDrop.connectionFrom && !pendingNodeDrop.connectionPort} key={binding.id} title={binding.availabilityReason?.message} onClick={() => void addDroppedNode(pendingNodeDrop, binding.id).catch(reportSaveError)}><strong>{binding.label}{binding.available ? '' : '（不可用）'}</strong><small>{binding.id}</small>{binding.availabilityReason?.message && <p>{binding.availabilityReason.message}</p>}</button>)}</div><footer><button className="secondary-button" onClick={() => setPendingNodeDrop(undefined)}>取消</button></footer></InteractionDialog>}
-    {projectsOpen && <ProjectWorkspaceDialog api={client} currentProjectId={project.id} beforeAction={beforeWorkspaceAction} onOpenProject={openProject} onViewVersion={(selected, version) => openProject(selected, version.workspace, version)} onReturnWorkspace={async (selected) => { if (editor.getSnapshot().project?.id !== selected.id) await openProject(selected); return editor.returnToSavedWork() }} onProjectChanged={(updated, deletedId) => {
-      if (updated?.id === project.id) editor.updateProject(updated)
-      if (deletedId === project.id) void client.projects().then((available) => openProject(available.projects.find((item) => item.project_kind === 'default_example')!)).catch(reportSaveError)
-    }} onCreateProject={createProject} onClose={() => setProjectsOpen(false)} />}
+            {Viewer&&<ExtensionBoundary key={selected.id+activeViewer?.id+activeViewer?.installation_id}><Viewer package={selected} host={host}/></ExtensionBoundary>}
+            {viewers.length>1&&<details><summary>{t("view_as")}</summary><select aria-label={t("view_as")} value={activeViewer?.id??''} onChange={e=>setViewer(e.target.value)}>{viewers.map(item=><option key={item.id} value={item.id}>{text(item.name)}</option>)}</select></details>}
+            <div className="result-actions"><a href={client.exportUrl(selected.id)} download>{t("download_zip")}</a><details><summary>{t("use_in_a_node")}</summary><select aria-label={t("target_node")} value={useTarget} onChange={e=>{setUseTarget(e.target.value);setUsePort('')}}><option value="">{t("select_node")}</option>{activeFlow!.nodes.filter(node=>Object.values(declarationFor(node,catalog)?.inputs??{}).some(input=>input.accepts.includes(selected.format))).map(node=><option key={node.id} value={node.id}>{String(activeFlow!.nodes.indexOf(node)+1).padStart(2,'0')} {declarationFor(node,catalog)?.name}</option>)}</select><select aria-label={t("target_port")} value={usePort} onChange={e=>setUsePort(e.target.value)}><option value="">{t("select_input")}</option>{Object.entries(declarationFor(activeFlow?.nodes.find(node=>node.id===useTarget),catalog)?.inputs??{}).filter(([,input])=>input.accepts.includes(selected.format)).map(([port,input])=><option key={port} value={port}>{input.name??port}</option>)}</select>{useTarget&&usePort&&<small>{t("replaces_the_current_source_for_this_input")}</small>}<button disabled={locked||!useTarget||!usePort} onClick={()=>void useResult().catch(fail)}>{t("apply")}</button></details></div>
+            {extensions.resultActions?.map(action=><details key={action.id}><summary>{text(action.name)}</summary><ExtensionBoundary><action.component host={host} packages={[selected]}/></ExtensionBoundary></details>)}
+            <details><summary>{t("use_in_another_project")}</summary><select aria-label={t("target_project")} value={adoptionTarget} disabled={adopting} onChange={e=>setAdoptionTarget(e.target.value)}><option value="">{t("select_project")}</option>{projects.filter(item=>item.id!==project.id).map(item=><option key={item.id} value={item.id}>{text(item.name)}</option>)}</select><button disabled={!adoptionTarget||adopting} onClick={()=>void adopt()}>{adopting?t("applying"):t("apply")}</button></details>
+            <details><summary>{t("files")}</summary><ul>{selected.files.map(key=><li key={key}><a href={client.fileUrl(selected.id,key)} download>{key}</a></li>)}</ul></details>
+          </section>}
+        </aside>}
 
-  </div></>
+      </>}
+    </main></div>
+    {workspace && WorkspaceEditor && <section className="editor-workspace-overlay" role="dialog" aria-modal="true" aria-label={text(workspace.editor.workspace?.title)}><ExtensionBoundary onReturn={closeWorkspace} key={workspace.context.projectId+workspace.context.nodeId+workspace.editor.installation_id}><WorkspaceEditor context={workspace.context} parameters={workspace.context.parameters} readOnly={locked} onClose={closeWorkspace} onDraftChange={()=>{workspaceDirty.current=true}} onChange={(parameters: Record<string, unknown>)=>{void workspace.context.update({parameters}).catch(fail)}} /></ExtensionBoundary></section>}
+    </div>
 }
-
-export default App

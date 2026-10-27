@@ -3,19 +3,11 @@
 > `POST /api/v1/generate`
 
 - 来源：[Biohub API Reference](https://biohub.ai/api-reference/generate)
-- 抓取时间：`2026-07-16T03:56:50.184Z`
-- 页面发布标识：`sha-7062746`
-- 鉴权：`Authorization: Bearer <API_KEY>`
-- 请求媒体类型：`application/json`
-- 来源定义 SHA-256：`50607f5fe12e4aeabea00e6e4a5aecd0bf212fad4861a057aa16466e83195f86`
+- 快照信息及共用约定见[快照入口](../README.md)。
 
 ## 用途
 
 (ESM3) Generates an output track conditioned on inputs
-
-## 请求头
-
-_来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KEY>` 仍然适用。_
 
 ## JSON 请求体
 
@@ -51,11 +43,4 @@ _来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KE
 
 - `track` 的页面候选为 `sequence`、`structure`、`secondary_structure`、`sasa`、`function`；该限制只出现在说明文字中，来源数据未提供机器枚举。
 - `num_steps` 除页面范围 `[1, 100]` 外，还要求不大于序列长度；页面提示超过 20 步通常收益递减。
-- `strategy`、`num_steps`、`temperature`、`temperature_annealing` 的当前默认值由页面标注为 2025-02-14 更新后的值。
 - `condition_on_coordinates_only=true` 表示用坐标而非 structure token 作为生成条件；`only_compute_backbone_rmsd` 只影响返回的 cRMSD 计算范围。
-
-公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
-
-## 响应
-
-截至本次抓取，来源页没有发布该端点的响应状态码、媒体类型或响应 body schema。因此本地机器定义将响应记录为 `documented: false` 与 `schema: null`，不从 SDK、现有项目代码或运行时样本反推。

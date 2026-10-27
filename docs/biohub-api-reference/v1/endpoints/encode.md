@@ -3,19 +3,11 @@
 > `POST /api/v1/encode`
 
 - 来源：[Biohub API Reference](https://biohub.ai/api-reference/encode)
-- 抓取时间：`2026-07-16T03:56:50.184Z`
-- 页面发布标识：`sha-7062746`
-- 鉴权：`Authorization: Bearer <API_KEY>`
-- 请求媒体类型：`application/json`
-- 来源定义 SHA-256：`a37046ffe4bb88f6618c024d898a380cb90c204b455dea608a6300842a031793`
+- 快照信息及共用约定见[快照入口](../README.md)。
 
 ## 用途
 
 (ESM3, ESMC) Tokenize sequence, structure, or function annotations
-
-## 请求头
-
-_来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KEY>` 仍然适用。_
 
 ## JSON 请求体
 
@@ -42,10 +34,4 @@ _来源页未定义端点专用请求头；通用 `Authorization: Bearer <API_KE
 - `inputs.sequence` 可用 `_` 遮罩部分位置。
 - `inputs.coordinates` 的页面形状说明为 `N×37×3`。
 - `inputs.function` 使用 `(InterPro tag, start, end)` 三元组；起止位置为 1-based 且包含端点，页面标明支持 InterPro 95.0。
-- 页面记录 SASA 编码在 2025-03-18 修复：此前 `inf` 会编码为 `-1`，之后改为 `1000`。
-
-公开的 `model` 枚举只反映抓取时页面列出的模型；来源页明确提示，账户还可能拥有未列出的私有模型。
-
-## 响应
-
-截至本次抓取，来源页没有发布该端点的响应状态码、媒体类型或响应 body schema。因此本地机器定义将响应记录为 `documented: false` 与 `schema: null`，不从 SDK、现有项目代码或运行时样本反推。
+- 来源约定的 SASA 编码中，`inf` 映射为 `1000`。

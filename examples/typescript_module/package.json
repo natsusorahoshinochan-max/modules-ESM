@@ -1,0 +1,12 @@
+{
+  "name": "workbench-typescript-author-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "dependencies": { "react": "19.1.1" },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "typescript": "5.8.3"
+  }
+}

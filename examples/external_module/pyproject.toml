@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=80,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workbench-notes-producer"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["protein-workbench"]
+
+[project.entry-points."protein_workbench.modules"]
+notes = "workbench_notes:module"
+
+[tool.setuptools.package-data]
+workbench_notes = ["ui.js", "FORMAT.md", "sample/*"]

@@ -1,0 +1,13 @@
+{
+  "sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQANLQDKPE",
+  "tool": "workbench.esmfold2.local",
+  "parameters": {"seed": 0, "num_loops": 1, "num_sampling_steps": 2},
+  "settings": {
+    "workbench.prediction": {
+      "python": "/absolute/path/to/existing/python",
+      "model_path": "/absolute/path/to/esmfold2",
+      "language_model_path": "/absolute/path/to/esmc-6b",
+      "device": "cpu"
+    }
+  }
+}

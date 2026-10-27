@@ -2,6 +2,7 @@
 /output/
 .DS_Store
 .codex/
+/.ua/
 .agents/
 .workbuddy/
 skills-lock.json
@@ -13,13 +14,9 @@ build/
 dist/
 frontend/node_modules/
 webui/node_modules/
-webui/test-results/
-webui/playwright-report/
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
 remote/
+modules/*/ui/build/
+
+modules/sequence_edit/node_modules/

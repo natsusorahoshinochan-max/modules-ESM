@@ -3,7 +3,11 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -15,7 +19,17 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "paths": {
+      "@protein-workbench/module-ui": [
+        "../protein_workbench_public/module_ui/index.d.ts"
+      ]
+    }
   },
-  "include": ["src"]
+  "include": [
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/host-client.ts",
+    "src/host-ui.ts"
+  ]
 }
