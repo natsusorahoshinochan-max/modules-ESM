@@ -149,8 +149,27 @@ def create_local(settings):
     return predict
 
 
+def _parameter_schema(defaults):
+    labels = {'model': '模型', 'num_loops': '循环次数', 'num_sampling_steps': '采样步数', 'seed': '随机种子', 'noise_scale': '噪声尺度', 'step_scale': '步长尺度', 'max_inference_sigma': '最大噪声', 'lm_mask_pct': '语言模型掩码比例', 'lm_dropout': '语言模型 Dropout', 'msa_max_depth': 'MSA 深度', 'msa_column_mask_rate': 'MSA 列掩码比例', 'include_embeddings': '输出表征', 'include_pae': '输出 PAE', 'include_pair_chains_iptm': '输出链间 ipTM'}
+    fields = {key: {'default': value, 'title': labels[key], 'advanced': key not in ('model', 'num_loops', 'num_sampling_steps', 'seed')} for key, value in defaults.items()}
+    for key in ('num_loops', 'num_sampling_steps', 'msa_max_depth', 'seed'):
+        if key in fields:
+            fields[key]['type'] = 'integer'
+    for key in ('noise_scale', 'step_scale', 'max_inference_sigma', 'lm_mask_pct'):
+        if key in fields:
+            fields[key]['type'] = 'number'
+    if 'model' in fields:
+        fields['model']['enum'] = ['esmfold2-fast-2026-05', 'esmfold2-2026-05']
+        fields['model']['enumLabels'] = {'esmfold2-fast-2026-05': 'Fast · 2026-05', 'esmfold2-2026-05': '完整 · 2026-05'}
+    for key in ('seed', 'noise_scale', 'step_scale', 'max_inference_sigma', 'lm_mask_pct', 'msa_max_depth'):
+        if key in fields:
+            fields[key]['nullable'] = True
+    fields['msa'] = {'title': 'MSA', 'type': 'object', 'advanced': True, 'properties': {'sequences': {'title': '对齐序列', 'type': 'array', 'items': {'type': 'string'}}, 'deletions': {'title': '删除计数', 'type': 'array', 'items': {'type': 'array', 'items': {'type': 'integer'}}}}}
+    return fields
+
+
 def tools():
     return (
-        Tool('workbench.esmfold2.local', 'ESMFold2 · local', 'workbench.predict.structure', create_local, parameters={'defaults': LOCAL_DEFAULTS, 'msa': 'optional aligned protein MSA'}, capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': True}),
-        Tool('workbench.esmfold2.remote', 'ESMFold2 · Biohub', 'workbench.predict.structure', create_remote, parameters={'defaults': REMOTE_DEFAULTS, 'msa': 'optional aligned protein MSA', 'lm_mask_pct': 'null delegates model-specific SDK default (fast0.1, full0.0)'}, capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': False}),
+        Tool('workbench.esmfold2.local', 'ESMFold2 · 本地', 'workbench.predict.structure', create_local, parameters=_parameter_schema(LOCAL_DEFAULTS), capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': True}),
+        Tool('workbench.esmfold2.remote', 'ESMFold2 · Biohub', 'workbench.predict.structure', create_remote, parameters=_parameter_schema(REMOTE_DEFAULTS), capabilities={'input': 'one canonical protein chain', 'confidence': 'native pLDDT 0–1 and pTM', 'seed': False}),
     )

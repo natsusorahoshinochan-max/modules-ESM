@@ -21,26 +21,26 @@ export function register({ React }) {
       try { await host.addNode({ type: `workbench.collection.${type}`, parameters, inputs: { collection: [pkg.id] } }); }
       catch (error) { setFailure(error.message); }
     }
-    return h('section', { 'aria-label': 'Object collection' },
+    return h('section', { 'aria-label': '候选集合' },
       (error || failure) && h('p', { role: 'alert' }, error || failure),
-      h('ol', null, ...(document?.items ?? []).map((item, i) => h('li', { key: i }, item.object.label ?? `Object ${i + 1}`))),
-      h('button', { disabled: host.readOnly || !document, onClick: () => add('select', { items: document.items.map((_, i) => i) }) }, 'Select collection objects'),
-      h('button', { disabled: host.readOnly || !document, onClick: () => add('split') }, 'Split into object packages'),
-      h('button', { disabled: host.readOnly || !document, onClick: () => add('extract_structures') }, 'Extract selected structures'),
-      h('button', { disabled: host.readOnly || !document, onClick: () => add('extract_sequences') }, 'Extract selected sequences'));
+      h('ol', null, ...(document?.items ?? []).map((item, i) => h('li', { key: i }, item.object.label ?? `对象 ${i + 1}`))),
+      h('button', { disabled: host.readOnly || !document, onClick: () => add('select', { items: document.items.map((_, i) => i) }) }, '选择对象'),
+      h('button', { disabled: host.readOnly || !document, onClick: () => add('split') }, '拆分集合'),
+      h('button', { disabled: host.readOnly || !document, onClick: () => add('extract_structures') }, '提取结构'),
+      h('button', { disabled: host.readOnly || !document, onClick: () => add('extract_sequences') }, '提取序列'));
   }
   function Editor({ context, parameters, onChange, readOnly }) {
     const input = context.inputs.collection;
     const { document, error } = useCollection(input?.packages?.[0], context.host);
-    return h('section', { 'aria-label': 'Select collection objects' },
+    return h('section', { 'aria-label': '选择对象' },
       input?.unavailable && h('p', null, input.unavailable), error && h('p', { role: 'alert' }, error),
-      h('p', null, 'Choose objects in the desired output order. Remove and choose again to change the order.'),
+      h('p', null, '按所需顺序选择对象'),
       ...(document?.items ?? []).map((item, i) => h('label', { key: i, style: { display: 'block' } },
         h('input', { type: 'checkbox', disabled: readOnly, checked: (parameters.items ?? []).includes(i),
           onChange: event => onChange({ items: event.target.checked ? [...(parameters.items ?? []), i] : (parameters.items ?? []).filter(index => index !== i) }) }),
-        item.object.label ?? `Object ${i + 1}`)),
-      h('ol', { 'aria-label': 'Selected output order' }, ...(parameters.items ?? []).map(i => h('li', { key: i }, document?.items[i]?.object.label ?? `Object ${i + 1}`))));
+        item.object.label ?? `对象 ${i + 1}`)),
+      h('ol', { 'aria-label': '输出顺序' }, ...(parameters.items ?? []).map(i => h('li', { key: i }, document?.items[i]?.object.label ?? `对象 ${i + 1}`))));
   }
   return { editors: [{ node: 'workbench.collection.select', component: Editor }],
-    viewers: [{ id: 'workbench.collection', name: 'Object collection', formats: ['workbench.collection'], component: Viewer }] };
+    viewers: [{ id: 'workbench.collection', name: '候选集合', formats: ['workbench.collection'], component: Viewer }] };
 }

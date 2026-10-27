@@ -150,6 +150,9 @@ class Workbench:
             try:
                 declaration = load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)
                 record["available"] = True
+                record["name"] = declaration.name
+                record["ui"] = declaration.ui
+                record["settings_schema"] = declaration.settings
                 if record["enabled"]:
                     loaded.append((record, declaration))
             except HostError as exc:
@@ -239,7 +242,7 @@ class Workbench:
             record = self._get("module", module_id)
             if record["installation_id"] != installation_id:
                 raise HostError("Module installation changed; refresh the module catalog", status_code=409)
-            if not record["enabled"] or not record["ui"]:
+            if not record["enabled"]:
                 raise HostError(f"Module has no enabled UI entry: {module_id}")
             paths = [item["package_path"] for item in self._records("module") if item.get("package_path")]
             declaration = load(record["entry_point"], package_path=record.get("package_path"), installed_paths=paths)

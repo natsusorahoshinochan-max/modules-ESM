@@ -33,26 +33,9 @@ readability through each actual source map before predicates or quantity limits,
 including zero. Missing resources stop filtering; generic package saving remains
 format-agnostic.
 
-In the canvas, bind delivered packages explicitly using the port's multiple
-selection control. **Inspect selected inputs** lists each candidate and its actual
-metric, method, reference, original region, sample, unit and meaning. Unavailable
-values remain listed with their reason. Each condition and sort can use exact
-records for individual candidates, or **Match evaluation meaning for current
-objects**. The latter accepts an explicit JSON rule before upstream results exist;
-use **Apply rule** to store its metric, method, reference selection and region for every
-incoming object, including new objects in later rounds. **Exact reference in rule**
-keeps a fixed reference. **Reference from connected evaluations** explicitly uses
-the reference in the currently connected evaluation packages, allowing it to
-change between rounds. Changing this choice updates the rule draft; **Apply rule**
-accepts it. Parameter changes update only the current node; **Copy
-node** copies its complete settings and direct inputs. Save manually before running.
+In the canvas, bind delivered candidates and evaluation packages. **读取分数** lists available evaluations. Each condition and sort selects a score, comparison value, direction and quantity limit using controls. **逐候选选择** binds exact evaluation records; **按分数匹配** copies the selected evaluation's metric, actual method and region. **所选分数的参考** uses that explicit reference; **使用已连接的评价** matches each candidate against the connected evaluations, allowing the reference to change between rounds. Existing saved selectors are preserved until edited. Save the project before running.
 
-On the result page, **Temporary filter and sort** provides separate explicit
-candidate-package and evaluation-package checkboxes from the current project's
-available packages. Set conditions, direction and quantity limit, then **Apply
-temporary filter**. Its ordered input/item positions describe only those selected
-packages in that invocation. This display creates no run or saved result and does
-not change the canvas. Input changes and cancelled requests invalidate pending displays.
+The result panel displays node outputs. Filtering is configured on the canvas.
 
 `workbench.filter.inspect` accepts the same inputs without computation parameters.
 It returns `candidates: [{input, item, label, choices}]`. Each choice contains an
@@ -68,10 +51,10 @@ infer an association. Repeated saved analyses follow each selected analysis reco
 and its explicit source map within the current self-contained package. A cyclic
 source declaration reports unavailable access with its reason.
 
-Both node and temporary controls show that explicit input/source context, actual
+Node controls show that explicit input/source context, actual
 reference file, region, method details and parameters. For saved statistics,
 analysis method/region and original source method/region are shown separately.
-**View reference file** reads the selected reference's declared PDB/mmCIF bytes
+**查看参考文件** reads the selected reference's declared PDB/mmCIF bytes
 through the existing package file access, including while the node is read-only.
 Anonymous references can share filenames; their explicit input/source context and
 actual content allow selection without exposing object or package identities.

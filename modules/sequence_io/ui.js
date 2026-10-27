@@ -68,13 +68,16 @@ export function sequenceInput(text, { batch = false, name, json = false } = {}) 
 
 export function register({ React }) {
   const h = React.createElement;
-  function SequenceInput({ host }) {
+  function SequenceInput({ context, readOnly }) {
+    const host=context.host;
     const [{ text, name }, setDraft] = React.useState({ text: '', name: '' });
     const [batch, setBatch] = React.useState(false);
     const [json, setJson] = React.useState(false);
     const [error, setError] = React.useState('');
     const [status, setStatus] = React.useState('');
     const [busy, setBusy] = React.useState(false);
+    const inputId=context.inputs.file?.packages[0]?.id;
+    React.useEffect(()=>{let active=true;const pkg=context.inputs.file?.packages[0];if(pkg)host.readFile(pkg.id,pkg.entry).then(b=>b.text()).then(JSON.parse).then(doc=>{if(active){setJson(true);setDraft({text:JSON.stringify(doc),name:doc.objects?.[0]?.source?.name??''});setStatus(`${doc.objects.length} 条序列`);}}).catch(e=>{if(active)setError(String(e))});return()=>{active=false}},[inputId]);
     const [reading, setReading] = React.useState(false);
     const pendingRead = React.useRef(null);
     const latestHost = React.useRef(host);
@@ -100,7 +103,7 @@ export function register({ React }) {
       try {
         const value = await file.text();
         if (!currentRead(request)) return;
-        setDraft({ text: value, name: file.name }); setError('');
+        setJson(/\.json$/i.test(file.name)); setDraft({ text: value, name: file.name }); setError('');
       } catch (failure) {
         if (currentRead(request)) setError(String(failure));
       } finally {
@@ -111,18 +114,18 @@ export function register({ React }) {
       if (pendingRead.current || host.readOnly || busy) return;
       setBusy(true); setError(''); setStatus('');
       try {
-        await host.createInput(sequenceInput(text, { batch, name, json }));
-        setStatus('Imported sequences. Choose this package on a compatible node.');
+        await context.update({delivery:{input:sequenceInput(text,{batch,name,json}),port:'file'},replaceConnections:['file']});
+        setStatus('已载入');
       } catch (failure) { setError(String(failure)); }
       finally { setBusy(false); }
     }
-    return h('section', null, h('h3', null, 'Import protein sequences'),
-      h('label', null, 'Input format', h('select', { 'aria-label': 'Sequence input format', value: json ? 'json' : 'fasta', disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setJson(event.target.value === 'json'); setError(''); } }, h('option', { value: 'fasta' }, 'Sequence or FASTA'), h('option', { value: 'json' }, 'Sequence JSON with explicit correspondence'))),
-      !json && h('label', null, h('input', { type: 'checkbox', 'aria-label': 'Batch FASTA import', checked: batch, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setBatch(event.target.checked); setError(''); } }), 'Batch FASTA import'),
-      h('label', null, json ? 'Sequence JSON' : batch ? 'Batch FASTA records' : 'Single sequence or FASTA', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setDraft({ text: event.target.value, name: '' }); setError(''); } })),
-      h('label', null, 'Import sequence file', h('input', { type: 'file', accept: json ? '.json' : '.fasta,.fa,.faa,.txt', disabled: host.readOnly || busy,
+    return h('section', null,
+      h('label', null, '格式', h('select', { 'aria-label': 'Sequence input format', value: json ? 'json' : 'fasta', disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setJson(event.target.value === 'json'); setDraft({text:'',name:''}); setStatus(''); setError(''); } }, h('option', { value: 'fasta' }, '序列 / FASTA'), h('option', { value: 'json' }, '序列数据文件'))),
+      !json && h('label', null, h('input', { type: 'checkbox', 'aria-label': '多条序列', checked: batch, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setBatch(event.target.checked); setError(''); } }), '多条序列'),
+      !json && h('label', null, batch ? 'FASTA' : '序列', h('textarea', { value: text, disabled: host.readOnly || busy, onChange: event => { invalidateRead(); setDraft({ text: event.target.value, name: '' }); setError(''); } })),
+      name&&h('span',{className:'inline-file-name'},name),h('label', {className:'inline-file-picker'}, '选择文件', h('input', { type: 'file', accept: json ? '.json' : '.fasta,.fa,.faa,.txt', disabled: host.readOnly || busy,
         onChange: select })),
-      h('button', { disabled: host.readOnly || busy || reading, onClick: add }, busy ? 'Importing…' : 'Import sequences'),
+      h('button', { disabled: host.readOnly || busy || reading, onClick: add }, busy ? '载入中…' : '载入'),
       status && h('p', { role: 'status' }, status),
       error && h('p', { role: 'alert' }, error));
   }
@@ -139,20 +142,20 @@ export function register({ React }) {
       }).catch(failure => { if (active) setError(String(failure)); });
       return () => { active = false; };
     }, [pkg.id, pkg.entry, host.readFile]);
-    return h('section', null, h('h3', null, 'Protein sequences'),
-      ...objects.map(object => h('article', {key: object.id},
+    return h('section', null, h('h3', null, '序列'),
+      ...objects.map((object,index) => h('article', {key: object.id},
         h('label', null, h('input', {type:'checkbox', checked:selected.includes(object.id),
-          onChange:event => setSelected(current => event.target.checked ? [...current,object.id] : current.filter(id=>id!==object.id))}), object.label || object.id),
+          onChange:event => setSelected(current => event.target.checked ? [...current,object.id] : current.filter(id=>id!==object.id))}), object.label || `序列 ${index+1}`),
         h('pre', null, object.sequence),
-        object.source && h('p', null, 'Source: ', JSON.stringify(object.source)),
-        object.positions && h('details', null, h('summary', null, 'Residue correspondence'), h('pre', null, JSON.stringify(object.positions, null, 2))))),
+        object.source?.name && h('p', null, object.source.name),
+        object.positions && h('details', null, h('summary', null, '位置对应'), h('table',null,h('thead',null,h('tr',null,...['位置','链','原始编号'].map(name=>h('th',{key:name},name)))),h('tbody',null,object.positions.map(p=>h('tr',{key:p.sequence_index},h('td',null,p.sequence_index),h('td',null,p.chain??'—'),h('td',null,p.author_number==null?'—':`${p.author_number}${p.insertion_code??''}`)))))))),
       h('button', {disabled:host.readOnly || !selected.length, onClick:async()=>{
         try { await host.addNode({type:'workbench.export_sequences',inputs:{sequences:[pkg.id]},parameters:{objects:objects.filter(object=>selected.includes(object.id)).map(object=>object.id)}}); }
         catch(failure){setError(String(failure));}
-      }}, 'Add FASTA export node'), error && h('p', {role:'alert'}, error));
+      }}, '导出 FASTA'), error && h('p', {role:'alert'}, error));
   }
   return {
-    actions: [{id:'workbench.sequence.import',name:'Import protein sequences',component:SequenceInput}],
-    viewers: [{id:'workbench.sequence.files',name:'Sequences and source correspondence',formats:['workbench.sequence'],component:SequenceViewer}],
+    editors: [{node:'workbench.import_sequence',inline:true,component:SequenceInput}],
+    viewers: [{id:'workbench.sequence.files',name:'序列',defaultFor:['workbench.sequence'],formats:['workbench.sequence'],component:SequenceViewer}],
   };
 }

@@ -171,8 +171,8 @@ def execute(call, runtime):
 
 
 def module():
-    inputs = {'candidates':InputPort(CANDIDATES,cardinality='many',required=False), 'evaluations':InputPort((*METRICS, FORMAT),cardinality='many',required=False)}
+    inputs = {'candidates':InputPort(CANDIDATES,cardinality='many',required=False, name='候选'), 'evaluations':InputPort((*METRICS, FORMAT),cardinality='many',required=False, name='评分')}
     parameters = {'type':'object','properties':{'conditions':{'type':'array'},'sort':{'type':'object'},'limit':{'type':'integer','minimum':0}}}
-    return Module('workbench.filtering','Filtering and sorting',ui=str(Path(__file__).with_name('ui.js')),
-        nodes=(Node('workbench.filter','Filter and sort',execute,inputs=inputs,outputs={'collection':OutputPort(FORMAT)},parameters=parameters),),
+    return Module('workbench.filtering','筛选与排序',ui=str(Path(__file__).with_name('ui.js')),
+        nodes=(Node('workbench.filter','筛选',execute,inputs=inputs,outputs={'collection':OutputPort(FORMAT, name='候选集合')},parameters=parameters),),
         interactions=(Interaction('workbench.filter',temporary,inputs=inputs,parameters=parameters),Interaction('workbench.filter.inspect',inspect,inputs=inputs)))

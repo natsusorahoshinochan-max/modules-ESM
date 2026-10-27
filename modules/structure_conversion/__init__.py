@@ -81,14 +81,14 @@ def compare_structure(call, runtime):
 
 def module():
     return Module(
-        id='workbench.structure_conversion', name='Explicit structure conversion',
+        id='workbench.structure_conversion', name='结构转换',
         nodes=(
-            Node(id='workbench.prediction_to_structure', name='Convert prediction to structure', execute=convert_prediction,
-                 inputs={'prediction': InputPort(('workbench.prediction',))},
-                 outputs={'structure': OutputPort('workbench.structure')}),
-            Node(id='workbench.compare_structure', name='Compare converted structure', execute=compare_structure,
+            Node(id='workbench.prediction_to_structure', name='转换预测结构', execute=convert_prediction,
+                 inputs={'prediction': InputPort(('workbench.prediction',), name='预测结构')},
+                 outputs={'structure': OutputPort('workbench.structure', name='结构')}),
+            Node(id='workbench.compare_structure', name='比较转换结构', execute=compare_structure,
                  parameters={'subject_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}, 'reference_selection': {'type': 'object', 'description': 'Optional chains or actual positions'}},
-                 inputs={'subject': InputPort(('workbench.structure',)), 'reference': InputPort(('workbench.reference', 'workbench.structure_set'))},
-                 outputs={'comparison': OutputPort('workbench.comparison')}),
-        ), ui=str(Path(__file__).with_name('ui.js').resolve()),
+                 inputs={'subject': InputPort(('workbench.structure',), name='待比较结构'), 'reference': InputPort(('workbench.reference', 'workbench.structure_set'), name='参考结构')},
+                 outputs={'comparison': OutputPort('workbench.comparison', name='评分')}),
+        ),
     )

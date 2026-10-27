@@ -531,20 +531,22 @@ def _process(call, runtime, operation):
 
 
 def module():
-    return Module(id='workbench.structure_io', name='Structure processing, import and export', nodes=(
-        Node(id='workbench.import_structure', name='Import one structure file', execute=import_structure,
-             inputs={'file': InputPort(('workbench.structure_file',))}, outputs={'structures': OutputPort('workbench.structure_set')},
+    position = {'type': 'object', 'properties': {'chain': {'title': '链', 'type': 'string'}, 'author_number': {'title': '残基编号', 'type': 'integer'}, 'insertion_code': {'title': '插入码', 'type': 'string', 'default': ''}}}
+    selection = {'title': '选区', 'type': 'object', 'properties': {'chains': {'title': '链', 'type': 'array', 'items': {'type': 'string'}}, 'positions': {'title': '残基', 'type': 'array', 'items': position}, 'atoms': {'title': '原子索引', 'type': 'array', 'items': {'type': 'integer'}}}}
+    return Module(id='workbench.structure_io', name='结构处理', nodes=(
+        Node(id='workbench.import_structure', name='导入结构', execute=import_structure,
+             inputs={'file': InputPort(('workbench.structure_file',), name='文件')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
              parameters={'models': {'description': 'Actual model number, or all for independent candidates'}}),
-        Node(id='workbench.extract_structure', name='Extract structure chains or fragments', execute=extract_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'))}, outputs={'structures': OutputPort('workbench.structure_set')},
-             parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'selection': {'description': 'Explicit chains, actual positions or atom indices'}}),
-        Node(id='workbench.transform_structure', name='Transform structure coordinates', execute=transform_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'))}, outputs={'structures': OutputPort('workbench.structure_set')},
-             parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'selection': {'description': 'Optional chains, actual positions or atom indices'},
-                         'rotation': {'description': '3x3 proper rotation applied about coordinate origin'}, 'translation': {'description': 'Three-coordinate translation in angstroms'}}),
-        Node(id='workbench.export_structure', name='Export selected structure components', execute=export_structure,
-             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates'))}, outputs={'structures': OutputPort('workbench.structure_set')},
-             parameters={'object': {'description': 'Selected object'}, 'format': {'enum': ['pdb', 'mmcif']}, 'atoms': {'description': 'Optional actual atom indices'}}),
+        Node(id='workbench.extract_structure', name='提取片段', execute=extract_structure,
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name='结构')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
+             parameters={'object': {'title': '对象', 'type': 'string'}, 'format': {'title': '文件格式', 'enum': ['pdb', 'mmcif']}, 'selection': selection}),
+        Node(id='workbench.transform_structure', name='移动与旋转', execute=transform_structure,
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.coordinates'), name='结构')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
+             parameters={'object': {'title': '对象', 'type': 'string'}, 'format': {'title': '文件格式', 'enum': ['pdb', 'mmcif']}, 'selection': selection,
+                         'rotation': {'title': '旋转矩阵', 'type': 'array', 'default': [[1,0,0],[0,1,0],[0,0,1]], 'items': {'type': 'array', 'items': {'type': 'number'}}}, 'translation': {'title': '位移 (Å)', 'type': 'array', 'default': [0,0,0], 'items': {'type': 'number'}}}),
+        Node(id='workbench.export_structure', name='导出结构', execute=export_structure,
+             inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.coordinates'), name='结构')}, outputs={'structures': OutputPort('workbench.structure_set', name='结构')},
+             parameters={'object': {'title': '对象', 'type': 'string'}, 'format': {'title': '文件格式', 'enum': ['pdb', 'mmcif']}, 'atoms': {'title': '原子索引', 'type': 'array', 'items': {'type': 'integer'}}}),
     ), ui=str(Path(__file__).with_name('ui.js').resolve()))
 
 

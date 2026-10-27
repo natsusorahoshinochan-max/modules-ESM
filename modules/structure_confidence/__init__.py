@@ -117,9 +117,9 @@ def prepare(call, runtime):
 
 
 def module():
-    return Module(id='workbench.structure_confidence', name='Existing structure confidence', nodes=(Node(id='workbench.prepare_structure_confidence', name='Prepare confidence region selection', execute=prepare, inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'))}, outputs={'prepared': OutputPort('workbench.confidence_input')}, parameters={'object': {'description': 'Existing structure to display actual residues'}}), Node(
-        id='workbench.evaluate_structure_confidence', name='Evaluate existing structure confidence', execute=execute,
-        inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'))},
-        outputs={'evaluation': OutputPort('workbench.structure_confidence')},
+    return Module(id='workbench.structure_confidence', name='结构置信度', nodes=(Node(id='workbench.prepare_structure_confidence', name='选择评价区域', execute=prepare, inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'), name='结构')}, outputs={'prepared': OutputPort('workbench.confidence_input')}, parameters={'object': {'description': 'Existing structure to display actual residues'}}), Node(
+        id='workbench.evaluate_structure_confidence', name='评价结构置信度', execute=execute,
+        inputs={'structures': InputPort(('workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'), name='结构')},
+        outputs={'evaluation': OutputPort('workbench.structure_confidence', name='评价')},
         parameters={'object': {'description': 'Explicit supplied structure object'}, 'region': {'description': 'Optional actual chain/residue/insertion-code positions'}},
         tools={'evaluator': ToolSlot(SLOT, 'Existing geometry evaluator')}),), ui=str(Path(__file__).with_name('ui.js').resolve()))

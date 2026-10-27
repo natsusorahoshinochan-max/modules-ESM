@@ -18,6 +18,6 @@ The consumer uses the TM-align operation with independently selectable complete,
 
 ## Application path
 
-Use **Compare through explicit structure conversion** to upload one independent reference, insert a converter and C-only comparison node, and connect their declared ports. Connect a prediction output to the converter's `prediction` input, or choose a historical prediction package for that input. Save and run. Read the converted structure using the generic file links and open the comparison with the comparison module's saved-overlay viewer.
+Add **导入结构**, **转换预测结构** and **比较转换结构** nodes. Select the reference PDB or mmCIF in the import node, connect its output to the comparison reference, and connect the converted prediction to the subject. Save and run. Open the comparison result from its node; the comparison module provides the overlay viewer.
 
-For the direct source-format path, use **Compare with an independent reference** from the comparison module. Connecting prediction directly to the C-only comparison is rejected by its declared input format; the user inserts conversion explicitly.
+For direct prediction comparison, use **比较结构**. The converted-structure consumer requires the explicit conversion node for its subject.

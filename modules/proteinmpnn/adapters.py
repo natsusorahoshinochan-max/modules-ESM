@@ -166,9 +166,28 @@ def create_local(settings):
     return call
 
 
+def _parameter_schema():
+    labels = {'model_name': '模型', 'use_soluble_model': '可溶性模型', 'backbone_noise': '主链噪声', 'seed': '随机种子', 'num_seq_per_target': '候选数量', 'batch_size': '批大小', 'sampling_temp': '采样温度', 'designed_chains': '设计链', 'fixed_positions': '保留序列的位置', 'tied_positions': '联动位置', 'omit_AAs': '排除残基', 'bias_AA': '残基偏好', 'bias_by_res': '逐位置偏好', 'omit_AA': '逐位置排除', 'pssm': 'PSSM', 'pssm_multi': 'PSSM 权重', 'pssm_threshold': 'PSSM 阈值', 'pssm_log_odds_flag': '使用 PSSM Log-odds', 'pssm_bias_flag': '使用 PSSM 偏好'}
+    fields = {key: {'title': labels[key], 'default': value, 'advanced': key not in ('model_name', 'num_seq_per_target', 'sampling_temp', 'seed')} for key, value in DEFAULTS.items()}
+    for key in ('seed', 'num_seq_per_target', 'batch_size'):
+        fields[key]['type'] = 'integer'
+    fields['model_name']['enum'] = ['v_48_002', 'v_48_010', 'v_48_020', 'v_48_030']
+    number = {'type': 'number'}
+    positions = {'type': 'array', 'items': {'type': 'integer'}}
+    fields['sampling_temp']['items'] = number
+    fields['designed_chains'].update(type='array', items={'type': 'string'})
+    fields['fixed_positions']['additionalProperties'] = positions
+    fields['bias_AA']['additionalProperties'] = number
+    fields['bias_by_res']['additionalProperties'] = {'type': 'array', 'items': {'type': 'array', 'items': number}}
+    fields['omit_AA']['additionalProperties'] = {'type': 'array', 'items': {'type': 'array', 'prefixItems': [positions, {'type': 'string'}]}}
+    fields['tied_positions']['items'] = {'type': 'object', 'additionalProperties': {'type': 'array', 'prefixItems': [positions, {'type': 'array', 'items': number}]}}
+    fields['pssm']['additionalProperties'] = {'type': 'object', 'properties': {'pssm_coef': {'type': 'array', 'items': number}, 'pssm_bias': {'type': 'array', 'items': {'type': 'array', 'items': number}}, 'pssm_log_odds': {'type': 'array', 'items': {'type': 'array', 'items': number}}}}
+    return fields
+
+
 def tools():
-    return (Tool('workbench.proteinmpnn.local', 'ProteinMPNN · local full backbone', SLOT, create_local,
-                 parameters={'defaults': DEFAULTS}, capabilities={'input': 'complete canonical protein N/CA/C/O backbone; explicit full sequence mapping for scoring', 'seed': '0 selects random actual seed'}),)
+    return (Tool('workbench.proteinmpnn.local', 'ProteinMPNN · 本地', SLOT, create_local,
+                 parameters=_parameter_schema(), capabilities={'input': 'complete canonical protein N/CA/C/O backbone; explicit full sequence mapping for scoring', 'seed': '0 selects random actual seed'}),)
 
 
 def parameters_for(parameters, entry, sequences=None):

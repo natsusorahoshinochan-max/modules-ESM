@@ -122,6 +122,10 @@ import type { ModuleEntry, ModuleActionProps, EditorProps, ViewerProps } from '@
 
 `Module.ui` 指向模块包附带的浏览器 ES 模块文件。该文件导出 `runtime = { react: 19 }` 和 `register({ React })`，返回操作入口 `actions`、节点参数编辑器 `editors` 或格式查看器 `viewers`。
 
+紧凑编辑器声明 `editors: [{node, component, inline: true}]`，直接显示于节点正文；普通编辑器在参数展开区显示。
+
+参数声明可提供 `title`、`type`、`nullable`、`default`、`enum`、`enumLabels`、`advanced`、`properties`、`additionalProperties`、`items` 和 `prefixItems`，由载体呈现对应控件；显示分组与标题不改变参数值。查看器可用 `defaultFor: [format]` 指定默认内容展示；用户选择其他查看器后尊重其选择。
+
 需要展开工作区的编辑器声明 `editors: [{node, component, workspace: {title, openLabel}}]`。载体在节点上提供打开按钮，保持画布挂载并在其上展开编辑器；模块接收 `onClose()` 返回入口。模块管理本地草稿、预览及撤销，完成时调用一次 `context.update`，成功后调用 `onClose`；取消时释放自己的预览并直接返回。工作区内 `onDraftChange` 仅登记离开提醒，不修改节点或使当前上下文过期。关闭工作区时载体取消该工作区正在执行的预览和临时文件读取，并释放已返回的预览；模块未传取消信号时同样执行。
 
 模块记录的 `installation_id` 标识当前这次安装；启停和设置保留它，卸载重装重新分配。`GET /api/catalog` 返回当前 `ui_url`，载体通过该地址装载界面。入口按当前安装核对，与当前身份不符的地址返回 409。模块入口为单文件 bundle；其依赖沿下述共享和打包约定提供。
@@ -201,8 +205,8 @@ workbench_note_consumer:module
 ### Result-page module actions
 
 `Extensions.resultActions` declares `{id, name, component}` entries using public
-`ResultActionProps {host, packages}`. The host renders them beside current-project
-data packages and supplies the available package list. Modules own explicit input
+`ResultActionProps {host, packages}`. The host renders each action in a collapsed section beside the selected result
+and supplies that result as the package list. Modules own explicit input
 selection, their formats, parameters and result display; `host.preview` calls a
 named temporary interaction. Result actions are published with their module
 catalog/extensions snapshot. They remain available during a run for read-only
@@ -210,8 +214,7 @@ viewing; mutation methods enforce the ordinary project lock. Project changes
 unmount the action and end its temporary interactions. Modules cancel pending
 requests and release returned preview handles after reading display data.
 
-The installed [filtering module](../modules/filtering/FORMAT.md) uses this entry
-for temporary multi-package filtering; its canvas node uses the same module core.
+The installed filtering module exposes filtering through its canvas node.
 
 ### 独立编辑成果与端口名称
 

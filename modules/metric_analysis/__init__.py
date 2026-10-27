@@ -282,9 +282,9 @@ def inspect_metrics(call, runtime):
 
 
 def module():
-    return Module('workbench.metric_analysis', 'Existing metric analysis', ui=str(Path(__file__).with_name('ui.js')),
-        interactions=(Interaction('workbench.inspect_metrics', inspect_metrics, inputs={'metrics': InputPort(FORMATS, cardinality='many')}),), nodes=(Node(
-        'workbench.analyze_metrics', 'Analyze existing metrics', analyze,
-        inputs={'metrics': InputPort(FORMATS, cardinality='many')},
-        outputs={'analysis': OutputPort('workbench.metric_analysis')},
+    return Module('workbench.metric_analysis', '指标分析', ui=str(Path(__file__).with_name('ui.js')),
+        interactions=(Interaction('workbench.inspect_metrics', inspect_metrics, inputs={'metrics': InputPort(FORMATS, cardinality='many', name='指标')}),), nodes=(Node(
+        'workbench.analyze_metrics', '分析指标', analyze,
+        inputs={'metrics': InputPort(FORMATS, cardinality='many', name='指标')},
+        outputs={'analysis': OutputPort('workbench.metric_analysis', name='分析')},
         parameters={'type': 'object', 'properties': {'selections': {'type': 'array'}}, 'required': ['selections']}),))

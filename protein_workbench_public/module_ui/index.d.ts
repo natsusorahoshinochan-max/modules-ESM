@@ -56,8 +56,8 @@ export interface ViewerProps { package: PackageInfo; host: ModuleHost }
 export interface Extensions {
   resultActions?: { id: string; name: string; component: React.ComponentType<ResultActionProps> }[]
   actions?: { id: string; name: string; component: React.ComponentType<ModuleActionProps> }[]
-  editors?: { node: string; component: React.ComponentType<EditorProps>; workspace?: { title: string; openLabel?: string } }[]
-  viewers?: { id: string; name: string; formats: string[]; component: React.ComponentType<ViewerProps> }[]
+  editors?: { inline?: boolean; node: string; component: React.ComponentType<EditorProps>; workspace?: { title: string; openLabel?: string } }[]
+  viewers?: { id: string; name: string; formats: string[]; defaultFor?: string[]; component: React.ComponentType<ViewerProps> }[]
 }
 export interface ModuleEntry {
   runtime: { react: 19 }

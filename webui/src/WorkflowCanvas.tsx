@@ -8,6 +8,7 @@ type View = Position & { scale: number }
 type Socket = { node: string; port: string; side: 'input' | 'output' }
 interface Props {
   flow: Flow
+  focusRequest?: {id: string; token: number}
   catalog: Catalog
   layout: Record<string, Position>
   disabled: boolean
@@ -22,6 +23,7 @@ interface Props {
   onCopy?(ids: string[]): void
   onAdd?(type: string, position: Position): void | Promise<void>
   renderNode(node: FlowNode, index: number): ReactNode
+  renderNodeResult?(node: FlowNode, index: number): ReactNode
   renderNodeSummary?(node: FlowNode, index: number): ReactNode
 }
 const WIDTH = 300
@@ -90,7 +92,7 @@ export function connectionProblem(flow: Flow, catalog: Catalog, edge: Edge, repl
   return ''
 }
 
-export function WorkflowCanvas({ flow, catalog, layout, disabled, selectedSource, onSource, onTarget, onMove, onMoveMany, onDisconnect, onConnect, onDelete, onCopy, onAdd, renderNode, renderNodeSummary }: Props) {
+export function WorkflowCanvas({ focusRequest, flow, catalog, layout, disabled, selectedSource, onSource, onTarget, onMove, onMoveMany, onDisconnect, onConnect, onDelete, onCopy, onAdd, renderNode, renderNodeSummary, renderNodeResult }: Props) {
   const stage = useRef<HTMLDivElement>(null)
   const origins = useRef<Record<string, Position>>({})
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 })
@@ -102,7 +104,8 @@ export function WorkflowCanvas({ flow, catalog, layout, disabled, selectedSource
   const [expanded, setExpanded] = useState<string[]>([])
   const [tool, setTool] = useState<'select' | 'pan'>('select')
   const [space, setSpace] = useState(false)
-  const [notice, setNotice] = useState('拖动圆点接线 · 双击标题展开属性')
+  const [notice, setNotice] = useState('')
+  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),2600);return()=>clearTimeout(timer)},[notice])
   const [library, setLibrary] = useState(false)
   const [search, setSearch] = useState('')
   const [placement, setPlacement] = useState<string | null>(null)
@@ -146,6 +149,7 @@ export function WorkflowCanvas({ flow, catalog, layout, disabled, selectedSource
     const scale=Math.max(.2,Math.min(1.1,(rect.width-100)/width,(rect.height-120)/height))
     setView({x:(rect.width-width*scale)/2-left*scale,y:(rect.height-height*scale)/2-top*scale-20,scale})
   }
+  useEffect(()=>{if(focusRequest && positions[focusRequest.id]){setSelected([focusRequest.id]);fit([focusRequest.id])}},[focusRequest])
   useLayoutEffect(()=>{
     const elements=[...(stage.current?.querySelectorAll<HTMLElement>('[data-canvas-node]') ?? [])]
     const measure=()=>{const measured=Object.fromEntries(elements.map(element=>[element.dataset.canvasNode!,element.offsetHeight]));setHeights(previous=>JSON.stringify(previous)===JSON.stringify(measured)?previous:measured)}
@@ -288,11 +292,11 @@ export function WorkflowCanvas({ flow, catalog, layout, disabled, selectedSource
               {(['input','output'] as const).map(side=><div className={side+'-ports'} key={side}>{(side==='input'?inputs:outputs).map(([port,description])=>{
                 const format='format' in description?description.format:description.accepts[0]??'',socket:Socket={node:node.id,port,side}
                 const connected=flow.edges.some(edge=>side==='input'?edge.target===node.id&&edge.target_port===port:edge.source===node.id&&edge.source_port===port)
-                return <div className="node-port-row" key={port}><span title={port}>{description.name ?? port}</span><button type="button" className={'port-dot'+(connected?' connected':'')+(selectedSource.source===node.id&&selectedSource.source_port===port&&side==='output'?' chosen':'')} style={{'--port-color':color(format)} as CSSProperties} disabled={disabled} title={side==='input'?'拖动输入圆点改接；松到空白断开':'拖动输出圆点创建连接'} aria-label={`${side==='input'?'Connect to':'Connect from'} node ${index+1} ${side} ${port}`} data-socket-node={node.id} data-socket-port={port} data-socket-side={side} onPointerDown={event=>startWire(event,socket)} onClick={event=>{if(event.detail===0){side==='input'?onTarget(node.id,port):onSource(node.id,port)}}}/></div>
+                return <div className="node-port-row" key={port}><span>{description.name ?? port}</span><button type="button" className={'port-dot'+(connected?' connected':'')+(selectedSource.source===node.id&&selectedSource.source_port===port&&side==='output'?' chosen':'')} style={{'--port-color':color(format)} as CSSProperties} disabled={disabled} title={side==='input'?'拖动输入圆点改接；松到空白断开':'拖动输出圆点创建连接'} aria-label={`${side==='input'?'Connect to':'Connect from'} node ${index+1} ${side} ${port}`} data-socket-node={node.id} data-socket-port={port} data-socket-side={side} onPointerDown={event=>startWire(event,socket)} onClick={event=>{if(event.detail===0){side==='input'?onTarget(node.id,port):onSource(node.id,port)}}}/></div>
               })}</div>)}
             </div>
             {renderNodeSummary&&<div className="node-summary">{renderNodeSummary(node,index)}</div>}
-            <div className="node-footer"><span>{Object.values(node.inputs??{}).some(values=>values.length)?'已有输入':'就绪'}</span><button aria-label={`Properties node ${index+1}`} aria-expanded={open} onClick={()=>setExpanded(ids=>open?ids.filter(id=>id!==node.id):[...ids,node.id])}>{open?'收起属性 ▴':'属性 ▾'}</button></div>
+            <div className="node-footer"><button aria-label={`节点 ${index+1} 参数`} aria-expanded={open} onClick={()=>{setSelected([node.id]);setExpanded(ids=>open?ids.filter(id=>id!==node.id):[...ids,node.id])}}>{open?'参数 ▴':'参数 ▾'}</button>{renderNodeResult?.(node,index)}</div>
             <div className="canvas-properties" hidden={!open}>{renderNode(node,index)}</div>
           </div>
         })}
@@ -301,11 +305,11 @@ export function WorkflowCanvas({ flow, catalog, layout, disabled, selectedSource
       {box&&<div className="canvas-selection-box" style={{left:Math.min(box.start.x,box.end.x),top:Math.min(box.start.y,box.end.y),width:Math.abs(box.end.x-box.start.x),height:Math.abs(box.end.y-box.start.y)}}/>}
       {wire&&<div className={'canvas-wire-notice'+(wire.error?' invalid':'')}>{wire.error||(wire.original!==undefined?'松到输入圆点改接，松到空白断开':'拖到兼容端口圆点连接')}</div>}
       {placement&&<div className="canvas-wire-notice">点击画布放置「{catalog.nodes.find(node=>node.id===placement)?.name}」 · Esc 取消</div>}
-      {library&&<div className="canvas-library canvas-overlay"><div className="canvas-library-title"><strong>节点库</strong><button onClick={()=>setLibrary(false)}>×</button></div><input aria-label="Search nodes" placeholder="搜索节点…" value={search} onChange={event=>setSearch(event.target.value)}/><div className="canvas-library-items">{catalog.nodes.filter(node=>(node.name+' '+node.id).toLowerCase().includes(search.toLowerCase())).map(node=><button key={node.id} disabled={disabled} onPointerDown={event=>{if(event.button!==0||disabled)return;event.preventDefault();event.stopPropagation();libraryDrag.current={type:node.id,pointer:event.pointerId,start:local(event),moved:false};stage.current?.setPointerCapture?.(event.pointerId)}} onClick={event=>{if(event.detail===0){setPlacement(node.id);setLibrary(false);stage.current?.focus()}}}><span>{node.name}<small>{node.module_id}</small></span><span>＋</span></button>)}</div></div>}
+      {library&&<div className="canvas-library canvas-overlay"><div className="canvas-library-title"><strong>节点库</strong><button onClick={()=>setLibrary(false)}>×</button></div><input aria-label="Search nodes" placeholder="搜索节点…" value={search} onChange={event=>setSearch(event.target.value)}/><div className="canvas-library-items">{catalog.nodes.filter(node=>(node.name+' '+node.id).toLowerCase().includes(search.toLowerCase())).map(node=><button key={node.id} disabled={disabled} onPointerDown={event=>{if(event.button!==0||disabled)return;event.preventDefault();event.stopPropagation();libraryDrag.current={type:node.id,pointer:event.pointerId,start:local(event),moved:false};stage.current?.setPointerCapture?.(event.pointerId)}} onClick={event=>{if(event.detail===0){setPlacement(node.id);setLibrary(false);stage.current?.focus()}}}><span>{node.name}</span><span>＋</span></button>)}</div></div>}
       <div className="canvas-navigation canvas-overlay"><button aria-label="选择工具" aria-pressed={tool==='select'} onClick={()=>setTool('select')}>↖</button><button aria-label="平移工具" aria-pressed={tool==='pan'} onClick={()=>setTool('pan')}>✥</button><span className="canvas-divider"/><button aria-label="缩小" onClick={()=>zoom(view.scale/1.2)}>−</button><button onClick={()=>zoom(1)}>{Math.round(view.scale*100)}%</button><button aria-label="放大" onClick={()=>zoom(view.scale*1.2)}>＋</button><button aria-label="聚焦选中" disabled={!selected.length} onClick={()=>fit(selected)}>⊡</button></div>
       {selected.length>0&&<div className="canvas-selected-actions canvas-overlay"><span>{selected.length} 个已选</span><button onClick={()=>fit(selected)}>聚焦</button>{onCopy&&<button disabled={disabled} onClick={()=>onCopy(selected)}>复制</button>}{onDelete&&<button disabled={disabled} onClick={()=>{onDelete(selected);setSelected([])}}>删除</button>}</div>}
       <svg className="canvas-minimap canvas-overlay" viewBox={`${bounds.left} ${bounds.top} ${bounds.right-bounds.left} ${bounds.bottom-bounds.top}`} aria-label="流程概览">{minimapNodes.map(node=><rect key={node.id} x={node.x} y={node.y} width={WIDTH} height={node.height} fill={selected.includes(node.id)?'#345bdb':'#a8b2c1'}/>)}</svg>
     </div>
-    <div className="canvas-status"><span role="status">{notice}</span><span>空格拖动平移 · Shift 多选 · F 聚焦</span></div>
+    {notice&&<div className="canvas-status" role="status">{notice}</div>}
   </div>
 }

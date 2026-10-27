@@ -118,61 +118,31 @@ export function register({ React }) {
       try {
         const input = await predictionInput(text, bindings);
         await host.createInput(input);
-        setStatus('Imported prediction results. Select this package as a canvas input or view and download it in Data packages.');
+        setStatus('已导入，可在结果面板查看。');
       } catch (failure) { setError(String(failure)); }
       finally { setBusy(false); }
     }
-    return h('section', null, h('h3', null, 'Import existing prediction results'),
-      h('p', null, 'Select a workbench.prediction manifest, then explicitly bind every named structure, confidence and supplementary file. Existing object identities, correspondence, numeric results and tool parameters are preserved.'),
-      h('label', null, 'Prediction result manifest', h('input', { type: 'file', accept: '.json', 'aria-label': 'Prediction result manifest', disabled: host.readOnly || busy, onChange: select })),
+    return h('section', null, h('h3', null, '导入预测结果'),
+      h('label', null, '结果清单', h('input', { type: 'file', accept: '.json', 'aria-label': '结果清单', disabled: host.readOnly || busy, onChange: select })),
       ...keys.map(key => h('label', { key }, key, h('input', { type: 'file', 'aria-label': `File for ${key}`, disabled: host.readOnly || busy, onChange: event => { const file = event.target.files?.[0]; setBindings(current => ({ ...current, [key]: file })); setError(''); setStatus(''); } }))),
-      h('button', { disabled: host.readOnly || busy || !text, onClick: add }, busy ? 'Importing…' : 'Import prediction results'),
+      h('button', { disabled: host.readOnly || busy || !text, onClick: add }, busy ? '导入中…' : '导入'),
       status && h('p', { role: 'status' }, status), error && h('p', { role: 'alert' }, error));
   }
   function PredictionViewer({ package: pkg, host }) {
-    const [manifest, setManifest] = React.useState(null);
-    const [confidence, setConfidence] = React.useState(null);
-    const [fileKey, setFileKey] = React.useState(pkg.entry);
-    const [exportObject, setExportObject] = React.useState('');
-    const [exportFormat, setExportFormat] = React.useState('mmcif');
-    const [fileText, setFileText] = React.useState('Loading…');
-    const [error, setError] = React.useState('');
-    React.useEffect(() => {
-      let active = true;
-      setManifest(null); setConfidence(null); setError(''); setFileKey(pkg.entry);
-      async function load() {
-        const value = JSON.parse(await (await host.readFile(pkg.id, pkg.entry)).text());
-        if (!active) return;
-        setManifest(value);
-        setExportObject(value.objects?.[0]?.id || '');
-        const object = value.objects?.[0];
-        if (object?.structure?.file) setFileKey(object.structure.file);
-        if (object?.confidence?.plddt?.file) {
-          const result = JSON.parse(await (await host.readFile(pkg.id, object.confidence.plddt.file)).text());
-          if (active) setConfidence(result);
-        }
-      }
-      load().catch(failure => { if (active) setError(String(failure)); });
-      return () => { active = false; };
-    }, [pkg.id, pkg.entry, host.readFile]);
-    React.useEffect(() => {
-      let active = true; setFileText('Loading…');
-      host.readFile(pkg.id, fileKey).then(blob => blob.text()).then(text => { if (active) setFileText(text); }).catch(failure => { if (active) setFileText(String(failure)); });
-      return () => { active = false; };
-    }, [pkg.id, fileKey, host.readFile]);
-    return h('section', null,
-      error && h('p', { role: 'alert' }, error),
-      manifest && h('div', null, h('h4', null, 'Sequence and result manifest'), h('pre', null, JSON.stringify(manifest, null, 2))),
-      pkg.format !== 'workbench.sequence' && manifest?.objects?.some(o => o.structure) && h('div', null,
-        h('select', { 'aria-label': 'Export prediction object', value: exportObject, onChange: e => setExportObject(e.target.value) }, manifest.objects.map(o => h('option', { key: o.id, value: o.id }, o.label || o.id))),
-        h('select', { 'aria-label': 'Export prediction format', value: exportFormat, onChange: e => setExportFormat(e.target.value) }, h('option', { value: 'mmcif' }, 'mmCIF'), h('option', { value: 'pdb' }, 'PDB')),
-        h('button', { disabled: host.readOnly, onClick: async () => { try { await host.addNode({ type: 'workbench.export_structure', inputs: { structures: [pkg.id] }, parameters: { object: exportObject, format: exportFormat } }); } catch (failure) { setError(String(failure)); } } }, 'Add structure export node')),
-      confidence && h('div', null, h('h4', null, 'Confidence'), h('pre', null, JSON.stringify(confidence, null, 2))),
-      h('label', null, 'Package file', h('select', { value: fileKey, onChange: event => setFileKey(event.target.value) }, pkg.files.map(key => h('option', { key, value: key }, key)))),
-      h('pre', { 'aria-label': 'Package file contents' }, fileText));
+    const [manifest,setManifest]=React.useState(null),[index,setIndex]=React.useState(0),[confidence,setConfidence]=React.useState(null),[error,setError]=React.useState(''),[format,setFormat]=React.useState('mmcif'),[added,setAdded]=React.useState(false);
+    React.useEffect(()=>{let live=true;setManifest(null);setIndex(0);setError('');setAdded(false);host.readFile(pkg.id,pkg.entry).then(b=>b.text()).then(JSON.parse).then(value=>{if(live)setManifest(value)}).catch(e=>{if(live)setError(String(e))});return()=>{live=false}},[pkg.id,pkg.entry]);
+    const object=manifest?.objects[index];
+    React.useEffect(()=>{let live=true;setConfidence(null);if(object?.confidence?.plddt?.file)host.readFile(pkg.id,object.confidence.plddt.file).then(b=>b.text()).then(JSON.parse).then(value=>{if(live)setConfidence(value)}).catch(e=>{if(live)setError(String(e))});return()=>{live=false}},[pkg.id,object]);
+    const values=confidence?.plddt??[],mean=values.length?values.reduce((sum,n)=>sum+n,0)/values.length:null;
+    return h('section',null,error&&h('p',{role:'alert'},error),manifest&&h('label',null,'候选',h('select',{'aria-label':'预测候选',value:index,onChange:e=>{setIndex(Number(e.target.value));setAdded(false)}},manifest.objects.map((item,i)=>h('option',{key:item.id,value:i},item.label||`候选 ${i+1}`)))),
+      object&&h(React.Fragment,null,h('p',null,`${object.sequence.length} 个残基`),h('pre',null,object.sequence),
+        h('dl',{className:'metric-summary'},mean!==null&&h(React.Fragment,null,h('dt',null,'平均 pLDDT'),h('dd',null,mean.toFixed(3))),object.confidence?.ptm!==undefined&&h(React.Fragment,null,h('dt',null,'pTM'),h('dd',null,typeof object.confidence.ptm==='number'?object.confidence.ptm.toFixed(3):object.confidence.ptm.value))),
+        values.length>0&&h('figure',null,h('svg',{viewBox:'0 0 360 110',role:'img','aria-label':'逐残基 pLDDT'},h('line',{x1:0,x2:360,y1:100,y2:100,stroke:'#ccd6e4'}),h('polyline',{points:values.map((n,i)=>`${i*360/Math.max(1,values.length-1)},${100-n*90}`).join(' '),fill:'none',stroke:'#5278d3',strokeWidth:2})),h('figcaption',null,`逐残基 pLDDT · 0–1 · ${values.length} 个位置`)),
+        h('details',null,h('summary',null,'导出结构'),h('select',{'aria-label':'结构文件格式',value:format,onChange:e=>setFormat(e.target.value)},h('option',{value:'mmcif'},'mmCIF'),h('option',{value:'pdb'},'PDB')),h('button',{disabled:host.readOnly,onClick:async()=>{try{await host.addNode({type:'workbench.export_structure',inputs:{structures:[pkg.id]},parameters:{object:object.id,format}});setAdded(true)}catch(e){setError(String(e))}}},added?'已添加导出节点':'添加导出节点'))));
   }
+
   return {
-    actions: [{ id: 'workbench.prediction.import', name: 'Import existing prediction results', component: PredictionInput }],
-    viewers: [{ id: 'workbench.prediction.files', name: 'Sequence, structure and confidence', formats: ['workbench.prediction'], component: PredictionViewer }],
+    actions: [{ id: 'workbench.prediction.import', name: '导入预测结果', component: PredictionInput }],
+    viewers: [{ id: 'workbench.prediction.files', name: '预测结果', defaultFor: ['workbench.prediction'], formats: ['workbench.prediction'], component: PredictionViewer }],
   };
 }

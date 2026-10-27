@@ -35,9 +35,9 @@ def execute(call, runtime):
 
 def module():
     from .adapters import SLOT, tools
-    return Module(id='workbench.solubility', name='Sequence solubility evaluation', nodes=(Node(
-        id='workbench.evaluate_solubility', name='Evaluate existing sequence solubility', execute=execute,
-        inputs={'sequence': InputPort(('workbench.sequence',))}, outputs={'evaluation': OutputPort('workbench.solubility')},
+    return Module(id='workbench.solubility', name='可溶性评价', nodes=(Node(
+        id='workbench.evaluate_solubility', name='评价可溶性', execute=execute,
+        inputs={'sequence': InputPort(('workbench.sequence',), name='序列')}, outputs={'evaluation': OutputPort('workbench.solubility', name='评价')},
         tools={'evaluator': ToolSlot(SLOT, 'Sequence solubility evaluator')}),), tools=tools(),
         settings={key: title for key, title in (
             ('protein_sol_source', 'Existing official Protein-Sol October 2017 script directory'),

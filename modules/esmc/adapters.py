@@ -141,6 +141,6 @@ def create_remote(settings, *, client_factory=remote_client):
 
 
 def tools():
-    return (Tool('workbench.esmc.local', 'ESMC native local HF', 'workbench.esmc.representation', create_local),
-            Tool('workbench.esmc.biohub', 'ESMC Biohub', 'workbench.esmc.representation', create_remote,
-                 parameters={'model': {'type': 'string', 'enum': list(REMOTE_MODELS), 'default': 'esmc-6b-2024-12'}}))
+    return (Tool('workbench.esmc.local', 'ESMC · 本地', 'workbench.esmc.representation', create_local),
+            Tool('workbench.esmc.biohub', 'ESMC · Biohub', 'workbench.esmc.representation', create_remote,
+                 parameters={'model': {'title': '模型', 'type': 'string', 'enum': list(REMOTE_MODELS), 'default': 'esmc-6b-2024-12'}}))

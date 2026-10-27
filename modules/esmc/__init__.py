@@ -42,8 +42,8 @@ def execute(call, runtime):
 
 def module():
     from .adapters import tools
-    return Module(id='workbench.esmc', name='ESMC representations', nodes=(Node(id='workbench.represent', name='Represent sequence', execute=execute,
-        inputs={'sequence': InputPort(('workbench.sequence',))}, outputs={'representation': OutputPort('workbench.esmc')},
+    return Module(id='workbench.esmc', name='序列表征', nodes=(Node(id='workbench.represent', name='计算表征', execute=execute,
+        inputs={'sequence': InputPort(('workbench.sequence',), name='序列')}, outputs={'representation': OutputPort('workbench.esmc')},
         parameters={'outputs': {'type': 'string', 'enum': ['embedding', 'logits', 'both'], 'default': 'both'}, 'dtype': {'type': 'string', 'enum': ['float32', 'float16'], 'default': 'float32'}},
         tools={'representation': ToolSlot('workbench.esmc.representation', 'Sequence representation')}),), tools=tools(),
         settings={'model_path': 'Existing ESMC Hugging Face directory', 'device': 'cpu, mps or cuda', 'service_url': 'Biohub service URL, default https://biohub.ai', 'token': {'type': 'string', 'title': 'Biohub credential', 'secret': True}}, ui=str(Path(__file__).with_name('ui.js').resolve()))

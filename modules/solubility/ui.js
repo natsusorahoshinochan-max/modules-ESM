@@ -3,16 +3,6 @@ export const runtime = { react: 19 };
 
 export function register({ React }) {
   const h = React.createElement;
-  function Parameters() {
-    return h('section', null,
-      h('h4', null, 'Evaluate existing sequences'),
-      h('p', null, 'Bind an existing workbench.sequence package to the sequence port. Every object in the selected package is evaluated as a complete sequence; object identity, source and supplied residue correspondence are retained.'),
-      h('p', null, 'Choose the evaluator in Tools and configure its tool parameters there. Unsupported conditions, regions and nonstandard amino acids fail with a specific error.'),
-      h('ul', null,
-        h('li', null, 'SoluProt full: at least 20 residues; includes TMHMM. SoluProt no-TM: at least 20 residues; explicitly uses the independent no-TM model. threads: positive integer, default 1 from the CLI.'),
-        h('li', null, 'Protein-Sol: at least 21 residues. membrane_exclude and histidine_charged: booleans, default false from the official scripts. If true, sequences excluded by its membrane check cause this evaluation to fail.')),
-      h('p', null, 'Configure existing program, source, model and reference database paths in module deployment settings.'));
-  }
   function Viewer({ package: pkg, host }) {
     const [document, setDocument] = React.useState(null);
     const [error, setError] = React.useState('');
@@ -34,22 +24,22 @@ export function register({ React }) {
       }).catch(failure => { if (active) setError(String(failure)); });
       return () => { active = false; };
     }, [pkg.id, pkg.entry, host.readFile]);
-    return h('section', null, h('h3', null, 'Independent sequence solubility evaluation'),
+    return h('section', null, h('h3', null, '可溶性评分'),
       error && h('p', { role: 'alert' }, error),
-      !document && !error && h('p', null, 'Loading…'),
+      !document && !error && h('p', null, '读取中…'),
       document && h(React.Fragment, null,
-        h('p', null, 'Tool: ', document.tool.id, ' · Parameters: ', JSON.stringify(document.tool.parameters)),
+
         ...document.evaluations.map((evaluation, index) => {
           const object = document.objects.find(item => item.id === evaluation.object_id);
           return h('article', { key: index },
-            h('h4', null, object?.label || `Sequence ${index + 1}`),
-            h('p', null, evaluation.method, ' · Complete sequence · No reference'),
-            h('table', null, h('thead', null, h('tr', null, ...['Metric', 'Value', 'Unit', 'Meaning'].map(title => h('th', { key: title }, title)))),
+            h('h4', null, object?.label || `序列 ${index + 1}`),
+            h('p', null, evaluation.method, ' · 整条序列'),
+            h('table', null, h('thead', null, h('tr', null, ...['指标', '数值', '单位', '含义'].map(title => h('th', { key: title }, title)))),
               h('tbody', null, ...Object.entries(evaluation.values).map(([name, metric]) => h('tr', { key: name }, h('td', null, name), h('td', null, String(metric.value)), h('td', null, metric.unit), h('td', null, metric.meaning))))),
-            h('details', null, h('summary', null, 'Sequence, source and residue correspondence'), h('pre', null, JSON.stringify(object, null, 2))));
+            h('details', null, h('summary', null, '序列'), h('pre', null, object.sequence)));
         }),
-        h('details', null, h('summary', null, 'Tool calibration and model context'), h('pre', null, JSON.stringify(document.tool.context, null, 2)))));
+        h('details', null, h('summary', null, '计算参数'), h('dl',null,Object.entries(document.tool.parameters).map(([key,value])=>h(React.Fragment,{key},h('dt',null,key.replaceAll('_',' ')),h('dd',null,String(value))))))));
   }
-  return { editors: [{ node: 'workbench.evaluate_solubility', component: Parameters }],
-    viewers: [{ id: 'workbench.solubility.values', name: 'Solubility values and meanings', formats: ['workbench.solubility'], component: Viewer }] };
+  return { editors: [],
+    viewers: [{ id: 'workbench.solubility.values', name: '可溶性评分', formats: ['workbench.solubility'], component: Viewer }] };
 }

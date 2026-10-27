@@ -34,9 +34,19 @@ def export_sequences(call, runtime):
     })]})
 
 
+def import_sequences(call, runtime):
+    if runtime.cancelled:
+        return Outcome(status='cancelled')
+    if call.parameters:
+        raise ValueError('序列导入没有计算参数')
+    objects = read_sequences(call.inputs['file'][0])
+    (runtime.workdir / 'manifest.json').write_text(json.dumps({'objects': objects}, ensure_ascii=False), encoding='utf-8')
+    return Outcome(outputs={'sequence': [Delivery('workbench.sequence', 'manifest.json', {'manifest.json': 'manifest.json'})]})
+
+
 def module():
-    return Module(id='workbench.sequence_io', name='Sequence input and output',
+    return Module(id='workbench.sequence_io', name='序列输入输出',
         ui=str(Path(__file__).with_name('ui.js')),
-        nodes=(Node('workbench.export_sequences', 'Export sequences as FASTA', export_sequences,
-            inputs={'sequences': InputPort(('workbench.sequence',))},
-            outputs={'files': OutputPort('workbench.sequence_export')}),))
+        nodes=(Node('workbench.import_sequence', '导入序列', import_sequences, inputs={'file': InputPort(('workbench.sequence',), name='文件')}, outputs={'sequence': OutputPort('workbench.sequence', name='序列')}), Node('workbench.export_sequences', '导出序列', export_sequences,
+            inputs={'sequences': InputPort(('workbench.sequence',), name='序列')},
+            outputs={'files': OutputPort('workbench.sequence_export', name='文件')}),))

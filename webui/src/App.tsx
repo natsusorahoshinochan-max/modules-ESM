@@ -2,6 +2,7 @@ import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 
 import type { Edge, Flow, FlowNode, Scope, ModuleHost, PackageInfo, EditorContext, EditorUpdate } from '@protein-workbench/module-ui'
 import { client, type Catalog, type Project, type Run } from './host-client'
 import { loadExtensions, type LoadedExtensions } from './host-ui'
+import { ParameterFields } from './ParameterFields'
 import { ModuleManagement } from './ModuleManagement'
 import { WorkflowCanvas, connectionProblem, CanvasToolPicker } from './WorkflowCanvas'
 import { ScopeEditor } from './ScopeEditor'
@@ -25,15 +26,7 @@ function frozenParameterCopy(parameters: Record<string, unknown>) {
   return snapshot
 }
 
-function JsonEditor({ value, disabled, onChange, onDraftChange }: { value: Record<string, unknown>; disabled: boolean; onChange(value: Record<string, unknown>): void; onDraftChange?(): void }) {
-  return <textarea key={JSON.stringify(value)} defaultValue={JSON.stringify(value, null, 2)} disabled={disabled} onInput={onDraftChange} onBlur={event => {
-    try {
-      const parsed = JSON.parse(event.target.value)
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('Enter a JSON object')
-      event.target.setCustomValidity(''); onChange(parsed)
-    } catch { event.target.setCustomValidity('Enter a valid JSON object'); event.target.reportValidity() }
-  }} />
-}
+const statusLabel = (status: string) => ({succeeded:'已完成',failed:'失败',cancelled:'已取消',running:'运行中',pending:'等待中',blocked:'未执行',configuration_blocked:'配置未完成'}[status] ?? status)
 
 export default function App() {
   const [{ catalog, extensions, projects }, setSnapshot] = useState<{ catalog: Catalog; extensions: LoadedExtensions; projects: Project[] }>({ catalog: { nodes: [], modules: [] }, extensions: {}, projects: [] })
@@ -45,7 +38,14 @@ export default function App() {
   const [project, setProject] = useState<Project | null>(null)
   const [managementOpen, setManagementOpen] = useState(false)
   const [resultsOpen, setResultsOpen] = useState(false)
-  const [importsOpen, setImportsOpen] = useState(false)
+  const [focusRequest,setFocusRequest]=useState<{id:string;token:number}>()
+  const [projectMenu, setProjectMenu] = useState(false)
+  const [modulesOpen, setModulesOpen] = useState(false)
+  const [importAction, setImportAction] = useState('')
+  const [resultRun, setResultRun] = useState('')
+  const [resultCall, setResultCall] = useState('')
+  const [useTarget, setUseTarget] = useState('')
+  const [usePort, setUsePort] = useState('')
   const [workspace, setWorkspace] = useState<{ editor: NonNullable<LoadedExtensions['editors']>[number]; context: EditorContext } | null>(null)
   const workspaceDirty = useRef(false)
   const workspaceToken = useRef<symbol | null>(null)
@@ -92,7 +92,8 @@ export default function App() {
   const [moduleError, setModuleError] = useState('')
   const [projectListError, setProjectListError] = useState('')
   const [notice, setNotice] = useState('')
-  const [projectName, setProjectName] = useState('Research project')
+  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),3200);return()=>clearTimeout(timer)},[notice])
+  const [projectName, setProjectName] = useState('新项目')
   const draftInputs = useRef<PackageInfo[]>([])
   const pendingInputTransfers = useRef(new Set<{ session: number }>())
   const [inputTransfers, setInputTransfers] = useState(0)
@@ -119,7 +120,6 @@ export default function App() {
   const locked = projectBusy || (saving && !!project?.tutorial)
   const waitingForTeachingInputs = !!project?.tutorial && inputTransfers > 0
   const [runs, setRuns] = useState<Run[]>([])
-  const [locatedCall, setLocatedCall] = useState<{run:string;call:string}|null>(null)
   const cancellableRuns = runs.filter(item => item.status === 'running')
   const [connection, setConnection] = useState<Edge>({ source: '', source_port: '', target: '', target_port: '' })
   const fail = (failure: unknown) => { if (liveProject.current) setError(failure instanceof Error ? failure.message : String(failure)) }
@@ -276,7 +276,7 @@ export default function App() {
     closeWorkspace(); undoStack.current = []; redoStack.current = []
     projectSession.current += 1; setInputTransfers(0); currentProject.current = next; setProject(next); markDirty(false); setNotice('')
     runningNow.current = !!next.running || history.some(run => run.status === 'running'); setRunning(runningNow.current)
-    scopePathNow.current = []; setScopePath([]); setConnection({source:'',source_port:'',target:'',target_port:''}); setPackages(files); setRuns(history); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); if (!preserveError) setError('')
+    scopePathNow.current = []; setScopePath([]); setConnection({source:'',source_port:'',target:'',target_port:''}); setPackages(files); setRuns(history); setResultRun(''); setResultCall(''); setUseTarget(''); setUsePort(''); setSelectedPackage(''); setViewer(''); setAdoptionTarget(''); if (!preserveError) setError('')
     return true
   }
   async function createProject() {
@@ -465,9 +465,9 @@ export default function App() {
     const targetName = projects.find(item => item.id === adoptionTarget)?.name ?? adoptionTarget
     setAdopting(true); setError('')
     try {
-      const result = await client.adopt(adoptionTarget, selectedPackage)
+      await client.adopt(adoptionTarget, selectedPackage)
       if (session !== projectSession.current) return
-      setNotice(`Package ${result.id} adopted into ${targetName}`)
+      setNotice(`已采用到 ${targetName}`)
     } catch (failure) { if (session === projectSession.current) fail(failure) }
     finally { setAdopting(false) }
   }
@@ -690,22 +690,40 @@ export default function App() {
   }
   const selected = packages.find(item => item.id === selectedPackage)
   const viewers = extensions.viewers?.filter(item => item.formats.includes(selected?.format ?? '')) ?? []
-  const activeViewer = viewers.find(item => item.id === viewer) ?? viewers[0]
+  const activeViewer = viewers.find(item => item.id === viewer) ?? viewers.find(item => item.defaultFor?.includes(selected?.format ?? '')) ?? [...viewers].sort((a,b)=>a.id.localeCompare(b.id))[0]
   const Viewer = activeViewer?.component
-  function packageDescription(pkg: PackageInfo) {
-    for (const [index, run] of runs.entries()) {
-      for (const [node, result] of Object.entries(run.nodes)) {
-        for (const [port, values] of Object.entries(result.outputs)) {
-          if (values.includes(pkg.id)) return `Run ${index + 1} · ${callLabel(run,node)}.${port} · ${pkg.format} · ${pkg.id}`
-        }
-      }
-    }
-    return `${pkg.format} · ${pkg.id}`
+  function resultName(run: Run, id: string) {
+    const result=run.nodes[id], path=callPath(run,id), original=result?.location?.node_id??id
+    const flow=run.flow?flowAt(run.flow,path):project?flowAt(project.flow,path):undefined
+    const node=flow?.nodes.find(item=>item.id===original)
+    const index=flow?.nodes.findIndex(item=>item.id===original)??-1
+    return `${index>=0?String(index+1).padStart(2,'0')+' ':''}${declarationFor(node,catalog)?.name??'历史节点'}${result?.location?.round?' · 第 '+result.location.round+' 轮':''}${result?.location?.item?' · 第 '+result.location.item+' 项':''}`
   }
-  const source = activeFlow?.nodes.find(node => node.id === connection.source)
-  const target = activeFlow?.nodes.find(node => node.id === connection.target)
-  const sourcePorts = declarationFor(source, catalog)?.outputs ?? {}
-  const targetPorts = declarationFor(target, catalog)?.inputs ?? {}
+  function packageDescription(pkg: PackageInfo) {
+    for (const [index, run] of runs.entries()) for (const [id, result] of Object.entries(run.nodes)) {
+      for (const values of Object.values(result.outputs)) if(values.includes(pkg.id))return `第 ${index+1} 次 · ${resultName(run,id)}${values.length>1?' · '+(values.indexOf(pkg.id)+1):''}`
+    }
+    function inputName(flow: Flow):string|undefined {
+      for(const node of flow.nodes){if(node.document===pkg.id||Object.values(node.inputs).some(ids=>ids.includes(pkg.id)))return declarationFor(node,catalog)?.name;if(node.scope){const found=inputName(node.scope.body);if(found)return found}}
+    }
+    return `${project?inputName(project.flow)??'输入文件':'输入文件'} · ${packages.indexOf(pkg)+1}`
+  }
+  const viewedRun=runs.find(run=>run.id===resultRun)??(resultRun==='inputs'?undefined:runs.at(-1))
+  const viewedCalls=viewedRun?Object.keys(viewedRun.nodes):[]
+  const viewedCall=viewedRun?.nodes[resultCall]?resultCall:viewedCalls[0]??''
+  const viewedNode=viewedRun?.nodes[viewedCall]
+  const resultPackages=viewedRun?Object.entries(viewedNode?.outputs??{}).flatMap(([port,ids])=>ids.flatMap((id,index)=>{const pkg=packages.find(item=>item.id===id);return pkg?[{pkg,port,index}]:[]})):packages.filter(pkg=>!runs.some(run=>Object.values(run.nodes).some(node=>Object.values(node.outputs).some(ids=>ids.includes(pkg.id))))).map((pkg,index)=>({pkg,port:'',index}))
+  useEffect(()=>{if(!resultsOpen)return;if(!resultPackages.some(item=>item.pkg.id===selectedPackage)){setSelectedPackage(resultPackages[0]?.pkg.id??'');setViewer('')}},[resultsOpen,viewedRun?.id,viewedCall,packages,selectedPackage])
+  function openNodeResults(node: FlowNode) {
+    const match=[...runs].reverse().flatMap(run=>Object.entries(run.nodes).filter(([id,result])=>(result.location?.node_id??id)===node.id&&callPath(run,id).join('/')===scopePath.join('/')).map(([id])=>({run,id})))[0]
+    setResultRun(match?.run.id??'inputs');setResultCall(match?.id??'');setSelectedPackage(match?Object.values(match.run.nodes[match.id].outputs).flat()[0]??'':node.document??Object.values(node.inputs).flat()[0]??'');setViewer('');setResultsOpen(true)
+  }
+  async function useResult() {
+    const node=activeFlow?.nodes.find(item=>item.id===useTarget)
+    if(!node||!selected||!usePort)return
+    await editorContext(node).update({inputs:{[usePort]:[selected.id]},replaceConnections:[usePort]})
+    setNotice('已用于 '+(declarationFor(node,catalog)?.name??'节点'));setUseTarget('');setUsePort('')
+  }
   function updateNode(id: string, update: Partial<FlowNode>) {
     const ownedUpdate = update.parameters ? {...update, parameters: structuredClone(update.parameters)} : update
     changeFlow(flow => ({...flow,nodes:flow.nodes.map(node=>node.id===id?{...node,...ownedUpdate}:node)}))
@@ -721,7 +739,8 @@ export default function App() {
   }
   function addCanvasNode(type: string, position: {x:number;y:number}) {
     const id = crypto.randomUUID()
-    change(current => ({...current, flow: replaceFlow(current.flow, scopePath, flow => ({...flow, nodes: [...flow.nodes, {id,type,parameters:{},inputs:{}}]})), layout: {...current.layout, [id]:position}}))
+    const scope = type==='host.map'||type==='host.repeat'?{inputs:{},outputs:{},body:{nodes:[],edges:[]},input_bindings:[],output_bindings:[],...(type==='host.map'?{item_input:''}:{rounds:2,feedback:{}})}:undefined
+    change(current => ({...current, flow: replaceFlow(current.flow, scopePath, flow => ({...flow, nodes: [...flow.nodes, {id,type,parameters:{},inputs:{},...(scope?{scope}:{})}]})), layout: {...current.layout, [id]:position}}))
   }
   function copyCanvasNodes(ids: string[]) {
     const copies = activeFlow!.nodes.filter(node => ids.includes(node.id)).map(node => ({original:node.id, node:{...copyNode(node),id:crypto.randomUUID()}}))
@@ -738,72 +757,56 @@ export default function App() {
   function locateCall(run: Run, id: string) {
     const original = run.nodes[id]?.location?.node_id ?? id
     const path = callPath(run,id)
-    if (!currentProject.current || !flowAt(currentProject.current.flow,path)?.nodes.some(node=>node.id===original)) { setNotice('This historical node is absent from the current draft. Its recorded results remain available here.'); return }
-    setLocatedCall({run:run.id,call:id})
+    if (!currentProject.current || !flowAt(currentProject.current.flow,path)?.nodes.some(node=>node.id===original)) { setNotice('当前画布中已删除此节点'); return }
     navigateScope(path)
-    window.requestAnimationFrame?.(()=>[...document.querySelectorAll<HTMLElement>('[data-canvas-node]')].find(element=>element.dataset.canvasNode===original)?.scrollIntoView?.({block:'center',inline:'center',behavior:'smooth'}))
+    setFocusRequest({id:original,token:Date.now()})
   }
-  function renderRunNode(run: Run, runIndex: number, id: string): ReactNode {
-    const result=run.nodes[id]
-    if(!result)return null
-    const scope=run.scopes?.[id]
-    return <section className="run-node" key={id} aria-label={`Run ${runIndex + 1} node ${id}`}>
-      <p><strong>{callLabel(run,id)}</strong>: {result.status === 'configuration_blocked' ? 'Configuration prevents group startup' : result.status === 'blocked' ? 'Not executed' : result.status} {result.diagnostics?.join('; ')}</p>
-      <button onClick={()=>locateCall(run,id)}>Locate node {result.location?.node_id??id}</button>
-      {result.status !== 'succeeded' && Object.values(result.outputs).some(values => values.length) && <p>Partial results · batch incomplete</p>}
-      {Object.entries(result.outputs).flatMap(([port, values]) => values.map((packageId, index) => <button key={`${port}-${index}`} onClick={() => { setSelectedPackage(packageId); setViewer('') }}>View {port} result {index + 1}</button>))}
-      {result.kind!=='scope' && (result.status === 'failed' || result.status === 'cancelled') && run.calls?.[id] !== undefined && <button disabled={locked || saving} onClick={() => void continueRun(run.id, id)}>Continue {id} with original inputs and parameters</button>}
-      {result.kind==='scope' && result.status==='cancelled' && scope && <button disabled={locked || saving} onClick={()=>void continueRun(run.id,id)}>Continue scheduling {id}</button>}
-      {scope?.iterations.map(iteration=><details key={iteration.index} open={Object.values(iteration.nodes).some(child=>['failed','cancelled','blocked'].includes(run.nodes[child]?.status))}><summary>Iteration {iteration.index}</summary>{Object.values(iteration.nodes).map(child=>renderRunNode(run,runIndex,child))}</details>)}
-    </section>
-  }
-
+  const canvasCatalog={...catalog,nodes:[...catalog.nodes,...(['host.map','host.repeat'].map(id=>({id,name:id==='host.map'?'逐项处理':'循环',module_id:'host',inputs:{},outputs:{},parameters:{}})))]}
   const WorkspaceEditor = workspace?.editor.component
-  return <div className="workbench workbench-fullscreen"><div className="workbench-base" inert={!!workspace}><header><h1>Protein Workbench</h1><span className="workbench-project-title">{project?.name ?? '选择项目'}{dirty ? ' · 未保存' : ''}</span><button aria-expanded={managementOpen} onClick={()=>setManagementOpen(!managementOpen)}>项目与模块</button><button aria-expanded={importsOpen} onClick={()=>setImportsOpen(!importsOpen)}>导入</button><button aria-expanded={resultsOpen} onClick={()=>setResultsOpen(!resultsOpen)}>结果</button><button aria-label="撤销" disabled={locked||!undoStack.current.length} onClick={()=>restoreHistory()}>↶</button><button aria-label="重做" disabled={locked||!redoStack.current.length} onClick={()=>restoreHistory(true)}>↷</button></header>
-    {([{ message: error, dismiss: setError }, { message: moduleError, dismiss: setModuleError }, { message: projectListError, dismiss: setProjectListError }]).map(({ message, dismiss }, index) => message && <div key={index} role="alert" className="error">{message}<button onClick={() => dismiss('')}>Dismiss</button></div>)}
-    {notice && <p role="status">{notice}</p>}
-    <aside className="workbench-management" hidden={!managementOpen}><h2>Projects</h2><button disabled={projectBusy} onClick={() => openTutorial().catch(fail)}>Teaching example</button><label>Project name<input value={projectName} onChange={event => setProjectName(event.target.value)} /></label><button disabled={projectBusy} onClick={() => createProject().catch(fail)}>Create project</button>
-      <ul>{projects.map(item => <li key={item.id}><button disabled={running || (deleting && deletingProject.current === item.id)} onClick={() => open(item.id).catch(fail)}>{item.name}</button></li>)}</ul>
-      <ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} invalidateRefresh={invalidateRefresh} fail={fail} />
-    </aside>
-    <main>{waitingForTeachingInputs && <p role="status">Receiving teaching input files; wait before saving.</p>}<div className="toolbar"><h2>{project?.name ?? 'Open or create a project'}{dirty ? ' · unsaved' : ''}</h2><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => save().catch(fail)}>Save project</button><button disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => copyProject().catch(fail)}>Copy project</button><button className="primary" disabled={!project || locked || saving || waitingForTeachingInputs} onClick={() => run().catch(fail)}>{dirty || project?.tutorial ? 'Save and run' : 'Run'}</button>{running && <button disabled={submittingRun.current || !cancellableRuns.length} onClick={() => void cancelRun()}>Cancel run</button>}<button disabled={!project || project.tutorial || running || saving || deleting} onClick={() => void deleteProject()}>Delete project</button></div>
-      {project && <><section className="module-actions" hidden={!importsOpen}>{extensions.actions?.map(action => <div key={action.id + action.installation_id}><ExtensionBoundary><action.component host={host} /></ExtensionBoundary></div>)}</section>
-        <div className="scope-add" hidden={!managementOpen}><button disabled={locked} onClick={()=>void host.addNode({type:'host.map',parameters:{},inputs:{},scope:{inputs:{},outputs:{},body:{nodes:[],edges:[]},input_bindings:[],output_bindings:[],item_input:''}}).catch(fail)}>Add Map subflow</button><button disabled={locked} onClick={()=>void host.addNode({type:'host.repeat',parameters:{},inputs:{},scope:{inputs:{},outputs:{},body:{nodes:[],edges:[]},input_bindings:[],output_bindings:[],rounds:2,feedback:{}}}).catch(fail)}>Add Repeat subflow</button></div>
-        <section key={projectSession.current} className="canvas" aria-label="Workflow canvas" ref={canvas}>
-          <nav hidden={!scopePath.length} className="scope-navigation" aria-label="Subflow navigation"><button onClick={()=>navigateScope([])} disabled={!scopePath.length}>Root canvas</button>{scopePath.map((id,index)=><button key={id} disabled={index===scopePath.length-1} onClick={()=>navigateScope(scopePath.slice(0,index+1))}>{index+1}: {declarationFor(flowAt(project.flow,scopePath.slice(0,index))?.nodes.find(node=>node.id===id),catalog)?.name??id}</button>)}</nav>
+  return <div className="workbench workbench-fullscreen"><div className="workbench-base" inert={!!workspace}>
+    <header><div className="project-menu-anchor"><button className="project-trigger" aria-expanded={projectMenu} onClick={()=>setProjectMenu(!projectMenu)}>{project?.name??'项目'} ▾</button>{projectMenu&&<div className="project-menu"><button onClick={()=>{setManagementOpen(true);setProjectMenu(false)}}>新建 / 打开</button><button disabled={!project||locked||saving} onClick={()=>{setProjectMenu(false);void copyProject().catch(fail)}}>复制项目</button><button onClick={()=>{setModulesOpen(true);setProjectMenu(false)}}>模块管理</button><details><summary>更多导入</summary>{extensions.actions?.map(action=><button key={action.id} onClick={()=>{setImportAction(action.id);setProjectMenu(false)}}>{action.name}</button>)}</details><button disabled={!project||project.tutorial||locked||saving} onClick={()=>{setProjectMenu(false);void deleteProject()}}>删除项目</button></div>}</div>
+    {dirty&&<span className="unsaved-dot" title="未保存" aria-label="未保存"/>}<div className="header-spacer"/>
+    <button aria-label="撤销" title="撤销" disabled={locked||!undoStack.current.length} onClick={()=>restoreHistory()}>↶</button><button aria-label="重做" title="重做" disabled={locked||!redoStack.current.length} onClick={()=>restoreHistory(true)}>↷</button>
+    <button aria-expanded={resultsOpen} onClick={()=>setResultsOpen(!resultsOpen)}>结果</button><button disabled={!project||locked||saving||waitingForTeachingInputs} onClick={()=>save().catch(fail)}>{saving?'保存中…':'保存'}</button><button className="primary" disabled={!project||locked||saving||waitingForTeachingInputs} onClick={()=>run().catch(fail)}>▷ 运行</button>{running&&<button disabled={submittingRun.current||!cancellableRuns.length} onClick={()=>void cancelRun()}>停止</button>}</header>
+    {([{ message: error, dismiss: setError }, { message: moduleError, dismiss: setModuleError }, { message: projectListError, dismiss: setProjectListError }]).map(({ message, dismiss }, index) => message && <div key={index} role="alert" className="error">{message}<button aria-label="关闭提示" onClick={() => dismiss('')}>×</button></div>)}
+    {notice&&<p role="status">{notice}</p>}
+    {managementOpen&&<aside className="workbench-management" aria-label="项目"><div className="panel-heading"><h2>项目</h2><button aria-label="关闭项目" onClick={()=>setManagementOpen(false)}>×</button></div><button disabled={projectBusy} onClick={()=>{void openTutorial().then(()=>setManagementOpen(false)).catch(fail)}}>打开示例</button><form onSubmit={e=>{e.preventDefault();void createProject().then(()=>setManagementOpen(false)).catch(fail)}}><label>项目名称<input value={projectName} onChange={e=>setProjectName(e.target.value)}/></label><button disabled={projectBusy}>新建</button></form><ul>{projects.map(item=><li key={item.id}><button disabled={projectBusy} onClick={()=>open(item.id).then(()=>setManagementOpen(false)).catch(fail)}>{item.name}</button></li>)}</ul></aside>}
+    {modulesOpen&&<aside className="workbench-management" aria-label="模块管理"><div className="panel-heading"><h2>模块管理</h2><button aria-label="关闭模块管理" onClick={()=>setModulesOpen(false)}>×</button></div><ModuleManagement modules={catalog.modules} disabled={locked} refresh={refresh} invalidateRefresh={invalidateRefresh} fail={fail}/></aside>}
+    {importAction&&<aside className="workbench-management"><div className="panel-heading"><h2>{extensions.actions?.find(action=>action.id===importAction)?.name}</h2><button aria-label="关闭导入" onClick={()=>setImportAction('')}>×</button></div>{extensions.actions?.filter(action=>action.id===importAction).map(action=><ExtensionBoundary key={action.id}><action.component host={host}/></ExtensionBoundary>)}</aside>}
+    <main>{waitingForTeachingInputs&&<p role="status">正在载入输入文件…</p>}{project&&<>
+        <section key={projectSession.current} className="canvas" aria-label="节点画布" ref={canvas}>
+          <nav hidden={!scopePath.length} className="scope-navigation" aria-label="Subflow navigation"><button onClick={()=>navigateScope([])} disabled={!scopePath.length}>主画布</button>{scopePath.map((id,index)=><button key={id} disabled={index===scopePath.length-1} onClick={()=>navigateScope(scopePath.slice(0,index+1))}>{index+1}: {declarationFor(flowAt(project.flow,scopePath.slice(0,index))?.nodes.find(node=>node.id===id),catalog)?.name??id}</button>)}</nav>
           {activeScope?.scope && <ScopeEditor key={activeScope.id} node={activeScope} catalog={catalog} disabled={locked} onChange={changeScope} />}
-          <WorkflowCanvas key={`canvas:${scopePath.join('/')}`} flow={activeFlow!} catalog={catalog} layout={project.layout} disabled={locked} selectedSource={connection}
+          <WorkflowCanvas key={`canvas:${scopePath.join('/')}`} focusRequest={focusRequest} flow={activeFlow!} catalog={canvasCatalog} layout={project.layout} disabled={locked} selectedSource={connection}
             onSource={(source,source_port)=>setConnection({source,source_port,target:'',target_port:''})}
             onTarget={(target,target_port)=>{const edge={...connection,target,target_port};setConnection(edge);if(edge.source&&edge.source_port)void host.connect(edge).then(()=>setConnection({source:'',source_port:'',target:'',target_port:''})).catch(fail)}}
             onMove={(id,position)=>change(current=>({...current,layout:{...current.layout,[id]:{...current.layout[id],...position}}}))} onDisconnect={disconnect}
             onConnect={connectCanvas} onAdd={addCanvasNode} onCopy={copyCanvasNodes} onDelete={removeCanvasNodes}
             onMoveMany={positions=>change(current=>({...current,layout:{...current.layout,...positions}}))}
+            renderNodeResult={node=>{const record=[...runs].reverse().find(run=>Object.entries(run.nodes).some(([id,r])=>(r.location?.node_id??id)===node.id&&callPath(run,id).join('/')===scopePath.join('/')));const calls=record?Object.entries(record.nodes).filter(([id,r])=>(r.location?.node_id??id)===node.id&&callPath(record,id).join('/')===scopePath.join('/')):[];return calls.length||node.document||Object.values(node.inputs).some(ids=>ids.length)?<button onClick={()=>openNodeResults(node)}>{calls.some(([,r])=>r.status==='failed')?'失败 · 查看':calls.some(([,r])=>r.status==='running')?'运行中':'结果 ↗'}</button>:null}}
             renderNodeSummary={node=> {
               const editor = extensions.editors?.find(item=>item.node===node.type)
               const declaration = declarationFor(node,catalog)
+              const InlineEditor=editor?.inline?editor.component:null
               return <>
+                {InlineEditor&&<ExtensionBoundary key={node.id+editor?.installation_id}><InlineEditor context={editorContext(node)} parameters={node.parameters} readOnly={locked} onChange={(parameters: Record<string,unknown>)=>updateNode(node.id,{parameters})}/></ExtensionBoundary>}
                 {editor?.workspace && <button disabled={locked} onClick={()=>openWorkspace(node,editor)}>{editor.workspace.openLabel ?? `打开 ${editor.workspace.title}`}</button>}
-                {Object.entries(declaration?.tools??{}).map(([slot,contract])=><label key={slot}>{contract.name}<CanvasToolPicker label={`${declaration?.name} 工具`} disabled={locked} value={node.tools?.[slot]??''} options={[{id:'',name:'选择工具'},...(catalog.tools??[]).filter(tool=>tool.slot===contract.id)]} onChange={value=>updateNode(node.id,{tools:{...node.tools,[slot]:value},tool_parameters:{...node.tool_parameters,[slot]:{}}})} /></label>)}
+                {Object.entries(declaration?.tools??{}).map(([slot,contract])=><label key={slot}>工具<CanvasToolPicker label={`${declaration?.name} 工具`} disabled={locked} value={node.tools?.[slot]??''} options={[{id:'',name:'选择工具'},...(catalog.tools??[]).filter(tool=>tool.slot===contract.id)]} onChange={value=>updateNode(node.id,{tools:{...node.tools,[slot]:value},tool_parameters:{...node.tool_parameters,[slot]:{}}})} /></label>)}
               </>
             }}
-            renderNode={(node, index) => {
+            renderNode={(node) => {
             const declaration = declarationFor(node, catalog)
             const editor = extensions.editors?.find(item => item.node === node.type)
             const Editor = editor?.component
             const context = editorContext(node)
             const editorSession = projectSession.current
-            const latestRun=runs.at(-1)
-            const recorded=latestRun ? Object.entries(latestRun.nodes).filter(([id,result])=>(result.location?.node_id??id)===node.id&&callPath(latestRun,id).join('/')===scopePath.join('/')) : []
-            const focusedRun=runs.find(run=>run.id===locatedCall?.run), focused=locatedCall&&focusedRun?.nodes[locatedCall.call]
-            const isFocused=!!focused && (focused.location?.node_id??locatedCall?.call)===node.id && callPath(focusedRun!,locatedCall!.call).join('/')===scopePath.join('/')
             function currentEditorTarget() {
               if (!liveProject.current || editorSession !== projectSession.current || context.projectId !== currentProject.current?.id || context.revision !== draftRevision.current || scopePathNow.current.join('/')!==scopePath.join('/') || !flowAt(currentProject.current.flow, scopePath)?.nodes.some(item => item.id === node.id && item.type === node.type)) throw new Error('Editor draft changed; reopen the current node')
               if (runningNow.current || deletingProject.current === context.projectId || (savingNow.current && currentProject.current.tutorial)) throw new Error('Project is running, saving or being deleted')
             }
-            return <article className={isFocused?'node located':'node'} key={node.id}><h4>{declaration?.name ?? `Missing module: ${node.type}`}</h4><small>Node {index + 1} · {node.id}</small>{!declaration && <p role="status">Cannot run: install and enable the module that provides {node.type}.</p>}
-              {!!recorded.length && <details className="node-results"><summary>Latest run: {recorded.length} call{recorded.length===1?'':'s'} · {[...new Set(recorded.map(([,result])=>result.status))].join(', ')}</summary>{recorded.map(([id,result])=><p key={id}>{callLabel(latestRun!,id)} · {result.status}{result.diagnostics?.length?` · ${result.diagnostics.join('; ')}`:''}</p>)}</details>}
-              {isFocused&&<p className="located-call">Located call: {callLabel(focusedRun!,locatedCall!.call)} · {focused.status}</p>}
-              {node.scope ? <><p>{node.scope.body.nodes.length} child nodes · {node.type==='host.map' ? `each package on ${node.scope.item_input||'an unselected input'}` : `${node.scope.rounds??1} rounds`}</p><button onClick={()=>navigateScope([...scopePath,node.id])}>Open subflow</button></> : editor?.workspace ? <p>编辑内容在 {editor.workspace.title} 工作区中完成。</p> : Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
+            return <article className="node" key={node.id}>
+              {!declaration&&<p role="alert">此节点所需模块未安装。</p>}
+              {node.scope ? <button onClick={()=>navigateScope([...scopePath,node.id])}>打开子流程</button> : editor?.workspace || editor?.inline ? null : Editor ? <ExtensionBoundary key={node.id + editor?.installation_id}><Editor context={context} parameters={context.parameters} readOnly={locked} onChange={(parameters: Record<string, unknown>) => {
                 try {
                   currentEditorTarget()
                   updateNode(node.id, {parameters})
@@ -811,34 +814,33 @@ export default function App() {
               }} onDraftChange={() => {
                 try { currentEditorTarget(); markDirty(true); setNotice('') }
                 catch (failure) { fail(failure) }
-              }} /></ExtensionBoundary> : <label>Parameters<JsonEditor value={node.parameters} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { parameters })} /></label>}
+              }} /></ExtensionBoundary> : <ParameterFields schema={declaration?.parameters??{}} value={node.parameters} disabled={locked} onChange={(parameters: Record<string,unknown>)=>updateNode(node.id,{parameters})}/> }
               {Object.entries(declaration?.tools ?? {}).map(([slot, contract]) => {
-                const available = (catalog.tools ?? []).filter(tool => tool.slot === contract.id)
-                const selectedId = node.tools?.[slot] ?? ''
-                const tool = available.find(item => item.id === selectedId)
-                return <fieldset key={slot} disabled={locked}><legend>{contract.name}</legend>
-                  <label>Tool<CanvasToolPicker label={`${declaration?.name} ${slot} tool`} value={selectedId} disabled={locked} options={[{id:'',name:'Choose tool'},...(selectedId&&!tool?[{id:selectedId,name:`Missing tool: ${selectedId}`}]:[]),...available]} onChange={value => updateNode(node.id, {
-                    tools: { ...node.tools, [slot]: value },
-                    tool_parameters: { ...node.tool_parameters, [slot]: {} },
-                  })} /></label>
-                  {tool && <><p>Capabilities</p><pre>{JSON.stringify(tool.capabilities, null, 2)}</pre>
-                    <details><summary>Tool parameter schema and defaults</summary><pre>{JSON.stringify(tool.parameters, null, 2)}</pre></details>
-                    <label>Tool parameters (JSON)<JsonEditor value={node.tool_parameters?.[slot] ?? {}} disabled={locked} onDraftChange={() => { markDirty(true); setNotice('') }} onChange={parameters => updateNode(node.id, { tool_parameters: { ...node.tool_parameters, [slot]: parameters } })} /></label></>}
-                </fieldset>
+                const tool=catalog.tools?.find(item=>item.id===node.tools?.[slot]&&item.slot===contract.id)
+                return tool&&<fieldset key={slot} disabled={locked}><legend>计算参数</legend><ParameterFields schema={tool.parameters} value={node.tool_parameters?.[slot]??{}} disabled={locked} onChange={parameters=>updateNode(node.id,{tool_parameters:{...node.tool_parameters,[slot]:parameters}})}/></fieldset>
               })}
-              {Object.entries(declaration?.inputs ?? {}).map(([port, input]) => <label key={port}>{port} · {input.accepts.join(', ')}{input.required ? ' · required' : ''}<select disabled={locked} multiple={input.cardinality === 'many'} value={input.cardinality === 'many' ? node.inputs[port] ?? [] : node.inputs[port]?.[0] ?? ''} onChange={event => updateNode(node.id, { inputs: { ...node.inputs, [port]: Array.from(event.target.selectedOptions).map(option => option.value).filter(Boolean) } })}><option value="">Use connection / no input</option>{packages.filter(pkg => input.accepts.includes(pkg.format)).map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select></label>)}
-              {Object.entries(declaration?.outputs ?? {}).map(([port, output]) => <p key={port}>Output {port} → {output.format}</p>)}
-              <button disabled={locked} onClick={() => { void host.addNode(copyNode(node)).catch(fail) }}>Copy node</button>
-              <button disabled={locked} onClick={() => removeCanvasNodes([node.id])}>Remove node</button>
+              {!!Object.keys(declaration?.inputs??{}).length&&<details className="node-inputs"><summary>输入来源</summary>{Object.entries(declaration?.inputs??{}).map(([port,input])=>{const connected=activeFlow!.edges.find(edge=>edge.target===node.id&&edge.target_port===port);return <label key={port}>{input.name??port}{connected&&<small>已连接：{declarationFor(activeFlow!.nodes.find(item=>item.id===connected.source),catalog)?.name??'上游节点'}</small>}<select disabled={locked} multiple={input.cardinality==='many'} value={input.cardinality==='many'?node.inputs[port]??[]:node.inputs[port]?.[0]??''} onChange={e=>{const ids=Array.from(e.target.selectedOptions).map(option=>option.value).filter(Boolean);void editorContext(node).update({inputs:{[port]:ids},...(ids.length?{replaceConnections:[port]}:{})}).catch(fail)}}><option value="">{connected?'使用连线':'未选择'}</option>{packages.filter(pkg=>input.accepts.includes(pkg.format)).map(pkg=><option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select></label>})}</details>}
+
             </article>
           }} />
-          <ul hidden>{activeFlow!.edges.map((edge, index) => <li key={index}>{activeFlow!.nodes.findIndex(node => node.id === edge.source) + 1}:{edge.source_port} → {activeFlow!.nodes.findIndex(node => node.id === edge.target) + 1}:{edge.target_port} <button disabled={locked} onClick={() => disconnect(index)}>Disconnect</button></li>)}</ul>
         </section>
-        <div className="workbench-results" hidden={!resultsOpen}><fieldset disabled={locked}><legend>Connect declared ports</legend><select aria-label="Source node" value={connection.source} onChange={event => setConnection({ ...connection, source: event.target.value, source_port: '' })}><option value="">Source node</option>{activeFlow!.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Source port" value={connection.source_port} onChange={event => setConnection({ ...connection, source_port: event.target.value })}><option value="">Output port</option>{Object.keys(sourcePorts).map(port => <option key={port}>{port}</option>)}</select><select aria-label="Target node" value={connection.target} onChange={event => setConnection({ ...connection, target: event.target.value, target_port: '' })}><option value="">Target node</option>{activeFlow!.nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}: {node.type}</option>)}</select><select aria-label="Target port" value={connection.target_port} onChange={event => setConnection({ ...connection, target_port: event.target.value })}><option value="">Input port</option>{Object.keys(targetPorts).map(port => <option key={port}>{port}</option>)}</select><button onClick={() => host.connect(connection).catch(fail)}>Connect</button></fieldset>
-        <h3>Runs</h3>{runs.map((run, runIndex) => <details key={run.id}><summary>Run {runIndex + 1} · {run.status} · {run.id}</summary>{run.diagnostics.map((message, index) => <p key={index}>{message}</p>)}{Object.keys(run.nodes).filter(id=>!run.nodes[id].location).map(id=>renderRunNode(run,runIndex,id))}</details>)}
-        <h3>Data packages</h3>{extensions.resultActions?.map(action => <ExtensionBoundary key={projectSession.current + action.id + action.installation_id}><action.component host={host} packages={packages} /></ExtensionBoundary>)}<select aria-label="Data package" value={selectedPackage} onChange={event => { setSelectedPackage(event.target.value); setViewer('') }}><option value="">Choose package</option>{packages.map(pkg => <option key={pkg.id} value={pkg.id}>{packageDescription(pkg)}</option>)}</select>
-        {selected && <section className="package"><a href={client.exportUrl(selected.id)} download>Download ZIP</a><p>Format: {selected.format} · Entry: {selected.entry}</p>{!!viewers.length && <label>Viewer<select value={activeViewer?.id ?? ''} onChange={event => setViewer(event.target.value)}>{viewers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Adopt into project<select aria-label="Adoption target" value={adoptionTarget} disabled={adopting} onChange={event => setAdoptionTarget(event.target.value)}><option value="">Choose target project</option>{projects.filter(item => item.id !== project.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button disabled={!adoptionTarget || adopting} onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt package'}</button>{Viewer && <ExtensionBoundary key={selected.id + activeViewer?.id + activeViewer?.installation_id}><Viewer package={selected} host={host} /></ExtensionBoundary>}<ul>{selected.files.map(key => <li key={key}><a href={client.fileUrl(selected.id, key)} download>{key}</a></li>)}</ul></section>}
-        </div>
+        {resultsOpen&&<aside className="workbench-results" aria-label="结果"><div className="panel-heading"><h2>结果</h2><button aria-label="关闭结果" onClick={()=>setResultsOpen(false)}>×</button></div>
+          <div className="result-selectors"><select aria-label="选择运行" value={viewedRun?.id??'inputs'} onChange={e=>{setResultRun(e.target.value);setResultCall('');setSelectedPackage('');setViewer('')}}><option value="inputs">输入文件</option>{runs.map((run,index)=><option key={run.id} value={run.id}>第 {index+1} 次运行 · {statusLabel(run.status)}</option>)}</select>{viewedRun&&<select aria-label="选择结果节点" value={viewedCall} onChange={e=>{setResultCall(e.target.value);setSelectedPackage('');setViewer('')}}>{viewedCalls.map(id=><option key={id} value={id}>{resultName(viewedRun,id)} · {statusLabel(viewedRun.nodes[id].status)}</option>)}</select>}</div>
+          {viewedRun?.diagnostics.map((message,i)=><p role="status" key={i}>{message}</p>)}
+          {viewedNode&&<div className="result-status"><button onClick={()=>locateCall(viewedRun!,viewedCall)}>定位节点</button>{['failed','cancelled'].includes(viewedNode.status)&&(viewedRun?.calls?.[viewedCall]!==undefined||viewedRun?.scopes?.[viewedCall]!==undefined)&&<button disabled={locked||saving} onClick={()=>void continueRun(viewedRun!.id,viewedCall)}>继续运行</button>}{viewedNode.diagnostics?.map((message,i)=><p role="alert" key={i}>{message}</p>)}</div>}
+          {resultPackages.length>1&&<select aria-label="选择输出" value={selectedPackage} onChange={e=>{setSelectedPackage(e.target.value);setViewer('')}}>{resultPackages.map(({pkg,index,port})=><option key={pkg.id} value={pkg.id}>{viewedRun?`${declarationFor(viewedRun.flow&&flowAt(viewedRun.flow,callPath(viewedRun,viewedCall))?.nodes.find(node=>node.id===(viewedNode?.location?.node_id??viewedCall)),catalog)?.outputs[port]?.name??'输出'} ${index+1}`:packageDescription(pkg)}</option>)}</select>}
+          {!resultPackages.length&&<p className="empty-result">暂无结果</p>}
+          {selected&&resultPackages.some(item=>item.pkg.id===selected.id)&&<section className="package">
+
+            {Viewer&&<ExtensionBoundary key={selected.id+activeViewer?.id+activeViewer?.installation_id}><Viewer package={selected} host={host}/></ExtensionBoundary>}
+            {viewers.length>1&&<details><summary>查看方式</summary><select aria-label="查看方式" value={activeViewer?.id??''} onChange={e=>setViewer(e.target.value)}>{viewers.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></details>}
+            <div className="result-actions"><a href={client.exportUrl(selected.id)} download>下载 ZIP</a><details><summary>用于后续节点</summary><select aria-label="接收节点" value={useTarget} onChange={e=>{setUseTarget(e.target.value);setUsePort('')}}><option value="">选择节点</option>{activeFlow!.nodes.filter(node=>Object.values(declarationFor(node,catalog)?.inputs??{}).some(input=>input.accepts.includes(selected.format))).map(node=><option key={node.id} value={node.id}>{String(activeFlow!.nodes.indexOf(node)+1).padStart(2,'0')} {declarationFor(node,catalog)?.name}</option>)}</select><select aria-label="接收端口" value={usePort} onChange={e=>setUsePort(e.target.value)}><option value="">选择输入</option>{Object.entries(declarationFor(activeFlow?.nodes.find(node=>node.id===useTarget),catalog)?.inputs??{}).filter(([,input])=>input.accepts.includes(selected.format)).map(([port,input])=><option key={port} value={port}>{input.name??port}</option>)}</select>{useTarget&&usePort&&<small>采用后替换此输入的现有来源。</small>}<button disabled={locked||!useTarget||!usePort} onClick={()=>void useResult().catch(fail)}>采用</button></details></div>
+            {extensions.resultActions?.map(action=><details key={action.id}><summary>{action.name}</summary><ExtensionBoundary><action.component host={host} packages={[selected]}/></ExtensionBoundary></details>)}
+            <details><summary>采用到其他项目</summary><select aria-label="目标项目" value={adoptionTarget} disabled={adopting} onChange={e=>setAdoptionTarget(e.target.value)}><option value="">选择项目</option>{projects.filter(item=>item.id!==project.id).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><button disabled={!adoptionTarget||adopting} onClick={()=>void adopt()}>{adopting?'采用中…':'采用'}</button></details>
+            <details><summary>文件</summary><ul>{selected.files.map(key=><li key={key}><a href={client.fileUrl(selected.id,key)} download>{key}</a></li>)}</ul></details>
+          </section>}
+        </aside>}
+
       </>}
     </main></div>
     {workspace && WorkspaceEditor && <section className="editor-workspace-overlay" role="dialog" aria-modal="true" aria-label={workspace.editor.workspace?.title}><ExtensionBoundary onReturn={closeWorkspace} key={workspace.context.projectId+workspace.context.nodeId+workspace.editor.installation_id}><WorkspaceEditor context={workspace.context} parameters={workspace.context.parameters} readOnly={locked} onClose={closeWorkspace} onDraftChange={()=>{workspaceDirty.current=true}} onChange={(parameters: Record<string, unknown>)=>{void workspace.context.update({parameters}).catch(fail)}} /></ExtensionBoundary></section>}

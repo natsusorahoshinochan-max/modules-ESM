@@ -41,7 +41,7 @@ export function register({ React }) {
     }
     const unavailable = ['sequences', 'reference'].map(port => context.inputs[port]?.unavailable).filter(Boolean);
     return h('section', null,
-      h('p', null, 'Bind explicit sequence and reference packages, then inspect their objects. Select a sequence for every reference chain. Whole-chain mapping follows displayed residue order; lengths must match. All chains remain separate tool context.'),
+
       ...unavailable.map((reason, i) => h('p', { key: i, role: 'status' }, reason)),
       h('button', { disabled: busy || readOnly || Object.values(inputs).some(ids => ids.length !== 1), onClick: inspect }, busy ? 'Reading inputs…' : 'Inspect sequence and reference inputs'),
       data && h(React.Fragment, null,
@@ -64,7 +64,7 @@ export function register({ React }) {
               if (e.target.checked) values.push(actual(p));
               change({ ...parameters, region: values.length ? values : null });
             } }), positionLabel(p))))),
-      h('p', null, 'ProteinMPNN score_only returns mean negative log likelihood (lower is better). The scoring mask combines coordinates, selected chains and nonfixed positions; global NLL uses all coordinate positions. Region NLL reports selected residues from the same complete-context call. Configure seed, model, designed chains and fixed positions in the selected tool. Seed 0 chooses and records an actual random seed; positive seeds pass directly. Repeated evaluations use num_seq_per_target and exact batch_size divisibility. Existing ProteinMPNN resources are configured in its module settings.'),
+
       error && h('p', { role: 'alert' }, error));
   }
   function Viewer({ package: pkg, host }) {
@@ -94,9 +94,9 @@ export function register({ React }) {
         h('p', null, e.region === null ? 'Complete reference reporting' : e.region.map(positionLabel).join(', ')),
         h('p', null, `Evaluated sequences: ${labels.join(', ')}`),
         ...e.samples.map((sample, j) => sampleTable(e, sample, j)),
-        h('details', null, h('summary', null, 'Effective tool parameters'), h('pre', null, JSON.stringify(e.parameters, null, 2))));
+        h('details', null, h('summary', null, '计算参数'), h('dl',null,Object.entries(e.parameters).map(([key,value])=>h(React.Fragment,{key},h('dt',null,key.replaceAll('_',' ')),h('dd',null,typeof value==='object'?'已配置':String(value)))))));
     }
-    return h('section', null, h('h3', null, 'Independent sequence / backbone evaluation'),
+    return h('section', null, h('h3', null, '序列适配评分'),
       data && h(React.Fragment, null,
         ...data.objects.map((o, i) => h('article', { key: o.id }, h('h4', null, o.label || `Sequence ${i + 1}`), o.sequence ? h('pre', null, o.sequence) : Object.entries(o.chains).map(([chain, sequence]) => h('p', { key: chain }, `${chain}: ${sequence}`)))),
         ...(data.evaluations || []).filter(e => e.origin === 'independent_sequence_backbone').map(evaluation)),

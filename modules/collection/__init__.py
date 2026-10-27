@@ -168,17 +168,17 @@ def extract_sequences(call, runtime):
 
 
 def module():
-    collection = {'collection': InputPort((FORMAT,))}
-    return Module('workbench.collection', 'Collection operations', ui=str(Path(__file__).with_name('ui.js')),
+    collection = {'collection': InputPort((FORMAT,), name='候选集合')}
+    return Module('workbench.collection', '集合操作', ui=str(Path(__file__).with_name('ui.js')),
         nodes=(
-            Node('workbench.collection.merge', 'Merge object collections', merge,
-                 inputs={'packages': InputPort(FORMATS, cardinality='many', required=False)}, outputs={'collection': OutputPort(FORMAT)}),
-            Node('workbench.collection.split', 'Split collection into object packages', split,
-                 inputs=collection, outputs={'items': OutputPort(FORMAT, cardinality='many')}),
-            Node('workbench.collection.select', 'Select collection objects', select_items, inputs=collection,
-                 outputs={'collection': OutputPort(FORMAT)}, parameters={'items': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}}}),
-            Node('workbench.collection.extract_structures', 'Extract selected structures', extract_structures,
-                 inputs=collection, outputs={'structures': OutputPort('workbench.structure_set')}),
-            Node('workbench.collection.extract_sequences', 'Extract selected sequences', extract_sequences,
-                 inputs=collection, outputs={'sequences': OutputPort('workbench.sequence')}),
+            Node('workbench.collection.merge', '合并集合', merge,
+                 inputs={'packages': InputPort(FORMATS, cardinality='many', required=False, name='输入')}, outputs={'collection': OutputPort(FORMAT, name='候选集合')}),
+            Node('workbench.collection.split', '拆分集合', split,
+                 inputs=collection, outputs={'items': OutputPort(FORMAT, cardinality='many', name='对象')}),
+            Node('workbench.collection.select', '选择对象', select_items, inputs=collection,
+                 outputs={'collection': OutputPort(FORMAT, name='候选集合')}, parameters={'items': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}}}),
+            Node('workbench.collection.extract_structures', '提取结构', extract_structures,
+                 inputs=collection, outputs={'structures': OutputPort('workbench.structure_set', name='结构')}),
+            Node('workbench.collection.extract_sequences', '提取序列', extract_sequences,
+                 inputs=collection, outputs={'sequences': OutputPort('workbench.sequence', name='序列')}),
         ))

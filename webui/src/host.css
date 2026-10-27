@@ -494,7 +494,8 @@ pre {
   flex: 1;
   min-height: 300px;
   max-height: none;
-  overflow: hidden;
+  /* Canvas navigation uses transforms; native scrolling would displace overlays. */
+  overflow: clip;
   border: 0;
   outline: 0;
   touch-action: none;
@@ -1085,28 +1086,10 @@ pre {
 .workbench-fullscreen main {
   padding: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
   position: relative;
-}
-.workbench-fullscreen .toolbar {
-  min-height: 46px;
-  flex: none;
-  padding: 6px 18px;
-  border-bottom: 1px solid #d9dee7;
-  gap: 8px;
-  background: #ffffff;
-}
-.workbench-fullscreen .toolbar h2 {
-  font-size: 13px;
-  font-weight: 500;
-  margin: 0 auto 0 0;
-  color: #626b79;
-}
-.workbench-fullscreen .toolbar button {
-  font-size: 12px;
-  padding: 5px 9px;
 }
 .workbench-fullscreen .canvas {
   display: flex;
@@ -1134,16 +1117,10 @@ pre {
   background: #ffffff;
   color: #20242c;
 }
-.workbench-fullscreen .scope-add {
-  position: absolute;
-  left: 18px;
-  top: 8px;
-  z-index: 13;
-}
 .workbench-fullscreen .workbench-management {
   position: absolute;
   left: 14px;
-  top: 110px;
+  top: 62px;
   bottom: 24px;
   z-index: 14;
   width: 340px;
@@ -1157,33 +1134,17 @@ pre {
   color: #20242c;
   padding: 18px;
 }
-.workbench-fullscreen .module-actions {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  top: 58px;
-  max-height: 70vh;
-  overflow: auto;
-  z-index: 15;
-  padding: 18px;
-  border: 1px solid #d9dee7;
-  border-radius: 6px;
-  background: #ffffff;
-  box-shadow: 0 12px 30px #20242c18;
-}
 .workbench-fullscreen .workbench-results {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 44px;
-  max-height: 65vh;
+  position: relative;
+  flex: 0 0 clamp(340px, 32vw, 480px);
+  min-width: 0;
+  max-width: 52vw;
+  min-height: 0;
   overflow: auto;
-  z-index: 15;
   padding: 18px;
-  border: 1px solid #d9dee7;
-  border-radius: 6px;
-  background: #ffffff;
-  box-shadow: 0 12px 40px #20242c18;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: var(--paper);
 }
 .workbench-fullscreen .workbench-results .package {
   background: #ffffff;
@@ -1254,17 +1215,7 @@ pre {
     font-size: 11px;
     padding: 5px 7px;
   }
-  .workbench-fullscreen .toolbar {
-    padding: 6px 10px;
-    gap: 4px;
-  }
-  .workbench-fullscreen .toolbar button {
-    font-size: 11px;
-  }
-  .workbench-fullscreen .toolbar h2 {
-    width: 100%;
-  }
-  .workbench-fullscreen .canvas-workspace {
+        .workbench-fullscreen .canvas-workspace {
     height: 100%;
     min-height: 0;
   }
@@ -1344,10 +1295,6 @@ input[type=checkbox] {
 .workbench-fullscreen .workbench-management {
   box-shadow: 0 8px 30px #20242c1a;
 }
-.workbench-fullscreen .module-actions,
-.workbench-fullscreen .workbench-results {
-  box-shadow: 0 8px 30px #20242c1a;
-}
 .workbench-fullscreen .canvas-properties .located-call {
   background: #fff0ce;
   color: #795b24;
@@ -1357,3 +1304,77 @@ input[type=checkbox] {
     transition: none;
   }
 }
+
+/* Canvas-first workbench: a single header and an adjacent result reader. */
+.workbench-fullscreen .canvas { min-width:0; }
+.workbench-fullscreen .workbench-base > header { gap:8px; }
+.header-spacer { flex:1; }
+.project-menu-anchor { position:relative; min-width:0; max-width:55%; }
+.workbench-fullscreen .project-trigger { border:0; font-weight:600; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.project-menu { position:absolute; top:calc(100% + 8px); left:0; width:230px; max-height:70vh; overflow:auto; padding:8px; background:var(--paper); border:1px solid var(--border); border-radius:7px; box-shadow:0 8px 28px #20242c1a; z-index:40; }
+.project-menu button { display:block; width:100%; text-align:left; border:0; }
+.project-menu summary { padding:7px 10px; cursor:pointer; }
+.unsaved-dot { display:block; width:6px; height:6px; border-radius:50%; background:#c89c40; flex-shrink:0; }
+.panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.panel-heading h2 { margin:0; font-size:16px; }
+.panel-heading button { border:0; font-size:20px; padding:0 6px; }
+.workbench-management ul { list-style:none; padding:0; }
+.workbench-management li button { width:100%; text-align:left; margin:4px 0; }
+.result-selectors { display:grid; gap:8px; margin-bottom:14px; }
+.result-selectors select,.workbench-results>select { width:100%; }
+.workbench-results .package { padding:0; border:0; }
+.workbench-results label,.workbench-results p { font-size:12px; }
+.workbench-results pre { max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.workbench-results svg { max-width:100%; height:auto; }
+.workbench-results select,.workbench-results input,.workbench-results button { max-width:100%; }
+.workbench-results table { width:100%; font-size:12px; table-layout:fixed; overflow-wrap:anywhere; }
+.workbench-results details { margin:12px 0; }
+.workbench-results summary { cursor:pointer; color:var(--muted); font-size:12px; }
+.result-status { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12px; margin-bottom:12px; }
+.result-status p { width:100%; color:#a0483b; }
+.result-status button { padding:4px 7px; font-size:11px; }
+.result-actions { display:flex; align-items:start; gap:16px; border-top:1px solid var(--border); padding-top:14px; margin-top:18px; }
+.result-actions>details { margin:0; flex:1; }
+.result-actions select { display:block; margin:8px 0; width:100%; }
+.result-actions small { display:block; color:var(--muted); margin-bottom:8px; }
+.empty-result { padding:30px 0; color:var(--muted); }
+.node-footer { justify-content:space-between; }
+.canvas-workspace { position:relative; }
+.canvas-status { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); z-index:12; border:1px solid var(--border); border-radius:5px; background:var(--paper); padding:7px 12px; font-size:12px; pointer-events:none; }
+.parameter-fields label { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+.parameter-fields label>input,.parameter-fields label>select { width:55%; }
+.parameter-toggle input[type=checkbox] { width:auto; }
+.parameter-group { margin:10px 0; }
+.parameter-group summary { font-size:12px; cursor:pointer; }
+.parameter-add,.parameter-item { display:flex; gap:5px; align-items:center; margin:5px 0; }
+.parameter-item>label { flex:1; min-width:0; }
+.parameter-add>input { min-width:0; width:70%; }
+.node-inputs { margin:12px 0; }
+.node-inputs small { display:block; color:var(--muted); margin:4px 0; }
+.inline-file-name { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:6px; }
+.node-summary input[type=file] { width:100%; font-size:11px; }
+.node-summary section>h3 { display:none; }
+.canvas-properties fieldset { padding:8px; margin:10px 0; min-width:0; }
+@media(max-width:850px){.workbench-fullscreen .workbench-results{flex-basis:320px;max-width:48vw;padding:12px}.workbench-fullscreen .workbench-base>header{padding:8px}.project-menu-anchor{max-width:42%}}
+
+.inline-file-picker { position: relative; display: block; border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; text-align: center; cursor: pointer; background: #f8f9fb; }
+.inline-file-picker input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.inline-file-picker:focus-within { outline: 2px solid #345bdb; outline-offset: 2px; }
+.matrix-row { display: flex; gap: 4px; }
+.matrix-row input { width: 0; flex: 1; min-width: 0; }
+.metric-summary { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.metric-summary dd { margin: 0; font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; }
+.workbench-results figure { margin: 16px 0; }
+.workbench-results figcaption { color: #626b79; font-size: 12px; }
+.canvas-workspace .node-summary > label, .canvas-workspace .node-summary section > label:not(.inline-file-picker) { display: flex; align-items: center; gap: 10px; }
+.canvas-workspace .node-summary > label > :last-child, .canvas-workspace .node-summary section > label:not(.inline-file-picker) > input { flex: 1; min-width: 0; width: 0; }
+.parameter-add { flex-wrap: wrap; }
+.parameter-add input { min-width: 90px; }
+.parameter-item > label { flex: 1; min-width: 0; }
+.canvas-workspace .canvas-properties .parameter-fields label { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(0, 1.9fr); align-items: center; gap: 10px; }
+.canvas-workspace .canvas-properties .parameter-fields label > input,
+.canvas-workspace .canvas-properties .parameter-fields label > select { min-width: 0; width: 100%; }
+.canvas-workspace .canvas-properties .parameter-fields .parameter-toggle input { width: auto; justify-self: end; }
+.position-fields { display: flex; gap: 4px; align-items: end; }
+.position-fields label { min-width: 0; flex: 1; }
+.position-fields input { min-width: 0; }

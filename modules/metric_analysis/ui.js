@@ -7,7 +7,7 @@ export function register({React}) {
   const methodName=value=>typeof value==='string'?value:JSON.stringify(value)
   function Editor({context,parameters,readOnly}) {
     const [choices,setChoices]=React.useState([]),[selected,setSelected]=React.useState(parameters.selections??[]),[inspected,setInspected]=React.useState(false)
-    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[chains,setChains]=React.useState({})
+    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[chains,set链s]=React.useState({})
     const epoch=React.useRef(0),abort=React.useRef(null),origin=React.useRef(null)
     React.useEffect(()=>{
       epoch.current++;abort.current?.abort();setChoices([]);setSelected(parameters.selections??[]);setInspected(false);setBusy(false);setError('')
@@ -38,11 +38,11 @@ export function register({React}) {
     }
     return h('section',{'aria-label':'Existing metric selections'},
       ...Object.values(context.inputs).map((input,i)=>input.unavailable&&h('p',{key:i},input.unavailable)),
-      h('button',{onClick:inspect,disabled:busy},'Inspect existing metrics'),error&&h('p',{role:'alert'},error),
+      h('button',{onClick:inspect,disabled:busy},'读取指标'),error&&h('p',{role:'alert'},error),
       inspected&&selected.map((selection,index)=>!choices.some(choice=>same(selection,choice.selector))&&h('fieldset',{key:`saved-${index}`,disabled:readOnly||busy},
         h('legend',null,`Saved metric selection ${index+1} · Input ${selection.input+1} · ${selection.metric}`),
-        h('p',null,'This saved metric selection is not available in the current inspected inputs. Remove it or inspect the intended input again.'),
-        h('button',{'aria-label':`Remove saved metric selection ${index+1}`,onClick:()=>setSelected(items=>items.filter((_,offset)=>offset!==index))},'Remove saved metric selection'))),
+        h('p',null,'当前输入中没有此分数'),
+        h('button',{'aria-label':`删除已存选择 ${index+1}`,onClick:()=>setSelected(items=>items.filter((_,offset)=>offset!==index))},'删除已存选择'))),
       ...choices.map((choice,index)=>{
         const selection=selected.find(item=>same(item,choice.selector)),number=index+1
         const region=selection?.region
@@ -50,21 +50,17 @@ export function register({React}) {
         return h('fieldset',{key:JSON.stringify(choice.selector),disabled:readOnly||busy},
           h('legend',null,`Input ${choice.selector.input+1} · ${choice.object_label} · ${choice.reference_label} · ${choice.selector.metric}`),
           h('p',null,`${choice.selector.origin==='generation'?'Generation confidence':`Evaluation ${choice.selector.evaluation===undefined?'':choice.selector.evaluation+1}`}${choice.selector.sample===undefined?'':` · Sample ${choice.selector.sample+1}`} · ${methodName(choice.source_method)} · ${choice.unit} · ${choice.meaning}`),
-          h('p',null,'Original scope: ',JSON.stringify(choice.source_region)),
+
           choice.unavailable&&h('p',null,'Unavailable: ',choice.unavailable),
-          h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,disabled:!!choice.unavailable&&!selection,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'Use existing metric'),
+          h('label',null,h('input',{type:'checkbox','aria-label':`Use metric ${number}`,disabled:!!choice.unavailable&&!selection,checked:!!selection,onChange:event=>change(choice,undefined,event.target.checked)}),'选择此指标'),
           !choice.unavailable&&choice.positions&&selection&&h(React.Fragment,null,
-            h('label',null,h('input',{type:'checkbox','aria-label':`Select individual positions ${number}`,checked:Array.isArray(region),onChange:event=>change(choice,event.target.checked?[]:undefined)}),'Select individual positions'),
+            h('label',null,h('input',{type:'checkbox','aria-label':`选择残基 ${number}`,checked:Array.isArray(region),onChange:event=>change(choice,event.target.checked?[]:undefined)}),'选择残基'),
             Array.isArray(region)&&h(React.Fragment,null,
-              h('label',null,'Chain',h('select',{'aria-label':`Metric ${number} chain`,value:chains[index]??'',onChange:event=>setChains({...chains,[index]:event.target.value})},
-                h('option',{value:''},'All available chains'),...[...new Set(choice.positions.map(p=>p.chain))].map(chain=>h('option',{key:chain,value:chain},chain||'(blank chain)')))),
+              h('label',null,'链',h('select',{'aria-label':`Metric ${number} chain`,value:chains[index]??'',onChange:event=>set链s({...chains,[index]:event.target.value})},
+                h('option',{value:''},'全部链'),...[...new Set(choice.positions.map(p=>p.chain))].map(chain=>h('option',{key:chain,value:chain},chain||'(blank chain)')))),
               ...visible.map(p=>h('label',{key:positionName(p)},h('input',{type:'checkbox','aria-label':`Metric ${number} position ${positionName(p)}`,checked:region.some(item=>same(item,p)),onChange:event=>change(choice,event.target.checked?[...region,p]:region.filter(item=>!same(item,p)))}),positionName(p))))),
-          !choice.unavailable&&!choice.positions&&h('p',null,'Scalar value: analysis retains the original evaluation scope.'))
-      }),h('button',{onClick:apply,disabled:readOnly||busy||!choices.length||!selected.length||selected.some(item=>!choices.some(choice=>same(item,choice.selector)&&!choice.unavailable)||(Array.isArray(item.region)&&!item.region.length))},'Apply metric selections'))
-  }
-  function Action({host}) {
-    const [error,setError]=React.useState('')
-    return h('section',null,h('button',{disabled:host.readOnly,onClick:async()=>{try{await host.addNode({type:'workbench.analyze_metrics',inputs:{},parameters:{}})}catch(error){setError(error.message)}}},'Add existing metric analysis'),error&&h('p',{role:'alert'},error))
+          !choice.unavailable&&!choice.positions&&h('p',null,'标量'))
+      }),h('button',{onClick:apply,disabled:readOnly||busy||!choices.length||!selected.length||selected.some(item=>!choices.some(choice=>same(item,choice.selector)&&!choice.unavailable)||(Array.isArray(item.region)&&!item.region.length))},'采用选择'))
   }
   function Viewer({package:pkg,host}) {
     const [document,setDocument]=React.useState(null),[error,setError]=React.useState('')
@@ -72,14 +68,14 @@ export function register({React}) {
     return h('section',null,error&&h('p',{role:'alert'},error),
       pkg.format==='workbench.metric_analysis'?(document?.analyses??[]).map((analysis,index)=>h('article',{key:index},
         h('h3',null,`${analysis.object.label??`Object ${index+1}`} · ${analysis.metric}`),
-        h('p',null,'Reference: ',analysis.reference?.label??(analysis.reference?'Selected reference':'No reference')),
-        h('p',null,'Source method: ',methodName(analysis.source_method)),h('p',null,analysis.method,' · ',analysis.unit,' · ',analysis.meaning),
-        h('p',null,'Analyzed region: ',JSON.stringify(analysis.region)),
+        h('p',null,'参考：',analysis.reference?.label??(analysis.reference?'所选参考':'无参考')),
+        h('p',null,'方法：',methodName(analysis.source_method)),h('p',null,analysis.method,' · ',analysis.unit,' · ',analysis.meaning),
+        h('p',null,`区域：${analysis.region===null?'整体':Array.isArray(analysis.region)?analysis.region.map(positionName).join(', '):'所选区域'}`),
         h('p',null,`Count ${analysis.statistics.count}; mean ${analysis.statistics.mean}; minimum ${analysis.statistics.minimum}; maximum ${analysis.statistics.maximum}`),
-        h('details',null,h('summary',null,'Existing input values'),h('pre',null,JSON.stringify(analysis.positions?analysis.positions.map((p,i)=>({position:p,value:analysis.input_values[i]})):analysis.input_values)))))
-      :h('button',{disabled:host.readOnly,onClick:async()=>{try{await host.addNode({type:'workbench.analyze_metrics',inputs:{metrics:[pkg.id]},parameters:{}})}catch(error){setError(error.message)}}},'Analyze these existing metrics'))
+        h('details',null,h('summary',null,'原始分数'),h('table',null,h('tbody',null,analysis.input_values.map((value,i)=>h('tr',{key:i},h('td',null,analysis.positions?.[i]?positionName(analysis.positions[i]):i+1),h('td',null,String(value)))))))))
+      :h('button',{disabled:host.readOnly,onClick:async()=>{try{await host.addNode({type:'workbench.analyze_metrics',inputs:{metrics:[pkg.id]},parameters:{}})}catch(error){setError(error.message)}}},'添加指标分析节点'))
   }
-  return {actions:[{id:'workbench.metric_analysis',name:'Existing metric analysis',component:Action}],
+  return {
     editors:[{node:'workbench.analyze_metrics',component:Editor}],
-    viewers:[{id:'workbench.metric_analysis',name:'Existing metric analysis',formats:[...supported,'workbench.metric_analysis'],component:Viewer}]}
+    viewers:[{id:'workbench.metric_analysis',name:'指标分析',formats:[...supported,'workbench.metric_analysis'],component:Viewer}]}
 }

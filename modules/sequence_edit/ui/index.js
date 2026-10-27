@@ -1325,43 +1325,6 @@ export function register({ React }) {
         ),
     );
   }
-  function Action({ host }) {
-    const [value, setValue] = React.useState(""),
-      [error, setError] = React.useState("");
-    return h(
-      "section",
-      null,
-      h(
-        "label",
-        null,
-        "初始序列",
-        h("input", {
-          value,
-          disabled: host.readOnly,
-          onChange: (e) => setValue(e.target.value.toUpperCase()),
-        }),
-      ),
-      h(
-        "button",
-        {
-          disabled: host.readOnly,
-          onClick: async () => {
-            try {
-              await host.addNode({
-                type: "workbench.edit_sequence",
-                parameters: { sequence: value },
-                inputs: {},
-              });
-            } catch (reason) {
-              setError(reason.message);
-            }
-          },
-        },
-        "添加蛋白质编辑器",
-      ),
-      error && h("p", { role: "alert" }, error),
-    );
-  }
   function Viewer({ package: pkg, host }) {
     const [data, setData] = React.useState(null),
       [error, setError] = React.useState("");
@@ -1392,13 +1355,6 @@ export function register({ React }) {
         : h("p", null, "正在读取…");
   }
   return {
-    actions: [
-      {
-        id: "workbench.sequence_editor",
-        name: "Protein Studio",
-        component: Action,
-      },
-    ],
     editors: [
       {
         node: "workbench.edit_sequence",

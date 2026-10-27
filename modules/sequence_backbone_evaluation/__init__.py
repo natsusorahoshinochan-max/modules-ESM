@@ -112,10 +112,10 @@ def execute(call, runtime):
 
 def module():
     from .interaction import inspect
-    return Module('workbench.sequence_backbone_evaluation', 'Independent sequence/backbone evaluation', nodes=(Node(
-        'workbench.evaluate_sequence_backbone', 'Evaluate sequence against backbone', execute,
-        inputs={'sequences': InputPort(SEQUENCES), 'reference': InputPort(REFERENCES)}, outputs={'evaluation': OutputPort(FORMAT)},
+    return Module('workbench.sequence_backbone_evaluation', '序列适配评价', nodes=(Node(
+        'workbench.evaluate_sequence_backbone', '评价序列适配', execute,
+        inputs={'sequences': InputPort(SEQUENCES, name='序列'), 'reference': InputPort(REFERENCES, name='参考结构')}, outputs={'evaluation': OutputPort(FORMAT, name='评价')},
         parameters={'reference': {'description': 'Explicit reference object'}, 'bindings': {'description': 'Complete sequence-to-reference chain residue mapping'}, 'region': {'description': 'Optional actual reference residue selection'}},
         tools={'mpnn': ToolSlot('workbench.proteinmpnn.call', 'ProteinMPNN sequence scoring')}),), ui=str(Path(__file__).with_name('ui.js').resolve()),
         interactions=(Interaction('workbench.sequence_backbone.inspect', inspect,
-            inputs={'sequences': InputPort(SEQUENCES), 'reference': InputPort(REFERENCES)}),))
+            inputs={'sequences': InputPort(SEQUENCES, name='序列'), 'reference': InputPort(REFERENCES, name='参考结构')}),))

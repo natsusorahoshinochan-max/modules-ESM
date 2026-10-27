@@ -5,19 +5,17 @@ export function register({ React }) {
   const positionLabel = p => `${p.chain || '(blank chain)'} ${p.author_number}${p.insertion_code}`;
   function Editor({ parameters, onChange, readOnly }) {
     return h('section', null,
-      h('p', null, 'Choose the existing structure and residues in its Independent structure confidence viewer. Unsupported components, alternate atoms or incomplete atom correspondence stop evaluation. The original structure and source generation confidence stay in the result.'),
-      h('p', null, parameters.region?.length ? `Selected residues: ${parameters.region.map(positionLabel).join(', ')}` : 'Complete structure evaluation'),
-      parameters.region?.length && h('button', { disabled: readOnly, onClick: () => onChange({ ...parameters, region: null }) }, 'Use complete structure'),
-      h('p', null, 'SimpleFold pLDDT is predicted local confidence on a 0–1 fraction scale. Configure existing resources in SimpleFold module settings. This method has no folding seed, steps or sampling parameters.'));
+      h('p', null, parameters.region?.length ? `选中残基： ${parameters.region.map(positionLabel).join(', ')}` : '整体'),
+      parameters.region?.length && h('button', { disabled: readOnly, onClick: () => onChange({ ...parameters, region: null }) }, '使用整体'),);
   }
   function Score({ item, objects }) {
     const e = item.evaluation, d = item.data;
     return h('article', null,
       h('h4', null, objects.find(o => o.id === e.object_id)?.label || 'Structure'),
-      h('p', null, `${e.method} · ${e.per_position.unit} · ${e.region === null ? 'Complete structure' : e.region.map(positionLabel).join(', ')}`),
-      h('p', null, `Mean pLDDT: ${e.values.mean_plddt.value} · ${e.values.mean_plddt.meaning}`),
+      h('p', null, `${e.method} · ${e.per_position.unit} · ${e.region === null ? '整体' : e.region.map(positionLabel).join(', ')}`),
+      h('p', null, `平均 pLDDT： ${e.values.mean_plddt.value} · ${e.values.mean_plddt.meaning}`),
       h('table', null,
-        h('thead', null, h('tr', null, ...['Chain', 'Author residue', 'Insertion code', 'pLDDT (0–1)'].map(t => h('th', { key: t }, t)))),
+        h('thead', null, h('tr', null, ...['链', '编号', '插入码', 'pLDDT (0–1)'].map(t => h('th', { key: t }, t)))),
         h('tbody', null, ...d.positions.map((p, j) => h('tr', { key: j },
           h('td', null, p.chain), h('td', null, p.author_number), h('td', null, p.insertion_code), h('td', null, String(d.plddt[j])))))));
   }
@@ -64,22 +62,21 @@ export function register({ React }) {
       try { await host.addNode({ type: 'workbench.export_structure', inputs: { structures: [pkg.id] }, parameters: { object, format: exportFormat } }); }
       catch (failure) { setError(String(failure)); }
     }
-    const selection = h('fieldset', null, h('legend', null, 'Evaluation region (leave all unchecked for complete structure)'),
+    const selection = h('fieldset', null, h('legend', null, '残基'),
       ...positions.map((p, index) => h('label', { key: index, style: { display: 'block' } },
         h('input', { type: 'checkbox', checked: chosen.includes(index), onChange: e => setChosen(old => e.target.checked ? [...old, index].sort((a, b) => a - b) : old.filter(i => i !== index)) }), positionLabel(p))));
-    return h('section', null, h('h3', null, 'Existing structure confidence'),
+    return h('section', null, h('h3', null, '结构置信度'),
       data && h(React.Fragment, null,
         h('label', null, 'Structure', h('select', { 'aria-label': 'Confidence structure object', value: object, onChange: e => setObject(e.target.value) }, data.objects.map((o, i) => h('option', { key: o.id, value: o.id }, o.label || `Structure ${i + 1}`)))),
-        positions.length ? selection : h('button', { onClick: () => add(true), disabled: host.readOnly || !object }, 'Prepare region selection'),
-        h('p', null, 'The complete supplied structure is scored. Region selection chooses reported residues and retains the complete original file.'),
-        h('button', { onClick: () => add(), disabled: host.readOnly || !object }, 'Add independent confidence evaluation'),
+        positions.length ? h('details',null,h('summary',null,chosen.length?`评价区域 · ${chosen.length} 个残基`:'评价区域 · 整体'),selection) : h('button', { onClick: () => add(true), disabled: host.readOnly || !object }, '读取残基'),
+        h('button', { onClick: () => add(), disabled: host.readOnly || !object }, '添加评价节点'),
         ['workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence'].includes(pkg.format) && h('div', null,
           h('select', { 'aria-label': 'Confidence structure export format', value: exportFormat, onChange: e => setExportFormat(e.target.value) }, h('option', { value: 'mmcif' }, 'mmCIF'), h('option', { value: 'pdb' }, 'PDB')),
-          h('button', { onClick: exportStructure, disabled: host.readOnly || !object }, 'Add structure format export')),
+          h('button', { onClick: exportStructure, disabled: host.readOnly || !object }, '添加导出节点')),
         ...scores.map((item, index) => h(Score, { key: index, item, objects: data.objects })),
-        h('details', null, h('summary', null, 'Original objects and source generation confidence'), h('pre', null, JSON.stringify(data.objects, null, 2)))),
+        h('p',null,`${data.objects.length} 个结构`)),
       error && h('p', { role: 'alert' }, error));
   }
   return { editors: [{ node: 'workbench.evaluate_structure_confidence', component: Editor }],
-    viewers: [{ id: 'workbench.structure_confidence.values', name: 'Independent structure confidence', formats: ['workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'], component: Viewer }] };
+    viewers: [{ id: 'workbench.structure_confidence.values', name: '评价结构置信度', formats: ['workbench.structure_set', 'workbench.prediction', 'workbench.structure_confidence', 'workbench.confidence_input'], component: Viewer }] };
 }
